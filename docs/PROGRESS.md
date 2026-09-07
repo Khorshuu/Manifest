@@ -1,0 +1,53 @@
+# Progress
+
+Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!]` blocked/unverified, with reason.
+
+## Baseline (first session)
+
+- `[x]` Repository audit — repo was empty of application code (no `.git`, no `package.json`); a leftover unrelated `my-site/` Vite scaffold was found and removed. No build/lint/test baseline existed at audit time, because no project was scaffolded yet; the baseline was established at the end of Phase 1 and is recorded below.
+- `[x]` Read and reconciled `MASTER_PRODUCT_SPEC.md` and `DESIGN_GUIDELINES.md`.
+- `[x]` Proposed tech stack, recorded with reasoning in `DECISIONS.md`.
+- `[x]` Proposed database schema, recorded in `DATABASE.md`.
+- `[x]` Living docs established: `ARCHITECTURE.md`, `DATABASE.md`, `BUSINESS_LOGIC.md`, `SECURITY.md`, `DECISIONS.md`, `TESTING.md`, this file.
+- `[x]` Stack and schema confirmed by the product owner; go-ahead given for Phase 1.
+
+## Phase sequence (CLAUDE.md §6)
+
+- `[x]` **Phase 1 — Project scaffold & architecture.** Next.js 16 (App Router) + TypeScript strict, Tailwind v4 with the Import Manifest tokens in `app/globals.css`, Fraunces + Inter, Drizzle + postgres-js connection in `db/index.ts`, Zod-validated env in `lib/env.ts`, Vitest and Playwright configured, `CLAUDE.md` folder layout created. Verified — see baseline below.
+- `[ ]` **Phase 2 — Database.** Drizzle schema files matching `DATABASE.md`, first migration, seed script with representative categories/attributes/products.
+- `[ ]` **Phase 3 — Auth & admin shell.** Session auth, role checks, admin layout shell, login/logout, one smoke-test admin page.
+- `[ ]` **Phase 4 — Product system.** Category tree, attribute/value CRUD, product CRUD (draft/scheduled/published/archived), image upload.
+- `[ ]` **Phase 5 — Variation engine.** Combination generation from selected attributes, per-combination enable/disable, bulk edit.
+- `[ ]` **Phase 6 — Inventory & preorder engine.** Capacity/reserved tracking, the locked-transaction capacity check, waitlist.
+- `[ ]` **Phase 7 — Storefront.** Home, category/PLP, PDP, search, related products.
+- `[ ]` **Phase 8 — Cart & checkout.** Cart persistence, address, payment method selection (mock provider), idempotent order placement.
+- `[ ]` **Phase 9 — Orders.** Customer order history/tracking, admin order pipeline, status transitions, refunds.
+- `[ ]` **Phase 10 — Shipping.** Tracking abstraction (mock), manual tracking updates from admin.
+- `[ ]` **Phase 11 — Admin ops.** Dashboard metrics, staff/role management, CSV export, audit log viewer.
+- `[ ]` **Phase 12 — Analytics.** Funnel and revenue reporting from real data.
+- `[ ]` **Phase 13 — SEO/performance.** Metadata, structured data, sitemap, performance budget pass.
+- `[ ]` **Phase 14 — Security hardening.** Full pass against `SECURITY.md`.
+- `[ ]` **Phase 15 — Full QA.** End-to-end regression across every flow in `MASTER_PRODUCT_SPEC.md`.
+
+Each phase stops for explicit go-ahead before the next begins, per CLAUDE.md §6.
+
+## Verification baseline (end of Phase 1)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes — Next.js 16.3.4, `/` and `/_not-found` prerendered static |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 2 files, 4 tests (`tests/money.test.ts`, `tests/env.test.ts`) |
+| `npm run test:e2e` | `[x]` passes — 2 tests, mobile (Pixel 7) and desktop projects |
+| Dev server UI inspection | `[x]` done — status page rendered and viewed at 375px and 1440px; Fraunces display face, Inter body, brass/transit-green/blue-300 badge borders all resolving from tokens, no horizontal overflow at 375px |
+
+Known non-blocking warnings: Vitest reports that `vitest.config.ts` is loaded as CommonJS, and that `vite-tsconfig-paths` is now redundant with Vite's native `resolve.tsconfigPaths`. Neither affects results; both are left as-is rather than adding `"type": "module"`, which would need re-verification of the Next.js build for no current benefit.
+
+## Open items carried from other docs
+
+- `MASTER_PRODUCT_SPEC.md` open questions: minimum batch/order economics, exact refund policy detail, exact deposit/balance trigger.
+- `SECURITY.md` open questions: 2FA for admin roles, data-retention period under Bangladeshi law.
+- `DATABASE.md` open questions: whether balance payment is auto-triggered or staff-triggered; automatic waitlist re-offer vs manual.
+
+These don't block Phase 1 (scaffold has no dependency on their answers) but should be resolved before Phase 6 (preorder engine) and Phase 8 (checkout) reach them.
