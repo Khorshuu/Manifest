@@ -57,7 +57,7 @@ Any account may turn it on at `/account/security`; the page recommends it in as 
 
 ## Open questions
 
-- Should two-factor authentication be *mandatory* for `super_admin` and `staff_admin`, rather than available and recommended? It is built and any account can turn it on (see below); making it compulsory is a business decision, because it means an admin who loses both their phone and their recovery codes needs someone with database access to get back in.
+- ~~Should two-factor authentication be mandatory for `super_admin` and `staff_admin`?~~ **Decided: no.** It stays available and recommended, and any account may turn it on. Compulsory would mean an admin who loses both their phone and their recovery codes needs someone with database access to get back in, and the business does not want that failure mode. Revisit if an admin account is ever compromised, or if a payment processor requires it.
 - What is the data retention period required for order records under applicable Bangladeshi law, which sets the floor for how long anonymization can be deferred?
 
 ## Implementation notes (Phase 3)

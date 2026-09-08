@@ -422,7 +422,7 @@ Carried forward, and honest about it:
 - `[ ]` A real payment gateway and a real courier. Both sit behind interfaces with working mocks.
 - `[x]` A full axe accessibility audit — done after Phase 15; see the baseline below.
 - `[x]` A shared rate-limit store — done after Phase 15; see the baseline below.
-- `[x]` Two-factor authentication — done after Phase 15; see the baseline below. Whether it should be compulsory for admins is a business decision, recorded as an open question in SECURITY.md.
+- `[x]` Two-factor authentication — done after Phase 15; see the baseline below. It stays optional and recommended: making it compulsory for admins was considered and decided against, because it would mean an admin who loses both phone and recovery codes needs database access to recover.
 
 ## Product media (added after Phase 15)
 
