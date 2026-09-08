@@ -14,7 +14,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 ## Phase sequence (CLAUDE.md §6)
 
 - `[x]` **Phase 1 — Project scaffold & architecture.** Next.js 16 (App Router) + TypeScript strict, Tailwind v4 with the Import Manifest tokens in `app/globals.css`, Fraunces + Inter, Drizzle + postgres-js connection in `db/index.ts`, Zod-validated env in `lib/env.ts`, Vitest and Playwright configured, `CLAUDE.md` folder layout created. Verified — see baseline below.
-- `[ ]` **Phase 2 — Database.** Drizzle schema files matching `DATABASE.md`, first migration, seed script with representative categories/attributes/products.
+- `[x]` **Phase 2 — Database.** 26 Drizzle tables in `db/schema/` matching `DATABASE.md`, first migration at `db/migrations/0000_initial_schema.sql`, and a re-runnable seed in `db/seed.ts`. Verified — see Phase 2 baseline below.
 - `[ ]` **Phase 3 — Auth & admin shell.** Session auth, role checks, admin layout shell, login/logout, one smoke-test admin page.
 - `[ ]` **Phase 4 — Product system.** Category tree, attribute/value CRUD, product CRUD (draft/scheduled/published/archived), image upload.
 - `[ ]` **Phase 5 — Variation engine.** Combination generation from selected attributes, per-combination enable/disable, bulk edit.
@@ -43,6 +43,21 @@ Each phase stops for explicit go-ahead before the next begins, per CLAUDE.md §6
 | Dev server UI inspection | `[x]` done — status page rendered and viewed at 375px and 1440px; Fraunces display face, Inter body, brass/transit-green/blue-300 badge borders all resolving from tokens, no horizontal overflow at 375px |
 
 Known non-blocking warnings: Vitest reports that `vitest.config.ts` is loaded as CommonJS, and that `vite-tsconfig-paths` is now redundant with Vite's native `resolve.tsconfigPaths`. Neither affects results; both are left as-is rather than adding `"type": "module"`, which would need re-verification of the Next.js build for no current benefit.
+
+## Verification baseline (end of Phase 2)
+
+No PostgreSQL server, Docker, or psql exists on this machine, so `npm run db:migrate` and `npm run db:seed` could not be run against a real server. Rather than leave the migration unverified, the test suite applies the checked-in migration to an in-process Postgres (PGlite) and runs the real seed against it, so both are exercised on every test run.
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 18 tests, 4 files |
+| Migration applies | `[x]` verified against PGlite: all 26 tables created, every check constraint enforced (capacity ceiling, non-negative reserved, deposit-requires-percent, role, order status, review rating) |
+| Seed applies | `[x]` verified against PGlite: 3 users one per role, 3-level category tree, argon2-hashed passwords, one variant deliberately at full capacity, re-runnable without duplicates |
+| `npm run db:migrate` against a real server | `[!]` UNVERIFIED — no PostgreSQL available on this machine. Needs a local Postgres or a Neon branch in `DATABASE_URL`. |
+| `npm run db:seed` against a real server | `[!]` UNVERIFIED — same reason. |
 
 ## Open items carried from other docs
 

@@ -4,6 +4,12 @@ Architecture decision log. One entry per meaningful choice, newest first. Each e
 
 ---
 
+## D-008: PGlite used to verify migrations and seed data in tests
+
+**Decision:** `tests/schema.test.ts` and `tests/seed.test.ts` apply the checked-in migration to PGlite (Postgres compiled to WASM, running in-process) and run the real seed against it.
+
+**Why:** This machine has no PostgreSQL server, no Docker, and no psql, so `npm run db:migrate` cannot be run here. The alternative was to mark the migration unverified and hope it applies. PGlite is real Postgres, so the migration, every check constraint, and the seed are genuinely exercised on every `npm test` — including the capacity ceiling constraint, which is the schema-level half of the no-overselling rule. It is a test dependency only; development and production still use a real Postgres server through postgres-js.
+
 ## D-007: `paper` and `paper-raised` aliased to white and blue-50
 
 **Decision:** `app/globals.css` defines `--color-paper: #ffffff` and `--color-paper-raised: #f2f7ff`.
