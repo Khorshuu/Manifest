@@ -21,7 +21,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[~]` **Phase 6 — Inventory & preorder engine.** Locked-transaction capacity reservation and release, availability evaluation, waitlist, and the preorder window lifecycle (open, close, extend). Verified — see Phase 6 baseline below. Admin UI for the window controls is carried forward.
 - `[~]` **Phase 7 — Storefront.** Home page with the Import Manifest signature patterns, category listings with subtree inclusion and sorting, product detail with variant selection and the landed-price panel, search, and related products. Verified — see Phase 7 baseline below. Faceted filtering and the reviews UI are carried forward.
 - `[x]` **Phase 8 — Cart & checkout.** Cart persisted by cookie or account with guest-cart merge on login, live-priced totals, a checkout that computes every amount server-side, idempotent order placement, the mock payment provider, order confirmation, and guest order tracking. Verified — see Phase 8 baseline below.
-- `[ ]` **Phase 9 — Orders.** Customer order history/tracking, admin order pipeline, status transitions, refunds.
+- `[x]` **Phase 9 — Orders.** Customer order history and tracking, shopper self-cancellation while nothing has been sourced, the admin order pipeline with filters, forward-only status transitions, and refunds through the payment provider. Verified — see Phase 9 baseline below.
 - `[ ]` **Phase 10 — Shipping.** Tracking abstraction (mock), manual tracking updates from admin.
 - `[ ]` **Phase 11 — Admin ops.** Dashboard metrics, staff/role management, CSV export, audit log viewer.
 - `[ ]` **Phase 12 — Analytics.** Funnel and revenue reporting from real data.
@@ -194,6 +194,31 @@ Carried forward from this phase:
 - `[ ]` Shipping fees and customs duty as separate computed lines. Both are currently folded into the variant price, which matches the "one landed price" promise but leaves `orders.shipping_fee_bdt` always zero.
 - `[ ]` Confirmation email and SMS. The notification provider interface is declared but has no implementation, so nothing is sent.
 - `[ ]` A real payment gateway. The mock provider is idempotent and can be made to decline, and SSLCommerz slots in behind the same interface.
+
+## Verification baseline (end of Phase 9)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 226 tests, 18 files |
+| `npm run test:e2e` | `[x]` passes — 110 tests, mobile and desktop |
+| Status never moves backward | `[x]` verified at the API with a hand-crafted request, not only by the UI withholding the button |
+| Cancelling returns capacity only while it is still held | `[x]` verified: cancelling before sourcing frees the slots; cancelling after keeps them consumed, because the item has been bought in the US |
+| A refund is a payment row | `[x]` verified: refunding writes a negative refund row, the order's own totals do not move, and the payment rows net to zero |
+| A customer cannot advance or refund | `[x]` verified at the API for both actions |
+
+Two defects were found while verifying:
+
+- A malformed order id reached the database and produced a 500. The route now validates the id and answers 400.
+- The end-to-end tests shared one customer account, and a signed-in account has one cart, so parallel tests were emptying each other's carts. Each test now registers its own account.
+
+Carried forward from this phase:
+
+- `[ ]` Order status change notifications. The notification provider interface exists but has no implementation, so a shopper is not told when their order moves.
+- `[ ]` Partial refunds. A refund currently returns the full captured amount.
+- `[ ]` The balance payment for deposit orders, still blocked on the open question in DATABASE.md.
 
 ## Open items carried from other docs
 
