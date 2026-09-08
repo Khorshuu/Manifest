@@ -411,7 +411,7 @@ The no-overselling suite still fails when `for update` is removed, so it continu
 
 Carried forward, and honest about it:
 
-- `[ ]` Product image upload. No storage is wired, so `lib/providers` has no media provider and the admin cannot add a photograph; the seed ships placeholder art.
+- `[x]` Product image upload — done after Phase 15. A media provider interface with a local implementation that writes to disk, byte-level format sniffing, generated filenames, and gallery ordering. See the media baseline below.
 - `[ ]` The product edit form and the step wizard from MASTER_PRODUCT_SPEC.md section 4. Creation, archiving and the variation matrix exist; editing an existing product is API-only.
 - `[ ]` Faceted filtering, the reviews UI, and search autosuggest.
 - `[ ]` Notifications. The provider interface is declared but has no implementation, so no email or SMS is ever sent — including the order confirmation the spec asks for.
@@ -419,6 +419,20 @@ Carried forward, and honest about it:
 - `[ ]` Shipping fees and duty as separate computed lines. Both are folded into the landed price, which matches the promise made to shoppers but leaves `orders.shipping_fee_bdt` always zero.
 - `[ ]` A real payment gateway and a real courier. Both sit behind interfaces with working mocks.
 - `[ ]` A full axe accessibility audit, two-factor authentication for admins, and a shared rate-limit store.
+
+## Product media (added after Phase 15)
+
+| Gate | Result |
+| --- | --- |
+| `npm test` | `[x]` passes — 346 tests, 24 files |
+| `npm run test:e2e` | `[x]` passes — 228 tests, mobile and desktop |
+| Only staff may upload | `[x]` verified in `lib/` and at the API, for upload and removal |
+| Format decided by the bytes | `[x]` verified: a shell script labelled `image/png` is refused, as is a file whose bytes contradict its declared type |
+| Filenames are generated | `[x]` verified: a name containing `../` and a double extension is discarded entirely |
+| Alternative text is required | `[x]` verified — an image nobody can hear described is not usable |
+| The file is actually served | `[x]` verified: the uploaded URL returns an image from the site |
+
+The local provider writes to `public/uploads`, which is real enough for development and for a single-server deployment. It is not suitable for a serverless host with no persistent disk — that is what the Cloudflare R2 implementation named in DECISIONS.md D-001 is for, and it slots in behind the same interface.
 
 ## Open items carried from other docs
 

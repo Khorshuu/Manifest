@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { getProductForAdmin } from "@/lib/catalog";
 import { StatusBadge } from "@/components/status-badge";
+import { ImageManager } from "./image-manager";
 
 export const metadata: Metadata = { title: "Product" };
 export const dynamic = "force-dynamic";
@@ -64,6 +65,20 @@ export default async function AdminProductPage({
         </section>
       ) : null}
 
+      <section>
+        <h2 className="font-display text-h2 text-ink">Photography</h2>
+        <div className="mt-4">
+          <ImageManager
+            productId={product.id}
+            images={product.images.map((image) => ({
+              id: image.id,
+              url: image.url,
+              altText: image.altText,
+            }))}
+          />
+        </div>
+      </section>
+
       <div className="flex flex-wrap gap-3">
         <Link
           href={`/admin/products/${product.id}/variants`}
@@ -74,7 +89,7 @@ export default async function AdminProductPage({
       </div>
 
       <p className="text-meta text-ink/60">
-        Editing and image upload arrive in a later slice.
+        Editing an existing product is API-only for now — see docs/PROGRESS.md.
       </p>
     </div>
   );

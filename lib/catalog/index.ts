@@ -1,6 +1,7 @@
 export * from "./attributes";
 export * from "./categories";
 export * from "./combinations";
+export * from "./media";
 export * from "./products";
 export * from "./card-data";
 export * from "./storefront";
