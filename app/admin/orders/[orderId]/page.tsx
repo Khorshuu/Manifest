@@ -40,8 +40,8 @@ export default async function AdminOrderPage({
 
       <OrderProgress status={order.status} history={order.history} />
 
-      <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
-        <div className="flex flex-col gap-8">
+      <div className="grid items-start gap-8 lg:grid-cols-[1fr_360px]">
+        <div className="flex min-w-0 flex-col gap-8">
           <section>
             <h2 className="font-display text-h2 text-ink">Items</h2>
             <div className="mt-4 overflow-x-auto border border-blue-300">
@@ -147,7 +147,7 @@ export default async function AdminOrderPage({
           </section>
         </div>
 
-        <aside className="flex h-fit flex-col gap-6">
+        <aside className="flex h-fit min-w-0 flex-col gap-6">
           <section className="border border-blue-300 p-5">
             <h2 className="font-display text-h3 text-ink">Move this order on</h2>
             <div className="mt-4">

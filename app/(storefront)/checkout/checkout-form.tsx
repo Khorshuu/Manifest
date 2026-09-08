@@ -97,8 +97,11 @@ export function CheckoutForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-10 lg:grid-cols-[1fr_360px]">
-      <div className="flex flex-col gap-8">
+    <form
+      onSubmit={onSubmit}
+      className="grid items-start gap-10 lg:grid-cols-[1fr_360px]"
+    >
+      <div className="flex min-w-0 flex-col gap-8">
         <section className="flex flex-col gap-5">
           <h2 className="font-display text-h2 text-ink">Contact</h2>
           <Field

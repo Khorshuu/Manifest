@@ -56,8 +56,8 @@ export function CartLines({
   }
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[1fr_360px]">
-      <div>
+    <div className="grid items-start gap-10 lg:grid-cols-[1fr_360px]">
+      <div className="min-w-0">
         <ul className="border-t border-blue-300">
           {lines.map((line) => (
             <li

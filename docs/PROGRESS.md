@@ -23,7 +23,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[x]` **Phase 8 — Cart & checkout.** Cart persisted by cookie or account with guest-cart merge on login, live-priced totals, a checkout that computes every amount server-side, idempotent order placement, the mock payment provider, order confirmation, and guest order tracking. Verified — see Phase 8 baseline below.
 - `[x]` **Phase 9 — Orders.** Customer order history and tracking, shopper self-cancellation while nothing has been sourced, the admin order pipeline with filters, forward-only status transitions, and refunds through the payment provider. Verified — see Phase 9 baseline below.
 - `[x]` **Phase 10 — Shipping.** Shipping provider interface with an idempotent mock, shipment booking, manual tracking references, staff-only internal notes, and the tracking reference surfaced to shoppers. Verified — see Phase 10 baseline below.
-- `[ ]` **Phase 11 — Admin ops.** Dashboard metrics, staff/role management, CSV export, audit log viewer.
+- `[x]` **Phase 11 — Admin ops.** Live dashboard metrics with capacity alerts and top products, staff and role management, three CSV exports, and the audit log viewer with filtering. Verified — see Phase 11 baseline below.
 - `[ ]` **Phase 12 — Analytics.** Funnel and revenue reporting from real data.
 - `[ ]` **Phase 13 — SEO/performance.** Metadata, structured data, sitemap, performance budget pass.
 - `[ ]` **Phase 14 — Security hardening.** Full pass against `SECURITY.md`.
@@ -247,6 +247,34 @@ Carried forward from this phase:
 - `[ ]` A real courier integration. `SHIPPING_PROVIDER=courier` raises rather than pretending, and the mock is idempotent and returns checkpoints.
 - `[ ]` Surfacing carrier checkpoints on the customer tracking page. `trackOrder` returns them; the page shows only the reference.
 - `[ ]` Shipping fees as a computed line. They remain folded into the landed price, so `orders.shipping_fee_bdt` is always zero.
+
+## Verification baseline (end of Phase 11)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 273 tests, 20 files |
+| `npm run test:e2e` | `[x]` passes — 144 tests, mobile and desktop |
+| Only a super admin manages staff | `[x]` verified: a staff admin is refused in lib/, redirected in the UI, and refused at the API |
+| Only a super admin sees money | `[x]` verified: no revenue tile, no margin export link, and a 403 from the export endpoint |
+| The site cannot be left without a super admin | `[x]` verified: demoting the last one is refused |
+| A role change bites immediately | `[x]` verified: every session belonging to the account is dropped |
+| Dashboard figures are live | `[x]` verified: revenue counts only collected money and excludes refunds |
+| CSV exports cannot carry a formula | `[x]` verified for =, +, - and @ |
+
+### A responsive defect the mobile project caught
+
+A scrollable table inside a grid column overflowed its track, because a grid item defaults to `min-width: auto`. On a narrow screen the table pushed past its column and a label from the next section covered the submit button, making it unclickable. Fixed with `min-w-0` on the grid children, applied to the cart, checkout, admin order, and staff pages, which all share the shape.
+
+This is exactly what running the suite on a phone viewport is for — every desktop run passed.
+
+Carried forward from this phase:
+
+- `[ ]` The product management step wizard from MASTER_PRODUCT_SPEC.md section 4. The current form is a single page.
+- `[ ]` Customer management beyond the list: no detail view, and no anonymisation flow for a deletion request.
+- `[ ]` Analytics beyond the dashboard — the funnel reporting in Phase 12.
 
 ## Open items carried from other docs
 
