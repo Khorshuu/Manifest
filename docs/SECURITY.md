@@ -46,3 +46,10 @@
 
 - Does the business need 2FA for `super_admin`/`staff_admin` accounts at launch, given they can move money (refunds) and change prices? Recommended yes; not yet confirmed.
 - What is the data retention period required for order records under applicable Bangladeshi law, which sets the floor for how long anonymization can be deferred?
+
+## Implementation notes (Phase 3)
+
+- Session tokens are 32 random bytes, base64url-encoded, sent in the cookie. The `sessions` table stores only their SHA-256, so a leaked database backup contains nothing replayable.
+- Sign-in failures are indistinguishable: an unknown email and a wrong password produce the same message, and an unknown email is still verified against a dummy hash so the two paths take comparable time.
+- Login is rate limited per account (10 attempts per 15 minutes) and per IP (60). The per-IP ceiling is deliberately high because offices, campuses, and mobile carriers put many legitimate users behind one address; the per-account limit is the meaningful one. The limiter is process-local, which is a real limit on a single instance and a speed bump on several — move it to a shared store before running more than one instance.
+- Self-registration always creates a `customer`. The route's schema rejects unknown fields, so a client-supplied `role` fails the request rather than being ignored.

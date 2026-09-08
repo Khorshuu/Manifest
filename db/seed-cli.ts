@@ -4,7 +4,7 @@
  * The seed data itself lives in ./seed.ts so it can also be run against an
  * in-process database in tests.
  */
-import "dotenv/config";
+import "../lib/load-env";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";

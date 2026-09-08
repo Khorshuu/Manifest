@@ -44,7 +44,11 @@ export const users = pgTable(
 export const sessions = pgTable(
   "sessions",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * The SHA-256 of the token held in the cookie, not a UUID — the database
+     * never stores a value that could be replayed as a live session.
+     */
+    id: text("id").primaryKey(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id),

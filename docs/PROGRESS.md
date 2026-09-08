@@ -15,7 +15,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 
 - `[x]` **Phase 1 — Project scaffold & architecture.** Next.js 16 (App Router) + TypeScript strict, Tailwind v4 with the Import Manifest tokens in `app/globals.css`, Fraunces + Inter, Drizzle + postgres-js connection in `db/index.ts`, Zod-validated env in `lib/env.ts`, Vitest and Playwright configured, `CLAUDE.md` folder layout created. Verified — see baseline below.
 - `[x]` **Phase 2 — Database.** 26 Drizzle tables in `db/schema/` matching `DATABASE.md`, first migration at `db/migrations/0000_initial_schema.sql`, and a re-runnable seed in `db/seed.ts`. Verified — see Phase 2 baseline below.
-- `[ ]` **Phase 3 — Auth & admin shell.** Session auth, role checks, admin layout shell, login/logout, one smoke-test admin page.
+- `[x]` **Phase 3 — Auth & admin shell.** argon2id passwords, database-backed sessions keyed by a token hash, the three role gates in `lib/auth/authorize.ts`, login/logout/register routes with rate limiting, the `/admin` shell with server-side role enforcement, and a dashboard whose every figure is a live query. Verified — see Phase 3 baseline below.
 - `[ ]` **Phase 4 — Product system.** Category tree, attribute/value CRUD, product CRUD (draft/scheduled/published/archived), image upload.
 - `[ ]` **Phase 5 — Variation engine.** Combination generation from selected attributes, per-combination enable/disable, bulk edit.
 - `[ ]` **Phase 6 — Inventory & preorder engine.** Capacity/reserved tracking, the locked-transaction capacity check, waitlist.
@@ -58,6 +58,23 @@ No PostgreSQL server, Docker, or psql exists on this machine, so `npm run db:mig
 | Seed applies | `[x]` verified against PGlite: 3 users one per role, 3-level category tree, argon2-hashed passwords, one variant deliberately at full capacity, re-runnable without duplicates |
 | `npm run db:migrate` against a real server | `[!]` UNVERIFIED — no PostgreSQL available on this machine. Needs a local Postgres or a Neon branch in `DATABASE_URL`. |
 | `npm run db:seed` against a real server | `[!]` UNVERIFIED — same reason. |
+
+## Verification baseline (end of Phase 3)
+
+A real PostgreSQL 18.4 now runs locally through `npm run db:server` (binaries shipped by `embedded-postgres`, no system install and no admin rights), so the browser tests exercise the actual database. Unit and integration tests continue to use in-process PGlite, which is faster and needs no server.
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 61 tests, 10 files |
+| `npm run test:e2e` | `[x]` passes — 18 tests, mobile and desktop |
+| `npm run db:migrate`-equivalent against a real server | `[x]` `npm run db:setup` applies both migrations and the seed to real PostgreSQL |
+| Admin gate | `[x]` verified in a browser: anonymous is redirected to sign in, a customer is redirected away from `/admin`, a staff admin sees no Staff/Settings links and no financial totals, a super admin sees both |
+| Dashboard figures | `[x]` verified against seeded data — counts come from live queries, nothing hardcoded |
+
+Two defects were found and fixed during this phase: `sessions.id` was declared `uuid` but holds a SHA-256 token hash (fixed by migration `0001`), and the login rate limit was low enough that a shared IP would lock out legitimate users (now a high per-IP ceiling with a strict per-account limit).
 
 ## Open items carried from other docs
 

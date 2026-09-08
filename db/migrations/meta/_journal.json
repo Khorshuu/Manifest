@@ -8,6 +8,13 @@
       "when": 1788826190411,
       "tag": "0000_initial_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788827148432,
+      "tag": "0001_session_id_is_token_hash",
+      "breakpoints": true
     }
   ]
 }
