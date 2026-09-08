@@ -62,12 +62,20 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { session, user } = await authenticate(parsed.data);
+    const { session, user, needsSecondFactor } = await authenticate(parsed.data);
     const store = await cookies();
     store.set(SESSION_COOKIE_NAME, session.token, {
       ...sessionCookieOptions,
       expires: session.expiresAt,
     });
+
+    if (needsSecondFactor) {
+      // The cookie is set but pending: it authenticates nothing until the code
+      // is proved, and the response says nothing about the account beyond that
+      // a code is owed.
+      return NextResponse.json({ needsSecondFactor: true });
+    }
+
     return NextResponse.json({ user });
   } catch (error) {
     if (error instanceof CredentialsError) {

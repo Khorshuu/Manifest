@@ -103,6 +103,12 @@ test.describe("the rest of the storefront", () => {
     await audit(page);
   });
 
+  test("account security, with the two-factor panel", async ({ page }) => {
+    await signIn(page, "customer@example.com");
+    await page.goto("/account/security");
+    await audit(page);
+  });
+
   /** An error state has to be as usable as a success state. */
   test("a search that found nothing", async ({ page }) => {
     await page.goto("/search?q=nothingmatchesthisatall");

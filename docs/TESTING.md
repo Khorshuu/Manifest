@@ -32,6 +32,7 @@ One happy-path spec per major flow, run against a seeded database:
 - Admin: only a super admin can change a site setting; staff see the values with disabled inputs, and both the page and the API refuse anyone else.
 - Admin: walk a new product through all six wizard steps — including a real image upload and a real price — and confirm it is then visible on the storefront to a signed-out visitor.
 - Axe-core runs at AA (`wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) over the pages the spec names plus sign-in, tracking, an empty result and three admin screens, on mobile and desktop. Violations are reported with the rule and the offending element, because a bare count tells whoever reads the failure nothing.
+- An account turns on two-factor authentication, signs out, and cannot get back in on the password alone; a wrong code is refused, a recovery code works once, and turning it off needs a current code.
 - A delivered customer writes a review, staff approve it, and it appears on the product page for a signed-out visitor.
 
 ## What does not need a test
@@ -60,6 +61,10 @@ When the server is not running the suite skips, and a placeholder test records t
 ## Concurrency testing, part two: the rate limiter
 
 `tests/rate-limit-concurrency.test.ts` follows the same pattern for the same reason. PGlite cannot race, so the claim that two simultaneous attempts at the last slot in a window cannot both succeed is tested against the real server, with the connection pool warmed first. It was confirmed to fail when the single upsert is replaced by a read-then-write: 20 of 20 attempts allowed instead of 1.
+
+## A failing setup reads as a skip
+
+Vitest reports every test in a file as skipped when its `beforeAll` throws. `tests/seed.test.ts` applied only migration `0000` for a long time and nobody noticed, because the run said "8 skipped" rather than "6 failed". When a total moves and the passes did not, check what went from running to skipped.
 
 ## Verifying a test can fail
 

@@ -6,7 +6,7 @@
  */
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import * as schema from "@/db/schema";
@@ -19,13 +19,23 @@ beforeAll(async () => {
   client = new PGlite();
   db = drizzle(client, { schema });
 
-  const sqlText = readFileSync(
-    join(process.cwd(), "db/migrations/0000_initial_schema.sql"),
-    "utf8",
-  );
-  for (const statement of sqlText.split("--> statement-breakpoint")) {
-    const trimmed = statement.trim();
-    if (trimmed) await client.exec(trimmed);
+  /**
+   * Every migration, in order — not just the first one. This applied only
+   * `0000` for a long time, which meant the seed was being checked against a
+   * schema the application had long since moved past; it went unnoticed until
+   * a later migration touched a table the seed writes to.
+   */
+  const migrationsDir = join(process.cwd(), "db/migrations");
+
+  for (const file of readdirSync(migrationsDir)
+    .filter((name) => name.endsWith(".sql"))
+    .sort()) {
+    const sqlText = readFileSync(join(migrationsDir, file), "utf8");
+
+    for (const statement of sqlText.split("--> statement-breakpoint")) {
+      const trimmed = statement.trim();
+      if (trimmed) await client.exec(trimmed);
+    }
   }
 
   await seed(db);

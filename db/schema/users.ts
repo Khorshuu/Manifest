@@ -3,6 +3,7 @@ import {
   boolean,
   check,
   index,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -26,6 +27,11 @@ export const users = pgTable(
     passwordHash: text("password_hash").notNull(),
     role: text("role").notNull().default("customer"),
     emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+    /** Base32 TOTP secret. Present while enrolling, live once confirmed. */
+    totpSecret: text("totp_secret"),
+    totpConfirmedAt: timestamp("totp_confirmed_at", { withTimezone: true }),
+    /** The last 30-second step spent, so a seen code cannot be reused. */
+    totpLastUsedStep: integer("totp_last_used_step"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -53,6 +59,12 @@ export const sessions = pgTable(
       .notNull()
       .references(() => users.id),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    /**
+     * A session that has passed the password but not the second factor. It
+     * authenticates nothing: `validateSessionToken` refuses it, so a pending
+     * cookie cannot reach a single page or endpoint.
+     */
+    pendingTwoFactor: boolean("pending_two_factor").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -87,4 +99,27 @@ export const addresses = pgTable(
       .defaultNow(),
   },
   (table) => [index("addresses_user_id_idx").on(table.userId)],
+);
+
+/**
+ * Single-use recovery codes, so losing a phone is not losing the account.
+ *
+ * Stored as SHA-256: they are high-entropy random strings, so a fast hash is
+ * appropriate here in a way it never is for a password, and a stolen table
+ * still yields nothing usable.
+ */
+export const recoveryCodes = pgTable(
+  "recovery_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    codeHash: text("code_hash").notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("recovery_codes_user_idx").on(table.userId)],
 );

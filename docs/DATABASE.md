@@ -257,6 +257,27 @@ site_settings
 
 `reviews.order_item_id` is what makes "verified/delivered purchase" checkable in a single join rather than a separate flag someone has to remember to set correctly. `audit_log` is append-only from application code — nothing ever updates or deletes a row in it — and is written to by every admin mutation named in MASTER_PRODUCT_SPEC.md §4 and §7 (price changes, capacity changes, and more broadly any create/edit/archive on `products`, `product_variants`, `orders`, `users`, `site_settings`).
 
+## Two-factor authentication
+
+```
+users
+  totp_secret          text                  -- base32; present while enrolling, live once confirmed
+  totp_confirmed_at    timestamptz           -- null means it is not switched on
+  totp_last_used_step  int                   -- the last 30-second step spent, so a code cannot be replayed
+
+sessions
+  pending_two_factor   boolean not null default false   -- passed the password, not yet the code
+
+recovery_codes
+  id                  uuid pk
+  user_id             uuid not null references users(id)
+  code_hash           text not null          -- SHA-256; the code itself is shown once and never stored
+  used_at             timestamptz            -- set the first time it works
+  created_at          timestamptz not null default now()
+```
+
+Added in migration `0007`. A pending session is a real row that `validateSessionToken` refuses, so a half-finished sign-in authenticates nothing anywhere (see SECURITY.md).
+
 ## Rate limiting
 
 ```

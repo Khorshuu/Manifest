@@ -7,6 +7,19 @@
 - Password reset tokens are single-use, expire in one hour, and are invalidated the moment they're used or a new one is issued.
 - Login and password-reset endpoints are rate-limited per IP and per account.
 
+## Two-factor authentication
+
+Any account may turn it on at `/account/security`; the page recommends it in as many words to staff and super admins, because those accounts can change prices, issue refunds, and read every customer's address.
+
+- TOTP (RFC 6238), implemented in `lib/auth/totp.ts` rather than pulled in. It is sixty lines of specified arithmetic with published test vectors, which `tests/totp.test.ts` checks against — the RFC 4226 and RFC 6238 numbers, not "it worked with my phone". No secret leaves the process, and the authentication path gains no transitive dependency.
+- A secret is stored the moment enrolment starts but does nothing until a code proves it works. Enabling on generation would lock someone out of their own account whenever a QR code failed to scan.
+- The password alone produces a **pending session**: a real row, with the cookie set, that `validateSessionToken` refuses. One check keeps a half-finished sign-in out of every page and endpoint, rather than each of them remembering to look. It expires in ten minutes rather than thirty days.
+- A code cannot be used twice. The step it belonged to is recorded and anything at or before it is refused, so a code read over someone's shoulder is worthless the moment it is spent.
+- Ten single-use recovery codes are issued once, at confirmation, and stored as SHA-256. They are high-entropy random strings, so a fast hash is right here in a way it never is for a password. They cannot be read back — if they could, a borrowed session would defeat the second factor entirely.
+- Turning it off needs a current code or a recovery code, not merely a live session. Otherwise an unlocked laptop removes the protection that exists for exactly that case.
+- Second-factor attempts are rate limited per account and per address, ten per fifteen minutes; exhausting them destroys the pending session rather than leaving it open to retry. Six digits are guessable at scale if the attempts are not capped.
+- Both enabling and disabling are written to the audit log.
+
 ## Authorization
 
 - Every mutating route handler and every `lib/` function that touches `products`, `product_variants`, `categories`, `attributes`, `orders`, `users`, or `site_settings` checks the caller's role before doing anything else. This check lives in the function, not only in middleware or in the route — so calling the function directly from another context (a script, a future route) can't bypass it.
@@ -44,7 +57,7 @@
 
 ## Open questions
 
-- Does the business need 2FA for `super_admin`/`staff_admin` accounts at launch, given they can move money (refunds) and change prices? Recommended yes; not yet confirmed.
+- Should two-factor authentication be *mandatory* for `super_admin` and `staff_admin`, rather than available and recommended? It is built and any account can turn it on (see below); making it compulsory is a business decision, because it means an admin who loses both their phone and their recovery codes needs someone with database access to get back in.
 - What is the data retention period required for order records under applicable Bangladeshi law, which sets the floor for how long anonymization can be deferred?
 
 ## Implementation notes (Phase 3)

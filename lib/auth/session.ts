@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { eq, lt } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import { db } from "@/db";
 import { sessions, users, type UserRole } from "@/db/schema";
 
@@ -30,19 +30,77 @@ export function generateSessionToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/** A pending session is short-lived: it exists only to be upgraded. */
+const PENDING_SESSION_DURATION_MS = 1000 * 60 * 10;
+
 export async function createSession(
   userId: string,
+  options: { pendingTwoFactor?: boolean } = {},
 ): Promise<{ token: string; expiresAt: Date }> {
   const token = generateSessionToken();
-  const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
+  const pending = options.pendingTwoFactor ?? false;
+  const expiresAt = new Date(
+    Date.now() + (pending ? PENDING_SESSION_DURATION_MS : SESSION_DURATION_MS),
+  );
 
   await db.insert(sessions).values({
     id: hashToken(token),
     userId,
     expiresAt,
+    pendingTwoFactor: pending,
   });
 
   return { token, expiresAt };
+}
+
+/**
+ * Turns a session that has passed the password into a full one, once the
+ * second factor is proved. The row is reused rather than replaced so nothing
+ * else has to learn a new token, and its lifetime extends to the normal one.
+ */
+export async function upgradePendingSession(
+  token: string,
+): Promise<{ expiresAt: Date } | null> {
+  const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
+
+  const rows = await db
+    .update(sessions)
+    .set({ pendingTwoFactor: false, expiresAt })
+    .where(
+      and(
+        eq(sessions.id, hashToken(token)),
+        eq(sessions.pendingTwoFactor, true),
+      ),
+    )
+    .returning({ id: sessions.id });
+
+  return rows.length > 0 ? { expiresAt } : null;
+}
+
+/**
+ * The user behind a session that has not yet cleared its second factor. Used
+ * only by the endpoint that checks that factor — it deliberately does not
+ * return a `SessionUser`, so it cannot be mistaken for an authenticated one.
+ */
+export async function pendingSessionUserId(
+  token: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ userId: sessions.userId, expiresAt: sessions.expiresAt })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.id, hashToken(token)),
+        eq(sessions.pendingTwoFactor, true),
+      ),
+    )
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return null;
+  if (row.expiresAt.getTime() <= Date.now()) return null;
+
+  return row.userId;
 }
 
 /**
@@ -59,6 +117,7 @@ export async function validateSessionToken(
     .select({
       sessionId: sessions.id,
       expiresAt: sessions.expiresAt,
+      pendingTwoFactor: sessions.pendingTwoFactor,
       userId: users.id,
       email: users.email,
       role: users.role,
@@ -70,6 +129,11 @@ export async function validateSessionToken(
 
   const row = rows[0];
   if (!row) return null;
+
+  // A session waiting on its second factor authenticates nothing at all: this
+  // is the single check that keeps a half-finished sign-in out of every page
+  // and endpoint, rather than each of them remembering to look.
+  if (row.pendingTwoFactor) return null;
 
   if (row.expiresAt.getTime() <= Date.now()) {
     await db.delete(sessions).where(eq(sessions.id, sessionId));

@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { hashPassword, verifyPassword } from "./password";
 import { createSession } from "./session";
+import { requiresTwoFactor } from "./two-factor";
 import type { LoginInput, RegisterInput } from "@/lib/validation/auth";
 
 export class CredentialsError extends Error {
@@ -55,10 +56,20 @@ export async function authenticate(input: LoginInput) {
   const valid = await verifyPassword(user.passwordHash, input.password);
   if (!valid) throw new CredentialsError();
 
-  const session = await createSession(user.id);
+  /**
+   * With a second factor configured the password alone buys a pending session,
+   * which authenticates nothing until a code is proved. It is created here
+   * rather than after the code so the code can be checked against a session
+   * instead of against a password held somewhere in the meantime.
+   */
+  const needsSecondFactor = await requiresTwoFactor(user.id);
+  const session = await createSession(user.id, {
+    pendingTwoFactor: needsSecondFactor,
+  });
 
   return {
     session,
+    needsSecondFactor,
     user: { id: user.id, email: user.email, role: user.role },
   };
 }

@@ -39,7 +39,12 @@ export default async function AccountPage() {
   return (
     <div className="mx-auto w-full max-w-[900px] px-4 py-8 md:px-6">
       <h1 className="font-display text-h1 text-ink">Your orders</h1>
-      <p className="mt-2 text-meta text-ink/70">Signed in as {user.email}</p>
+      <p className="mt-2 text-meta text-ink/70">
+        Signed in as {user.email} ·{" "}
+        <Link href="/account/security" className="text-blue-600 hover:underline">
+          Security
+        </Link>
+      </p>
 
       {orders.length === 0 ? (
         <div className="mt-8 border border-blue-300 p-8">

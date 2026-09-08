@@ -422,7 +422,7 @@ Carried forward, and honest about it:
 - `[ ]` A real payment gateway and a real courier. Both sit behind interfaces with working mocks.
 - `[x]` A full axe accessibility audit — done after Phase 15; see the baseline below.
 - `[x]` A shared rate-limit store — done after Phase 15; see the baseline below.
-- `[ ]` Two-factor authentication for admins.
+- `[x]` Two-factor authentication — done after Phase 15; see the baseline below. Whether it should be compulsory for admins is a business decision, recorded as an open question in SECURITY.md.
 
 ## Product media (added after Phase 15)
 
@@ -611,6 +611,29 @@ Login attempt counts moved from a Map inside one Node process to the `rate_limit
 | Auth and security e2e | `[x]` `auth.spec.ts` and `security.spec.ts` pass on desktop. The full sweep was not re-run. |
 
 The previous limiter was honest about being process-local, but the deployment target is serverless: each instance counted separately and every deploy reset the count, so spreading attempts across instances defeated it. On PGlite nothing can genuinely race — it serves one connection — so the concurrency claim is proved in a separate suite against a real server, which skips loudly when that server is not running.
+
+## Two-factor authentication (added after Phase 15)
+
+TOTP with recovery codes, at `/account/security`, plus the second step at sign-in. Migration `0007`.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm run build` | `[x]` passes |
+| `npm test` | `[x]` passes — 519 passed, 2 skipped, 33 files |
+| TOTP is correct | `[x]` verified against the published vectors: all ten RFC 4226 counters and five RFC 6238 times, not against a phone |
+| A secret does nothing until proved | `[x]` verified — an enrolment that is started but never confirmed leaves sign-in unchanged |
+| The password alone is not enough | `[x]` verified in `lib/` and in the browser: the cookie is set, `validateSessionToken` refuses it, and `/account` still redirects to sign-in |
+| A code cannot be used twice | `[x]` verified — the spent step is recorded and the same code is refused immediately after |
+| Recovery codes work once | `[x]` verified end to end: one signs in, the same one is then refused, another still works |
+| Codes are not readable back | `[x]` verified: only SHA-256 hashes are stored, and the test asserts the stored value is not the code |
+| Turning it off needs a code | `[x]` verified — a live session alone is refused |
+| Cross-account codes are refused | `[x]` verified for both app codes and recovery codes |
+| Accessibility | `[x]` the new page is in the axe audit and passes at AA |
+| `npm run test:e2e` | `[~]` `two-factor.spec.ts` passes, 12 tests across mobile and desktop, and `accessibility.spec.ts` plus `auth.spec.ts` pass on desktop. The full sweep was not re-run. |
+
+One unrelated defect found on the way: `tests/seed.test.ts` applied only migration `0000`, so the seed was being checked against a schema the application left behind long ago. It went unnoticed because a failure in `beforeAll` is reported as skipped tests rather than failures — the run said "8 skipped" where it should have said "6 failed". It now applies every migration in order.
 
 ## Open items carried from other docs
 

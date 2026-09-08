@@ -18,6 +18,8 @@ export type AuditAction =
   | "order.status_changed"
   | "order.refunded"
   | "review.moderated"
+  | "user.two_factor_enabled"
+  | "user.two_factor_disabled"
   | "site_settings.updated";
 
 export type AuditEntry = {
