@@ -51,7 +51,7 @@ export default async function HomePage() {
           <div className="flex gap-6">
             <span
               aria-hidden="true"
-              className="hidden font-display text-meta text-blue-400 md:block"
+              className="hidden font-display text-meta text-blue-600 md:block"
             >
               01
             </span>
@@ -96,7 +96,7 @@ export default async function HomePage() {
             ) : (
               <div
                 aria-hidden="true"
-                className="flex size-full items-center justify-center text-meta text-blue-400"
+                className="flex size-full items-center justify-center text-meta text-blue-600"
               >
                 Product photography
               </div>

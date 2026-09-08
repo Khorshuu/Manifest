@@ -7,7 +7,9 @@
 @theme {
   /* Color */
   --color-ink: #12233f;
-  --color-blue-600: #2f6fed;
+  /* 5.17:1 on white and 4.81:1 on paper-raised — the previous #2f6fed passed
+     on white by 0.05 and failed on any tinted ground (axe, e2e/accessibility). */
+  --color-blue-600: #2563eb;
   --color-blue-500: #4c8dff;
   --color-blue-400: #8ab4ff;
   --color-blue-300: #bbd3ff;
@@ -15,9 +17,17 @@
   --color-blue-50: #f2f7ff;
   --color-paper: #ffffff;
   --color-paper-raised: #f2f7ff;
+  /* The saturated three are fills, borders and icons — they carry the identity
+     but are too light to read as small text on paper. Each has a darker
+     partner used wherever the colour becomes words, so the palette stays
+     recognisable and every label clears AA. */
   --color-brass: #f0a631;
   --color-transit-green: #2fa36e;
   --color-stamp-red: #ef4f42;
+
+  --color-brass-text: #8a5a00; /* 5.93:1 on white */
+  --color-transit-green-text: #1e7a50; /* 5.31:1 */
+  --color-stamp-red-text: #c62f24; /* 5.48:1 */
 
   /* Type */
   --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;

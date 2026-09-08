@@ -34,7 +34,7 @@ export default async function CheckoutPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1280px] px-4 py-8 md:px-6">
-      <p className="text-meta text-blue-400">
+      <p className="text-meta text-blue-600">
         <Link href="/cart" className="hover:underline">
           Cart
         </Link>

@@ -152,7 +152,7 @@ export function SearchBox({ defaultValue = "" }: { defaultValue?: string }) {
                 className="flex min-h-11 items-center justify-between gap-3 px-3 py-2 text-body text-ink"
               >
                 <span className="min-w-0 truncate">{suggestion.label}</span>
-                <span className="shrink-0 text-meta text-ink/50">
+                <span className="shrink-0 text-meta text-ink/70">
                   {KIND_LABELS[suggestion.kind]}
                 </span>
               </a>

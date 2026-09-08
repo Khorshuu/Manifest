@@ -36,7 +36,7 @@ export default async function AdminProductPage({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-400">
+        <p className="text-meta text-blue-600">
           <Link href="/admin/products" className="hover:underline">
             Products
           </Link>
@@ -46,7 +46,7 @@ export default async function AdminProductPage({
           <StatusBadge tone={product.archivedAt ? "negative" : "neutral"}>
             {product.archivedAt ? "Archived" : product.status}
           </StatusBadge>
-          <span className="text-meta text-ink/60">/{product.slug}</span>
+          <span className="text-meta text-ink/70">/{product.slug}</span>
         </div>
       </div>
 

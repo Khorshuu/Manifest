@@ -19,7 +19,7 @@ function Detail({ label, value }: { label: string; value: unknown }) {
 
   return (
     <div>
-      <span className="text-meta text-ink/50">{label}</span>
+      <span className="text-meta text-ink/70">{label}</span>
       <pre className="mt-1 whitespace-pre-wrap font-mono text-meta text-ink/70">
         {JSON.stringify(value)}
       </pre>
@@ -51,7 +51,7 @@ export default async function AdminAuditPage({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-400">Operations</p>
+        <p className="text-meta text-blue-600">Operations</p>
         <h1 className="mt-2 font-display text-h1 text-ink">Audit log</h1>
         <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
           Every administrative change, with who made it. This log is written to
@@ -108,7 +108,7 @@ export default async function AdminAuditPage({
             >
               <div className="min-w-[220px] flex-1">
                 <p className="text-body text-ink">{entry.action}</p>
-                <p className="text-meta text-ink/60">
+                <p className="text-meta text-ink/70">
                   {entry.entityType} · {entry.actorEmail}
                 </p>
               </div>

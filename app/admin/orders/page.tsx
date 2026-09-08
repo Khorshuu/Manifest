@@ -42,7 +42,7 @@ export default async function AdminOrdersPage({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-400">Operations</p>
+        <p className="text-meta text-blue-600">Operations</p>
         <h1 className="mt-2 font-display text-h1 text-ink">Orders</h1>
       </div>
 

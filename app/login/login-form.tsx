@@ -55,7 +55,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
 
       {/* Announced to screen readers as it appears, not just shown visually */}
       <div aria-live="polite">
-        {error ? <p className="text-meta text-stamp-red">{error}</p> : null}
+        {error ? <p className="text-meta text-stamp-red-text">{error}</p> : null}
       </div>
 
       <Button type="submit" disabled={pending}>

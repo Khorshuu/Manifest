@@ -32,7 +32,7 @@ export function Stepper({
                     ? "border-blue-600 text-blue-600"
                     : isDone
                       ? "border-blue-300 text-ink"
-                      : "border-blue-200 text-ink/60"
+                      : "border-blue-200 text-ink/70"
                 }`}
               >
                 <span className="tabular-nums">{index + 1}</span>

@@ -37,7 +37,7 @@ export function OrderProgress({
   if (status in TERMINAL_LABELS) {
     return (
       <div className="border border-stamp-red p-4">
-        <p className="text-meta text-stamp-red">{TERMINAL_LABELS[status]}</p>
+        <p className="text-meta text-stamp-red-text">{TERMINAL_LABELS[status]}</p>
         <p className="mt-1 text-body text-ink">
           This order is no longer in progress.
         </p>
@@ -85,12 +85,12 @@ export function OrderProgress({
 
             <div className="pr-3">
               <p
-                className={`text-meta ${passed ? "text-ink" : "text-ink/50"}`}
+                className={`text-meta ${passed ? "text-ink" : "text-ink/70"}`}
               >
                 {step.label}
               </p>
               {date ? (
-                <p className="text-meta text-ink/60">
+                <p className="text-meta text-ink/70">
                   {formatShortDate(date)}
                 </p>
               ) : null}

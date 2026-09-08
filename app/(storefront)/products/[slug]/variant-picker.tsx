@@ -114,7 +114,7 @@ export function VariantPicker({ variants }: { variants: PickerVariant[] }) {
                   />
                   {variant.label}
                   {variantSoldOut ? (
-                    <span className="text-meta text-stamp-red">Full</span>
+                    <span className="text-meta text-stamp-red-text">Full</span>
                   ) : null}
                 </label>
               );
@@ -215,14 +215,14 @@ export function VariantPicker({ variants }: { variants: PickerVariant[] }) {
       {/* States why, rather than leaving a disabled button unexplained. */}
       <div aria-live="polite">
         {unavailableReason ? (
-          <p className="text-meta text-stamp-red">
+          <p className="text-meta text-stamp-red-text">
             {unavailableReason} Join the waitlist and we will tell you when the
             next batch opens.
           </p>
         ) : error ? (
-          <p className="text-meta text-stamp-red">{error}</p>
+          <p className="text-meta text-stamp-red-text">{error}</p>
         ) : message ? (
-          <p className="text-meta text-transit-green">
+          <p className="text-meta text-transit-green-text">
             {message}{" "}
             <a href="/cart" className="underline">
               View cart

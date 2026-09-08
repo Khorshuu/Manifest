@@ -5,9 +5,9 @@ type Tone = "preorder" | "positive" | "negative" | "neutral";
  * text label, so status never depends on color alone.
  */
 const tones: Record<Tone, string> = {
-  preorder: "border-brass text-brass",
-  positive: "border-transit-green text-transit-green",
-  negative: "border-stamp-red text-stamp-red",
+  preorder: "border-brass text-brass-text",
+  positive: "border-transit-green text-transit-green-text",
+  negative: "border-stamp-red text-stamp-red-text",
   neutral: "border-blue-300 text-blue-600",
 };
 

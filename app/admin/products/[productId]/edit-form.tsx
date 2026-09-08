@@ -188,8 +188,8 @@ export function EditProductForm({
         </fieldset>
 
         <div aria-live="polite" className="flex flex-col gap-1">
-          {error ? <p className="text-meta text-stamp-red">{error}</p> : null}
-          {message ? <p className="text-meta text-transit-green">{message}</p> : null}
+          {error ? <p className="text-meta text-stamp-red-text">{error}</p> : null}
+          {message ? <p className="text-meta text-transit-green-text">{message}</p> : null}
         </div>
 
         <div>

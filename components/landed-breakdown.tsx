@@ -50,7 +50,7 @@ export function LandedBreakdown({
           {formatBdt(totalBdt)}
         </dd>
       </div>
-      <p className="text-meta text-ink/60">
+      <p className="text-meta text-ink/70">
         Shipping and duty are already inside this total. There is nothing more
         to pay on delivery.
       </p>

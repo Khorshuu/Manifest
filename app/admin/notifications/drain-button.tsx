@@ -48,9 +48,9 @@ export function DrainButton({ queued }: { queued: number }) {
       </Button>
 
       <div aria-live="polite">
-        {error ? <p className="text-meta text-stamp-red">{error}</p> : null}
+        {error ? <p className="text-meta text-stamp-red-text">{error}</p> : null}
         {message ? (
-          <p className="text-meta text-transit-green">{message}</p>
+          <p className="text-meta text-transit-green-text">{message}</p>
         ) : null}
       </div>
     </div>

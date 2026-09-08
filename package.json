@@ -30,6 +30,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@electric-sql/pglite": "^0.5.8",
     "@electric-sql/pglite-socket": "^0.2.11",
     "@playwright/test": "^1.63.0",
@@ -37,6 +38,7 @@
     "@types/node": "^24.13.3",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "axe-core": "^4.13.0",
     "cross-env": "^10.1.0",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",

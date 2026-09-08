@@ -91,7 +91,7 @@ export function CategoryForm({ parents }: { parents: ParentOption[] }) {
       </div>
 
       <div aria-live="polite">
-        {error ? <p className="text-meta text-stamp-red">{error}</p> : null}
+        {error ? <p className="text-meta text-stamp-red-text">{error}</p> : null}
       </div>
 
       <Button type="submit" disabled={pending}>

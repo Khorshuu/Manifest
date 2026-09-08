@@ -41,6 +41,16 @@ Rules:
   aggressively.
 - `brass` stays the CTA accent so "preorder" and "add to cart" don't get lost against a blue
   nav and blue links.
+- The saturated three (`brass`, `transit-green`, `stamp-red`) are fills, borders and icons.
+  They are too light to read as small text on paper — measured at 2.06:1, 3.19:1 and 3.58:1
+  against white — so each has a darker partner for wherever the colour becomes words:
+  `brass-text` `#8A5A00`, `transit-green-text` `#1E7A50`, `stamp-red-text` `#C62F24`. A badge
+  keeps the vivid border and takes the darker text; the identity is unchanged and the label is
+  readable. `blue-600` is `#2563EB` for the same reason — the original `#2F6FED` cleared AA on
+  white by 0.05 and failed on any tinted ground.
+- Muted text stops at `ink/70` (5.90:1). `ink/60` reads as perfectly fine grey and measures
+  4.27:1, which is why this is a rule rather than a matter of taste — see the accessibility
+  baseline in PROGRESS.md.
 - No dark full-bleed sections as a default pattern — reserve deep `blue-600`/`ink` backgrounds
   for at most one small section on the whole homepage (see below), not the general system.
 

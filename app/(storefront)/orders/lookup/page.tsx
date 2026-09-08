@@ -112,7 +112,7 @@ export default async function OrderLookupPage({
                 >
                   <div>
                     <p className="text-body text-ink">{item.titleSnapshot}</p>
-                    <p className="text-meta text-ink/60">
+                    <p className="text-meta text-ink/70">
                       Quantity {item.quantity}
                     </p>
                   </div>

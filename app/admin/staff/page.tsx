@@ -19,7 +19,7 @@ export default async function AdminStaffPage() {
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <p className="text-meta text-blue-400">Operations</p>
+        <p className="text-meta text-blue-600">Operations</p>
         <h1 className="mt-2 font-display text-h1 text-ink">Staff</h1>
       </div>
 

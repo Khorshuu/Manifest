@@ -83,13 +83,13 @@ export function CartLines({
                 >
                   {line.productTitle}
                 </Link>
-                <p className="text-meta text-ink/60">{line.optionSummary}</p>
+                <p className="text-meta text-ink/70">{line.optionSummary}</p>
                 <p className="text-meta text-ink/70 tabular-nums">
                   {formatBdt(line.unitPriceBdt)} each
                 </p>
 
                 {line.problem ? (
-                  <p className="mt-1 text-meta text-stamp-red">{line.problem}</p>
+                  <p className="mt-1 text-meta text-stamp-red-text">{line.problem}</p>
                 ) : null}
               </div>
 
@@ -134,7 +134,7 @@ export function CartLines({
 
         <div aria-live="polite">
           {error ? (
-            <p className="mt-4 text-meta text-stamp-red">{error}</p>
+            <p className="mt-4 text-meta text-stamp-red-text">{error}</p>
           ) : null}
         </div>
       </div>
@@ -161,7 +161,7 @@ export function CartLines({
 
         {/* A blocked checkout says why, on the button's own terms. */}
         {hasProblems ? (
-          <p className="mt-4 text-meta text-stamp-red">
+          <p className="mt-4 text-meta text-stamp-red-text">
             Fix the flagged items above before checking out.
           </p>
         ) : null}

@@ -250,7 +250,7 @@ export function CheckoutForm({
 
         <div aria-live="polite">
           {error ? (
-            <p className="mt-4 text-meta text-stamp-red">{error}</p>
+            <p className="mt-4 text-meta text-stamp-red-text">{error}</p>
           ) : null}
         </div>
 

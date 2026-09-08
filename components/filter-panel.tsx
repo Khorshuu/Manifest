@@ -92,7 +92,7 @@ export function FilterPanel({
           {facets.priceRange ? (
             <fieldset className="flex flex-col gap-2">
               <legend className="text-meta font-medium text-ink">Price</legend>
-              <p className="text-meta text-ink/60">
+              <p className="text-meta text-ink/70">
                 {formatBdt(facets.priceRange.minBdt)} to{" "}
                 {formatBdt(facets.priceRange.maxBdt)} in these results
               </p>
@@ -139,7 +139,7 @@ export function FilterPanel({
                     defaultChecked={brand.selected}
                   />
                   {brand.label}
-                  <span className="text-meta tabular-nums text-ink/60">
+                  <span className="text-meta tabular-nums text-ink/70">
                     ({brand.count})
                   </span>
                 </label>
@@ -167,7 +167,7 @@ export function FilterPanel({
                     defaultChecked={value.selected}
                   />
                   {value.label}
-                  <span className="text-meta tabular-nums text-ink/60">
+                  <span className="text-meta tabular-nums text-ink/70">
                     ({value.count})
                   </span>
                 </label>
@@ -190,7 +190,7 @@ export function FilterPanel({
                 Clear
               </a>
             ) : null}
-            <span className="text-meta tabular-nums text-ink/60">
+            <span className="text-meta tabular-nums text-ink/70">
               {total} match{total === 1 ? "" : "es"}
             </span>
           </div>

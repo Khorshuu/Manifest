@@ -41,7 +41,7 @@ export function ProductCard({ product }: { product: ProductCardData }) {
         ) : (
           <div
             aria-hidden="true"
-            className="flex size-full items-center justify-center text-meta text-blue-400"
+            className="flex size-full items-center justify-center text-meta text-blue-600"
           >
             No photo yet
           </div>
@@ -50,7 +50,7 @@ export function ProductCard({ product }: { product: ProductCardData }) {
 
       <div className="flex flex-col gap-2">
         {product.brand ? (
-          <span className="text-meta text-ink/60">{product.brand}</span>
+          <span className="text-meta text-ink/70">{product.brand}</span>
         ) : null}
 
         <h3 className="font-display text-h3 leading-snug text-ink">
@@ -94,7 +94,7 @@ export function ProductCard({ product }: { product: ProductCardData }) {
         {!soldOut &&
         product.remainingCapacity !== null &&
         product.remainingCapacity <= 5 ? (
-          <p className="text-meta text-stamp-red">
+          <p className="text-meta text-stamp-red-text">
             {product.remainingCapacity} slot
             {product.remainingCapacity === 1 ? "" : "s"} left
           </p>

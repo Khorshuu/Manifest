@@ -176,7 +176,7 @@ export function PricingTable({
           {bulkPending ? "Applying…" : "Apply to all"}
         </Button>
         {bulkError ? (
-          <p className="text-meta text-stamp-red">{bulkError}</p>
+          <p className="text-meta text-stamp-red-text">{bulkError}</p>
         ) : null}
       </form>
 
@@ -191,7 +191,7 @@ export function PricingTable({
                   <h3 className="font-display text-h3 text-ink">
                     {variant.label}
                   </h3>
-                  <p className="font-mono text-meta text-ink/60">{variant.sku}</p>
+                  <p className="font-mono text-meta text-ink/70">{variant.sku}</p>
                 </div>
 
                 <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -240,7 +240,7 @@ export function PricingTable({
                       defaultValue={variant.preorderCapacity ?? ""}
                       className="min-h-11 rounded-control border border-blue-300 bg-paper px-3 text-body text-ink"
                     />
-                    <span className="text-meta text-ink/60">
+                    <span className="text-meta text-ink/70">
                       {variant.preorderReserved} already reserved
                     </span>
                   </label>
@@ -311,9 +311,9 @@ export function PricingTable({
 
                   <span aria-live="polite" className="text-meta">
                     {state?.error ? (
-                      <span className="text-stamp-red">{state.error}</span>
+                      <span className="text-stamp-red-text">{state.error}</span>
                     ) : state?.saved ? (
-                      <span className="text-transit-green">Saved.</span>
+                      <span className="text-transit-green-text">Saved.</span>
                     ) : null}
                   </span>
                 </div>

@@ -94,14 +94,14 @@ export function SeoForm({
       </div>
 
       <section aria-label="Search result preview" className="border border-blue-300 p-4">
-        <p className="text-meta text-ink/60">Preview</p>
+        <p className="text-meta text-ink/70">Preview</p>
         <p className="mt-2 truncate text-body text-blue-600">{shownTitle}</p>
-        <p className="text-meta text-transit-green">/products/{product.slug}</p>
+        <p className="text-meta text-transit-green-text">/products/{product.slug}</p>
         <p className="mt-1 text-meta text-ink/80">{shownDescription}</p>
       </section>
 
       <div aria-live="polite">
-        {error ? <p className="text-meta text-stamp-red">{error}</p> : null}
+        {error ? <p className="text-meta text-stamp-red-text">{error}</p> : null}
       </div>
 
       <div>

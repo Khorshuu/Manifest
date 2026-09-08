@@ -22,7 +22,7 @@ function CategoryRows({ nodes }: { nodes: CategoryNode[] }) {
             style={{ paddingLeft: `${node.depth * 24}px` }}
           >
             <span className="text-body text-ink">{node.name}</span>
-            <span className="text-meta text-ink/60">/{node.slug}</span>
+            <span className="text-meta text-ink/70">/{node.slug}</span>
           </div>
           {node.children.length > 0 ? (
             <ul>
@@ -41,7 +41,7 @@ export default async function AdminCategoriesPage() {
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <p className="text-meta text-blue-400">Catalog</p>
+        <p className="text-meta text-blue-600">Catalog</p>
         <h1 className="mt-2 font-display text-h1 text-ink">Categories</h1>
       </div>
 

@@ -142,7 +142,7 @@ export function VariantMatrix({
                     className="size-5"
                   />
                   {attribute.name}
-                  <span className="text-meta text-ink/60">
+                  <span className="text-meta text-ink/70">
                     {attribute.valueCount} value
                     {attribute.valueCount === 1 ? "" : "s"}
                   </span>
@@ -196,9 +196,9 @@ export function VariantMatrix({
           </p>
 
           <div aria-live="polite" className="flex flex-col gap-1">
-            {error ? <p className="text-meta text-stamp-red">{error}</p> : null}
+            {error ? <p className="text-meta text-stamp-red-text">{error}</p> : null}
             {message ? (
-              <p className="text-meta text-transit-green">{message}</p>
+              <p className="text-meta text-transit-green-text">{message}</p>
             ) : null}
           </div>
 
@@ -216,7 +216,7 @@ export function VariantMatrix({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-h2 text-ink">
             Variants{" "}
-            <span className="text-meta text-ink/60">({variants.length})</span>
+            <span className="text-meta text-ink/70">({variants.length})</span>
           </h2>
 
           {checked.length > 0 ? (

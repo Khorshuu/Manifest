@@ -22,7 +22,7 @@ export default async function LoginPage({
 
   return (
     <main className="mx-auto w-full max-w-md px-6 py-16">
-      <p className="text-meta text-blue-400">Account</p>
+      <p className="text-meta text-blue-600">Account</p>
       <h1 className="mt-3 font-display text-h1 text-ink">Sign in</h1>
       <p className="mt-3 text-body text-ink/80">
         Track your preorders and manage your delivery addresses.

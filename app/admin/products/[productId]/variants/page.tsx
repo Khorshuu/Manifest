@@ -31,7 +31,7 @@ export default async function ProductVariantsPage({
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <p className="text-meta text-blue-400">
+        <p className="text-meta text-blue-600">
           <Link href="/admin/products" className="hover:underline">
             Products
           </Link>

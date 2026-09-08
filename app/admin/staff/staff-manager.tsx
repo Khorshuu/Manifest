@@ -100,7 +100,7 @@ export function StaffManager({ staff }: { staff: StaffRow[] }) {
                   <td className="border-t border-blue-300 px-4 py-3">
                     {member.email}
                     {member.isSelf ? (
-                      <span className="ml-2 text-meta text-ink/60">(you)</span>
+                      <span className="ml-2 text-meta text-ink/70">(you)</span>
                     ) : null}
                   </td>
                   <td className="border-t border-blue-300 px-4 py-3 text-meta text-ink/70">
@@ -109,7 +109,7 @@ export function StaffManager({ staff }: { staff: StaffRow[] }) {
                   <td className="border-t border-blue-300 px-4 py-3">
                     {member.isSelf ? (
                       // Changing your own role is refused server-side too.
-                      <span className="text-meta text-ink/60">
+                      <span className="text-meta text-ink/70">
                         Ask another super admin
                       </span>
                     ) : (
@@ -177,9 +177,9 @@ export function StaffManager({ staff }: { staff: StaffRow[] }) {
           </div>
 
           <div aria-live="polite" className="flex flex-col gap-1">
-            {error ? <p className="text-meta text-stamp-red">{error}</p> : null}
+            {error ? <p className="text-meta text-stamp-red-text">{error}</p> : null}
             {message ? (
-              <p className="text-meta text-transit-green">{message}</p>
+              <p className="text-meta text-transit-green-text">{message}</p>
             ) : null}
           </div>
 

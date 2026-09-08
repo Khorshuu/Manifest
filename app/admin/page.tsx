@@ -46,7 +46,7 @@ export default async function AdminOverviewPage() {
   return (
     <div className="flex flex-col gap-10">
       <div>
-        <p className="text-meta text-blue-400">Overview</p>
+        <p className="text-meta text-blue-600">Overview</p>
         <h1 className="mt-2 font-display text-h1 text-ink">Today</h1>
       </div>
 
@@ -137,7 +137,7 @@ export default async function AdminOverviewPage() {
                     >
                       {order.orderNumber}
                     </Link>
-                    <p className="text-meta text-ink/60">
+                    <p className="text-meta text-ink/70">
                       {formatShortDate(order.placedAt)} ·{" "}
                       {order.status.replace(/_/g, " ")}
                     </p>

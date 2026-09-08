@@ -79,7 +79,7 @@ export function SettingRow({
             {hint}
             {isDefault ? " Currently the built-in default." : ""}
           </p>
-          <p className="font-mono text-meta text-ink/40">{settingKey}</p>
+          <p className="font-mono text-meta text-ink/70">{settingKey}</p>
         </div>
 
         {canEdit ? (
@@ -90,9 +90,9 @@ export function SettingRow({
 
         <span aria-live="polite" className="text-meta">
           {error ? (
-            <span className="text-stamp-red">{error}</span>
+            <span className="text-stamp-red-text">{error}</span>
           ) : saved ? (
-            <span className="text-transit-green">Saved.</span>
+            <span className="text-transit-green-text">Saved.</span>
           ) : null}
         </span>
       </form>

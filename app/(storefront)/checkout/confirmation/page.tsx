@@ -39,7 +39,7 @@ export default async function ConfirmationPage({
 
   return (
     <div className="mx-auto w-full max-w-[720px] px-4 py-12 md:px-6">
-      <p className="text-meta text-transit-green">Order confirmed</p>
+      <p className="text-meta text-transit-green-text">Order confirmed</p>
       <h1 className="mt-2 font-display text-h1 text-ink">
         Thank you — we have your order
       </h1>
@@ -64,7 +64,7 @@ export default async function ConfirmationPage({
             >
               <div>
                 <p className="text-body text-ink">{item.titleSnapshot}</p>
-                <p className="text-meta text-ink/60">
+                <p className="text-meta text-ink/70">
                   Quantity {item.quantity}
                   {item.estimatedArrivalSnapshot
                     ? ` · expected ${formatDate(item.estimatedArrivalSnapshot)}`

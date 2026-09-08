@@ -180,7 +180,7 @@ export default async function ProductPage({
             ) : (
               <div
                 aria-hidden="true"
-                className="flex size-full items-center justify-center text-meta text-blue-400"
+                className="flex size-full items-center justify-center text-meta text-blue-600"
               >
                 No photo yet
               </div>
@@ -206,7 +206,7 @@ export default async function ProductPage({
         <div className="flex flex-col gap-6">
           <div>
             {product.brand ? (
-              <p className="text-meta text-ink/60">{product.brand}</p>
+              <p className="text-meta text-ink/70">{product.brand}</p>
             ) : null}
             <h1 className="mt-1 font-display text-h1 text-ink">
               {product.title}

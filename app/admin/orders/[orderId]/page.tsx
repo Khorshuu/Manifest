@@ -25,7 +25,7 @@ export default async function AdminOrderPage({
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <p className="text-meta text-blue-400">
+        <p className="text-meta text-blue-600">
           <Link href="/admin/orders" className="hover:underline">
             Orders
           </Link>
@@ -74,7 +74,7 @@ export default async function AdminOrderPage({
                       <td className="border-t border-blue-300 px-4 py-3">
                         {item.titleSnapshot}
                         {item.optionSummarySnapshot ? (
-                          <span className="block text-meta text-ink/60">
+                          <span className="block text-meta text-ink/70">
                             {item.optionSummarySnapshot}
                           </span>
                         ) : null}
@@ -105,7 +105,7 @@ export default async function AdminOrderPage({
                       {entry.status.replace(/_/g, " ")}
                     </p>
                     {entry.note ? (
-                      <p className="text-meta text-ink/60">{entry.note}</p>
+                      <p className="text-meta text-ink/70">{entry.note}</p>
                     ) : null}
                   </div>
                   <div className="text-right">
@@ -113,7 +113,7 @@ export default async function AdminOrderPage({
                       {formatDate(entry.createdAt)}
                     </p>
                     {/* Null actor means the gateway or a job drove it. */}
-                    <p className="text-meta text-ink/50">
+                    <p className="text-meta text-ink/70">
                       {entry.actorUserId ? "Staff" : "System"}
                     </p>
                   </div>
@@ -134,7 +134,7 @@ export default async function AdminOrderPage({
                     <p className="text-body text-ink">
                       {payment.kind} · {payment.status}
                     </p>
-                    <p className="font-mono text-meta text-ink/60">
+                    <p className="font-mono text-meta text-ink/70">
                       {payment.providerRef}
                     </p>
                   </div>

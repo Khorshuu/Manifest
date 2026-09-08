@@ -65,7 +65,7 @@ export default async function AccountPage() {
                 >
                   {order.orderNumber}
                 </Link>
-                <p className="text-meta text-ink/60">
+                <p className="text-meta text-ink/70">
                   Placed {formatDate(order.placedAt)}
                 </p>
               </div>

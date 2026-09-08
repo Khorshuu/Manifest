@@ -31,11 +31,16 @@ One happy-path spec per major flow, run against a seeded database:
 - A landed price is never added to: the cart figure carries through to checkout unchanged, and the order pages show the goods, freight and duty already inside it.
 - Admin: only a super admin can change a site setting; staff see the values with disabled inputs, and both the page and the API refuse anyone else.
 - Admin: walk a new product through all six wizard steps — including a real image upload and a real price — and confirm it is then visible on the storefront to a signed-out visitor.
+- Axe-core runs at AA (`wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) over the pages the spec names plus sign-in, tracking, an empty result and three admin screens, on mobile and desktop. Violations are reported with the rule and the offending element, because a bare count tells whoever reads the failure nothing.
 - A delivered customer writes a review, staff approve it, and it appears on the product page for a signed-out visitor.
 
 ## What does not need a test
 
 Pure presentation with no logic (a static layout component, a design-token value) is not unit tested. Visual correctness is checked by hand against [DESIGN_GUIDELINES.md](DESIGN_GUIDELINES.md) during phase verification, not asserted in code — a snapshot test of a design system this early would break on every legitimate visual iteration.
+
+## Accessibility
+
+Structural rules — one h1 per page, every control labelled, a visible focus ring — are asserted by hand in the flow specs. `e2e/accessibility.spec.ts` runs the real axe rule set on top of that, and it earns its place: the hand-written checks passed on eleven pages that axe failed on contrast. Colour is measured, not judged by eye.
 
 ## Verification gate per phase
 

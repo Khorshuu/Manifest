@@ -81,10 +81,10 @@ export function PublishPanel({
                 aria-hidden="true"
                 className={
                   check.passed
-                    ? "text-transit-green"
+                    ? "text-transit-green-text"
                     : check.required
-                      ? "text-stamp-red"
-                      : "text-brass"
+                      ? "text-stamp-red-text"
+                      : "text-brass-text"
                 }
               >
                 {check.passed ? "✓" : check.required ? "✕" : "!"}
@@ -164,9 +164,9 @@ export function PublishPanel({
         ) : null}
 
         <div aria-live="polite" className="flex flex-col gap-1">
-          {error ? <p className="text-meta text-stamp-red">{error}</p> : null}
+          {error ? <p className="text-meta text-stamp-red-text">{error}</p> : null}
           {message ? (
-            <p className="text-meta text-transit-green">{message}</p>
+            <p className="text-meta text-transit-green-text">{message}</p>
           ) : null}
         </div>
 

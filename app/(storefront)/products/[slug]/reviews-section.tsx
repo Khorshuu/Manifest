@@ -18,7 +18,7 @@ type Props = {
 
 function Stars({ rating }: { rating: number }) {
   return (
-    <span className="text-meta text-brass">
+    <span className="text-meta text-brass-text">
       <span aria-hidden="true">{"★".repeat(rating)}</span>
       <span className="sr-only">{rating} out of 5</span>
     </span>
@@ -84,7 +84,7 @@ export function ReviewsSection({
                   </p>
                 ) : null}
               </div>
-              <p className="mt-1 text-meta text-ink/60">
+              <p className="mt-1 text-meta text-ink/70">
                 {review.authorName} · {formatShortDate(review.createdAt)} ·
                 Verified purchase
               </p>

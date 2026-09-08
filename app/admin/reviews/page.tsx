@@ -37,7 +37,7 @@ export default async function AdminReviewsPage({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-400">Operations</p>
+        <p className="text-meta text-blue-600">Operations</p>
         <h1 className="mt-2 font-display text-h1 text-ink">Reviews</h1>
         <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
           Every review is written by someone whose order was delivered, and
@@ -86,7 +86,7 @@ export default async function AdminReviewsPage({
                   <span className="sr-only">{row.rating} out of 5</span>
                   {row.title ? ` — ${row.title}` : ""}
                 </p>
-                <p className="mt-1 text-meta text-ink/60">
+                <p className="mt-1 text-meta text-ink/70">
                   <Link
                     href={`/products/${row.productSlug}`}
                     className="hover:underline"

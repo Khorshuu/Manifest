@@ -109,7 +109,7 @@ export function ImageManager({
                   onClick={() =>
                     mutate({ action: "remove", imageId: image.id })
                   }
-                  className="min-h-11 rounded-control border border-blue-300 px-2 text-meta text-stamp-red disabled:opacity-40"
+                  className="min-h-11 rounded-control border border-blue-300 px-2 text-meta text-stamp-red-text disabled:opacity-40"
                 >
                   Remove
                 </button>
@@ -160,9 +160,9 @@ export function ImageManager({
         </div>
 
         <div aria-live="polite" className="flex flex-col gap-1">
-          {error ? <p className="text-meta text-stamp-red">{error}</p> : null}
+          {error ? <p className="text-meta text-stamp-red-text">{error}</p> : null}
           {message ? (
-            <p className="text-meta text-transit-green">{message}</p>
+            <p className="text-meta text-transit-green-text">{message}</p>
           ) : null}
         </div>
 

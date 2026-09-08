@@ -401,7 +401,7 @@ This closes the `[!]` recorded at the end of Phase 13. The suite now asserts it 
 | 5 | Staff advance an order through every stage | `[x]` `e2e/acceptance.spec.ts` walks all six transitions |
 | 6 | Cancelling before purchase refunds automatically without per-order work | `[~]` per-order cancellation and refund are verified; there is no batch entity to cancel, per DECISIONS.md D-005 |
 | 7 | A shopper cancels before sourcing and is refunded; after sourcing it follows the staff policy | `[x]` `e2e/acceptance.spec.ts` |
-| 8 | Search, browse, cart and checkout pass an accessibility audit at AA | `[~]` the structural rules are asserted — one h1 per page, every control labelled, a visible focus ring, and the buy action reachable by keyboard. A full axe audit is not run |
+| 8 | Search, browse, cart and checkout pass an accessibility audit at AA | `[x]` the real axe rule set (wcag2a, wcag2aa, wcag21a, wcag21aa) runs over twelve pages in `e2e/accessibility.spec.ts`, mobile and desktop, and passes with zero violations. It found eleven pages failing on contrast the hand-written checks had missed; the palette was fixed rather than the test loosened |
 
 ### Concurrency, re-confirmed
 
@@ -420,7 +420,8 @@ Carried forward, and honest about it:
 - `[ ]` The balance payment for deposit orders, still blocked on the open question in DATABASE.md.
 - `[x]` Shipping fees and duty as separate computed lines — done after Phase 15; see the baseline below.
 - `[ ]` A real payment gateway and a real courier. Both sit behind interfaces with working mocks.
-- `[ ]` A full axe accessibility audit, two-factor authentication for admins, and a shared rate-limit store.
+- `[x]` A full axe accessibility audit — done after Phase 15; see the baseline below.
+- `[ ]` Two-factor authentication for admins, and a shared rate-limit store.
 
 ## Product media (added after Phase 15)
 
@@ -565,6 +566,30 @@ Every order now records what its landed price is made of, and the rates behind t
 Two schema changes: `0004` adds `orders.duty_bdt`; `0005` widens `audit_log.entity_id` from `uuid` to `text`, because a site setting is keyed by name and the audit log has to be able to name what changed.
 
 Note for the next session: the dev database has not had `npm run db:setup` run since these migrations were added.
+
+## Accessibility audit (added after Phase 15)
+
+`e2e/accessibility.spec.ts` runs axe-core over twelve pages — the four the spec names (search, browse, cart, checkout) plus the product page, sign-in, order tracking, an empty search result, and three admin screens — against `wcag2a`, `wcag2aa`, `wcag21a` and `wcag21aa`.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 445 passed, 1 skipped, 30 files |
+| Axe at AA, desktop | `[x]` 12 pages, zero violations |
+| Axe at AA, mobile | `[x]` 12 pages, zero violations |
+| Regression spot-check | `[x]` `storefront.spec.ts` and `acceptance.spec.ts` still pass after the palette change; the full sweep was not re-run |
+
+The audit failed on eleven of twelve pages the first time it ran, all on one rule: `color-contrast`. The hand-written structural checks could not have caught it, which is the argument for running the real rule set.
+
+What was wrong, measured against white:
+
+- `blue-400` as text: **2.09:1**. It was being used for the eyebrow label above page titles and for breadcrumbs.
+- `ink/40`, `ink/50`, `ink/60` as muted text: **2.42:1**, **3.17:1**, **4.27:1**. The last one looks fine and still fails.
+- `brass`, `transit-green` and `stamp-red` as text: **2.06:1**, **3.19:1**, **3.58:1**.
+- `blue-600` at **4.55:1** passed on white by 0.05 and failed on any tinted ground.
+
+The fix was to the palette, not to the test. `blue-600` moved to `#2563eb` (5.17:1 on white, 4.81:1 on paper-raised). Muted text moved to `ink/70` (5.90:1). The three saturated colours keep their vivid values for fills, borders and badges — where contrast rules do not apply — and gained darker partners (`brass-text`, `transit-green-text`, `stamp-red-text`) used wherever the colour becomes words. The identity is unchanged; the words are readable.
 
 ## Open items carried from other docs
 

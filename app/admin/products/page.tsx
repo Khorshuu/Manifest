@@ -34,7 +34,7 @@ export default async function AdminProductsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-meta text-blue-400">Catalog</p>
+          <p className="text-meta text-blue-600">Catalog</p>
           <h1 className="mt-2 font-display text-h1 text-ink">Products</h1>
         </div>
         <Link
@@ -92,7 +92,7 @@ export default async function AdminProductsPage() {
                       {row.title}
                     </Link>
                     {row.brand ? (
-                      <span className="block text-meta text-ink/60">
+                      <span className="block text-meta text-ink/70">
                         {row.brand}
                       </span>
                     ) : null}

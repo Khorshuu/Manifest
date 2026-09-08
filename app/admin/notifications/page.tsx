@@ -25,7 +25,7 @@ export default async function AdminNotificationsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-400">Operations</p>
+        <p className="text-meta text-blue-600">Operations</p>
         <h1 className="mt-2 font-display text-h1 text-ink">Notifications</h1>
         <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
           Every message the shop has for a customer. A message is written here
@@ -77,11 +77,11 @@ export default async function AdminNotificationsPage() {
             >
               <div className="min-w-[240px] flex-1">
                 <p className="text-body text-ink">{row.subject}</p>
-                <p className="text-meta text-ink/60">
+                <p className="text-meta text-ink/70">
                   {row.recipient} · {row.channel} · {row.template}
                 </p>
                 {row.error ? (
-                  <p className="mt-1 text-meta text-stamp-red">{row.error}</p>
+                  <p className="mt-1 text-meta text-stamp-red-text">{row.error}</p>
                 ) : null}
               </div>
 

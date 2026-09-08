@@ -31,7 +31,7 @@ export default async function AccountOrderPage({
 
   return (
     <div className="mx-auto w-full max-w-[900px] px-4 py-8 md:px-6">
-      <p className="text-meta text-blue-400">
+      <p className="text-meta text-blue-600">
         <Link href="/account" className="hover:underline">
           Your orders
         </Link>
@@ -57,7 +57,7 @@ export default async function AccountOrderPage({
             >
               <div>
                 <p className="text-body text-ink">{item.titleSnapshot}</p>
-                <p className="text-meta text-ink/60">
+                <p className="text-meta text-ink/70">
                   {item.optionSummarySnapshot
                     ? `${item.optionSummarySnapshot} · `
                     : ""}
