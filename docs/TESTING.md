@@ -32,3 +32,18 @@ Pure presentation with no logic (a static layout component, a design-token value
 ## Verification gate per phase
 
 Before a phase in [PROGRESS.md](PROGRESS.md) is marked complete: `npm run build`, `npm run typecheck`, `npm run lint`, `npm test`, then the dev server is actually run and the real workflow for that phase is exercised by hand, per CLAUDE.md §6. A phase is not "done" on green tests alone if its UI has not actually been looked at.
+
+## Concurrency testing (Phase 6)
+
+`tests/preorder-concurrency.test.ts` is the only suite that needs a real PostgreSQL server, started by `npm run db:server`. Everything else runs on in-process PGlite, which serves one connection and therefore cannot produce a race at all.
+
+Two things this suite taught, both worth keeping in mind when writing others like it:
+
+- **Warm the connection pool before racing.** Pools connect lazily, so without a warm-up the first transaction commits while the rest are still doing TCP setup. The suite then passes whether or not the code is correct.
+- **Assert the shape of the failures, not just the count.** The database's own check constraint stops overselling even when the application-level lock is missing, so a test that only counts successful reservations passes either way. What the lock actually buys is that shoppers get a clean "that preorder is full" instead of a raw integrity error — so that is what the test asserts.
+
+When the server is not running the suite skips, and a placeholder test records that it skipped. A race-condition test that silently does not run is worse than not having one.
+
+## Verifying a test can fail
+
+For any test guarding a rule with money behind it, break the rule deliberately once and confirm the test catches it. The no-overselling suite was confirmed this way: with `for update` removed it fails; with it restored it passes.

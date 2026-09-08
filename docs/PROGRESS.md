@@ -18,7 +18,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[x]` **Phase 3 — Auth & admin shell.** argon2id passwords, database-backed sessions keyed by a token hash, the three role gates in `lib/auth/authorize.ts`, login/logout/register routes with rate limiting, the `/admin` shell with server-side role enforcement, and a dashboard whose every figure is a live query. Verified — see Phase 3 baseline below.
 - `[~]` **Phase 4 — Product system.** Category tree with cycle protection, attribute and value management, product create/update/archive/restore with slug derivation, an admin catalog UI, and admin API routes. Image upload is not built yet and carries into the next slice of this phase.
 - `[x]` **Phase 5 — Variation engine.** Cartesian combination generation with a 500-variant guard, idempotent regeneration that never disturbs existing variants, per-combination enable/disable, bulk edit, and the admin variant matrix. Verified — see Phase 5 baseline below.
-- `[ ]` **Phase 6 — Inventory & preorder engine.** Capacity/reserved tracking, the locked-transaction capacity check, waitlist.
+- `[~]` **Phase 6 — Inventory & preorder engine.** Locked-transaction capacity reservation and release, availability evaluation, waitlist, and the preorder window lifecycle (open, close, extend). Verified — see Phase 6 baseline below. Admin UI for the window controls is carried forward.
 - `[ ]` **Phase 7 — Storefront.** Home, category/PLP, PDP, search, related products.
 - `[ ]` **Phase 8 — Cart & checkout.** Cart persistence, address, payment method selection (mock provider), idempotent order placement.
 - `[ ]` **Phase 9 — Orders.** Customer order history/tracking, admin order pipeline, status transitions, refunds.
@@ -109,6 +109,34 @@ Not done in this slice, carried forward:
 | Bulk edit auditing | `[x]` verified: a bulk price change writes one audit row per variant, not one per batch |
 
 A real performance defect was found and fixed here. `generateVariants` queried the base database handle for SKU uniqueness while its own transaction was open; on a single-connection database that serialises against the transaction, taking the suite from 3 seconds to over 197. SKU allocation now runs on the open transaction against one read of the SKUs in use.
+
+## Verification baseline (end of Phase 6)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 173 tests, 16 files (1 skipped only when no PostgreSQL server is running) |
+| No overselling under real concurrency | `[x]` verified against real PostgreSQL: 20 shoppers racing for one slot yields exactly one order; 40 attempts against capacity 5 yield exactly 5 |
+| Reservation is atomic with its order | `[x]` verified: when the surrounding transaction fails, the slot is not held |
+| Release is safe | `[x]` verified: a double release cannot drive the reserved count below zero |
+
+### What the row lock actually buys, measured
+
+The concurrency suite was initially passing even with `for update` removed, which made it worthless. Two causes were found and fixed:
+
+1. The connection pool was created lazily, so the first reservation committed while the others were still doing TCP setup. The suite now warms every connection before racing.
+2. Even then, the read-to-write window in the real code is narrow enough that the race rarely lands.
+
+An isolated experiment settled what the lock does. Removing it and running 30 rounds of 30 concurrent reservations against capacity 1 produced **841 database check-constraint rejections**; with the lock, zero. The reserved count never exceeded capacity either way, because the `product_variants_reserved_within_capacity_check` constraint is a genuine second line of defence — but without the lock, shoppers receive a raw integrity error instead of "that preorder is full".
+
+The suite now asserts the *shape* of every refusal, not just the count, and has been confirmed to fail when the lock is removed.
+
+Carried forward from this phase:
+
+- `[ ]` Admin UI for opening, closing, and extending a preorder window (the `lib/preorder` functions exist and are tested; there is no form yet).
+- `[ ]` Notifying the waitlist when capacity frees up — still an open question in DATABASE.md (automatic re-offer vs manual).
 
 ## Open items carried from other docs
 
