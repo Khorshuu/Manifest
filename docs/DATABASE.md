@@ -257,6 +257,19 @@ site_settings
 
 `reviews.order_item_id` is what makes "verified/delivered purchase" checkable in a single join rather than a separate flag someone has to remember to set correctly. `audit_log` is append-only from application code — nothing ever updates or deletes a row in it — and is written to by every admin mutation named in MASTER_PRODUCT_SPEC.md §4 and §7 (price changes, capacity changes, and more broadly any create/edit/archive on `products`, `product_variants`, `orders`, `users`, `site_settings`).
 
+## Rate limiting
+
+```
+rate_limit_hits
+  key                 text not null              -- SHA-256 of the limiter key, never the email or IP
+  window_start        timestamptz not null       -- aligned to an absolute grid, so processes agree
+  count               int not null default 0
+  updated_at          timestamptz not null default now()
+  primary key (key, window_start)
+```
+
+Added in migration `0006`. One row per key and window, incremented by a single `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`, which is what makes two simultaneous attempts unable to both take the last slot. Closed windows are swept opportunistically from the login path (see SECURITY.md).
+
 ## Landed price on an order
 
 `orders` carries the split of every landed price, added in migration `0004`:

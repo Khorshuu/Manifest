@@ -57,6 +57,10 @@ Two things this suite taught, both worth keeping in mind when writing others lik
 
 When the server is not running the suite skips, and a placeholder test records that it skipped. A race-condition test that silently does not run is worse than not having one.
 
+## Concurrency testing, part two: the rate limiter
+
+`tests/rate-limit-concurrency.test.ts` follows the same pattern for the same reason. PGlite cannot race, so the claim that two simultaneous attempts at the last slot in a window cannot both succeed is tested against the real server, with the connection pool warmed first. It was confirmed to fail when the single upsert is replaced by a read-then-write: 20 of 20 attempts allowed instead of 1.
+
 ## Verifying a test can fail
 
 For any test guarding a rule with money behind it, break the rule deliberately once and confirm the test catches it. The no-overselling suite was confirmed this way: with `for update` removed it fails; with it restored it passes.

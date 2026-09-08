@@ -421,7 +421,8 @@ Carried forward, and honest about it:
 - `[x]` Shipping fees and duty as separate computed lines — done after Phase 15; see the baseline below.
 - `[ ]` A real payment gateway and a real courier. Both sit behind interfaces with working mocks.
 - `[x]` A full axe accessibility audit — done after Phase 15; see the baseline below.
-- `[ ]` Two-factor authentication for admins, and a shared rate-limit store.
+- `[x]` A shared rate-limit store — done after Phase 15; see the baseline below.
+- `[ ]` Two-factor authentication for admins.
 
 ## Product media (added after Phase 15)
 
@@ -590,6 +591,26 @@ What was wrong, measured against white:
 - `blue-600` at **4.55:1** passed on white by 0.05 and failed on any tinted ground.
 
 The fix was to the palette, not to the test. `blue-600` moved to `#2563eb` (5.17:1 on white, 4.81:1 on paper-raised). Muted text moved to `ink/70` (5.90:1). The three saturated colours keep their vivid values for fills, borders and badges — where contrast rules do not apply — and gained darker partners (`brass-text`, `transit-green-text`, `stamp-red-text`) used wherever the colour becomes words. The identity is unchanged; the words are readable.
+
+## Shared rate-limit store (added after Phase 15)
+
+Login attempt counts moved from a Map inside one Node process to the `rate_limit_hits` table (migration `0006`).
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm run build` | `[x]` passes |
+| `npm test` | `[x]` passes — 457 passed, 2 skipped, 32 files |
+| The count is shared | `[x]` verified: attempts from separate callers count against one limit, and windows are aligned to absolute time so processes agree without coordinating |
+| Two simultaneous attempts cannot both take the last slot | `[x]` verified against a real PostgreSQL server with a warmed 20-connection pool, and **confirmed to fail** when the single upsert is replaced by a read-then-write: 20 of 20 attempts allowed instead of 1 |
+| No email or address is stored | `[x]` verified: keys are SHA-256 hashes, and the stored key contains neither the address nor anything resembling it |
+| One row per key and window | `[x]` verified under contention — 20 concurrent attempts produce one row with a count of 20, not 20 rows |
+| A database outage does not lock anyone out | `[x]` verified by dropping the table mid-test: the attempt is allowed, and the reasoning is that sign-in needs the database anyway |
+| Old windows are swept | `[x]` verified — closed windows are deleted, the current one is left, and the sweep is safe when there is nothing to delete |
+| Auth and security e2e | `[x]` `auth.spec.ts` and `security.spec.ts` pass on desktop. The full sweep was not re-run. |
+
+The previous limiter was honest about being process-local, but the deployment target is serverless: each instance counted separately and every deploy reset the count, so spreading attempts across instances defeated it. On PGlite nothing can genuinely race — it serves one connection — so the concurrency claim is proved in a separate suite against a real server, which skips loudly when that server is not running.
 
 ## Open items carried from other docs
 

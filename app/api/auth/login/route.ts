@@ -3,7 +3,7 @@ import { cookies, headers } from "next/headers";
 import { authenticate, CredentialsError } from "@/lib/auth/accounts";
 import { SESSION_COOKIE_NAME, sessionCookieOptions } from "@/lib/auth/session";
 import { getEnv } from "@/lib/env";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { consumeRateLimit, pruneRateLimits } from "@/lib/rate-limit";
 import { loginSchema } from "@/lib/validation/auth";
 
 /**
@@ -44,8 +44,13 @@ export async function POST(request: Request) {
         [`login:email:${parsed.data.email}`, env.LOGIN_RATE_LIMIT_PER_ACCOUNT],
       ] as const);
 
+  // Sweeps closed windows now and then rather than on a schedule: there is no
+  // job runner, and one delete per few hundred sign-ins is enough to stop the
+  // table growing. It never blocks the response and never fails it.
+  if (Math.random() < 0.01) void pruneRateLimits();
+
   for (const [key, max] of limits) {
-    const limit = checkRateLimit(key, max, WINDOW_MS);
+    const limit = await consumeRateLimit(key, max, WINDOW_MS);
     if (!limit.allowed) {
       return NextResponse.json(
         {

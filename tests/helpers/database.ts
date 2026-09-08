@@ -40,7 +40,7 @@ export async function createTestDatabase() {
     async reset() {
       await client.exec(`
         truncate table
-          notifications, audit_log, site_settings, reviews,
+          rate_limit_hits, notifications, audit_log, site_settings, reviews,
           payments, order_status_history, order_items, orders,
           wishlist_items, cart_items, carts,
           waitlist_entries, inventory_adjustments,
