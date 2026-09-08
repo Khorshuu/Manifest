@@ -25,7 +25,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[x]` **Phase 10 — Shipping.** Shipping provider interface with an idempotent mock, shipment booking, manual tracking references, staff-only internal notes, and the tracking reference surfaced to shoppers. Verified — see Phase 10 baseline below.
 - `[x]` **Phase 11 — Admin ops.** Live dashboard metrics with capacity alerts and top products, staff and role management, three CSV exports, and the audit log viewer with filtering. Verified — see Phase 11 baseline below.
 - `[x]` **Phase 12 — Analytics.** Purchase funnel with per-step conversion, revenue by day, preorder capacity utilisation, order stage breakdown, and new customer counts — all from recorded data, with the gaps named. Verified — see Phase 12 baseline below.
-- `[ ]` **Phase 13 — SEO/performance.** Metadata, structured data, sitemap, performance budget pass.
+- `[~]` **Phase 13 — SEO/performance.** Product, breadcrumb and organisation structured data generated from the values the page renders, canonical metadata, a sitemap that excludes private pages, robots.txt, and budget checks. The production JavaScript budget is unverified — see Phase 13 baseline below.
 - `[ ]` **Phase 14 — Security hardening.** Full pass against `SECURITY.md`.
 - `[ ]` **Phase 15 — Full QA.** End-to-end regression across every flow in `MASTER_PRODUCT_SPEC.md`.
 
@@ -299,6 +299,35 @@ Carried forward from this phase:
 
 - `[ ]` Product view and add-to-cart events, which would complete the funnel.
 - `[ ]` Cohort and repeat-purchase reporting. Nothing in the data model prevents it; it is simply not built.
+
+## Verification baseline (end of Phase 13)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 304 tests, 22 files |
+| `npm run test:e2e` | `[x]` passes — 178 tests, mobile and desktop |
+| Structured data agrees with the page | `[x]` verified: the price in the JSON-LD is compared against the price rendered on the product page |
+| Preorder availability is honest | `[x]` verified: PreOrder rather than InStock, and SoldOut when nothing can be bought |
+| No invented ratings | `[x]` verified: `aggregateRating` is omitted entirely when there are no approved reviews |
+| Sitemap excludes private pages | `[x]` verified for /admin, /account, /cart and /checkout |
+| robots.txt disallows the private areas | `[x]` verified, and it points at the sitemap |
+| Server-rendered without JavaScript | `[x]` verified with scripting disabled — what a crawler and a slow connection see |
+| No unsized images | `[x]` verified: every image either carries width and height or sits in an aspect-ratio box |
+
+### On the JavaScript budget
+
+DESIGN_GUIDELINES.md sets 200KB gzipped on a product page. The end-to-end suite runs against `next dev`, which serves unminified, uncompressed modules, so measuring the guideline figure there would be meaningless. The test measures the uncompressed development payload against a deliberately generous ceiling instead — enough to catch a dependency that balloons the bundle, and honest about not being the production number.
+
+Measuring the real figure needs the suite pointed at `next build && next start`, which is recorded below as carried forward rather than claimed.
+
+Carried forward from this phase:
+
+- `[!]` The production JavaScript budget is UNVERIFIED. It needs an end-to-end run against a production build, not the dev server.
+- `[ ]` Open Graph and Twitter card images. Declaring a card without the asset is worse than omitting it, so neither is declared.
+- `[ ]` Largest contentful paint and interaction-to-next-paint against the guideline thresholds. These need a production build and a throttled profile.
 
 ## Open items carried from other docs
 

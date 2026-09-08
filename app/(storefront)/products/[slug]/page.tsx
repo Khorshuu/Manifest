@@ -11,6 +11,8 @@ import {
 } from "@/lib/catalog";
 import { remainingCapacity } from "@/lib/catalog/variants";
 import { formatArrivalWindow, formatDate } from "@/lib/format";
+import { breadcrumbJsonLd, productJsonLd } from "@/lib/seo";
+import { getProductRating } from "@/lib/catalog";
 import { VariantPicker, type PickerVariant } from "./variant-picker";
 
 export const dynamic = "force-dynamic";
@@ -37,10 +39,11 @@ export default async function ProductPage({
   const product = await getPublicProductBySlug(slug);
   if (!product) notFound();
 
-  const [variants, tree, related] = await Promise.all([
+  const [variants, tree, related, rating] = await Promise.all([
     getPublicVariants(product.id),
     getCategoryTree(),
     listRelatedProducts(product.id, product.categoryId, 4),
+    getProductRating(product.id),
   ]);
 
   const breadcrumb = findCategoryPath(tree, product.categoryId);
@@ -75,8 +78,51 @@ export default async function ProductPage({
     ? (product.specTable as { label: string; value: string }[])
     : [];
 
+  // Built from the values rendered below, so the two cannot drift apart.
+  const cheapest = pickerVariants.reduce<(typeof pickerVariants)[number] | null>(
+    (lowest, variant) =>
+      lowest === null || variant.priceBdt < lowest.priceBdt ? variant : lowest,
+    null,
+  );
+
+  const structuredData = productJsonLd({
+    title: product.title,
+    slug: product.slug,
+    description: product.seoMetaDescription,
+    brand: product.brand,
+    imageUrl: product.images[0]?.url ?? null,
+    priceBdt: cheapest?.priceBdt ?? null,
+    isAvailable: pickerVariants.some(
+      (variant) =>
+        !variant.isClosed &&
+        (variant.remaining === null || variant.remaining > 0),
+    ),
+    isPreorder: cheapest?.fulfillmentMode === "preorder",
+    ratingAverage: rating.average,
+    reviewCount: rating.count,
+  });
+
+  const breadcrumbData = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    ...breadcrumb.map((node) => ({
+      name: node.name,
+      path: `/categories/${node.slug}`,
+    })),
+    { name: product.title, path: `/products/${product.slug}` },
+  ]);
+
   return (
     <div className="mx-auto w-full max-w-[1280px] px-4 py-8 md:px-6">
+      <script
+        type="application/ld+json"
+        // Serialised server-side from our own data, never from user input.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbData) }}
+      />
+
       <nav aria-label="Breadcrumb">
         <ol className="flex flex-wrap items-center gap-2 text-meta text-ink/70">
           <li>
