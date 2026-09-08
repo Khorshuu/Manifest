@@ -92,7 +92,7 @@ Two defects were found and fixed during this phase: `sessions.id` was declared `
 Not done in this slice, carried forward:
 
 - `[ ]` Product image upload (the storage decision in DECISIONS.md D-001 names Cloudflare R2; nothing is wired yet).
-- `[ ]` Editing an existing product from the admin UI — the API and `lib/` function exist and are tested, but there is no edit form.
+- `[x]` Editing an existing product from the admin UI — done after Phase 15; see the product editing baseline near the end of this file.
 - `[ ]` The step wizard described in MASTER_PRODUCT_SPEC.md section 4; the current form is a single page.
 
 ## Verification baseline (end of Phase 5)
@@ -412,7 +412,8 @@ The no-overselling suite still fails when `for update` is removed, so it continu
 Carried forward, and honest about it:
 
 - `[x]` Product image upload — done after Phase 15. A media provider interface with a local implementation that writes to disk, byte-level format sniffing, generated filenames, and gallery ordering. See the media baseline below.
-- `[ ]` The product edit form and the step wizard from MASTER_PRODUCT_SPEC.md section 4. Creation, archiving and the variation matrix exist; editing an existing product is API-only.
+- `[x]` The product edit form — done after Phase 15. See the product editing baseline below.
+- `[ ]` The step wizard from MASTER_PRODUCT_SPEC.md section 4. Creating, editing, archiving and the variation matrix all exist, but as separate screens rather than one guided flow.
 - `[ ]` Faceted filtering, the reviews UI, and search autosuggest.
 - `[ ]` Notifications. The provider interface is declared but has no implementation, so no email or SMS is ever sent — including the order confirmation the spec asks for.
 - `[ ]` The balance payment for deposit orders, still blocked on the open question in DATABASE.md.
@@ -433,6 +434,27 @@ Carried forward, and honest about it:
 | The file is actually served | `[x]` verified: the uploaded URL returns an image from the site |
 
 The local provider writes to `public/uploads`, which is real enough for development and for a single-server deployment. It is not suitable for a serverless host with no persistent disk — that is what the Cloudflare R2 implementation named in DECISIONS.md D-001 is for, and it slots in behind the same interface.
+
+## Product editing (added after Phase 15)
+
+A details form on the admin product page, plus archive and restore controls beside it.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 345 passed, 1 skipped, 24 files |
+| `npm run test:e2e` | `[x]` passes — 238 tests, mobile and desktop |
+| An edit survives a reload | `[x]` verified: the values are read back from the server, not from the optimistic message |
+| Only staff may edit or archive | `[x]` verified at the API — a signed-in customer gets 403 from both `PATCH` and the archive `POST` |
+| A malformed product id is refused | `[x]` verified — 400, not a 500 from the database |
+| Archiving asks first, and does not delete | `[x]` verified: the confirmation is a second click, and the row is still in the listing afterwards |
+| Restoring returns the product as a draft | `[x]` verified — nothing goes back on sale without someone choosing it |
+
+Two things worth recording, because both were found rather than foreseen:
+
+- `updateProduct` writes every column, so a field the form does not edit — `specTable`, `tags` — would be nulled on every save. The form carries those values back unchanged.
+- The inputs are uncontrolled, so archiving updated the server data without changing what the status select displayed. The form is keyed on `updatedAt` and remounts. The e2e test for this was confirmed to fail when the key is removed.
 
 ## Open items carried from other docs
 
