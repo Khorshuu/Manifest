@@ -6,6 +6,7 @@ import { allowedTransitions, getOrderForStaff } from "@/lib/orders";
 import { formatBdt } from "@/lib/money";
 import { formatDate } from "@/lib/format";
 import { OrderActions } from "./order-actions";
+import { ShippingPanel } from "./shipping-panel";
 
 export const metadata: Metadata = { title: "Order" };
 export const dynamic = "force-dynamic";
@@ -161,6 +162,18 @@ export default async function AdminOrderPage({
                   canRefund={canRefund}
                 />
               )}
+            </div>
+          </section>
+
+          <section className="border border-blue-300 p-5">
+            <h2 className="font-display text-h3 text-ink">Shipping</h2>
+            <div className="mt-4">
+              <ShippingPanel
+                key={order.trackingReference ?? "unbooked"}
+                orderId={order.id}
+                trackingReference={order.trackingReference}
+                internalNotes={order.internalNotes}
+              />
             </div>
           </section>
 

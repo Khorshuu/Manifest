@@ -86,6 +86,21 @@ export default async function AccountOrderPage({
         </dl>
       </section>
 
+      {order.trackingReference ? (
+        <section className="mt-10">
+          <h2 className="font-display text-h2 text-ink">Tracking</h2>
+          <p className="mt-2 text-body text-ink">
+            Reference{" "}
+            <span className="font-medium tabular-nums">
+              {order.trackingReference}
+            </span>
+          </p>
+          <p className="mt-1 text-meta text-ink/70">
+            Quote this if you need to ask the courier about your delivery.
+          </p>
+        </section>
+      ) : null}
+
       {order.address ? (
         <section className="mt-10">
           <h2 className="font-display text-h2 text-ink">Delivering to</h2>

@@ -94,6 +94,15 @@ export default async function OrderLookupPage({
               <OrderProgress status={order.status} history={order.history} />
             </div>
 
+            {order.trackingReference ? (
+              <p className="mt-6 text-body text-ink">
+                Tracking reference{" "}
+                <span className="font-medium tabular-nums">
+                  {order.trackingReference}
+                </span>
+              </p>
+            ) : null}
+
             <ul className="mt-8 border-t border-blue-300">
               {order.items.map((item) => (
                 <li

@@ -22,7 +22,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[~]` **Phase 7 — Storefront.** Home page with the Import Manifest signature patterns, category listings with subtree inclusion and sorting, product detail with variant selection and the landed-price panel, search, and related products. Verified — see Phase 7 baseline below. Faceted filtering and the reviews UI are carried forward.
 - `[x]` **Phase 8 — Cart & checkout.** Cart persisted by cookie or account with guest-cart merge on login, live-priced totals, a checkout that computes every amount server-side, idempotent order placement, the mock payment provider, order confirmation, and guest order tracking. Verified — see Phase 8 baseline below.
 - `[x]` **Phase 9 — Orders.** Customer order history and tracking, shopper self-cancellation while nothing has been sourced, the admin order pipeline with filters, forward-only status transitions, and refunds through the payment provider. Verified — see Phase 9 baseline below.
-- `[ ]` **Phase 10 — Shipping.** Tracking abstraction (mock), manual tracking updates from admin.
+- `[x]` **Phase 10 — Shipping.** Shipping provider interface with an idempotent mock, shipment booking, manual tracking references, staff-only internal notes, and the tracking reference surfaced to shoppers. Verified — see Phase 10 baseline below.
 - `[ ]` **Phase 11 — Admin ops.** Dashboard metrics, staff/role management, CSV export, audit log viewer.
 - `[ ]` **Phase 12 — Analytics.** Funnel and revenue reporting from real data.
 - `[ ]` **Phase 13 — SEO/performance.** Metadata, structured data, sitemap, performance budget pass.
@@ -219,6 +219,34 @@ Carried forward from this phase:
 - `[ ]` Order status change notifications. The notification provider interface exists but has no implementation, so a shopper is not told when their order moves.
 - `[ ]` Partial refunds. A refund currently returns the full captured amount.
 - `[ ]` The balance payment for deposit orders, still blocked on the open question in DATABASE.md.
+
+## Verification baseline (end of Phase 10)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 240 tests, 19 files |
+| `npm run test:e2e` | `[x]` passes — 120 tests, mobile and desktop |
+| Booking is idempotent per order | `[x]` verified: booking twice returns the same reference and books no second delivery |
+| Internal notes never reach a customer | `[x]` verified against the whole rendered guest lookup page, not a particular element |
+| A customer cannot set tracking or add notes | `[x]` verified at the API for both |
+
+### A leak found by a test that was written to fail
+
+The guest order lookup returned the whole `orders` row, which includes `internal_notes`. Staff notes were reaching customers. The customer-facing loader now selects its columns explicitly and omits the field, and the staff loader is a separate function rather than a flag — the same shape used for the catalog queries, so a missed conditional cannot leak.
+
+Two smaller defects were fixed alongside it:
+
+- The shipping panel kept showing the value it first mounted with, so booking a delivery appeared to return nothing. The page now remounts it on a key derived from the tracking reference.
+- Two controls on the admin order page were both labelled "Internal note". Renamed so each says what it actually does.
+
+Carried forward from this phase:
+
+- `[ ]` A real courier integration. `SHIPPING_PROVIDER=courier` raises rather than pretending, and the mock is idempotent and returns checkpoints.
+- `[ ]` Surfacing carrier checkpoints on the customer tracking page. `trackOrder` returns them; the page shows only the reference.
+- `[ ]` Shipping fees as a computed line. They remain folded into the landed price, so `orders.shipping_fee_bdt` is always zero.
 
 ## Open items carried from other docs
 

@@ -10,6 +10,16 @@ import {
 import { requireOwnerOrStaff } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
+/**
+ * Reading orders.
+ *
+ * The customer-facing loader selects its columns explicitly and omits
+ * `internal_notes`, so a staff note cannot reach a shopper even if someone
+ * later serialises the whole object. The staff loader is a separate function
+ * rather than a flag, for the same reason the catalog queries are split
+ * (docs/SECURITY.md).
+ */
+
 /** Orders belonging to a signed-in shopper. */
 export async function listOrdersForUser(userId: string) {
   return db
@@ -26,15 +36,23 @@ export async function listOrdersForUser(userId: string) {
     .orderBy(desc(orders.placedAt));
 }
 
-async function loadOrder(orderId: string) {
-  const [order] = await db
-    .select()
-    .from(orders)
-    .where(eq(orders.id, orderId))
-    .limit(1);
+/** Columns a customer may see. Note the absence of internalNotes. */
+const customerOrderColumns = {
+  id: orders.id,
+  orderNumber: orders.orderNumber,
+  userId: orders.userId,
+  status: orders.status,
+  shippingAddressId: orders.shippingAddressId,
+  subtotalBdt: orders.subtotalBdt,
+  shippingFeeBdt: orders.shippingFeeBdt,
+  discountBdt: orders.discountBdt,
+  totalBdt: orders.totalBdt,
+  amountDueNowBdt: orders.amountDueNowBdt,
+  trackingReference: orders.trackingReference,
+  placedAt: orders.placedAt,
+};
 
-  if (!order) return null;
-
+async function loadRelated(orderId: string, shippingAddressId: string) {
   const [items, history, address, paymentRows] = await Promise.all([
     db.select().from(orderItems).where(eq(orderItems.orderId, orderId)),
     db
@@ -45,18 +63,30 @@ async function loadOrder(orderId: string) {
     db
       .select()
       .from(addresses)
-      .where(eq(addresses.id, order.shippingAddressId))
+      .where(eq(addresses.id, shippingAddressId))
       .limit(1),
     db.select().from(payments).where(eq(payments.orderId, orderId)),
   ]);
 
   return {
-    ...order,
     items,
     history,
     address: address[0] ?? null,
     payments: paymentRows,
   };
+}
+
+/** Customer-facing order, without any staff-only field. */
+async function loadCustomerOrder(orderId: string) {
+  const [order] = await db
+    .select(customerOrderColumns)
+    .from(orders)
+    .where(eq(orders.id, orderId))
+    .limit(1);
+
+  if (!order) return null;
+
+  return { ...order, ...(await loadRelated(orderId, order.shippingAddressId)) };
 }
 
 /**
@@ -67,7 +97,7 @@ export async function getOrderForUser(
   actor: SessionUser | null,
   orderId: string,
 ) {
-  const order = await loadOrder(orderId);
+  const order = await loadCustomerOrder(orderId);
   if (!order) return null;
 
   requireOwnerOrStaff(actor, order.userId);
@@ -88,10 +118,18 @@ export async function getGuestOrder(orderNumber: string, email: string) {
     .limit(1);
 
   if (!match) return null;
-  return loadOrder(match.id);
+  return loadCustomerOrder(match.id);
 }
 
-/** Staff view: any order, by id. */
+/** Staff view: every column, including internal notes. */
 export async function getOrderForStaff(orderId: string) {
-  return loadOrder(orderId);
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.id, orderId))
+    .limit(1);
+
+  if (!order) return null;
+
+  return { ...order, ...(await loadRelated(orderId, order.shippingAddressId)) };
 }

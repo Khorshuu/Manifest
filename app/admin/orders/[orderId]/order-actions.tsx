@@ -61,7 +61,7 @@ export function OrderActions({
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <label htmlFor="note" className="text-meta font-medium text-ink">
-          Internal note
+          Note for this status change
         </label>
         <input
           id="note"
@@ -71,7 +71,8 @@ export function OrderActions({
           className="min-h-11 rounded-control border border-blue-300 px-3 text-body"
         />
         <p className="text-meta text-ink/70">
-          Saved against the status change, and visible to staff only.
+          Recorded against the status change in the order history. For a note
+          that is not tied to a status change, use the shipping panel.
         </p>
       </div>
 
