@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f9fc"/>
+      <stop offset="100%" stop-color="#dce9ff"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.92" r="0.55">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <ellipse cx="300" cy="512" rx="190" ry="26" fill="url(#pool)"/>
+
+  <ellipse cx="300" cy="470" rx="150" ry="42" fill="#a4243d" fill-opacity="0.55"/>
+  <rect x="150" y="300" width="300" height="170" fill="#a4243d"/>
+  <rect x="150" y="300" width="90" height="170" fill="#ffffff" fill-opacity="0.08"/>
+  <ellipse cx="300" cy="300" rx="150" ry="42" fill="#f2b5c4"/>
+  <ellipse cx="300" cy="300" rx="112" ry="30" fill="none" stroke="#12233f" stroke-opacity="0.35" stroke-width="3"/>
+  <text x="300" y="310" text-anchor="middle" font-family="Georgia, serif" font-size="30" fill="#12233f">Cherry</text>
+  <rect x="150" y="372" width="300" height="30" fill="#f7f9fc" fill-opacity="0.92"/>
+  <text x="300" y="394" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="17" letter-spacing="4" fill="#12233f">IMPORTED</text>
+</svg>

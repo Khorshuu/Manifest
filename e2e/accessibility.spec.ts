@@ -68,24 +68,38 @@ test.describe("the pages the spec names", () => {
   });
 
   test("cart, holding something", async ({ page }) => {
+    test.slow();
+
     await page.goto("/products/seasonal-candy-variety-box");
-    const added = page.waitForResponse(
-      (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
-    );
-    await page.getByRole("button", { name: "Add to cart" }).click();
-    await added;
+    // Retried on purpose: the dev server hydrates late under a full parallel
+    // run, and a click that lands before hydration hits a button with no
+    // handler attached yet. Retrying proves the button works without
+    // pretending hydration is instant.
+    await expect(async () => {
+      await page.getByRole("button", { name: "Add to cart" }).click();
+      await expect(page.getByText("Added to your cart.")).toBeVisible({
+        timeout: 4000,
+      });
+    }).toPass({ timeout: 30_000 });
 
     await page.goto("/cart");
     await audit(page);
   });
 
   test("checkout", async ({ page }) => {
+    test.slow();
+
     await page.goto("/products/seasonal-candy-variety-box");
-    const added = page.waitForResponse(
-      (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
-    );
-    await page.getByRole("button", { name: "Add to cart" }).click();
-    await added;
+    // Retried on purpose: the dev server hydrates late under a full parallel
+    // run, and a click that lands before hydration hits a button with no
+    // handler attached yet. Retrying proves the button works without
+    // pretending hydration is instant.
+    await expect(async () => {
+      await page.getByRole("button", { name: "Add to cart" }).click();
+      await expect(page.getByText("Added to your cart.")).toBeVisible({
+        timeout: 4000,
+      });
+    }).toPass({ timeout: 30_000 });
 
     await page.goto("/checkout");
     await audit(page);

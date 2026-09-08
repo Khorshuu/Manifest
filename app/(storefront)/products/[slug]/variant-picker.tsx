@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/button";
+import { Countdown } from "@/components/countdown";
 import { StatusBadge } from "@/components/status-badge";
 import { formatBdt } from "@/lib/money";
 
@@ -18,6 +19,8 @@ export type PickerVariant = {
    */
   isClosed: boolean;
   closesAtLabel: string | null;
+  /** ISO, for the live countdown. */
+  closesAtIso: string | null;
   arrivalLabel: string | null;
   paymentMode: string;
   depositPercent: number | null;
@@ -86,8 +89,37 @@ export function VariantPicker({ variants }: { variants: PickerVariant[] }) {
       ? Math.round((total * selected.depositPercent) / 100)
       : total;
 
+  const buyLabel = unavailableReason
+    ? "Unavailable"
+    : pending
+      ? "Adding…"
+      : "Add to cart";
+
   return (
     <div className="flex flex-col gap-6">
+      {/*
+        On a phone the buy button is otherwise far below the fold once the
+        options, countdown and details are stacked. This keeps it in reach
+        without duplicating any of the logic — it drives the same handler.
+      */}
+      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-blue-300 bg-paper/95 px-4 py-3 backdrop-blur lg:hidden">
+        <div className="min-w-0">
+          <p className="truncate text-meta text-ink/70">{selected.label}</p>
+          <p className="text-body font-semibold tabular-nums text-ink">
+            {formatBdt(dueNow)}
+          </p>
+        </div>
+        <Button
+          type="button"
+          disabled={Boolean(unavailableReason) || pending}
+          onClick={() => addToCart(selected.id)}
+        >
+          {buyLabel}
+        </Button>
+      </div>
+      {/* Room for the bar, so it never covers the last line of the page. */}
+      <div aria-hidden="true" className="h-16 lg:hidden" />
+
       {variants.length > 1 ? (
         <fieldset className="flex flex-col gap-3">
           <legend className="text-meta font-medium text-ink">Choose an option</legend>
@@ -158,13 +190,15 @@ export function VariantPicker({ variants }: { variants: PickerVariant[] }) {
         ) : null}
       </div>
 
-      <dl className="flex flex-col gap-2 border-y border-blue-300 py-4 text-meta">
-        {selected.closesAtLabel && !closed ? (
-          <div className="flex justify-between gap-4">
-            <dt className="text-ink/70">Preorder closes</dt>
-            <dd className="text-ink">{selected.closesAtLabel}</dd>
-          </div>
-        ) : null}
+      {/* The window is the thing a preorder shopper is actually deciding
+          about, so it is shown ticking rather than as a date to work out. */}
+      {selected.closesAtIso && !closed ? (
+        <div className="border-y border-blue-300 py-4">
+          <Countdown closesAt={selected.closesAtIso} />
+        </div>
+      ) : null}
+
+      <dl className="flex flex-col gap-2 border-b border-blue-300 pb-4 text-meta">
         {arrival ? (
           <div className="flex justify-between gap-4">
             <dt className="text-ink/70">Expected arrival</dt>
@@ -199,17 +233,18 @@ export function VariantPicker({ variants }: { variants: PickerVariant[] }) {
           />
         </div>
 
-        <Button
-          type="button"
-          disabled={Boolean(unavailableReason) || pending}
-          onClick={() => addToCart(selected.id)}
-        >
-          {unavailableReason
-            ? "Unavailable"
-            : pending
-              ? "Adding…"
-              : "Add to cart"}
-        </Button>
+        {/* Wrapped rather than given a `hidden` class: the Button's own
+            `inline-flex` sits later in the stylesheet and would win. */}
+        <div className="hidden lg:block">
+          <Button
+            type="button"
+            className="transition-transform duration-100 active:scale-[0.98]"
+            disabled={Boolean(unavailableReason) || pending}
+            onClick={() => addToCart(selected.id)}
+          >
+            {buyLabel}
+          </Button>
+        </div>
       </div>
 
       {/* States why, rather than leaving a disabled button unexplained. */}
@@ -222,7 +257,7 @@ export function VariantPicker({ variants }: { variants: PickerVariant[] }) {
         ) : error ? (
           <p className="text-meta text-stamp-red-text">{error}</p>
         ) : message ? (
-          <p className="text-meta text-transit-green-text">
+          <p className="animate-rise text-meta text-transit-green-text">
             {message}{" "}
             <a href="/cart" className="underline">
               View cart

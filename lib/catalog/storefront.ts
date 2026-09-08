@@ -35,6 +35,8 @@ export type ProductCard = {
   /** Null when uncapped, 0 when full. */
   remainingCapacity: number | null;
   closesAt: Date | null;
+  /** The preorder window shuts within three days. Decided in SQL. */
+  closingSoon: boolean;
   arrivesFrom: Date | null;
   arrivesTo: Date | null;
   ratingAverage: number | null;
@@ -71,6 +73,7 @@ async function toCards(rows: ProductRow[]): Promise<ProductCard[]> {
       fulfillmentMode: aggregate?.fulfillmentMode ?? null,
       remainingCapacity: aggregate?.remainingCapacity ?? null,
       closesAt: aggregate?.closesAt ?? null,
+      closingSoon: aggregate?.closingSoon ?? false,
       arrivesFrom: aggregate?.arrivesFrom ?? null,
       arrivesTo: aggregate?.arrivesTo ?? null,
       ratingAverage: aggregate?.ratingAverage ?? null,

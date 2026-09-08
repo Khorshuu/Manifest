@@ -1,7 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img" aria-label="Placeholder product photograph">
-  <rect width="600" height="600" fill="#F2F7FF"/>
-  <rect x="120" y="180" width="360" height="260" fill="#DCE9FF" stroke="#BBD3FF" stroke-width="2"/>
-  <path d="M120 250h360" stroke="#8AB4FF" stroke-width="2"/>
-  <rect x="270" y="180" width="60" height="260" fill="#F0A631" opacity="0.35"/>
-  <text x="300" y="500" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" fill="#8AB4FF">Product photography</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f9fc"/>
+      <stop offset="100%" stop-color="#dce9ff"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.92" r="0.55">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <ellipse cx="300" cy="512" rx="190" ry="26" fill="url(#pool)"/>
+
+  <path d="M160 300h280v180H160z" fill="#c2413a"/>
+  <path d="M160 300h90v180h-90z" fill="#ffffff" fill-opacity="0.08"/>
+  <path d="M150 262h300l-14 44H164z" fill="#f0a631"/>
+  <rect x="206" y="336" width="188" height="104" fill="#f7f9fc"/>
+  <text x="300" y="386" text-anchor="middle" font-family="Georgia, serif" font-size="32" fill="#12233f">Variety</text>
+  <text x="300" y="416" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="14" letter-spacing="3" fill="#12233f" fill-opacity="0.6">SEASONAL BOX</text>
+  <path d="M300 262v-40" stroke="#12233f" stroke-opacity="0.4" stroke-width="4"/>
 </svg>

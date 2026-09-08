@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ProductArt } from "./product-art";
 import { StatusBadge } from "./status-badge";
 import { formatBdt } from "@/lib/money";
 import { formatArrivalWindow } from "@/lib/format";
@@ -21,12 +22,16 @@ export function ProductCard({ product }: { product: ProductCardData }) {
   const soldOut =
     product.remainingCapacity !== null && product.remainingCapacity <= 0;
 
+  // The database decides whether the window is closing soon, so every card
+  // agrees and nothing is computed against a clock that differs per process.
+  const closingSoon = !soldOut && product.closingSoon;
+
   return (
     <Link
       href={`/products/${product.slug}`}
-      className="group flex flex-col gap-3 rounded-card border border-blue-300 bg-paper p-3 transition-colors duration-100 hover:border-blue-500"
+      className="media-zoom group flex flex-col gap-3 rounded-card border border-blue-300 bg-paper p-3 transition-colors duration-150 hover:border-ink"
     >
-      <div className="aspect-square w-full overflow-hidden rounded-card bg-blue-50">
+      <div className="relative aspect-square w-full overflow-hidden rounded-card bg-blue-50">
         {product.imageUrl ? (
           /* Seed images are local placeholders; real media moves to
              next/image once the storage integration lands. */
@@ -39,13 +44,20 @@ export function ProductCard({ product }: { product: ProductCardData }) {
             className="size-full object-cover"
           />
         ) : (
-          <div
-            aria-hidden="true"
-            className="flex size-full items-center justify-center text-meta text-blue-600"
-          >
-            No photo yet
-          </div>
+          <ProductArt
+            title={product.title}
+            seed={product.slug}
+            className="size-full"
+          />
         )}
+
+        {/* Only when the window really is close: urgency invented is urgency
+            nobody believes the second time. */}
+        {closingSoon ? (
+          <span className="animate-fade-in absolute left-2 top-2 rounded-card border border-stamp-red bg-paper px-2 py-1 text-meta text-stamp-red-text">
+            Closing soon
+          </span>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2">

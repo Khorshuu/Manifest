@@ -53,7 +53,17 @@ export async function SiteHeader() {
             {user ? "Account" : "Sign in"}
           </Link>
           <Link href="/cart" className="hover:underline">
-            Cart{cartCount > 0 ? ` (${cartCount})` : ""}
+            Cart
+            {cartCount > 0 ? (
+              /* Keyed on the count so it stamps each time it changes —
+                 the confirmation that an item really landed. */
+              <span
+                key={cartCount}
+                className="animate-stamp ml-1 inline-flex min-w-5 items-center justify-center rounded-card border border-paper px-1 tabular-nums"
+              >
+                {cartCount}
+              </span>
+            ) : null}
           </Link>
         </div>
       </div>

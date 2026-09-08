@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f9fc"/>
+      <stop offset="100%" stop-color="#f6ead9"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.92" r="0.55">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <ellipse cx="300" cy="512" rx="190" ry="26" fill="url(#pool)"/>
+
+  <path d="M215 220h170v260a20 20 0 0 1-20 20H235a20 20 0 0 1-20-20z" fill="#8a5a2b"/>
+  <path d="M215 220h60v280h-40a20 20 0 0 1-20-20z" fill="#ffffff" fill-opacity="0.10"/>
+  <path d="M385 300h34a30 30 0 0 1 0 60h-34" fill="none" stroke="#8a5a2b" stroke-width="22"/>
+  <rect x="262" y="176" width="76" height="46" fill="#8a5a2b"/>
+  <rect x="254" y="160" width="92" height="20" rx="4" fill="#12233f"/>
+  <rect x="240" y="300" width="120" height="120" fill="#f7f9fc"/>
+  <text x="300" y="352" text-anchor="middle" font-family="Georgia, serif" font-size="30" fill="#12233f">Syrup</text>
+  <text x="300" y="384" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="14" letter-spacing="2" fill="#12233f" fill-opacity="0.6">PURE GRADE A</text>
+</svg>

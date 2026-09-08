@@ -22,6 +22,8 @@ export type CardAggregate = {
   fulfillmentMode: string | null;
   remainingCapacity: number | null;
   closesAt: Date | null;
+  /** The preorder window shuts within three days. Decided in SQL. */
+  closingSoon: boolean;
   arrivesFrom: Date | null;
   arrivesTo: Date | null;
   ratingAverage: number | null;
@@ -35,6 +37,7 @@ const EMPTY: CardAggregate = {
   fulfillmentMode: null,
   remainingCapacity: null,
   closesAt: null,
+  closingSoon: false,
   arrivesFrom: null,
   arrivesTo: null,
   ratingAverage: null,
@@ -76,6 +79,13 @@ export async function loadCardAggregates(
         greatest(0, ${productVariants.preorderCapacity} - ${productVariants.preorderReserved})
       )::int`,
       closesAt: sql<Date | null>`max(${productVariants.preorderClosesAt})`,
+      /* Whether the window shuts within three days, decided by the database so
+         there is one clock for the whole system — the same reason
+         getPublicVariants computes isClosed in SQL. */
+      closingSoon: sql<boolean>`bool_or(
+        ${productVariants.preorderClosesAt} > now()
+        and ${productVariants.preorderClosesAt} < now() + interval '3 days'
+      )`,
       arrivesFrom: sql<Date | null>`min(${productVariants.estimatedArrivalFrom})`,
       arrivesTo: sql<Date | null>`max(${productVariants.estimatedArrivalTo})`,
       anyPreorder: sql<boolean>`bool_or(${productVariants.fulfillmentMode} = 'preorder')`,
@@ -98,6 +108,7 @@ export async function loadCardAggregates(
     entry.remainingCapacity =
       variant.remaining === null ? null : Number(variant.remaining);
     entry.closesAt = variant.closesAt ? new Date(variant.closesAt) : null;
+    entry.closingSoon = Boolean(variant.closingSoon);
     entry.arrivesFrom = variant.arrivesFrom
       ? new Date(variant.arrivesFrom)
       : null;

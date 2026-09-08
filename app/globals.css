@@ -7,6 +7,8 @@
 @theme {
   /* Color */
   --color-ink: #12233f;
+  /* One step below ink: the face of the split-flap against a dark ground. */
+  --color-ink-deep: #0a1526;
   /* 5.17:1 on white and 4.81:1 on paper-raised — the previous #2f6fed passed
      on white by 0.05 and failed on any tinted ground (axe, e2e/accessibility). */
   --color-blue-600: #2563eb;
@@ -67,6 +69,124 @@ body {
   outline-offset: 2px;
 }
 
+/*
+ * Motion.
+ *
+ * Everything here is CSS: no motion library, so the JavaScript budget in
+ * PROGRESS.md is untouched by any of it. Durations stay short — the point is
+ * for the page to feel responsive, not to make anyone wait for an effect.
+ *
+ * Every one of these is switched off by the reduced-motion block at the end of
+ * this file, which is not decoration: for some people this movement causes
+ * actual nausea.
+ */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/*
+ * The split-flap. The top half tips forward and the new figure settles — the
+ * mechanical movement of a departure board, which is the one loud moment the
+ * design spends its boldness on.
+ */
+@keyframes flap {
+  0% {
+    transform: translateY(-52%) scaleY(0.55);
+    opacity: 0.35;
+  }
+  55% {
+    transform: translateY(6%) scaleY(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.animate-flap {
+  animation: flap 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: center top;
+}
+
+/* The stamp the design brief asks for when an order status advances. */
+@keyframes stamp {
+  0% {
+    opacity: 0;
+    transform: scale(1.15);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-brass) 60%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.animate-rise {
+  animation: rise 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-fade-in {
+  animation: fade-in 240ms ease-out both;
+}
+
+.animate-stamp {
+  animation: stamp 200ms ease-out both;
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 900ms ease-out;
+}
+
+/*
+ * Product imagery under the pointer. Kept: it answers where the pointer is,
+ * on the one element a shopper is actually inspecting. A fade-and-rise on
+ * every section and a lift on every card were removed — that combination is
+ * the generic default, and it made every part of the page equally busy.
+ */
+.media-zoom img,
+.media-zoom svg {
+  transition: transform 500ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.media-zoom:hover img,
+.media-zoom:hover svg,
+.media-zoom:focus-within img,
+.media-zoom:focus-within svg {
+  transform: scale(1.03);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -74,5 +194,13 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .media-zoom:hover img,
+  .media-zoom:hover svg,
+  .media-zoom:focus-within img,
+  .media-zoom:focus-within svg {
+    transform: none;
   }
 }

@@ -92,10 +92,20 @@ describe("seed", () => {
   });
 
   it("is re-runnable without duplicating data", async () => {
-    await seed(db);
-    const result = await client.query<{ count: string }>(
+    const before = await client.query<{ count: string }>(
       `select count(*)::text as count from products`,
     );
-    expect(result.rows[0].count).toBe("2");
+
+    await seed(db);
+
+    const after = await client.query<{ count: string }>(
+      `select count(*)::text as count from products`,
+    );
+
+    // The count is read rather than hardcoded: the catalogue grows, and a test
+    // that pins the number fails on every product added rather than on the
+    // duplication it exists to catch.
+    expect(after.rows[0].count).toBe(before.rows[0].count);
+    expect(Number(after.rows[0].count)).toBeGreaterThan(1);
   }, 60_000);
 });

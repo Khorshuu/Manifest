@@ -1,7 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img" aria-label="Placeholder product photograph">
-  <rect width="600" height="600" fill="#F2F7FF"/>
-  <path d="M170 330v-30a130 130 0 0 1 260 0v30" fill="none" stroke="#8AB4FF" stroke-width="10"/>
-  <rect x="140" y="320" width="70" height="120" rx="6" fill="#DCE9FF" stroke="#BBD3FF" stroke-width="2"/>
-  <rect x="390" y="320" width="70" height="120" rx="6" fill="#DCE9FF" stroke="#BBD3FF" stroke-width="2"/>
-  <text x="300" y="510" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" fill="#8AB4FF">Product photography</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f9fc"/>
+      <stop offset="100%" stop-color="#dce9ff"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.92" r="0.55">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <ellipse cx="300" cy="512" rx="190" ry="26" fill="url(#pool)"/>
+
+  <path d="M170 330a130 130 0 0 1 260 0" fill="none" stroke="#1f2a38" stroke-width="26" stroke-linecap="round"/>
+  <path d="M186 330a114 114 0 0 1 228 0" fill="none" stroke="#f7f9fc" stroke-opacity="0.35" stroke-width="8"/>
+  <g transform="translate(176 0)">
+      <rect x="-42" y="320" width="84" height="140" rx="26" fill="#1f2a38"/>
+      <rect x="-30" y="336" width="60" height="108" rx="20" fill="#39485c"/>
+      <rect x="-14" y="300" width="28" height="34" rx="8" fill="#12233f"/>
+    </g><g transform="translate(424 0)">
+      <rect x="-42" y="320" width="84" height="140" rx="26" fill="#1f2a38"/>
+      <rect x="-30" y="336" width="60" height="108" rx="20" fill="#39485c"/>
+      <rect x="-14" y="300" width="28" height="34" rx="8" fill="#12233f"/>
+    </g>
+  <path d="M176 460v34h56" fill="none" stroke="#12233f" stroke-opacity="0.6" stroke-width="5"/>
 </svg>

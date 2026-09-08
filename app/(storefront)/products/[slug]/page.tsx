@@ -20,6 +20,8 @@ import {
   hasReviewed,
   listApprovedReviews,
 } from "@/lib/reviews";
+import { Gallery } from "./gallery";
+import { Journey } from "@/components/journey";
 import { ReviewsSection } from "./reviews-section";
 import { VariantPicker, type PickerVariant } from "./variant-picker";
 
@@ -84,6 +86,9 @@ export default async function ProductPage({
     isClosed: Boolean(variant.isClosed),
     closesAtLabel: variant.preorderClosesAt
       ? formatDate(variant.preorderClosesAt)
+      : null,
+    closesAtIso: variant.preorderClosesAt
+      ? variant.preorderClosesAt.toISOString()
       : null,
     arrivalLabel: formatArrivalWindow(
       variant.estimatedArrivalFrom,
@@ -167,43 +172,17 @@ export default async function ProductPage({
       </nav>
 
       <div className="mt-6 grid gap-10 lg:grid-cols-2">
-        <div className="flex flex-col gap-4">
-          <div className="aspect-square w-full overflow-hidden rounded-card border border-blue-300 bg-blue-50">
-            {product.images[0] ? (
-              /* Placeholder media until the storage integration lands. */
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={product.images[0].url}
-                alt={product.images[0].altText}
-                className="size-full object-cover"
-              />
-            ) : (
-              <div
-                aria-hidden="true"
-                className="flex size-full items-center justify-center text-meta text-blue-600"
-              >
-                No photo yet
-              </div>
-            )}
-          </div>
+        <Gallery
+          title={product.title}
+          slug={product.slug}
+          images={product.images.map((image) => ({
+            id: image.id,
+            url: image.url,
+            altText: image.altText,
+          }))}
+        />
 
-          {product.images.length > 1 ? (
-            <ul className="flex flex-wrap gap-3">
-              {product.images.slice(1).map((image) => (
-                <li key={image.id}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={image.url}
-                    alt={image.altText}
-                    className="size-20 rounded-card border border-blue-300 object-cover"
-                  />
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:self-start">
           <div>
             {product.brand ? (
               <p className="text-meta text-ink/70">{product.brand}</p>
@@ -217,8 +196,15 @@ export default async function ProductPage({
         </div>
       </div>
 
+      <Journey
+        closesAt={variants[0]?.preorderClosesAt ?? null}
+        arrivesFrom={variants[0]?.estimatedArrivalFrom ?? null}
+        arrivesTo={variants[0]?.estimatedArrivalTo ?? null}
+      />
+
+      <div className="mt-12 grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:items-start">
       {bullets.length > 0 ? (
-        <section className="mt-12 max-w-[70ch]">
+        <section className="max-w-[62ch]">
           <h2 className="font-display text-h2 text-ink">What you get</h2>
           <ul className="mt-4 flex flex-col gap-2">
             {bullets.map((bullet) => (
@@ -231,7 +217,7 @@ export default async function ProductPage({
       ) : null}
 
       {product.descriptionHtml ? (
-        <section className="mt-10 max-w-[70ch]">
+        <section className="max-w-[62ch]">
           <h2 className="font-display text-h2 text-ink">Description</h2>
           <div
             className="mt-4 text-body text-ink/80"
@@ -242,10 +228,10 @@ export default async function ProductPage({
       ) : null}
 
       {specs.length > 0 ? (
-        <section className="mt-10">
+        <section className="lg:sticky lg:top-6">
           <h2 className="font-display text-h2 text-ink">Specifications</h2>
           {/* The manifest table, reused from the admin side */}
-          <div className="mt-4 max-w-[640px] overflow-x-auto border border-blue-300">
+          <div className="mt-4 max-w-[640px] overflow-x-auto border border-ink/15">
             <table className="w-full border-collapse text-body">
               <tbody>
                 {specs.map((spec, index) => (
@@ -269,6 +255,8 @@ export default async function ProductPage({
           </div>
         </section>
       ) : null}
+
+      </div>
 
       <ReviewsSection
         productId={product.id}

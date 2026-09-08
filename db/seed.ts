@@ -276,6 +276,319 @@ export async function seed(db: SeedDatabase) {
     })),
   ]);
 
+  /**
+   * A wider catalogue.
+   *
+   * Two products made every listing page look like a shop that had not opened
+   * yet, which is a design problem no amount of layout fixes. These carry real
+   * prices, real windows and real capacity, so every figure on the site stays
+   * a figure from the database.
+   */
+  console.log("Seeding the wider catalogue...");
+
+  const catalogue = [
+    {
+      title: "Maple Pecan Coffee Beans",
+      brand: "Cascade Roasters",
+      categoryId: snacks.id,
+      taka: 2400,
+      weight: 500,
+      days: 9,
+      summary:
+        "A medium roast finished with maple and toasted pecan, roasted in Oregon and shipped whole bean so it is still fresh when it lands.",
+      bullets: [
+        "Roasted to order, never sitting in a warehouse",
+        "Whole bean, 500g, valve-sealed",
+        "Tasting notes: maple, pecan, brown sugar",
+      ],
+      specs: [
+        ["Roast", "Medium"],
+        ["Form", "Whole bean"],
+        ["Net weight", "500 g"],
+        ["Origin", "Oregon, United States"],
+      ],
+    },
+    {
+      title: "Sour Cherry Gummy Tin",
+      brand: "Hometown Confectionery",
+      categoryId: candy.id,
+      taka: 1250,
+      weight: 400,
+      days: 2,
+      summary:
+        "Sharp sour cherry gummies in a collectible tin. A small seasonal run that sells out quickly in the United States.",
+      bullets: [
+        "Real fruit juice, no artificial colour",
+        "Reusable steel tin",
+        "Limited seasonal production",
+      ],
+      specs: [
+        ["Net weight", "400 g"],
+        ["Packaging", "Steel tin"],
+        ["Allergens", "None declared"],
+      ],
+    },
+    {
+      title: "Dark Chocolate Sea Salt Bars",
+      brand: "Ridgeline Cocoa",
+      categoryId: candy.id,
+      taka: 1650,
+      weight: 350,
+      days: 21,
+      summary:
+        "Three 72% cacao bars finished with flaked sea salt, made in small batches from single-origin beans.",
+      bullets: [
+        "72% cacao, single origin",
+        "Three bars per pack",
+        "Flaked sea salt finish",
+      ],
+      specs: [
+        ["Cacao", "72%"],
+        ["Bars", "3 × 100 g"],
+        ["Storage", "Cool and dry"],
+      ],
+    },
+    {
+      title: "Small-Batch Hot Sauce Trio",
+      brand: "Delta Pepper Co.",
+      categoryId: snacks.id,
+      taka: 2150,
+      weight: 900,
+      days: 12,
+      summary:
+        "Three bottles across the heat range — smoked chipotle, habanero lime, and a ghost pepper for people who mean it.",
+      bullets: [
+        "Three 150ml bottles",
+        "Fermented, not vinegar-forward",
+        "Mild, hot, and very hot",
+      ],
+      specs: [
+        ["Bottles", "3 × 150 ml"],
+        ["Heat", "Mild to very hot"],
+        ["Shelf life", "18 months unopened"],
+      ],
+    },
+    {
+      title: "Vermont Pancake Syrup",
+      brand: "Northfield Supply",
+      categoryId: snacks.id,
+      taka: 1950,
+      weight: 750,
+      days: 30,
+      summary:
+        "Grade A amber maple syrup from a single Vermont sugarhouse. Nothing added, nothing blended.",
+      bullets: [
+        "100% pure maple syrup",
+        "Grade A, amber colour, rich taste",
+        "750ml glass jug",
+      ],
+      specs: [
+        ["Volume", "750 ml"],
+        ["Grade", "A — amber, rich"],
+        ["Origin", "Vermont, United States"],
+      ],
+    },
+    {
+      title: "Cold Brew Concentrate Case",
+      brand: "Cascade Roasters",
+      categoryId: snacks.id,
+      taka: 3400,
+      weight: 2000,
+      days: 6,
+      summary:
+        "Twelve cans of unsweetened cold brew concentrate. One can makes two long glasses over ice.",
+      bullets: [
+        "12 cans, unsweetened",
+        "Steeped 18 hours",
+        "Shelf stable until opened",
+      ],
+      specs: [
+        ["Cans", "12 × 250 ml"],
+        ["Sugar", "None"],
+        ["Caffeine", "180 mg per can"],
+      ],
+    },
+    {
+      title: "Wireless Earbuds, Second Edition",
+      brand: "Northlake Audio",
+      categoryId: headphones.id,
+      taka: 18500,
+      weight: 220,
+      days: 16,
+      summary:
+        "Active noise cancelling earbuds with a charging case, eight hours a charge, and a fit kit in four sizes.",
+      bullets: [
+        "Active noise cancelling",
+        "8 hours a charge, 32 with the case",
+        "Four ear tip sizes included",
+      ],
+      specs: [
+        ["Battery", "8 h buds, 32 h with case"],
+        ["Charging", "USB-C and wireless"],
+        ["Water rating", "IPX4"],
+      ],
+    },
+    {
+      title: "Portable DAC and Amplifier",
+      brand: "Northlake Audio",
+      categoryId: headphones.id,
+      taka: 24500,
+      weight: 180,
+      days: 25,
+      summary:
+        "A pocket amplifier that drives high-impedance headphones properly from a laptop or a phone.",
+      bullets: [
+        "Drives up to 300 ohm headphones",
+        "USB-C in, 3.5mm and 4.4mm out",
+        "Machined aluminium body",
+      ],
+      specs: [
+        ["Output", "3.5 mm and 4.4 mm balanced"],
+        ["Impedance", "16 – 300 ohm"],
+        ["Weight", "180 g"],
+      ],
+    },
+    {
+      title: "Desktop Studio Monitors, Pair",
+      brand: "Harbor Acoustics",
+      categoryId: headphones.id,
+      taka: 46500,
+      weight: 6000,
+      days: 11,
+      summary:
+        "Near-field monitors for a desk, sold as a matched pair. Flat response, no flattering bass lift.",
+      bullets: [
+        "Matched pair, near-field",
+        "4-inch woofer, silk dome tweeter",
+        "Balanced and unbalanced inputs",
+      ],
+      specs: [
+        ["Driver", "4 in woofer, 1 in tweeter"],
+        ["Response", "56 Hz – 22 kHz"],
+        ["Inputs", "XLR, TRS, RCA"],
+      ],
+    },
+    {
+      title: "Mechanical Keyboard, Tactile",
+      brand: "Foundry Peripherals",
+      categoryId: electronics.id,
+      taka: 15900,
+      weight: 1100,
+      days: 3,
+      summary:
+        "A 75% mechanical keyboard with tactile switches, a machined case, and keycaps that will not fade.",
+      bullets: [
+        "75% layout with arrow keys",
+        "Hot-swappable tactile switches",
+        "Double-shot PBT keycaps",
+      ],
+      specs: [
+        ["Layout", "75%"],
+        ["Switches", "Tactile, hot-swappable"],
+        ["Connection", "USB-C, detachable"],
+      ],
+    },
+    {
+      title: "Anodised Aluminium Desk Lamp",
+      brand: "Foundry Peripherals",
+      categoryId: electronics.id,
+      taka: 12750,
+      weight: 1400,
+      days: 19,
+      summary:
+        "A counterweighted desk lamp with adjustable colour temperature, in anodised aluminium rather than painted steel.",
+      bullets: [
+        "2700K to 5000K, stepless",
+        "Counterweighted arm, no springs to sag",
+        "Anodised aluminium",
+      ],
+      specs: [
+        ["Colour temperature", "2700 – 5000 K"],
+        ["Output", "800 lumens"],
+        ["Finish", "Anodised aluminium"],
+      ],
+    },
+    {
+      title: "Field Recorder, 32-bit Float",
+      brand: "Harbor Acoustics",
+      categoryId: electronics.id,
+      taka: 38900,
+      weight: 700,
+      days: 27,
+      summary:
+        "A handheld recorder that captures in 32-bit float, so a take that clips can still be recovered afterwards.",
+      bullets: [
+        "32-bit float recording",
+        "Detachable stereo microphone",
+        "Records to microSD, up to 1TB",
+      ],
+      specs: [
+        ["Format", "32-bit float WAV"],
+        ["Sample rate", "Up to 192 kHz"],
+        ["Power", "AA or USB-C"],
+      ],
+    },
+  ];
+
+  const extraProducts = await db
+    .insert(products)
+    .values(
+      catalogue.map((entry) => ({
+        categoryId: entry.categoryId,
+        title: entry.title,
+        slug: entry.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/(^-|-$)/g, ""),
+        brand: entry.brand,
+        descriptionHtml: `<p>${entry.summary}</p><p>Bought direct from an American retailer and shipped to Bangladesh at a fixed landed price — freight and customs duty are already inside the figure you see.</p>`,
+        bulletFeatures: entry.bullets,
+        specTable: entry.specs.map(([label, value]) => ({ label, value })),
+        seoMetaTitle: `${entry.title} — preorder from the US`,
+        seoMetaDescription: entry.summary,
+        status: "preorder_open" as const,
+      })),
+    )
+    .returning();
+
+  await db.insert(productImages).values(
+    extraProducts.map((product) => ({
+      productId: product.id,
+      url: `/seed/${product.slug}.svg`,
+      altText: `${product.title}, product illustration`,
+      sortOrder: 0,
+    })),
+  );
+
+  await db.insert(productVariants).values(
+    extraProducts.map((product, index) => {
+      const entry = catalogue[index];
+      const capacity = 20 + ((index * 7) % 40);
+
+      return {
+        productId: product.id,
+        sku: `${product.slug.toUpperCase().slice(0, 18)}-1`,
+        priceBdt: taka(entry.taka),
+        // Roughly two thirds of the landed price, which is what a real
+        // sourcing cost looks like once freight and duty are inside.
+        costPriceUsd: Math.round((entry.taka * 0.55) / 120) * 100,
+        weightGrams: entry.weight,
+        fulfillmentMode: "preorder" as const,
+        preorderCapacity: capacity,
+        // Varied, so the listings show a spread rather than one number.
+        preorderReserved: Math.min(capacity, (index * 5) % capacity),
+        preorderClosesAt: new Date(Date.now() + entry.days * 24 * 60 * 60 * 1000),
+        estimatedArrivalFrom: new Date(
+          Date.now() + (entry.days + 21) * 24 * 60 * 60 * 1000,
+        ),
+        estimatedArrivalTo: new Date(
+          Date.now() + (entry.days + 35) * 24 * 60 * 60 * 1000,
+        ),
+        paymentMode: "full" as const,
+      };
+    }),
+  );
+
   console.log("Seeding site settings...");
   await db.insert(siteSettings).values([
     {
@@ -297,7 +610,7 @@ export async function seed(db: SeedDatabase) {
       `  users              3 (${superAdmin.email} / ${staffAdmin.email} / ${customer.email}, password: password123)`,
       "  categories         6 (3 levels deep)",
       "  attributes         2 with 4 values",
-      "  products           2, both preorder_open",
+      `  products           ${2 + catalogue.length}, all preorder_open`,
       `  variants           ${candyVariants.length + headphoneVariants.length} (one is deliberately at full capacity, to exercise the waitlist path)`,
       "",
     ].join("\n"),
