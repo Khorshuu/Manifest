@@ -64,9 +64,12 @@ export const addresses = pgTable(
   "addresses",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id),
+    /**
+     * Null for a guest checkout address. Guests complete checkout without an
+     * account (MASTER_PRODUCT_SPEC.md section 5.5), and their order still has
+     * to record where it is going.
+     */
+    userId: uuid("user_id").references(() => users.id),
     label: text("label"),
     recipientName: text("recipient_name").notNull(),
     phone: text("phone").notNull(),

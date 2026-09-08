@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { StatusBadge } from "@/components/status-badge";
@@ -28,8 +29,36 @@ export type PickerVariant = {
  * are buying, how much is due now, and when it should arrive.
  */
 export function VariantPicker({ variants }: { variants: PickerVariant[] }) {
+  const router = useRouter();
   const [selectedId, setSelectedId] = useState(variants[0]?.id ?? "");
   const [quantity, setQuantity] = useState(1);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function addToCart(variantId: string) {
+    setPending(true);
+    setError(null);
+    setMessage(null);
+
+    const response = await fetch("/api/cart", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      // Identifier and quantity only — the server prices it.
+      body: JSON.stringify({ variantId, quantity }),
+    });
+
+    const body = await response.json().catch(() => ({}));
+    setPending(false);
+
+    if (!response.ok) {
+      setError(body.error ?? "Something went wrong. Try again.");
+      return;
+    }
+
+    setMessage("Added to your cart.");
+    router.refresh();
+  }
 
   const selected = variants.find((v) => v.id === selectedId) ?? variants[0];
 
@@ -170,8 +199,16 @@ export function VariantPicker({ variants }: { variants: PickerVariant[] }) {
           />
         </div>
 
-        <Button type="button" disabled={Boolean(unavailableReason)}>
-          {unavailableReason ? "Unavailable" : "Add to cart"}
+        <Button
+          type="button"
+          disabled={Boolean(unavailableReason) || pending}
+          onClick={() => addToCart(selected.id)}
+        >
+          {unavailableReason
+            ? "Unavailable"
+            : pending
+              ? "Adding…"
+              : "Add to cart"}
         </Button>
       </div>
 
@@ -182,11 +219,16 @@ export function VariantPicker({ variants }: { variants: PickerVariant[] }) {
             {unavailableReason} Join the waitlist and we will tell you when the
             next batch opens.
           </p>
-        ) : (
-          <p className="text-meta text-ink/70">
-            Cart and checkout arrive in the next phase.
+        ) : error ? (
+          <p className="text-meta text-stamp-red">{error}</p>
+        ) : message ? (
+          <p className="text-meta text-transit-green">
+            {message}{" "}
+            <a href="/cart" className="underline">
+              View cart
+            </a>
           </p>
-        )}
+        ) : null}
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { getCategoryTree } from "@/lib/catalog";
 import { getCurrentUser, isStaff } from "@/lib/auth";
+import { countCartItems } from "@/lib/cart";
+import { findCartId } from "@/lib/cart/session";
 
 /**
  * The one place the brand blue is allowed to dominate — it anchors the
@@ -8,7 +10,12 @@ import { getCurrentUser, isStaff } from "@/lib/auth";
  * rest of the page (docs/DESIGN_GUIDELINES.md).
  */
 export async function SiteHeader() {
-  const [tree, user] = await Promise.all([getCategoryTree(), getCurrentUser()]);
+  const [tree, user, cartId] = await Promise.all([
+    getCategoryTree(),
+    getCurrentUser(),
+    findCartId(),
+  ]);
+  const cartCount = cartId ? await countCartItems(cartId) : 0;
   const topLevel = tree.slice(0, 5);
 
   return (
@@ -54,6 +61,9 @@ export async function SiteHeader() {
           ) : null}
           <Link href={user ? "/account" : "/login"} className="hover:underline">
             {user ? "Account" : "Sign in"}
+          </Link>
+          <Link href="/cart" className="hover:underline">
+            Cart{cartCount > 0 ? ` (${cartCount})` : ""}
           </Link>
         </div>
       </div>

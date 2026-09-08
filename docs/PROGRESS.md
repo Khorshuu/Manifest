@@ -20,7 +20,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[x]` **Phase 5 — Variation engine.** Cartesian combination generation with a 500-variant guard, idempotent regeneration that never disturbs existing variants, per-combination enable/disable, bulk edit, and the admin variant matrix. Verified — see Phase 5 baseline below.
 - `[~]` **Phase 6 — Inventory & preorder engine.** Locked-transaction capacity reservation and release, availability evaluation, waitlist, and the preorder window lifecycle (open, close, extend). Verified — see Phase 6 baseline below. Admin UI for the window controls is carried forward.
 - `[~]` **Phase 7 — Storefront.** Home page with the Import Manifest signature patterns, category listings with subtree inclusion and sorting, product detail with variant selection and the landed-price panel, search, and related products. Verified — see Phase 7 baseline below. Faceted filtering and the reviews UI are carried forward.
-- `[ ]` **Phase 8 — Cart & checkout.** Cart persistence, address, payment method selection (mock provider), idempotent order placement.
+- `[x]` **Phase 8 — Cart & checkout.** Cart persisted by cookie or account with guest-cart merge on login, live-priced totals, a checkout that computes every amount server-side, idempotent order placement, the mock payment provider, order confirmation, and guest order tracking. Verified — see Phase 8 baseline below.
 - `[ ]` **Phase 9 — Orders.** Customer order history/tracking, admin order pipeline, status transitions, refunds.
 - `[ ]` **Phase 10 — Shipping.** Tracking abstraction (mock), manual tracking updates from admin.
 - `[ ]` **Phase 11 — Admin ops.** Dashboard metrics, staff/role management, CSV export, audit log viewer.
@@ -167,6 +167,33 @@ Carried forward from this phase:
 - `[ ]` The reviews list and rating distribution on the product page — the data model and aggregates exist, the UI does not.
 - `[ ]` Search autosuggest and suggested corrections on a miss. Fuzzy matching is deferred by MASTER_PRODUCT_SPEC.md section 7, but the suggestion behaviour it does ask for is not built.
 - `[ ]` `next/image` for product media once the storage integration lands. Plain image tags with explicit dimensions are used meanwhile.
+
+## Verification baseline (end of Phase 8)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 201 tests, 17 files |
+| `npm run test:e2e` | `[x]` passes — 92 tests, mobile and desktop |
+| Guest completes a purchase | `[x]` verified in a browser, end to end, including the confirmation page and the order number |
+| Duplicate submission | `[x]` verified: replaying the exact checkout payload returns the original order, and neither a second order nor a second payment row is created |
+| Server prices the order | `[x]` verified two ways: the checkout request body carries only `address`, `email`, `idempotencyKey` and `method`, and a request carrying a `totalBdt` is rejected outright |
+| Capacity is atomic with the order | `[x]` verified: when placement fails partway, no slot stays reserved and no order exists |
+| Cash on delivery on a preorder | `[x]` refused, and the option is not offered |
+| Guest order lookup | `[x]` needs the order number *and* the email; the number alone finds nothing |
+
+### A schema gap the spec had already ruled on
+
+`addresses.user_id` was `not null`, which makes guest checkout impossible — but MASTER_PRODUCT_SPEC.md section 5.5 says guests complete checkout without an account. Fixed by migration `0002_guest_addresses`, which drops the constraint. A guest address is stored with no owner; when the shopper is signed in it is attached to their account so it can be reused.
+
+Carried forward from this phase:
+
+- `[ ]` The balance payment for a deposit order. `DATABASE.md` still records the open question of whether it is triggered automatically or by staff, so only the deposit is taken at placement today.
+- `[ ]` Shipping fees and customs duty as separate computed lines. Both are currently folded into the variant price, which matches the "one landed price" promise but leaves `orders.shipping_fee_bdt` always zero.
+- `[ ]` Confirmation email and SMS. The notification provider interface is declared but has no implementation, so nothing is sent.
+- `[ ]` A real payment gateway. The mock provider is idempotent and can be made to decline, and SSLCommerz slots in behind the same interface.
 
 ## Open items carried from other docs
 

@@ -15,6 +15,13 @@
       "when": 1788827148432,
       "tag": "0001_session_id_is_token_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788860385667,
+      "tag": "0002_guest_addresses",
+      "breakpoints": true
     }
   ]
 }
