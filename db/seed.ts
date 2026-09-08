@@ -229,7 +229,10 @@ export async function seed(db: SeedDatabase) {
         costPriceUsd: 1200,
         weightGrams: 680,
         fulfillmentMode: "preorder" as const,
-        preorderCapacity: 40,
+        // Deliberately ample. The end-to-end suite buys from this product
+        // repeatedly, and a tight capacity would have it selling out mid-run —
+        // the sold-out path is covered by the headphones instead.
+        preorderCapacity: 500,
         preorderReserved: i === 0 ? 12 : 0,
         preorderClosesAt: closesAt,
         estimatedArrivalFrom: arrivalFrom,
