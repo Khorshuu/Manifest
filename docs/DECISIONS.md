@@ -4,6 +4,16 @@ Architecture decision log. One entry per meaningful choice, newest first. Each e
 
 ---
 
+## D-009: Notifications go through a transactional outbox, not a direct send
+
+**Decision:** An order event writes a row to `notifications` inside the same transaction as the change that caused it. Delivery is a separate step (`deliverQueuedNotifications`) that reads queued rows and calls the provider. Each row carries a `dedupe_key` of `order:<order id>:<status>` under a unique constraint.
+
+**Alternatives considered:** calling the email provider directly from `advanceOrder` and friends, which is simpler and was the obvious first move.
+
+**Why:** A direct send sits inside the transaction or just outside it, and both are wrong in a way a customer notices. Inside, a slow or failing provider holds a row lock on an order — and on the preorder capacity it touches. Outside, a crash between commit and send loses the message with no record that it was owed. The outbox makes the message part of the same commit as the fact it describes, and leaves a queued row to retry when delivery fails. The dedupe key is what makes a replayed payment webhook stop at the database rather than at a customer's inbox, which is the idempotency rule in CLAUDE.md section 7 applied to messages rather than to money.
+
+**Cost:** a message is not delivered by the act of queueing it. Something has to drain the outbox — today the request that queued it does so in the background, and staff can drain it by hand from `/admin/notifications`. A scheduled drain is the obvious next step once there is a real provider.
+
 ## D-008: PGlite used to verify migrations and seed data in tests
 
 **Decision:** `tests/schema.test.ts` and `tests/seed.test.ts` apply the checked-in migration to PGlite (Postgres compiled to WASM, running in-process) and run the real seed against it.

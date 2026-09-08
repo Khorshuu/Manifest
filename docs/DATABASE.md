@@ -257,6 +257,30 @@ site_settings
 
 `reviews.order_item_id` is what makes "verified/delivered purchase" checkable in a single join rather than a separate flag someone has to remember to set correctly. `audit_log` is append-only from application code — nothing ever updates or deletes a row in it — and is written to by every admin mutation named in MASTER_PRODUCT_SPEC.md §4 and §7 (price changes, capacity changes, and more broadly any create/edit/archive on `products`, `product_variants`, `orders`, `users`, `site_settings`).
 
+## Notifications
+
+```
+notifications
+  id                  uuid pk
+  order_id            uuid references orders(id)
+  user_id             uuid references users(id)
+  recipient           text not null              -- address or number as it was at send time
+  channel             text not null check (channel in ('email','sms'))
+  template            text not null              -- "order.payment_confirmed", ...
+  subject             text not null
+  body                text not null
+  status              text not null default 'queued' check (status in ('queued','sent','failed'))
+  dedupe_key          text not null unique       -- "order:<order id>:<status>"
+  provider_message_id text
+  error               text                       -- for staff; never shown to the customer
+  created_at          timestamptz not null default now()
+  sent_at             timestamptz
+```
+
+This is a transactional outbox (DECISIONS.md D-009). A row is written in the same transaction as the order change that caused it, so a message exists if and only if the change committed, and delivery is a separate step that can fail and be retried. `recipient`, `subject` and `body` are stored rather than re-derived at send time: what was said to a customer should not change because a template or an email address later did.
+
+`dedupe_key` is the idempotency guarantee. A replayed payment webhook produces the same key, the unique constraint refuses the second insert, and the customer is not told twice.
+
 ## Indexes worth calling out now
 
 - `product_variants (product_id)`, `(fulfillment_mode, preorder_closes_at)` for the storefront's "open preorders closing soon" queries.

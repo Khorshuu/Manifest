@@ -415,7 +415,7 @@ Carried forward, and honest about it:
 - `[x]` The product edit form — done after Phase 15. See the product editing baseline below.
 - `[ ]` The step wizard from MASTER_PRODUCT_SPEC.md section 4. Creating, editing, archiving and the variation matrix all exist, but as separate screens rather than one guided flow.
 - `[ ]` Faceted filtering, the reviews UI, and search autosuggest.
-- `[ ]` Notifications. The provider interface is declared but has no implementation, so no email or SMS is ever sent — including the order confirmation the spec asks for.
+- `[~]` Notifications. The outbox, the templates, and the admin screen exist and are tested — see the notifications baseline below. No email or SMS provider is connected, so nothing reaches a customer yet; the mock provider records the attempt and the admin screen says so on the page.
 - `[ ]` The balance payment for deposit orders, still blocked on the open question in DATABASE.md.
 - `[ ]` Shipping fees and duty as separate computed lines. Both are folded into the landed price, which matches the promise made to shoppers but leaves `orders.shipping_fee_bdt` always zero.
 - `[ ]` A real payment gateway and a real courier. Both sit behind interfaces with working mocks.
@@ -455,6 +455,26 @@ Two things worth recording, because both were found rather than foreseen:
 
 - `updateProduct` writes every column, so a field the form does not edit — `specTable`, `tags` — would be nulled on every save. The form carries those values back unchanged.
 - The inputs are uncontrolled, so archiving updated the server data without changing what the status select displayed. The form is keyed on `updatedAt` and remounts. The e2e test for this was confirmed to fail when the key is removed.
+
+## Order notifications (added after Phase 15)
+
+A transactional outbox (DECISIONS.md D-009), messages for every order status, and a staff screen at `/admin/notifications`.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm run build` | `[x]` passes |
+| `npm test` | `[x]` passes — 361 passed, 1 skipped, 25 files |
+| `npm run test:e2e` | `[x]` passes — 248 tests, mobile and desktop |
+| A message exists only for a committed order | `[x]` the row is written inside the order transaction, verified through `placeOrder` rather than by calling the queue directly |
+| A replayed webhook tells the customer once | `[x]` verified: three `confirmPayment` calls with the same reference produce one `order.payment_confirmed` row |
+| Staff wording stays with staff | `[x]` verified: a refund with the reason "Supplier failed us; goodwill refund" produces a message containing neither word |
+| A provider outage loses nothing | `[x]` verified: a throwing provider marks the row `failed` with the reason and does not fail the caller |
+| Only staff can read or drain the outbox | `[x]` verified in `lib/` and at the API — 403 for a customer, 401 anonymous |
+| Delivery is honest about itself | `[x]` the mock provider sends nothing, and the admin page says so above the list rather than implying customers were reached |
+
+Not done: no real email or SMS provider, and nothing drains the outbox on a schedule. Today the request that queues a message drains it in the background, and staff can drain it by hand. A scheduled drain belongs with the real provider.
 
 ## Open items carried from other docs
 

@@ -10,6 +10,10 @@ import {
   productVariants,
   products,
 } from "@/db/schema";
+import {
+  deliverQueuedNotificationsInBackground,
+  queueOrderNotification,
+} from "@/lib/notifications";
 import { reserveCapacity } from "@/lib/preorder";
 import {
   getPaymentProvider,
@@ -210,6 +214,10 @@ export async function placeOrder(
     // leave the shopper with both an order and the items still in their cart.
     await tx.delete(cartItems).where(eq(cartItems.cartId, input.cartId));
 
+    // Queued in the same transaction as the order: a message exists only for
+    // an order that was actually committed (lib/notifications).
+    await queueOrderNotification(tx, order.id, "placed");
+
     return order;
   });
 
@@ -234,6 +242,9 @@ export async function placeOrder(
     amountBdt: placed.amountDueNowBdt,
     status: intent.status === "failed" ? "failed" : "initiated",
   });
+
+  // Delivery is outside the transaction and cannot fail the order.
+  deliverQueuedNotificationsInBackground();
 
   return {
     orderId: placed.id,

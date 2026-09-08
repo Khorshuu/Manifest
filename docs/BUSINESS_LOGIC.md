@@ -22,6 +22,14 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - An order reaching `payment_confirmed` is the trigger that actually reserves preorder capacity and sends the confirmation notification — not `placed`, since a placed-but-unpaid order must not hold a slot indefinitely. An order that never reaches `payment_confirmed` within a short window is cancelled and its (not-yet-reserved) capacity needs no release.
 - Idempotency: order creation requires a client-supplied key, stored uniquely on `orders.idempotency_key`. A retried create with the same key returns the original order rather than raising a duplicate error to the caller — retries are expected (client timeout, double tap) and must be invisible to the shopper.
 
+## Notifications
+
+- Every status a customer's order reaches produces exactly one message, written to the `notifications` outbox in the same transaction as the status change (DECISIONS.md D-009). Placement, payment confirmation, each shipping stage, cancellation and refund are all covered.
+- A message goes to the account's email address, or to the guest email for a guest order. An order with neither queues nothing rather than failing the order.
+- A message is composed from the order number, the total, and the amount actually taken now. Nothing reads `orders.internal_notes`, a refund reason, or any sourcing cost: staff wording is written for staff, and a refund message says a refund was issued without repeating why.
+- Delivery is separate from queueing. A failed send marks the row `failed` with the reason and leaves it for staff on `/admin/notifications`; it never fails the order operation that queued it.
+- No email or SMS provider is connected. `MockNotificationProvider` records the attempt and sends nothing, and the admin screen says so on the page, so a `sent` row is not misread as proof a customer was told.
+
 ## Deposit vs full payment
 
 - A variant's `payment_mode` and `deposit_percent` determine `amount_due_now_bdt` at order placement: the full `total_bdt` for `payment_mode = 'full'`, or `deposit_percent` of it for `'deposit'`. This is computed once at order placement and stored, not recomputed later against a `total_bdt` that could theoretically change (it can't, since orders snapshot their totals).

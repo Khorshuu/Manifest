@@ -5,6 +5,10 @@ import {
   orders,
   payments,
 } from "@/db/schema";
+import {
+  deliverQueuedNotificationsInBackground,
+  queueOrderNotification,
+} from "@/lib/notifications";
 import { getPaymentProvider } from "@/lib/providers/payment";
 
 /**
@@ -73,7 +77,7 @@ export async function confirmPayment(
     throw new PaymentConfirmationError("That payment was declined.");
   }
 
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     // Guarded on the current status, so two concurrent confirmations cannot
     // both write the transition.
     const updated = await tx
@@ -108,10 +112,18 @@ export async function confirmPayment(
       actorUserId: null,
     });
 
+    // A replayed webhook reaches here at most once, because the payment update
+    // above is guarded; the dedupe key in the outbox is the second guard.
+    await queueOrderNotification(tx, payment.orderId, "payment_confirmed");
+
     return {
       orderId: payment.orderId,
       status: "payment_confirmed",
       alreadyConfirmed: false,
     };
   });
+
+  deliverQueuedNotificationsInBackground();
+
+  return result;
 }

@@ -10,6 +10,10 @@ import {
 import { recordAudit } from "@/lib/audit";
 import { requireStaff } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
+import {
+  deliverQueuedNotificationsInBackground,
+  queueOrderNotification,
+} from "@/lib/notifications";
 import { releaseCapacity } from "@/lib/preorder";
 import { getPaymentProvider } from "@/lib/providers/payment";
 
@@ -80,7 +84,7 @@ export async function advanceOrder(
 ) {
   const staff = requireStaff(actor);
 
-  return db.transaction(async (tx) => {
+  const moved = await db.transaction(async (tx) => {
     const [order] = await tx
       .select({ id: orders.id, status: orders.status })
       .from(orders)
@@ -133,8 +137,16 @@ export async function advanceOrder(
       tx,
     );
 
+    // Every stage of an import is worth telling someone about; the outbox row
+    // is written with the status change, not after it.
+    await queueOrderNotification(tx, orderId, to);
+
     return { orderId, status: to };
   });
+
+  deliverQueuedNotificationsInBackground();
+
+  return moved;
 }
 
 /**
@@ -191,7 +203,7 @@ export async function refundOrder(
     });
   }
 
-  return db.transaction(async (tx) => {
+  const refunded = await db.transaction(async (tx) => {
     if (stillHoldsCapacity(order.status)) {
       const items = await tx
         .select({
@@ -230,8 +242,16 @@ export async function refundOrder(
       tx,
     );
 
+    // The reason is staff wording and stays out of the message: the customer
+    // is told a refund was issued, not what an internal note said.
+    await queueOrderNotification(tx, orderId, "refunded");
+
     return { orderId, status: "refunded" as const, refunded: toRefund.length };
   });
+
+  deliverQueuedNotificationsInBackground();
+
+  return refunded;
 }
 
 export class CancellationError extends Error {
@@ -271,7 +291,7 @@ export async function cancelOwnOrder(
     );
   }
 
-  return db.transaction(async (tx) => {
+  const cancelled = await db.transaction(async (tx) => {
     const items = await tx
       .select({ variantId: orderItems.variantId, quantity: orderItems.quantity })
       .from(orderItems)
@@ -293,8 +313,14 @@ export async function cancelOwnOrder(
       actorUserId: actor.id,
     });
 
+    await queueOrderNotification(tx, orderId, "cancelled");
+
     return { orderId, status: "cancelled" as const };
   });
+
+  deliverQueuedNotificationsInBackground();
+
+  return cancelled;
 }
 
 /** Staff order pipeline, filterable by status. */

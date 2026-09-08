@@ -26,6 +26,7 @@ lib/
   catalog/              category tree, attribute/variant combination logic, search
   preorder/             capacity check, reservation, waitlist — the transactional core
   orders/               order creation, status transitions, idempotency
+  notifications/        transactional outbox: compose, queue, deliver
   providers/
     payment/            interface + SSLCommerz implementation + mock implementation
     shipping/           interface + courier/tracking implementation + mock implementation
@@ -50,7 +51,7 @@ Route handlers and server components are thin: validate input against a schema i
    - increments `preorder_reserved`, inserts the order and its items at server-computed prices,
    - inserts the first `order_status_history` row (`placed`).
 4. On commit, `lib/providers/payment` is called to create a payment intent; the order stays `placed` until payment confirms.
-5. A payment webhook (or, for the mock provider, a direct confirmation call) transitions the order to `payment_confirmed` through `lib/orders`, which appends to `order_status_history` and triggers `lib/providers/notification`.
+5. A payment webhook (or, for the mock provider, a direct confirmation call) transitions the order to `payment_confirmed` through `lib/orders`, which appends to `order_status_history` and queues a message in the `notifications` outbox in the same transaction. Delivery happens afterwards through `lib/providers/notification`, so a slow or failing provider cannot hold a lock on the order (DECISIONS.md D-009).
 6. The idempotency key is stored against the resulting order id; a retried request with the same key returns the existing order instead of creating another.
 
 This is the one flow in the system where correctness is non-negotiable (MASTER_PRODUCT_SPEC.md §7), so it is the first thing built after the schema and the first thing covered by integration tests — see [TESTING.md](TESTING.md).

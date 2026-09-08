@@ -24,6 +24,8 @@ One happy-path spec per major flow, run against a seeded database:
 - Browse → product detail → add preorder item to cart → checkout with deposit payment → see confirmation with delivery window.
 - Admin: create a product with two attributes and four generated variant combinations, disable one, publish it, confirm it's visible and buyable on the storefront.
 - Admin: advance an order through the full status pipeline, confirm the customer's tracking view updates to match.
+- Admin: edit an existing product, reload, and confirm the change was read back from the server rather than left in the form; archive it behind a confirmation and restore it as a draft.
+- Admin: place an order, then find the message it produced in the notification outbox, addressed to the email that placed it.
 
 ## What does not need a test
 
