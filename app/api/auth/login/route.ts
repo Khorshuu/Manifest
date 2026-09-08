@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
 import { authenticate, CredentialsError } from "@/lib/auth/accounts";
 import { SESSION_COOKIE_NAME, sessionCookieOptions } from "@/lib/auth/session";
+import { getEnv } from "@/lib/env";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { loginSchema } from "@/lib/validation/auth";
 
@@ -10,8 +11,6 @@ import { loginSchema } from "@/lib/validation/auth";
  * carrier NAT puts many legitimate users behind one address, so the per-IP
  * ceiling is set well above the per-account one to avoid locking them out.
  */
-const MAX_ATTEMPTS_PER_ACCOUNT = 10;
-const MAX_ATTEMPTS_PER_IP = 60;
 const WINDOW_MS = 15 * 60 * 1000;
 
 /**
@@ -36,11 +35,13 @@ export async function POST(request: Request) {
 
   // Limited per IP and per account, so neither a single address nor a single
   // targeted account can be hammered.
+  const env = getEnv();
+
   const limits = rateLimitDisabled
     ? []
     : ([
-        [`login:ip:${ip}`, MAX_ATTEMPTS_PER_IP],
-        [`login:email:${parsed.data.email}`, MAX_ATTEMPTS_PER_ACCOUNT],
+        [`login:ip:${ip}`, env.LOGIN_RATE_LIMIT_PER_IP],
+        [`login:email:${parsed.data.email}`, env.LOGIN_RATE_LIMIT_PER_ACCOUNT],
       ] as const);
 
   for (const [key, max] of limits) {

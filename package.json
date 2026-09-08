@@ -17,7 +17,8 @@
     "db:seed": "tsx db/seed-cli.ts",
     "db:setup": "tsx db/setup.ts",
     "db:server": "tsx db/dev-server.ts",
-    "test:e2e:only": "playwright test"
+    "test:e2e:only": "playwright test",
+    "test:e2e:prod": "tsx e2e/prepare-db.ts && next build && cross-env E2E_PRODUCTION=1 playwright test"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",
@@ -36,6 +37,7 @@
     "@types/node": "^24.13.3",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "^10.1.0",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
     "embedded-postgres": "^18.4.0-beta.17",

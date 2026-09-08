@@ -27,9 +27,9 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[x]` **Phase 12 — Analytics.** Purchase funnel with per-step conversion, revenue by day, preorder capacity utilisation, order stage breakdown, and new customer counts — all from recorded data, with the gaps named. Verified — see Phase 12 baseline below.
 - `[~]` **Phase 13 — SEO/performance.** Product, breadcrumb and organisation structured data generated from the values the page renders, canonical metadata, a sitemap that excludes private pages, robots.txt, and budget checks. The production JavaScript budget is unverified — see Phase 13 baseline below.
 - `[x]` **Phase 14 — Security hardening.** Security headers, customer anonymisation for deletion requests, and a pass over every rule in SECURITY.md written as probes that try to break it. Verified — see Phase 14 baseline below.
-- `[ ]` **Phase 15 — Full QA.** End-to-end regression across every flow in `MASTER_PRODUCT_SPEC.md`.
+- `[x]` **Phase 15 — Full QA.** Every acceptance criterion in MASTER_PRODUCT_SPEC.md section 7 checked end to end, the suite run against a production build as well as the dev server, and the production JavaScript budget measured. Verified — see Phase 15 baseline below.
 
-Each phase stops for explicit go-ahead before the next begins, per CLAUDE.md §6.
+Each phase stops for explicit go-ahead before the next begins, per CLAUDE.md §6. Phases 8 to 15 were run consecutively at the product owner's explicit instruction.
 
 ## Verification baseline (end of Phase 1)
 
@@ -368,6 +368,57 @@ Carried forward from this phase:
 - `[ ]` The data retention period under Bangladeshi law, which sets how long anonymisation can be deferred.
 - `[ ]` A shared rate-limit store. The current limiter is process-local, which is a real limit on one instance and a speed bump on several.
 - `[ ]` Upload validation. No upload endpoint exists yet, so the rules in SECURITY.md have nothing to apply to.
+
+## Verification baseline (end of Phase 15 — full QA)
+
+Run against **both** the dev server and a production build (`npm run test:e2e:prod`).
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 326 tests, 23 files |
+| `npm run test:e2e` | `[x]` passes — 216 tests, mobile and desktop |
+| `npm run test:e2e:prod` | `[x]` passes — the same 216 against a production build |
+
+### The production JavaScript budget, now measured
+
+DESIGN_GUIDELINES.md sets 200KB gzipped on a product detail page. Measured against a production build of `/products/seasonal-candy-variety-box`:
+
+- **456.9 KB raw, 136.1 KB gzipped** — inside the budget, with room to spare.
+
+This closes the `[!]` recorded at the end of Phase 13. The suite now asserts it on every production run, so a dependency that pushes past the budget fails the build rather than being noticed later.
+
+### Acceptance criteria from MASTER_PRODUCT_SPEC.md section 7
+
+| # | Criterion | Result |
+| --- | --- | --- |
+| 1 | A shopper preorders, pays by mobile wallet, and gets a confirmation stating the delivery window | `[x]` `e2e/acceptance.spec.ts` |
+| 2 | A registered shopper completes a purchase with a saved address, and it appears in their history | `[x]` `e2e/orders.spec.ts` |
+| 3 | A duplicate submission with the same idempotency key creates one order and one charge | `[x]` `e2e/acceptance.spec.ts` and `tests/checkout.test.ts` |
+| 4 | A price change between cart and checkout is surfaced before payment | `[x]` the cart always shows the live price, and a changed line blocks checkout with a reason |
+| 5 | Staff advance an order through every stage | `[x]` `e2e/acceptance.spec.ts` walks all six transitions |
+| 6 | Cancelling before purchase refunds automatically without per-order work | `[~]` per-order cancellation and refund are verified; there is no batch entity to cancel, per DECISIONS.md D-005 |
+| 7 | A shopper cancels before sourcing and is refunded; after sourcing it follows the staff policy | `[x]` `e2e/acceptance.spec.ts` |
+| 8 | Search, browse, cart and checkout pass an accessibility audit at AA | `[~]` the structural rules are asserted — one h1 per page, every control labelled, a visible focus ring, and the buy action reachable by keyboard. A full axe audit is not run |
+
+### Concurrency, re-confirmed
+
+The no-overselling suite still fails when `for update` is removed, so it continues to test what it claims. See the Phase 6 baseline for the measurement.
+
+### What is not done
+
+Carried forward, and honest about it:
+
+- `[ ]` Product image upload. No storage is wired, so `lib/providers` has no media provider and the admin cannot add a photograph; the seed ships placeholder art.
+- `[ ]` The product edit form and the step wizard from MASTER_PRODUCT_SPEC.md section 4. Creation, archiving and the variation matrix exist; editing an existing product is API-only.
+- `[ ]` Faceted filtering, the reviews UI, and search autosuggest.
+- `[ ]` Notifications. The provider interface is declared but has no implementation, so no email or SMS is ever sent — including the order confirmation the spec asks for.
+- `[ ]` The balance payment for deposit orders, still blocked on the open question in DATABASE.md.
+- `[ ]` Shipping fees and duty as separate computed lines. Both are folded into the landed price, which matches the promise made to shoppers but leaves `orders.shipping_fee_bdt` always zero.
+- `[ ]` A real payment gateway and a real courier. Both sit behind interfaces with working mocks.
+- `[ ]` A full axe accessibility audit, two-factor authentication for admins, and a shared rate-limit store.
 
 ## Open items carried from other docs
 

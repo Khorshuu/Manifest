@@ -8,6 +8,13 @@ const adminUrl =
   "postgres://postgres:postgres@127.0.0.1:5432/postgres";
 const testDatabaseUrl = adminUrl.replace(/\/[^/]*$/, `/${databaseName}`);
 
+/**
+ * E2E_PRODUCTION runs the suite against a production build rather than the dev
+ * server. It is the only way to measure the real JavaScript payload, since
+ * next dev serves unminified, uncompressed modules.
+ */
+const isProduction = process.env.E2E_PRODUCTION === "1";
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -21,7 +28,7 @@ export default defineConfig({
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
   ],
   webServer: {
-    command: "npm run dev",
+    command: isProduction ? "npm run start" : "npm run dev",
     url: baseURL,
     env: {
       // Login throttling is real behaviour, but a suite that signs in on every
@@ -31,7 +38,17 @@ export default defineConfig({
       // The suite gets its own database, so it never writes into the
       // developer catalog.
       DATABASE_URL: testDatabaseUrl,
+      ...(isProduction
+        ? {
+            NODE_ENV: "production",
+            // The bypass is ignored in production by design, so the suite
+            // raises the configured ceiling rather than asking for a backdoor.
+            LOGIN_RATE_LIMIT_PER_IP: "100000",
+            LOGIN_RATE_LIMIT_PER_ACCOUNT: "100000",
+          }
+        : {}),
     },
+    timeout: isProduction ? 120_000 : 60_000,
     // The dev server must pick up that DATABASE_URL, so never reuse one that
     // is already running against the development database.
     reuseExistingServer: false,

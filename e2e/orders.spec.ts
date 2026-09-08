@@ -161,9 +161,16 @@ test("the order pipeline filters by status", async ({ page }) => {
 
   await page.goto("/admin/orders?status=placed");
   await expect(page.getByRole("heading", { name: "Orders" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Awaiting payment" }),
+  ).toHaveAttribute("aria-current", "page");
 
-  await page.goto("/admin/orders?status=delivered");
-  await expect(page.getByText("No orders with that status.")).toBeVisible();
+  // Asserting which filter is applied, not how many rows it happens to match:
+  // other specs move orders through the pipeline in the same database.
+  await page.goto("/admin/orders?status=refunded");
+  await expect(
+    page.getByRole("link", { name: "Refunded" }),
+  ).toHaveAttribute("aria-current", "page");
 });
 
 /**

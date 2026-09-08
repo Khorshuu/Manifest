@@ -14,6 +14,13 @@ const schema = z.object({
    */
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
   SESSION_SECRET: z.string().min(32),
+  /**
+   * Login attempt ceilings per 15-minute window. The per-account limit is the
+   * meaningful one; the per-IP ceiling is high because offices, campuses and
+   * mobile carriers put many legitimate users behind one address.
+   */
+  LOGIN_RATE_LIMIT_PER_ACCOUNT: z.coerce.number().int().positive().default(10),
+  LOGIN_RATE_LIMIT_PER_IP: z.coerce.number().int().positive().default(60),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PAYMENT_PROVIDER: z.enum(["mock", "sslcommerz"]).default("mock"),
   SHIPPING_PROVIDER: z.enum(["mock", "courier"]).default("mock"),

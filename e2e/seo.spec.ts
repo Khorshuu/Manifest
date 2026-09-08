@@ -137,10 +137,21 @@ test("the product page stays inside the JavaScript budget", async ({ page }) => 
   await page.goto("/products/seasonal-candy-variety-box");
   await page.waitForLoadState("networkidle");
 
-  // Measured uncompressed from the dev server, which ships unminified code, so
-  // the ceiling is generous. A production build is far smaller; this exists to
-  // catch a dependency that balloons the bundle.
   const kilobytes = transferred / 1024;
+
+  if (process.env.E2E_PRODUCTION === "1") {
+    // The real budget from docs/DESIGN_GUIDELINES.md, measured against a
+    // production build. Uncompressed here; gzip typically takes roughly a
+    // third of this, so the uncompressed ceiling is set at three times the
+    // 200KB gzipped guideline.
+    expect(kilobytes).toBeLessThan(600);
+    return;
+  }
+
+  // Against the dev server the figure is meaningless as a budget — modules are
+  // unminified and uncompressed — so the ceiling is only wide enough to catch
+  // a dependency that balloons the bundle. Run npm run test:e2e:prod for the
+  // real measurement.
   expect(kilobytes).toBeLessThan(4000);
 });
 
