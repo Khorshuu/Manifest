@@ -33,6 +33,24 @@ export async function createTestDatabase() {
   return {
     client,
     db,
+    /**
+     * Empties every table in one statement. Deleting table by table is slow
+     * enough in an in-process database to time out a test hook.
+     */
+    async reset() {
+      await client.exec(`
+        truncate table
+          audit_log, site_settings, reviews,
+          payments, order_status_history, order_items, orders,
+          wishlist_items, cart_items, carts,
+          waitlist_entries, inventory_adjustments,
+          variant_option_values, variant_images, product_variants,
+          product_attributes, attribute_values, attributes,
+          product_related, product_categories, product_images, products,
+          categories, sessions, addresses, users
+        restart identity cascade
+      `);
+    },
     async close() {
       setDatabaseForTesting(undefined);
       await client.close();

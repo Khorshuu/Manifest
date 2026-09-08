@@ -64,8 +64,17 @@ export default async function AdminProductPage({
         </section>
       ) : null}
 
+      <div className="flex flex-wrap gap-3">
+        <Link
+          href={`/admin/products/${product.id}/variants`}
+          className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
+        >
+          Manage variants
+        </Link>
+      </div>
+
       <p className="text-meta text-ink/60">
-        Editing, image upload, and the variation matrix arrive in Phase 5.
+        Editing and image upload arrive in a later slice.
       </p>
     </div>
   );

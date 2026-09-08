@@ -51,11 +51,11 @@ test("a staff member adds a category, and its slug follows the name", async ({
   await signIn(page, "staff@example.com");
   await page.goto("/admin/categories");
 
-  const name = `Test Category ${Date.now()}`;
+  const name = `Test Category ${crypto.randomUUID().slice(0, 8)}`;
   await page.getByLabel("Name").fill(name);
 
   // The slug field fills itself from the name.
-  await expect(page.getByLabel("Slug")).toHaveValue(/^test-category-\d+$/);
+  await expect(page.getByLabel("Slug")).toHaveValue(/^test-category-[a-f0-9]+$/);
 
   const response = page.waitForResponse(
     (r) =>
@@ -76,7 +76,7 @@ test("a staff member adds a product and it appears in the list", async ({
   await signIn(page, "staff@example.com");
   await page.goto("/admin/products/new");
 
-  const title = `Test Product ${Date.now()}`;
+  const title = `Test Product ${crypto.randomUUID().slice(0, 8)}`;
   await page.getByLabel("Title").fill(title);
   await page.getByLabel("Brand").fill("Test Brand");
   await page.getByLabel("Status").selectOption("preorder_open");

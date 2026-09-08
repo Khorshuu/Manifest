@@ -17,7 +17,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[x]` **Phase 2 — Database.** 26 Drizzle tables in `db/schema/` matching `DATABASE.md`, first migration at `db/migrations/0000_initial_schema.sql`, and a re-runnable seed in `db/seed.ts`. Verified — see Phase 2 baseline below.
 - `[x]` **Phase 3 — Auth & admin shell.** argon2id passwords, database-backed sessions keyed by a token hash, the three role gates in `lib/auth/authorize.ts`, login/logout/register routes with rate limiting, the `/admin` shell with server-side role enforcement, and a dashboard whose every figure is a live query. Verified — see Phase 3 baseline below.
 - `[~]` **Phase 4 — Product system.** Category tree with cycle protection, attribute and value management, product create/update/archive/restore with slug derivation, an admin catalog UI, and admin API routes. Image upload is not built yet and carries into the next slice of this phase.
-- `[ ]` **Phase 5 — Variation engine.** Combination generation from selected attributes, per-combination enable/disable, bulk edit.
+- `[x]` **Phase 5 — Variation engine.** Cartesian combination generation with a 500-variant guard, idempotent regeneration that never disturbs existing variants, per-combination enable/disable, bulk edit, and the admin variant matrix. Verified — see Phase 5 baseline below.
 - `[ ]` **Phase 6 — Inventory & preorder engine.** Capacity/reserved tracking, the locked-transaction capacity check, waitlist.
 - `[ ]` **Phase 7 — Storefront.** Home, category/PLP, PDP, search, related products.
 - `[ ]` **Phase 8 — Cart & checkout.** Cart persistence, address, payment method selection (mock provider), idempotent order placement.
@@ -94,6 +94,21 @@ Not done in this slice, carried forward:
 - `[ ]` Product image upload (the storage decision in DECISIONS.md D-001 names Cloudflare R2; nothing is wired yet).
 - `[ ]` Editing an existing product from the admin UI — the API and `lib/` function exist and are tested, but there is no edit form.
 - `[ ]` The step wizard described in MASTER_PRODUCT_SPEC.md section 4; the current form is a single page.
+
+## Verification baseline (end of Phase 5)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 134 tests, 14 files |
+| `npm run test:e2e` | `[x]` passes — 42 tests, mobile and desktop |
+| Regeneration is non-destructive | `[x]` verified: a variant carrying a changed price, capacity, and reserved slots survives a regeneration untouched; dropping an attribute reports the old variants as orphaned and keeps them |
+| Capacity floor | `[x]` verified: capacity cannot be set below reserved slots, and the attempt leaves the old value in place |
+| Bulk edit auditing | `[x]` verified: a bulk price change writes one audit row per variant, not one per batch |
+
+A real performance defect was found and fixed here. `generateVariants` queried the base database handle for SKU uniqueness while its own transaction was open; on a single-connection database that serialises against the transaction, taking the suite from 3 seconds to over 197. SKU allocation now runs on the open transaction against one read of the SKUs in use.
 
 ## Open items carried from other docs
 

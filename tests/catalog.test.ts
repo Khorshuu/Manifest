@@ -8,11 +8,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   attributeValues,
-  attributes,
   auditLog,
-  categories,
-  productAttributes,
-  productImages,
   productVariants,
   products,
   users,
@@ -66,16 +62,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await harness.db.delete(auditLog);
-  await harness.db.delete(variantOptionValues);
-  await harness.db.delete(productImages);
-  await harness.db.delete(productAttributes);
-  await harness.db.delete(productVariants);
-  await harness.db.delete(products);
-  await harness.db.delete(categories);
-  await harness.db.delete(attributeValues);
-  await harness.db.delete(attributes);
-  await harness.db.delete(users);
+  await harness.reset();
+
 
   const rows = await harness.db
     .insert(users)

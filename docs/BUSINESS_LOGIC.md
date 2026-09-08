@@ -41,3 +41,13 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 ## Dashboard numbers
 
 - Every figure on the admin dashboard (revenue, pending preorders, low-capacity alerts, top products) is a live query against `orders`, `order_items`, and `product_variants` — never a cached snapshot presented as current, and never a placeholder value during development. If a metric can't be computed correctly yet, the dashboard states that explicitly rather than showing a plausible-looking number.
+
+## Variation engine (Phase 5)
+
+- Combinations are the Cartesian product of the attributes a product varies by. An attribute with no values makes the product empty rather than being skipped — a variant that does not specify one of the product's own axes would be meaningless.
+- Generation is capped at 500 combinations. This is a guard, not a limit anyone should reach: five axes of five values is already 3,125 variants, which no admin UI can present usefully, and generating tens of thousands by accident is far worse than an error message.
+- Regeneration only adds what is missing. Existing variants are never updated or deleted: they carry prices and preorder capacity, and they can be referenced by orders.
+- A combination that no longer exists — because an attribute was dropped from the product, or a value removed — is reported as orphaned, never deleted. Deleting it would erase what a past order actually bought. The database enforces the same thing from below: an attribute value a variant references cannot be deleted.
+- Taking a combination off sale is done by disabling it. The row stays, so an order that referenced it still resolves; only `isEnabled` variants are purchasable.
+- Preorder capacity can never be set below the number of slots already reserved. Those slots are sold, and lowering the ceiling underneath them would mean the site has taken more preorders than it can fulfil.
+- Price and capacity changes are recorded as their own audit actions (`product.price_changed`, `variant.capacity_changed`), because MASTER_PRODUCT_SPEC.md section 4 names them as the sensitive ones. A bulk edit writes one audit row per variant, not one for the batch.
