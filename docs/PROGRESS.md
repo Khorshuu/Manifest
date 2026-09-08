@@ -26,7 +26,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[x]` **Phase 11 — Admin ops.** Live dashboard metrics with capacity alerts and top products, staff and role management, three CSV exports, and the audit log viewer with filtering. Verified — see Phase 11 baseline below.
 - `[x]` **Phase 12 — Analytics.** Purchase funnel with per-step conversion, revenue by day, preorder capacity utilisation, order stage breakdown, and new customer counts — all from recorded data, with the gaps named. Verified — see Phase 12 baseline below.
 - `[~]` **Phase 13 — SEO/performance.** Product, breadcrumb and organisation structured data generated from the values the page renders, canonical metadata, a sitemap that excludes private pages, robots.txt, and budget checks. The production JavaScript budget is unverified — see Phase 13 baseline below.
-- `[ ]` **Phase 14 — Security hardening.** Full pass against `SECURITY.md`.
+- `[x]` **Phase 14 — Security hardening.** Security headers, customer anonymisation for deletion requests, and a pass over every rule in SECURITY.md written as probes that try to break it. Verified — see Phase 14 baseline below.
 - `[ ]` **Phase 15 — Full QA.** End-to-end regression across every flow in `MASTER_PRODUCT_SPEC.md`.
 
 Each phase stops for explicit go-ahead before the next begins, per CLAUDE.md §6.
@@ -328,6 +328,46 @@ Carried forward from this phase:
 - `[!]` The production JavaScript budget is UNVERIFIED. It needs an end-to-end run against a production build, not the dev server.
 - `[ ]` Open Graph and Twitter card images. Declaring a card without the asset is worse than omitting it, so neither is declared.
 - `[ ]` Largest contentful paint and interaction-to-next-paint against the guideline thresholds. These need a production build and a throttled profile.
+
+## Verification baseline (end of Phase 14)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 326 tests, 23 files |
+| `npm run test:e2e` | `[x]` passes — 200 tests, mobile and desktop |
+
+Each rule in SECURITY.md was checked by attempting to break it, not by reading the code:
+
+| Rule | How it was probed |
+| --- | --- |
+| Security headers | `[x]` read off a live response: CSP with `frame-ancestors 'none'`, nosniff, DENY, referrer policy, permissions policy. `X-Powered-By` is absent |
+| Session cookie | `[x]` confirmed HTTP-only and SameSite=Lax from the browser, and invisible to `document.cookie` |
+| Sessions are not replayable | `[x]` the stored value is a SHA-256, never the token itself |
+| Sign-out is server-side | `[x]` an admin page is unreachable immediately afterwards |
+| Customer cannot reach staff capability | `[x]` refused at four admin endpoints, and refused in `lib/` when called directly |
+| Anonymous is 401, not 403 | `[x]` verified — the two answers mean different things |
+| Unknown fields rejected | `[x]` a request carrying an extra field is refused with 400, including a registration trying to set its own role |
+| Login does not reveal account existence | `[x]` identical status and message for a known and an unknown email |
+| Sourcing cost never reaches a shopper | `[x]` asserted against the rendered HTML of four storefront pages, and against both public queries |
+| Guest order lookup | `[x]` the order number alone reveals nothing, and internal notes are absent |
+| Audit log is append-only | `[x]` no update or delete function exists, and every entry carries an actor |
+| Database backstops the application | `[x]` a direct write beyond capacity, or with an invalid role, is refused by a check constraint |
+| Queries are parameterised | `[x]` a value containing SQL is stored as data; the users table survives |
+
+### Added in this phase
+
+- Security headers at the framework level, with a Content-Security-Policy that allows scripts and connections only from this origin. `unsafe-eval` is granted in development only, for fast refresh.
+- `anonymiseCustomer`, for a deletion request: personal fields on the account, its addresses, and the guest contact details on its orders are replaced, while the orders and payments themselves are kept. Deleting them would break tax obligations and corrupt every revenue figure already reported.
+
+Carried forward from this phase:
+
+- `[ ]` Two-factor authentication for admin roles. SECURITY.md records this as recommended and unconfirmed; it is still unconfirmed.
+- `[ ]` The data retention period under Bangladeshi law, which sets how long anonymisation can be deferred.
+- `[ ]` A shared rate-limit store. The current limiter is process-local, which is a real limit on one instance and a speed bump on several.
+- `[ ]` Upload validation. No upload endpoint exists yet, so the rules in SECURITY.md have nothing to apply to.
 
 ## Open items carried from other docs
 
