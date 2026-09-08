@@ -82,7 +82,10 @@ test("a staff member adds a product and it appears in the list", async ({
   await page.getByLabel("Status").selectOption("preorder_open");
   await page.getByRole("button", { name: "Save product" }).click();
 
-  await page.waitForURL("**/admin/products");
+  // Creating drops straight into the setup wizard.
+  await page.waitForURL((url) => url.pathname.includes("/wizard"));
+
+  await page.goto("/admin/products");
   await expect(page.getByRole("link", { name: title })).toBeVisible();
 });
 

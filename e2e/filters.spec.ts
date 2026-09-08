@@ -147,7 +147,7 @@ test("autosuggest never leaks a draft product", async ({ page }) => {
   await page.goto("/admin/products/new");
   await page.getByLabel("Title").fill(title);
   await page.getByRole("button", { name: "Save product" }).click();
-  await page.waitForURL("**/admin/products");
+  await page.waitForURL((url) => url.pathname.includes("/wizard"));
 
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 

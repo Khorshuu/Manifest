@@ -413,7 +413,7 @@ Carried forward, and honest about it:
 
 - `[x]` Product image upload — done after Phase 15. A media provider interface with a local implementation that writes to disk, byte-level format sniffing, generated filenames, and gallery ordering. See the media baseline below.
 - `[x]` The product edit form — done after Phase 15. See the product editing baseline below.
-- `[ ]` The step wizard from MASTER_PRODUCT_SPEC.md section 4. Creating, editing, archiving and the variation matrix all exist, but as separate screens rather than one guided flow.
+- `[x]` The step wizard from MASTER_PRODUCT_SPEC.md section 4 — done after Phase 15; see the baseline below.
 - `[x]` The reviews UI — done after Phase 15. Writing, moderation, and display; see the reviews baseline below.
 - `[x]` Faceted filtering and search autosuggest — done after Phase 15; see the baseline below.
 - `[~]` Notifications. The outbox, the templates, and the admin screen exist and are tested — see the notifications baseline below. No email or SMS provider is connected, so nothing reaches a customer yet; the mock provider records the attempt and the admin screen says so on the page.
@@ -516,6 +516,31 @@ A filter panel on the category and search pages, and suggestions under the heade
 | Autosuggest is reachable by keyboard | `[x]` verified: arrow key then Enter navigates; it is a combobox with a listbox, not a div with a click handler |
 
 One real defect fixed on the way: `countProducts` ignored the brand filter, so a filtered listing could claim more pages than it had. Both paths now go through `buildProductWhere`, and a test iterates filter combinations asserting the two agree.
+
+## Product setup wizard (added after Phase 15)
+
+Basic info → Images → Variations → Pricing and capacity → SEO → Publish, at `/admin/products/<id>/wizard`, with a publish gate that is enforced on the server.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm run build` | `[x]` passes |
+| `npm test` | `[x]` passes — 420 passed, 1 skipped, 28 files |
+| `npm run test:e2e` | `[x]` passes — 286 tests, mobile and desktop |
+| A product walks from draft to live | `[x]` verified end to end in one test: basics, a real upload, variant generation, price and capacity, SEO, publish, then found on the storefront as a signed-out visitor |
+| An unfinished product cannot be published | `[x]` verified twice — the button is disabled, and the API returns 409 with the reasons when called directly |
+| The gate lives on the server | `[x]` `publishProduct` re-runs every required check itself, so a stale wizard page or a direct call cannot talk it into publishing |
+| Publishing cannot set an arbitrary status | `[x]` verified: publishing as `draft` is refused |
+| Every step stays reachable | `[x]` verified: jumping straight to the last step works, and an unknown step falls back to the first |
+| Only staff | `[x]` verified — a customer is redirected away from the wizard and gets 403 from the publish endpoint |
+
+Two real gaps closed on the way:
+
+- A product that varies by nothing could not get a variant at all: `generateVariants` returned nothing without attributes, so a simple product had nothing to price and could never be sold. It now creates one plain variant, idempotently. The old test asserted the broken behaviour and has been replaced.
+- The readiness checklist originally included "every deposit variant states its percentage". That state cannot exist — `product_variants_deposit_requires_percent_check` refuses it in the database — so the check was removed rather than left as unreachable code, and a test now asserts the constraint is what enforces it.
+
+Five e2e tests in `shipping.spec.ts` were marked `test.slow()` for the same reason as the earlier three: each runs a whole guest checkout before its assertion, and they timed out only under the load of the full suite.
 
 ## Open items carried from other docs
 

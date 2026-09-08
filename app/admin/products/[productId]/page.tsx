@@ -107,6 +107,12 @@ export default async function AdminProductPage({
 
       <div className="flex flex-wrap gap-3">
         <Link
+          href={`/admin/products/${product.id}/wizard?step=basics`}
+          className="inline-flex min-h-11 items-center rounded-control bg-brass px-4 text-body font-medium text-ink"
+        >
+          Open setup wizard
+        </Link>
+        <Link
           href={`/admin/products/${product.id}/variants`}
           className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
         >

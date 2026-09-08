@@ -97,7 +97,7 @@ test("the audit log shows who made each change", async ({ page }) => {
   const title = `Audited ${crypto.randomUUID().slice(0, 8)}`;
   await page.getByLabel("Title").fill(title);
   await page.getByRole("button", { name: "Save product" }).click();
-  await page.waitForURL("**/admin/products");
+  await page.waitForURL((url) => url.pathname.includes("/wizard"));
 
   await page.goto("/admin/audit");
   await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();

@@ -31,10 +31,10 @@ async function createProduct(page: Page): Promise<string> {
   await page.goto("/admin/products/new");
   await page.getByLabel("Title").fill(title);
   await page.getByRole("button", { name: "Save product" }).click();
-  await page.waitForURL("**/admin/products");
 
-  await page.getByRole("link", { name: title }).click();
-  await page.waitForURL((url) => url.pathname.startsWith("/admin/products/"));
+  // Creating opens the setup wizard; these tests want the product page.
+  await page.waitForURL((url) => url.pathname.includes("/wizard"));
+  await page.goto(page.url().replace(/\/wizard.*$/, ""));
 
   return page.url();
 }
@@ -183,10 +183,9 @@ test("an uploaded photograph reaches the storefront", async ({ page }) => {
   await page.getByLabel("Title").fill(title);
   await page.getByLabel("Status").selectOption("preorder_open");
   await page.getByRole("button", { name: "Save product" }).click();
-  await page.waitForURL("**/admin/products");
 
-  await page.getByRole("link", { name: title }).click();
-  await page.waitForURL((url) => url.pathname.startsWith("/admin/products/"));
+  await page.waitForURL((url) => url.pathname.includes("/wizard"));
+  await page.goto(page.url().replace(/\/wizard.*$/, ""));
 
   await page.getByLabel("Photograph", { exact: true }).setInputFiles({
     name: "product.png",

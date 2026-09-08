@@ -44,6 +44,14 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - Both moderation decisions write an `audit_log` row with the status they replaced, so a review disappearing from a product page can be explained afterwards.
 - The account page invites someone to review only what was delivered to them and not yet reviewed. Asking for a review of something that never arrived is the fastest way to make the ratings worthless.
 
+## Publishing a product
+
+- A product reaches a shopper-visible status only through `publishProduct`, which re-runs every required readiness check before it writes. The wizard shows the same checklist, but the screen reports the rule rather than being it: a stale page, a direct API call, or a future screen that forgets to look all hit the same gate.
+- Required to publish: a category, at least one photograph, at least one enabled variant, a price above zero on every variant on sale, and a capacity plus a closing date on every preorder. An uncapped preorder is the no-overselling rule waiting to be broken, and a zero price would be charged as zero.
+- Advisory, and never blocking: an arrival window, a description, and a meta description. Blocking on these would teach staff to work around the gate.
+- Publishing is not a way to set an arbitrary status. Only statuses shoppers can see are accepted, so `draft` and `archived` cannot be reached through it.
+- A product that varies by nothing still gets one plain variant, created idempotently. Without it a simple product would have nothing to price and could never be sold.
+
 ## Roles and permissions
 
 - `customer` can never create, edit, or archive a product, variant, category, or attribute, under any code path — this is checked in `lib/auth` at the top of every mutating function in `lib/catalog`, not only at the route layer, so a future route that forgets the check still can't succeed.

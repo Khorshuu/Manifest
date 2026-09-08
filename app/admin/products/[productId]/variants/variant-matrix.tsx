@@ -192,7 +192,7 @@ export function VariantMatrix({
           <p className="text-meta text-ink/70">
             {projected > 0
               ? `This would cover ${projected} combination${projected === 1 ? "" : "s"}.`
-              : "Select at least one attribute."}
+              : "No attributes selected: this product gets one plain variant."}
           </p>
 
           <div aria-live="polite" className="flex flex-col gap-1">
@@ -203,7 +203,9 @@ export function VariantMatrix({
           </div>
 
           <div>
-            <Button type="submit" disabled={pending || selected.length === 0}>
+            {/* Zero attributes is a real choice: a product that varies by
+                nothing still needs one variant to sell. */}
+            <Button type="submit" disabled={pending}>
               {pending ? "Working…" : "Generate variants"}
             </Button>
           </div>

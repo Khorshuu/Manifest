@@ -20,6 +20,8 @@ export const variantUpdateSchema = z
     preorderClosesAt: z.coerce.date().nullable().optional(),
     paymentMode: z.enum(["full", "deposit"]).optional(),
     depositPercent: z.number().int().min(1).max(99).nullable().optional(),
+    estimatedArrivalFrom: z.coerce.date().nullable().optional(),
+    estimatedArrivalTo: z.coerce.date().nullable().optional(),
     weightGrams: z.number().int().min(0).nullable().optional(),
   })
   .strict();

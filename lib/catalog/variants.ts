@@ -30,6 +30,11 @@ export type VariantRow = {
   stockQuantity: number | null;
   preorderCapacity: number | null;
   preorderReserved: number;
+  preorderClosesAt: Date | null;
+  estimatedArrivalFrom: Date | null;
+  estimatedArrivalTo: Date | null;
+  paymentMode: string;
+  depositPercent: number | null;
   archivedAt: Date | null;
 };
 
@@ -142,6 +147,14 @@ export async function generateVariants(
   const staff = requireStaff(actor);
 
   const axes = await getProductAxes(productId);
+
+  // A product that varies by nothing still needs something to sell. One plain
+  // variant, created once: calling again returns it unchanged rather than
+  // stacking up duplicates.
+  if (axes.length === 0) {
+    return createSingleVariant(staff, productId, defaults);
+  }
+
   const generated = generateCombinations(axes);
   const existing = await existingCombinationKeys(productId);
 
@@ -214,6 +227,68 @@ export async function generateVariants(
   };
 }
 
+/**
+ * The no-variations case: one variant carrying no option values, which
+ * `listVariants` labels "Single variant". Idempotent, because the wizard's
+ * generate button is the kind of thing people press twice.
+ */
+async function createSingleVariant(
+  staff: SessionUser,
+  productId: string,
+  defaults: { priceBdt: number; fulfillmentMode?: "in_stock" | "preorder" },
+): Promise<GenerateResult> {
+  const existing = await db
+    .select({ id: productVariants.id })
+    .from(productVariants)
+    .where(eq(productVariants.productId, productId));
+
+  if (existing.length > 0) {
+    return { created: 0, unchanged: existing.length, orphaned: 0 };
+  }
+
+  const [product] = await db
+    .select({ slug: products.slug })
+    .from(products)
+    .where(eq(products.id, productId));
+
+  if (!product) throw new Error("That product no longer exists.");
+
+  await db.transaction(async (tx) => {
+    const takenSkus = new Set(
+      (await tx.select({ sku: productVariants.sku }).from(productVariants)).map(
+        (row) => row.sku,
+      ),
+    );
+
+    const base = product.slug.toUpperCase().replace(/[^A-Z0-9]+/g, "-");
+    let sku = base;
+    for (let attempt = 1; takenSkus.has(sku); attempt++) {
+      sku = `${base}-${attempt + 1}`;
+    }
+
+    await tx.insert(productVariants).values({
+      productId,
+      sku,
+      priceBdt: defaults.priceBdt,
+      fulfillmentMode: defaults.fulfillmentMode ?? "preorder",
+      isEnabled: true,
+    });
+
+    await recordAudit(
+      {
+        actorUserId: staff.id,
+        action: "variant.created",
+        entityType: "product",
+        entityId: productId,
+        after: { created: 1, labels: ["Single variant"] },
+      },
+      tx,
+    );
+  });
+
+  return { created: 1, unchanged: 0, orphaned: 0 };
+}
+
 /** Picks the first SKU not already spoken for, against an in-memory set. */
 function nextFreeSku(
   productSlug: string,
@@ -282,6 +357,11 @@ export async function listVariants(
     stockQuantity: variant.stockQuantity,
     preorderCapacity: variant.preorderCapacity,
     preorderReserved: variant.preorderReserved,
+    preorderClosesAt: variant.preorderClosesAt,
+    estimatedArrivalFrom: variant.estimatedArrivalFrom,
+    estimatedArrivalTo: variant.estimatedArrivalTo,
+    paymentMode: variant.paymentMode,
+    depositPercent: variant.depositPercent,
     archivedAt: variant.archivedAt,
   }));
 }
@@ -296,6 +376,8 @@ export type VariantUpdate = {
   preorderClosesAt?: Date | null;
   paymentMode?: "full" | "deposit";
   depositPercent?: number | null;
+  estimatedArrivalFrom?: Date | null;
+  estimatedArrivalTo?: Date | null;
   weightGrams?: number | null;
 };
 

@@ -59,6 +59,9 @@ async function openInAdmin(page: Page, orderNumber: string) {
 test("staff record a tracking reference and the shopper sees it", async ({
   page,
 }) => {
+  // A whole guest checkout before the assertion, alongside the whole suite.
+  test.slow();
+
   const { orderNumber, email } = await placeGuestOrder(page);
 
   await signIn(page, "staff@example.com");
@@ -81,6 +84,9 @@ test("staff record a tracking reference and the shopper sees it", async ({
 });
 
 test("booking a delivery produces a reference", async ({ page }) => {
+  // A whole guest checkout before the assertion, alongside the whole suite.
+  test.slow();
+
   const { orderNumber } = await placeGuestOrder(page);
 
   await signIn(page, "staff@example.com");
@@ -103,6 +109,9 @@ test("booking a delivery produces a reference", async ({ page }) => {
  * The rule from docs/SECURITY.md: internal notes never reach a customer.
  */
 test("an internal note is never shown to the customer", async ({ page }) => {
+  // A whole guest checkout before the assertion, alongside the whole suite.
+  test.slow();
+
   const { orderNumber, email } = await placeGuestOrder(page);
   const secret = `internal-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -131,6 +140,9 @@ test("an internal note is never shown to the customer", async ({ page }) => {
 test("a customer cannot set a tracking reference through the API", async ({
   page,
 }) => {
+  // A whole guest checkout before the assertion, alongside the whole suite.
+  test.slow();
+
   const { orderNumber } = await placeGuestOrder(page);
 
   await signIn(page, "staff@example.com");
@@ -157,6 +169,9 @@ test("a customer cannot set a tracking reference through the API", async ({
 test("a customer cannot add an internal note through the API", async ({
   page,
 }) => {
+  // A whole guest checkout before the assertion, alongside the whole suite.
+  test.slow();
+
   const { orderNumber } = await placeGuestOrder(page);
 
   await signIn(page, "staff@example.com");

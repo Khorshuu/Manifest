@@ -35,9 +35,10 @@ async function createProduct(page: Page): Promise<string> {
   await page.goto("/admin/products/new");
   await page.getByLabel("Title").fill(title);
   await page.getByRole("button", { name: "Save product" }).click();
-  await page.waitForURL("**/admin/products");
 
-  await page.getByRole("link", { name: title }).click();
+  await page.waitForURL((url) => url.pathname.includes("/wizard"));
+  await page.goto(page.url().replace(/\/wizard.*$/, ""));
+
   await page.getByRole("link", { name: "Manage variants" }).click();
   await expect(
     page.getByRole("heading", { name: "Variants", level: 1 }),

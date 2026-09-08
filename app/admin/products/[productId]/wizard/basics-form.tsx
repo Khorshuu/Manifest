@@ -5,60 +5,81 @@ import { useState } from "react";
 import { Button } from "@/components/button";
 import { Field } from "@/components/field";
 
-type CategoryOption = { id: string; label: string };
+export type BasicsValues = {
+  id: string;
+  title: string;
+  brand: string | null;
+  categoryId: string;
+  status: string;
+  descriptionHtml: string | null;
+  bulletFeatures: string[];
+  /** Carried through untouched — updateProduct writes every column. */
+  seoMetaTitle: string | null;
+  seoMetaDescription: string | null;
+  specTable: { label: string; value: string }[] | null;
+  tags: string[] | null;
+};
 
-export function ProductForm({ categories }: { categories: CategoryOption[] }) {
+export function BasicsForm({
+  product,
+  categories,
+  nextHref,
+}: {
+  product: BasicsValues;
+  categories: { id: string; label: string }[];
+  nextHref: string;
+}) {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPending(true);
     setError(null);
 
     const form = new FormData(event.currentTarget);
+    const text = (name: string) => {
+      const value = String(form.get(name) ?? "").trim();
+      return value.length > 0 ? value : undefined;
+    };
     const bullets = String(form.get("bulletFeatures") ?? "")
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean);
 
-    const response = await fetch("/api/admin/products", {
-      method: "POST",
+    const response = await fetch(`/api/admin/products/${product.id}`, {
+      method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        title: form.get("title"),
+        title: String(form.get("title") ?? ""),
         categoryId: form.get("categoryId"),
-        brand: form.get("brand") || undefined,
-        descriptionHtml: form.get("descriptionHtml") || undefined,
+        brand: text("brand"),
+        descriptionHtml: text("descriptionHtml"),
         bulletFeatures: bullets.length > 0 ? bullets : undefined,
-        status: form.get("status"),
+        // Fields this step does not edit, sent back so they survive the write.
+        seoMetaTitle: product.seoMetaTitle ?? undefined,
+        seoMetaDescription: product.seoMetaDescription ?? undefined,
+        specTable: product.specTable ?? undefined,
+        tags: product.tags ?? undefined,
+        status: product.status,
       }),
     });
 
-    const body = await response.json().catch(() => ({}));
-
     if (!response.ok) {
-      setError(body.error ?? "Something went wrong. Try again.");
       setPending(false);
+      const body = await response.json().catch(() => ({}));
+      setError(body.error ?? "Something went wrong. Try again.");
       return;
     }
 
-    // Straight into the wizard at the next step: a product created and then
-    // left in a list is a product with no photograph and no price
-    // (MASTER_PRODUCT_SPEC.md section 4).
-    router.push(`/admin/products/${body.product.id}/wizard?step=images`);
+    router.push(nextHref);
     router.refresh();
   }
 
   return (
-    <form onSubmit={onSubmit} className="flex max-w-2xl flex-col gap-6" noValidate>
-      <Field
-        label="Title"
-        name="title"
-        required
-        hint="What a shopper sees first. Used to build the URL."
-      />
+    <form onSubmit={save} className="flex max-w-2xl flex-col gap-6" noValidate>
+      <Field label="Title" name="title" required defaultValue={product.title} />
 
       <div className="flex flex-col gap-2">
         <label htmlFor="categoryId" className="text-meta font-medium text-ink">
@@ -67,7 +88,7 @@ export function ProductForm({ categories }: { categories: CategoryOption[] }) {
         <select
           id="categoryId"
           name="categoryId"
-          required
+          defaultValue={product.categoryId}
           className="min-h-11 rounded-control border border-blue-300 bg-paper px-3 text-body text-ink"
         >
           {categories.map((category) => (
@@ -78,24 +99,7 @@ export function ProductForm({ categories }: { categories: CategoryOption[] }) {
         </select>
       </div>
 
-      <Field label="Brand" name="brand" />
-
-      <div className="flex flex-col gap-2">
-        <label htmlFor="status" className="text-meta font-medium text-ink">
-          Status
-        </label>
-        <select
-          id="status"
-          name="status"
-          defaultValue="draft"
-          className="min-h-11 rounded-control border border-blue-300 bg-paper px-3 text-body text-ink"
-        >
-          <option value="draft">Draft — not visible to shoppers</option>
-          <option value="coming_soon">Coming soon</option>
-          <option value="preorder_open">Preorder open</option>
-          <option value="in_stock">In stock</option>
-        </select>
-      </div>
+      <Field label="Brand" name="brand" defaultValue={product.brand ?? ""} />
 
       <div className="flex flex-col gap-2">
         <label
@@ -108,6 +112,7 @@ export function ProductForm({ categories }: { categories: CategoryOption[] }) {
           id="bulletFeatures"
           name="bulletFeatures"
           rows={4}
+          defaultValue={product.bulletFeatures.join("\n")}
           placeholder={"Sourced direct from the US\nArrives sealed"}
           className="rounded-control border border-blue-300 bg-paper p-3 text-body text-ink"
         />
@@ -125,6 +130,7 @@ export function ProductForm({ categories }: { categories: CategoryOption[] }) {
           id="descriptionHtml"
           name="descriptionHtml"
           rows={6}
+          defaultValue={product.descriptionHtml ?? ""}
           className="rounded-control border border-blue-300 bg-paper p-3 text-body text-ink"
         />
       </div>
@@ -133,16 +139,9 @@ export function ProductForm({ categories }: { categories: CategoryOption[] }) {
         {error ? <p className="text-meta text-stamp-red">{error}</p> : null}
       </div>
 
-      <div className="flex gap-3">
+      <div>
         <Button type="submit" disabled={pending}>
-          {pending ? "Saving…" : "Save product"}
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => router.push("/admin/products")}
-        >
-          Cancel
+          {pending ? "Saving…" : "Save and continue"}
         </Button>
       </div>
     </form>

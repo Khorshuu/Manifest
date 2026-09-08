@@ -254,7 +254,12 @@ describe("generateVariants", () => {
     );
   });
 
-  it("creates nothing for a product with no attributes", async () => {
+  /**
+   * A product that varies by nothing still has to be sellable. It gets one
+   * plain variant — otherwise the setup wizard would strand every simple
+   * product with nothing to price.
+   */
+  it("creates one plain variant for a product with no attributes", async () => {
     const category = await createCategory(staff, {
       name: "Snacks",
       slug: "snacks",
@@ -264,8 +269,46 @@ describe("generateVariants", () => {
       categoryId: category.id,
     });
 
-    const result = await generateVariants(staff, product.id, { priceBdt: 1 });
-    expect(result.created).toBe(0);
+    const result = await generateVariants(staff, product.id, { priceBdt: 500 });
+    expect(result.created).toBe(1);
+
+    const variants = await listVariants(staff, product.id);
+    expect(variants).toHaveLength(1);
+    expect(variants[0].label).toBe("Single variant");
+    expect(variants[0].priceBdt).toBe(500);
+  });
+
+  it("does not stack up duplicates when generated twice", async () => {
+    const category = await createCategory(staff, {
+      name: "Snacks",
+      slug: "snacks-2",
+    });
+    const product = await createProduct(staff, {
+      title: "Candy Box Two",
+      categoryId: category.id,
+    });
+
+    await generateVariants(staff, product.id, { priceBdt: 500 });
+    const second = await generateVariants(staff, product.id, { priceBdt: 900 });
+
+    expect(second.created).toBe(0);
+    expect(second.unchanged).toBe(1);
+    expect(await listVariants(staff, product.id)).toHaveLength(1);
+  });
+
+  it("refuses a customer even in the no-attribute case", async () => {
+    const category = await createCategory(staff, {
+      name: "Snacks",
+      slug: "snacks-3",
+    });
+    const product = await createProduct(staff, {
+      title: "Candy Box Three",
+      categoryId: category.id,
+    });
+
+    await expect(
+      generateVariants(customer, product.id, { priceBdt: 1 }),
+    ).rejects.toThrow();
   });
 });
 
