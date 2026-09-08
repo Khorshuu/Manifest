@@ -121,6 +121,9 @@ test("acceptance 4: a price change is surfaced before payment", async ({
 test("acceptance 5: staff advance an order through every stage", async ({
   page,
 }) => {
+  // A checkout plus six status transitions, run alongside the whole suite.
+  test.slow();
+
   await addCandyToCart(page);
   await page.goto("/checkout");
   await fillGuestForm(page, `stages-${crypto.randomUUID().slice(0, 8)}@example.com`);

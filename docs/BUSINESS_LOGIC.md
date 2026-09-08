@@ -35,10 +35,14 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - A variant's `payment_mode` and `deposit_percent` determine `amount_due_now_bdt` at order placement: the full `total_bdt` for `payment_mode = 'full'`, or `deposit_percent` of it for `'deposit'`. This is computed once at order placement and stored, not recomputed later against a `total_bdt` that could theoretically change (it can't, since orders snapshot their totals).
 - A remaining balance is collected through a second `payments` row of `kind = 'balance'`, triggered by staff from the admin order screen once the item is confirmed sourced — not automatically on a timer, since the trigger is "the operator actually bought it in the US," an external fact the system doesn't observe on its own.
 
-## Reviews
+## Reviews (built after Phase 15)
 
 - A review is only creatable when a `reviews` row would reference an `order_items` row belonging to the reviewing user, on an order that has reached `delivered`. The unique constraint on `(user_id, product_id)` prevents a second review outright; the write path additionally checks order status before insert, since the constraint alone can't express "delivered."
-- New reviews start `status = 'pending'` and are excluded from the public rating average and review list until a staff member approves them.
+- New reviews start `status = 'pending'` and are excluded from the public rating average and review list until a staff member approves them. Rejecting an approved review removes it from both again.
+- Eligibility is decided in `lib/reviews`, not by the page. The product page renders the form only for someone whose delivered order entitles them to it, and `submitReview` re-checks the same delivered order item on submit, so a rendered form is never the thing that grants permission.
+- A published review shows a first name derived from the account's email local part, never the address itself. The moderation queue shows the address, because staff need to recognise a reviewer; that queue is staff-only.
+- Both moderation decisions write an `audit_log` row with the status they replaced, so a review disappearing from a product page can be explained afterwards.
+- The account page invites someone to review only what was delivered to them and not yet reviewed. Asking for a review of something that never arrived is the fastest way to make the ratings worthless.
 
 ## Roles and permissions
 

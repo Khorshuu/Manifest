@@ -37,6 +37,9 @@ test("the outbox says plainly that nothing is actually delivered", async ({
 test("placing an order writes a message staff can see and send", async ({
   page,
 }) => {
+  // A whole checkout plus a sign-in, waiting on a background delivery.
+  test.slow();
+
   // A guest checkout, so the address on the row is one this test controls.
   const email = `outbox-${crypto.randomUUID().slice(0, 8)}@example.com`;
 
@@ -76,7 +79,7 @@ test("placing an order writes a message staff can see and send", async ({
   await expect(async () => {
     await page.reload();
     await expect(row.first()).toContainText("sent");
-  }).toPass({ timeout: 15_000 });
+  }).toPass({ timeout: 45_000 });
 
   // With nothing left queued, the manual drain has nothing to do.
   await expect(

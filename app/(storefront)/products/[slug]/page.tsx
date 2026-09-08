@@ -13,6 +13,14 @@ import { remainingCapacity } from "@/lib/catalog/variants";
 import { formatArrivalWindow, formatDate } from "@/lib/format";
 import { breadcrumbJsonLd, productJsonLd } from "@/lib/seo";
 import { getProductRating } from "@/lib/catalog";
+import { getCurrentUser } from "@/lib/auth";
+import {
+  findEligibleOrderItem,
+  getRatingBreakdown,
+  hasReviewed,
+  listApprovedReviews,
+} from "@/lib/reviews";
+import { ReviewsSection } from "./reviews-section";
 import { VariantPicker, type PickerVariant } from "./variant-picker";
 
 export const dynamic = "force-dynamic";
@@ -39,12 +47,26 @@ export default async function ProductPage({
   const product = await getPublicProductBySlug(slug);
   if (!product) notFound();
 
-  const [variants, tree, related, rating] = await Promise.all([
-    getPublicVariants(product.id),
-    getCategoryTree(),
-    listRelatedProducts(product.id, product.categoryId, 4),
-    getProductRating(product.id),
-  ]);
+  const [variants, tree, related, rating, reviews, breakdown, user] =
+    await Promise.all([
+      getPublicVariants(product.id),
+      getCategoryTree(),
+      listRelatedProducts(product.id, product.categoryId, 4),
+      getProductRating(product.id),
+      listApprovedReviews(product.id),
+      getRatingBreakdown(product.id),
+      getCurrentUser(),
+    ]);
+
+  // Both decided on the server: the form is only rendered for someone whose
+  // delivered order entitles them to it, and submitting re-checks the same
+  // thing rather than trusting the page.
+  const [eligible, alreadyReviewed] = user
+    ? await Promise.all([
+        findEligibleOrderItem(user.id, product.id),
+        hasReviewed(user.id, product.id),
+      ])
+    : [null, false];
 
   const breadcrumb = findCategoryPath(tree, product.categoryId);
 
@@ -247,6 +269,18 @@ export default async function ProductPage({
           </div>
         </section>
       ) : null}
+
+      <ReviewsSection
+        productId={product.id}
+        productSlug={product.slug}
+        reviews={reviews}
+        average={rating.average}
+        count={rating.count}
+        breakdown={breakdown}
+        canReview={Boolean(eligible) && !alreadyReviewed}
+        isSignedIn={Boolean(user)}
+        alreadyReviewed={alreadyReviewed}
+      />
 
       {related.length > 0 ? (
         <section className="mt-14">

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { StatusBadge } from "@/components/status-badge";
 import { getCurrentUser } from "@/lib/auth";
 import { listOrdersForUser } from "@/lib/orders";
+import { listReviewableProducts } from "@/lib/reviews";
 import { formatBdt } from "@/lib/money";
 import { formatDate } from "@/lib/format";
 
@@ -30,7 +31,10 @@ export default async function AccountPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/account");
 
-  const orders = await listOrdersForUser(user.id);
+  const [orders, reviewable] = await Promise.all([
+    listOrdersForUser(user.id),
+    listReviewableProducts(user),
+  ]);
 
   return (
     <div className="mx-auto w-full max-w-[900px] px-4 py-8 md:px-6">
@@ -87,6 +91,34 @@ export default async function AccountPage() {
           ))}
         </ul>
       )}
+
+      {reviewable.length > 0 ? (
+        <section className="mt-12">
+          <h2 className="font-display text-h2 text-ink">
+            Products you can review
+          </h2>
+          <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
+            You are asked only about things that reached you. A review appears
+            on the product page once someone here has read it.
+          </p>
+          <ul className="mt-4 border-t border-blue-300">
+            {reviewable.map((product) => (
+              <li
+                key={product.productId}
+                className="flex flex-wrap items-center justify-between gap-4 border-b border-blue-300 py-4"
+              >
+                <p className="text-body text-ink">{product.title}</p>
+                <Link
+                  href={`/products/${product.slug}#reviews`}
+                  className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
+                >
+                  Write a review
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

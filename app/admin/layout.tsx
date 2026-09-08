@@ -8,6 +8,7 @@ const navigation = [
   { href: "/admin/products", label: "Products", superAdminOnly: false },
   { href: "/admin/categories", label: "Categories", superAdminOnly: false },
   { href: "/admin/orders", label: "Orders", superAdminOnly: false },
+  { href: "/admin/reviews", label: "Reviews", superAdminOnly: false },
   { href: "/admin/notifications", label: "Notifications", superAdminOnly: false },
   { href: "/admin/analytics", label: "Analytics", superAdminOnly: false },
   { href: "/admin/audit", label: "Audit log", superAdminOnly: false },

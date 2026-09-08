@@ -414,7 +414,8 @@ Carried forward, and honest about it:
 - `[x]` Product image upload — done after Phase 15. A media provider interface with a local implementation that writes to disk, byte-level format sniffing, generated filenames, and gallery ordering. See the media baseline below.
 - `[x]` The product edit form — done after Phase 15. See the product editing baseline below.
 - `[ ]` The step wizard from MASTER_PRODUCT_SPEC.md section 4. Creating, editing, archiving and the variation matrix all exist, but as separate screens rather than one guided flow.
-- `[ ]` Faceted filtering, the reviews UI, and search autosuggest.
+- `[x]` The reviews UI — done after Phase 15. Writing, moderation, and display; see the reviews baseline below.
+- `[ ]` Faceted filtering and search autosuggest.
 - `[~]` Notifications. The outbox, the templates, and the admin screen exist and are tested — see the notifications baseline below. No email or SMS provider is connected, so nothing reaches a customer yet; the mock provider records the attempt and the admin screen says so on the page.
 - `[ ]` The balance payment for deposit orders, still blocked on the open question in DATABASE.md.
 - `[ ]` Shipping fees and duty as separate computed lines. Both are folded into the landed price, which matches the promise made to shoppers but leaves `orders.shipping_fee_bdt` always zero.
@@ -475,6 +476,25 @@ A transactional outbox (DECISIONS.md D-009), messages for every order status, an
 | Delivery is honest about itself | `[x]` the mock provider sends nothing, and the admin page says so above the list rather than implying customers were reached |
 
 Not done: no real email or SMS provider, and nothing drains the outbox on a schedule. Today the request that queues a message drains it in the background, and staff can drain it by hand. A scheduled drain belongs with the real provider.
+
+## Reviews (added after Phase 15)
+
+Writing a review on the product page, moderation at `/admin/reviews`, and the published list with its rating breakdown.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 382 passed, 1 skipped, 26 files |
+| `npm run test:e2e` | `[x]` passes — 256 tests, mobile and desktop |
+| Only a delivered order can produce a review | `[x]` verified through the real pipeline: an order walked to `delivered` can review; the same order mid-transit cannot, and a stranger cannot |
+| Nothing is public before approval | `[x]` verified: a pending review is absent from the list and does not move the average; approving adds it, rejecting removes it again |
+| The reviewer's email is never published | `[x]` verified: the published payload contains a first name and no address |
+| Every decision is explainable | `[x]` verified: moderation writes an `audit_log` row carrying the status it replaced |
+| Only staff moderate | `[x]` verified in `lib/` and at the API — 403 for a customer on the queue, the counts, and the decision endpoint |
+| One review per person per product | `[x]` verified: a second attempt is refused, and the account page stops offering it |
+
+Note on the e2e suite: three tests that walk a full checkout plus six status transitions now call `test.slow()`. They passed alone and failed only under the load of the whole suite, which is a timeout and not a defect — but leaving them to flake would have made the suite untrustworthy.
 
 ## Open items carried from other docs
 

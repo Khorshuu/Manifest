@@ -17,6 +17,7 @@ export type AuditAction =
   | "category.updated"
   | "order.status_changed"
   | "order.refunded"
+  | "review.moderated"
   | "site_settings.updated";
 
 export type AuditEntry = {
