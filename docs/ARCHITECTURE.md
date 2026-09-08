@@ -18,6 +18,8 @@ app/                    routes only: page components, layouts, route handlers
   account/               authenticated customer routes
   admin/                 authenticated staff/super-admin routes
   api/                   route handlers for webhooks and non-page mutations
+    cron/                the scheduled sweep, authenticated by a shared secret
+                         rather than by a session
 
 components/             presentational UI, no direct data access
 
@@ -32,9 +34,6 @@ lib/
     shipping/           interface + courier/tracking implementation + mock implementation
     notification/       interface + email/SMS implementation + mock implementation
   audit/                write-only audit log helper, called from every admin mutation
-
-app/api/cron/          endpoints for the scheduler, authenticated by a shared
-                       secret rather than by a session
   validation/           schema definitions (one schema per external input shape)
 
 db/
