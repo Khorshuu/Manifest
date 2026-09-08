@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   check,
   index,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -44,6 +45,8 @@ export const notifications = pgTable(
     subject: text("subject").notNull(),
     body: text("body").notNull(),
     status: text("status").notNull().default("queued"),
+    /** Delivery attempts so far, so a permanently broken message stops. */
+    attempts: integer("attempts").notNull().default(0),
     dedupeKey: text("dedupe_key").notNull(),
     providerMessageId: text("provider_message_id"),
     /** Why delivery failed, for staff. Never shown to the customer. */

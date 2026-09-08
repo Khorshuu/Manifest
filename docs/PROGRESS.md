@@ -477,7 +477,7 @@ A transactional outbox (DECISIONS.md D-009), messages for every order status, an
 | Only staff can read or drain the outbox | `[x]` verified in `lib/` and at the API — 403 for a customer, 401 anonymous |
 | Delivery is honest about itself | `[x]` the mock provider sends nothing, and the admin page says so above the list rather than implying customers were reached |
 
-Not done: no real email or SMS provider, and nothing drains the outbox on a schedule. Today the request that queues a message drains it in the background, and staff can drain it by hand. A scheduled drain belongs with the real provider.
+Not done: no real email or SMS provider. The outbox is now drained on a schedule as well as opportunistically — see the scheduled sweep baseline below.
 
 ## Reviews (added after Phase 15)
 
@@ -634,6 +634,25 @@ TOTP with recovery codes, at `/account/security`, plus the second step at sign-i
 | `npm run test:e2e` | `[~]` `two-factor.spec.ts` passes, 12 tests across mobile and desktop, and `accessibility.spec.ts` plus `auth.spec.ts` pass on desktop. The full sweep was not re-run. |
 
 One unrelated defect found on the way: `tests/seed.test.ts` applied only migration `0000`, so the seed was being checked against a schema the application left behind long ago. It went unnoticed because a failure in `beforeAll` is reported as skipped tests rather than failures — the run said "8 skipped" where it should have said "6 failed". It now applies every migration in order.
+
+## Scheduled sweep (added after Phase 15)
+
+`/api/cron/maintenance` delivers the outbox on a clock rather than on traffic, and tidies up while it is there. `vercel.json` schedules it every ten minutes. Migration `0008` adds the attempt count.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm run build` | `[x]` passes |
+| `npm test` | `[x]` passes — 522 passed, 2 skipped, 33 files |
+| `npm run test:e2e` | `[~]` `cron.spec.ts` passes, 14 tests across mobile and desktop. The full sweep was not re-run. |
+| The secret is actually required | `[x]` verified four ways — no header, wrong secret, the secret without its `Bearer` prefix, and a signed-in super admin session — and **confirmed to fail**: weakening the check to allow a missing secret makes two of those tests fail |
+| An unset secret closes the endpoint | `[x]` it returns 401 rather than running: a job runner anyone can trigger is worse than none |
+| A failed message is retried | `[x]` verified: a provider that fails once and then recovers leaves the row `sent` with two attempts recorded |
+| A hopeless message stops | `[x]` verified: after five attempts the row is no longer picked up, and stays `failed` for staff to see |
+| A sent message is never re-sent | `[x]` verified — a second drain attempts nothing |
+
+The sweep also prunes closed rate-limit windows and deletes expired sessions, both of which previously only happened opportunistically on a request.
 
 ## Open items carried from other docs
 

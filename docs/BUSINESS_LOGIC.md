@@ -38,6 +38,8 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - A message is composed from the order number, the total, and the amount actually taken now. Nothing reads `orders.internal_notes`, a refund reason, or any sourcing cost: staff wording is written for staff, and a refund message says a refund was issued without repeating why.
 - Delivery is separate from queueing. A failed send marks the row `failed` with the reason and leaves it for staff on `/admin/notifications`; it never fails the order operation that queued it.
 - No email or SMS provider is connected. `MockNotificationProvider` records the attempt and sends nothing, and the admin screen says so on the page, so a `sent` row is not misread as proof a customer was told.
+- A scheduled sweep at `/api/cron/maintenance` delivers what is waiting, every ten minutes. Before it, delivery depended on traffic: the request that queued a message also tried to send it, so a message queued by the last order of the night waited for the first order of the morning.
+- A failed message is retried by the next sweep, up to five attempts, after which it is left alone. Retrying a bad address forever costs money at a real provider and buries the failures that could still be fixed. The attempt count is on the row, so staff can see which is which.
 
 ## Deposit vs full payment
 

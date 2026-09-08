@@ -38,6 +38,9 @@ export default defineConfig({
       // The suite gets its own database, so it never writes into the
       // developer catalog.
       DATABASE_URL: testDatabaseUrl,
+      // A known secret, so the scheduled sweep can be exercised the way a real
+      // scheduler calls it.
+      CRON_SECRET: "test-cron-secret",
       ...(isProduction
         ? {
             NODE_ENV: "production",

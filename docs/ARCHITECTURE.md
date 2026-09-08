@@ -32,6 +32,9 @@ lib/
     shipping/           interface + courier/tracking implementation + mock implementation
     notification/       interface + email/SMS implementation + mock implementation
   audit/                write-only audit log helper, called from every admin mutation
+
+app/api/cron/          endpoints for the scheduler, authenticated by a shared
+                       secret rather than by a session
   validation/           schema definitions (one schema per external input shape)
 
 db/

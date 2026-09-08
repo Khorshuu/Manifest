@@ -23,6 +23,7 @@ import {
   deliverQueuedNotifications,
   isNotifiedStatus,
   listOutbox,
+  MAX_DELIVERY_ATTEMPTS,
   NOTIFIED_STATUSES,
   setBackgroundDeliveryForTesting,
 } from "@/lib/notifications";
@@ -300,6 +301,62 @@ describe("delivering", () => {
     const [row] = await outboxFor(placed.orderId);
     expect(row.status).toBe("failed");
     expect(row.error).toBe("The provider is unreachable.");
+    expect(row.attempts).toBe(1);
+  });
+
+  /**
+   * The reason the scheduled sweep exists: an outage should heal on the next
+   * run rather than waiting for someone to notice and press a button.
+   */
+  it("retries a failed message on the next drain", async () => {
+    let reachable = false;
+    setNotificationProviderForTesting({
+      async send() {
+        if (!reachable) throw new DeliveryError("The provider is unreachable.");
+        return { providerMessageId: "recovered" };
+      },
+    });
+
+    const placed = await placeTestOrder();
+    expect((await deliverQueuedNotifications()).failed).toBe(1);
+
+    reachable = true;
+    expect((await deliverQueuedNotifications()).sent).toBe(1);
+
+    const [row] = await outboxFor(placed.orderId);
+    expect(row.status).toBe("sent");
+    expect(row.error).toBeNull();
+    expect(row.attempts).toBe(2);
+  });
+
+  /** A permanently bad address must not be retried forever. */
+  it("gives up after the attempt limit", async () => {
+    setNotificationProviderForTesting({
+      async send() {
+        throw new DeliveryError("No such address.");
+      },
+    });
+
+    const placed = await placeTestOrder();
+
+    for (let i = 0; i < MAX_DELIVERY_ATTEMPTS; i++) {
+      await deliverQueuedNotifications();
+    }
+
+    const [row] = await outboxFor(placed.orderId);
+    expect(row.attempts).toBe(MAX_DELIVERY_ATTEMPTS);
+
+    // Nothing left to attempt: the row is still there, still failed, and no
+    // longer picked up.
+    expect((await deliverQueuedNotifications()).attempted).toBe(0);
+    expect(row.status).toBe("failed");
+  });
+
+  it("never picks up a message that was already sent", async () => {
+    await placeTestOrder();
+    await deliverQueuedNotifications();
+
+    expect((await deliverQueuedNotifications()).attempted).toBe(0);
   });
 });
 

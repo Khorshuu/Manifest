@@ -32,6 +32,7 @@ One happy-path spec per major flow, run against a seeded database:
 - Admin: only a super admin can change a site setting; staff see the values with disabled inputs, and both the page and the API refuse anyone else.
 - Admin: walk a new product through all six wizard steps — including a real image upload and a real price — and confirm it is then visible on the storefront to a signed-out visitor.
 - Axe-core runs at AA (`wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) over the pages the spec names plus sign-in, tracking, an empty result and three admin screens, on mobile and desktop. Violations are reported with the rule and the offending element, because a bare count tells whoever reads the failure nothing.
+- The scheduled sweep refuses every request without its shared secret — including one from a signed-in super admin — and delivers the outbox when given it.
 - An account turns on two-factor authentication, signs out, and cannot get back in on the password alone; a wrong code is refused, a recovery code works once, and turning it off needs a current code.
 - A delivered customer writes a review, staff approve it, and it appears on the product page for a signed-out visitor.
 

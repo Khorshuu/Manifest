@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, or } from "drizzle-orm";
 import { db } from "@/db";
 import { notifications, orders, users } from "@/db/schema";
 import {
@@ -103,9 +103,18 @@ export type DeliveryReport = {
 };
 
 /**
- * Delivers queued messages. Safe to call repeatedly: a row moves out of
- * 'queued' before its outcome is known to the caller, and a failure keeps the
- * reason on the row for staff rather than surfacing it to the customer.
+ * A message that has failed this many times is left alone. Retrying a bad
+ * address forever costs money at a real provider and buries the failures that
+ * could still be fixed.
+ */
+export const MAX_DELIVERY_ATTEMPTS = 5;
+
+/**
+ * Delivers what is waiting: queued messages, and failed ones with attempts
+ * left. Safe to call repeatedly and safe to call concurrently with itself —
+ * the worst case is a message delivered twice rather than not at all, and a
+ * failure keeps its reason on the row for staff rather than reaching the
+ * customer.
  */
 export async function deliverQueuedNotifications(
   limit = 50,
@@ -117,9 +126,24 @@ export async function deliverQueuedNotifications(
       recipient: notifications.recipient,
       subject: notifications.subject,
       body: notifications.body,
+      attempts: notifications.attempts,
     })
     .from(notifications)
-    .where(and(eq(notifications.status, "queued"), isNull(notifications.sentAt)))
+    .where(
+      and(
+        isNull(notifications.sentAt),
+        // Queued messages, and failed ones that have not run out of attempts:
+        // a provider outage should recover by itself on the next drain rather
+        // than needing someone to notice and press a button.
+        or(
+          eq(notifications.status, "queued"),
+          and(
+            eq(notifications.status, "failed"),
+            lt(notifications.attempts, MAX_DELIVERY_ATTEMPTS),
+          ),
+        ),
+      ),
+    )
     .orderBy(asc(notifications.createdAt))
     .limit(limit);
 
@@ -141,6 +165,7 @@ export async function deliverQueuedNotifications(
           status: "sent",
           providerMessageId: result.providerMessageId,
           sentAt: new Date(),
+          attempts: message.attempts + 1,
           error: null,
         })
         .where(eq(notifications.id, message.id));
@@ -154,7 +179,11 @@ export async function deliverQueuedNotifications(
 
       await db
         .update(notifications)
-        .set({ status: "failed", error: reason })
+        .set({
+          status: "failed",
+          attempts: message.attempts + 1,
+          error: reason,
+        })
         .where(eq(notifications.id, message.id));
 
       report.failed += 1;

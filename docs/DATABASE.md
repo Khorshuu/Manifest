@@ -278,6 +278,10 @@ recovery_codes
 
 Added in migration `0007`. A pending session is a real row that `validateSessionToken` refuses, so a half-finished sign-in authenticates nothing anywhere (see SECURITY.md).
 
+## Notification delivery attempts
+
+`notifications.attempts` (migration `0008`) counts delivery attempts. The scheduled sweep picks up queued messages and failed ones below five attempts, so a provider outage heals by itself; past that a message is left alone rather than retried forever (see BUSINESS_LOGIC.md).
+
 ## Rate limiting
 
 ```
