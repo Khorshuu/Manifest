@@ -106,10 +106,13 @@ test("dashboard numbers come from real data", async ({ page }) => {
   await signIn(page, "admin@example.com");
   await page.goto("/admin");
 
-  // The seed creates two products and one customer; these are queried live.
-  const products = page.locator("dt", { hasText: "Live products" });
-  await expect(products).toBeVisible();
-  await expect(
-    page.locator("dd").filter({ hasText: /^2$/ }).first(),
-  ).toBeVisible();
+  // Asserting a real number rather than an exact one: other specs add
+  // products, so a fixed count would be coupled to test execution order.
+  const tile = page
+    .locator("div", { has: page.getByText("Live products", { exact: true }) })
+    .last();
+  await expect(tile).toBeVisible();
+
+  const value = await tile.locator("dd").innerText();
+  expect(Number(value)).toBeGreaterThanOrEqual(2);
 });

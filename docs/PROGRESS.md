@@ -16,7 +16,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[x]` **Phase 1 — Project scaffold & architecture.** Next.js 16 (App Router) + TypeScript strict, Tailwind v4 with the Import Manifest tokens in `app/globals.css`, Fraunces + Inter, Drizzle + postgres-js connection in `db/index.ts`, Zod-validated env in `lib/env.ts`, Vitest and Playwright configured, `CLAUDE.md` folder layout created. Verified — see baseline below.
 - `[x]` **Phase 2 — Database.** 26 Drizzle tables in `db/schema/` matching `DATABASE.md`, first migration at `db/migrations/0000_initial_schema.sql`, and a re-runnable seed in `db/seed.ts`. Verified — see Phase 2 baseline below.
 - `[x]` **Phase 3 — Auth & admin shell.** argon2id passwords, database-backed sessions keyed by a token hash, the three role gates in `lib/auth/authorize.ts`, login/logout/register routes with rate limiting, the `/admin` shell with server-side role enforcement, and a dashboard whose every figure is a live query. Verified — see Phase 3 baseline below.
-- `[ ]` **Phase 4 — Product system.** Category tree, attribute/value CRUD, product CRUD (draft/scheduled/published/archived), image upload.
+- `[~]` **Phase 4 — Product system.** Category tree with cycle protection, attribute and value management, product create/update/archive/restore with slug derivation, an admin catalog UI, and admin API routes. Image upload is not built yet and carries into the next slice of this phase.
 - `[ ]` **Phase 5 — Variation engine.** Combination generation from selected attributes, per-combination enable/disable, bulk edit.
 - `[ ]` **Phase 6 — Inventory & preorder engine.** Capacity/reserved tracking, the locked-transaction capacity check, waitlist.
 - `[ ]` **Phase 7 — Storefront.** Home, category/PLP, PDP, search, related products.
@@ -75,6 +75,25 @@ A real PostgreSQL 18.4 now runs locally through `npm run db:server` (binaries sh
 | Dashboard figures | `[x]` verified against seeded data — counts come from live queries, nothing hardcoded |
 
 Two defects were found and fixed during this phase: `sessions.id` was declared `uuid` but holds a SHA-256 token hash (fixed by migration `0001`), and the login rate limit was low enough that a shared IP would lock out legitimate users (now a high per-IP ceiling with a strict per-account limit).
+
+## Verification baseline (end of Phase 4, first slice)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 94 tests, 12 files |
+| `npm run test:e2e` | `[x]` passes — 32 tests, mobile and desktop |
+| Customer cannot create a listing | `[x]` verified three ways: calling `createProduct` directly with a customer session, posting at `/api/admin/products` as a signed-in customer (403), and as an anonymous visitor (401) |
+| Category tree | `[x]` three levels rendered and verified in a browser; cycles refused; a category with children or products cannot be removed |
+| Audit trail | `[x]` product creation and archiving write `audit_log` rows with actor and before/after values, in the same transaction |
+
+Not done in this slice, carried forward:
+
+- `[ ]` Product image upload (the storage decision in DECISIONS.md D-001 names Cloudflare R2; nothing is wired yet).
+- `[ ]` Editing an existing product from the admin UI — the API and `lib/` function exist and are tested, but there is no edit form.
+- `[ ]` The step wizard described in MASTER_PRODUCT_SPEC.md section 4; the current form is a single page.
 
 ## Open items carried from other docs
 
