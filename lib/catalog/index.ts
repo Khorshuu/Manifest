@@ -6,3 +6,5 @@ export * from "./products";
 export * from "./card-data";
 export * from "./storefront";
 export * from "./variants";
+export * from "./facets";
+export * from "./filter-params";

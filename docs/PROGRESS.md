@@ -415,7 +415,7 @@ Carried forward, and honest about it:
 - `[x]` The product edit form — done after Phase 15. See the product editing baseline below.
 - `[ ]` The step wizard from MASTER_PRODUCT_SPEC.md section 4. Creating, editing, archiving and the variation matrix all exist, but as separate screens rather than one guided flow.
 - `[x]` The reviews UI — done after Phase 15. Writing, moderation, and display; see the reviews baseline below.
-- `[ ]` Faceted filtering and search autosuggest.
+- `[x]` Faceted filtering and search autosuggest — done after Phase 15; see the baseline below.
 - `[~]` Notifications. The outbox, the templates, and the admin screen exist and are tested — see the notifications baseline below. No email or SMS provider is connected, so nothing reaches a customer yet; the mock provider records the attempt and the admin screen says so on the page.
 - `[ ]` The balance payment for deposit orders, still blocked on the open question in DATABASE.md.
 - `[ ]` Shipping fees and duty as separate computed lines. Both are folded into the landed price, which matches the promise made to shoppers but leaves `orders.shipping_fee_bdt` always zero.
@@ -495,6 +495,27 @@ Writing a review on the product page, moderation at `/admin/reviews`, and the pu
 | One review per person per product | `[x]` verified: a second attempt is refused, and the account page stops offering it |
 
 Note on the e2e suite: three tests that walk a full checkout plus six status transitions now call `test.slow()`. They passed alone and failed only under the load of the whole suite, which is a timeout and not a defect — but leaving them to flake would have made the suite untrustworthy.
+
+## Faceted filtering and autosuggest (added after Phase 15)
+
+A filter panel on the category and search pages, and suggestions under the header search.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm run build` | `[x]` passes |
+| `npm test` | `[x]` passes — 404 passed, 1 skipped, 27 files |
+| `npm run test:e2e` | `[x]` passes — 274 tests, mobile and desktop |
+| The count describes the listing | `[x]` verified across six filter combinations: `countProducts` and `listProductCards` agree exactly, because both build their WHERE from the same function |
+| Values of one attribute widen, different attributes narrow | `[x]` verified: two colours return both products, a colour crossed with a size returns none |
+| Facet counts are real | `[x]` verified: a product with two variants carrying the same value counts once, and an unticked value shows what it would add rather than zero |
+| Filtering works without JavaScript | `[x]` the panel is a GET form; the filtered listing is a plain URL, verified by navigating straight to one |
+| Filters survive sorting and pagination | `[x]` verified — the page links rebuild the whole query string rather than only `sort` and `page` |
+| Autosuggest cannot leak a draft | `[x]` verified: a freshly created draft returns no suggestions to a signed-out visitor |
+| Autosuggest is reachable by keyboard | `[x]` verified: arrow key then Enter navigates; it is a combobox with a listbox, not a div with a click handler |
+
+One real defect fixed on the way: `countProducts` ignored the brand filter, so a filtered listing could claim more pages than it had. Both paths now go through `buildProductWhere`, and a test iterates filter combinations asserting the two agree.
 
 ## Open items carried from other docs
 

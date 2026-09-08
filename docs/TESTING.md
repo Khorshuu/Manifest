@@ -26,6 +26,8 @@ One happy-path spec per major flow, run against a seeded database:
 - Admin: advance an order through the full status pipeline, confirm the customer's tracking view updates to match.
 - Admin: edit an existing product, reload, and confirm the change was read back from the server rather than left in the form; archive it behind a confirmation and restore it as a draft.
 - Admin: place an order, then find the message it produced in the notification outbox, addressed to the email that placed it.
+- Filter a category listing by price and by attribute value, confirm the count matches what is shown, and confirm a filtered URL can be opened directly.
+- Type in the header search, pick a suggestion with the keyboard, and land on the product.
 - A delivered customer writes a review, staff approve it, and it appears on the product page for a signed-out visitor.
 
 ## What does not need a test

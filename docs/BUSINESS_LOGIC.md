@@ -54,6 +54,16 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 
 - Every figure on the admin dashboard (revenue, pending preorders, low-capacity alerts, top products) is a live query against `orders`, `order_items`, and `product_variants` — never a cached snapshot presented as current, and never a placeholder value during development. If a metric can't be computed correctly yet, the dashboard states that explicitly rather than showing a plausible-looking number.
 
+## Browsing and filtering
+
+- The listing, the count above it, and the facet counts are all built from one `ProductFilters` value through `buildProductWhere`. A count computed from different conditions than the list it labels is worse than no count at all.
+- Values of one attribute are OR-ed and different attributes are AND-ed. Ticking a second colour should widen the results; ticking a size as well should narrow them. Any other combination surprises people.
+- Facet counts exclude the facet's own selections, so an unticked value shows what it would add rather than always reading zero.
+- Price is filtered against variant prices, not a product-level field, because the price a shopper sees on a card is the lowest purchasable variant.
+- "Only what can be bought now" mirrors what the product page decides: stock remaining, or a preorder slot left with the window still open. A listing must not offer what the detail page then refuses.
+- Filters live in the URL and the panel is an ordinary GET form. A filtered listing can be linked and shared, and it works before any JavaScript has loaded.
+- Autosuggest returns labels and links only — never price or stock — and goes through the same public predicate as every other shopper query, so it cannot surface a draft.
+
 ## Variation engine (Phase 5)
 
 - Combinations are the Cartesian product of the attributes a product varies by. An attribute with no values makes the product empty rather than being skipped — a variant that does not specify one of the product's own axes would be meaningless.

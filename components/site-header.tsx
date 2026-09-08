@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SearchBox } from "@/components/search-box";
 import { getCategoryTree } from "@/lib/catalog";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { countCartItems } from "@/lib/cart";
@@ -40,18 +41,7 @@ export async function SiteHeader() {
           </ul>
         </nav>
 
-        <form action="/search" className="order-last w-full md:order-none md:w-64">
-          <label htmlFor="site-search" className="sr-only">
-            Search products
-          </label>
-          <input
-            id="site-search"
-            name="q"
-            type="search"
-            placeholder="Search products"
-            className="min-h-11 w-full rounded-control border border-blue-500 bg-paper px-3 text-body text-ink"
-          />
-        </form>
+        <SearchBox />
 
         <div className="flex items-center gap-4 text-meta">
           {isStaff(user) ? (

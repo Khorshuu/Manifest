@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { FilterPanel } from "@/components/filter-panel";
 import { ProductGrid } from "@/components/product-grid";
 import { SortSelect } from "@/components/sort-select";
 import {
@@ -9,7 +10,10 @@ import {
   findCategoryPath,
   getCategoryBySlug,
   getCategoryTree,
+  hasActiveFilters,
+  listFacets,
   listProductCards,
+  parseFilterParams,
   type ProductSort,
 } from "@/lib/catalog";
 
@@ -50,17 +54,33 @@ export default async function CategoryPage({
   const sort = (typeof query.sort === "string" ? query.sort : "relevance") as ProductSort;
   const page = Math.max(1, Number(query.page) || 1);
 
-  const [products, total] = await Promise.all([
+  // The same filters drive the listing, the count, and the facet counts, so
+  // the number on the page always describes the page.
+  const filters = { ...parseFilterParams(query), categoryIds };
+
+  const [products, total, facets] = await Promise.all([
     listProductCards({
-      categoryIds,
+      ...filters,
       sort,
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
     }),
-    countProducts({ categoryIds }),
+    countProducts(filters),
+    listFacets(filters),
   ]);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageHref = (target: number) => {
+    const next = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      for (const entry of Array.isArray(value) ? value : value ? [value] : []) {
+        next.append(key, entry);
+      }
+    }
+    next.set("sort", sort);
+    next.set("page", String(target));
+    return `?${next.toString()}`;
+  };
 
   return (
     <div className="mx-auto w-full max-w-[1280px] px-4 py-8 md:px-6">
@@ -107,19 +127,49 @@ export default async function CategoryPage({
         </ul>
       ) : null}
 
-      <div className="mt-8">
-        <ProductGrid
-          products={products}
-          emptyTitle="Nothing in this category yet."
-          emptyBody="We are still sourcing for this section. Browse another category, or check back shortly."
+      <div className="mt-8 grid gap-8 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <FilterPanel
+          facets={facets}
+          action={`/categories/${category.slug}`}
+          total={total}
+          hasFilters={hasActiveFilters(filters)}
+          selected={{
+            minTaka:
+              filters.minPriceBdt === undefined
+                ? ""
+                : String(filters.minPriceBdt / 100),
+            maxTaka:
+              filters.maxPriceBdt === undefined
+                ? ""
+                : String(filters.maxPriceBdt / 100),
+            fulfillment: filters.fulfillment ?? "",
+            availableOnly: Boolean(filters.availableOnly),
+            sort,
+          }}
         />
+
+        <div className="min-w-0">
+          <ProductGrid
+            products={products}
+            emptyTitle={
+              hasActiveFilters(filters)
+                ? "Nothing matches those filters."
+                : "Nothing in this category yet."
+            }
+            emptyBody={
+              hasActiveFilters(filters)
+                ? "Widen the price range or clear a filter to see more."
+                : "We are still sourcing for this section. Browse another category, or check back shortly."
+            }
+          />
+        </div>
       </div>
 
       {pageCount > 1 ? (
         <nav aria-label="Pagination" className="mt-10 flex gap-3">
           {page > 1 ? (
             <Link
-              href={`?sort=${sort}&page=${page - 1}`}
+              href={pageHref(page - 1)}
               className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
             >
               Previous
@@ -130,7 +180,7 @@ export default async function CategoryPage({
           </span>
           {page < pageCount ? (
             <Link
-              href={`?sort=${sort}&page=${page + 1}`}
+              href={pageHref(page + 1)}
               className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
             >
               Next

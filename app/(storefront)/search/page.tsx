@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { FilterPanel } from "@/components/filter-panel";
 import { ProductGrid } from "@/components/product-grid";
 import { SortSelect } from "@/components/sort-select";
 import {
   countProducts,
   getCategoryTree,
+  hasActiveFilters,
+  listFacets,
   listProductCards,
+  parseFilterParams,
   type ProductSort,
 } from "@/lib/catalog";
 
@@ -28,15 +32,17 @@ export default async function SearchPage({
   const sort = (typeof params.sort === "string" ? params.sort : "relevance") as ProductSort;
   const page = Math.max(1, Number(params.page) || 1);
 
-  const [products, total, tree] = await Promise.all([
+  const filters = { ...parseFilterParams(params), query: query || undefined };
+
+  const [products, total, facets, tree] = await Promise.all([
     listProductCards({
-      query: query || undefined,
-      preorderOnly,
+      ...filters,
       sort,
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
     }),
-    countProducts({ query: query || undefined }),
+    countProducts(filters),
+    listFacets(filters),
     getCategoryTree(),
   ]);
 
@@ -58,14 +64,45 @@ export default async function SearchPage({
         <SortSelect current={sort} />
       </div>
 
-      <div className="mt-8">
-        <ProductGrid
-          products={products}
-          emptyTitle={
-            query ? `Nothing matched “${query}”.` : "Nothing listed yet."
-          }
-          emptyBody="Check the spelling, try a shorter search, or browse a category below."
+      <div className="mt-8 grid gap-8 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <FilterPanel
+          facets={facets}
+          action="/search"
+          hidden={query ? { q: query } : {}}
+          total={total}
+          hasFilters={hasActiveFilters(filters)}
+          selected={{
+            minTaka:
+              filters.minPriceBdt === undefined
+                ? ""
+                : String(filters.minPriceBdt / 100),
+            maxTaka:
+              filters.maxPriceBdt === undefined
+                ? ""
+                : String(filters.maxPriceBdt / 100),
+            fulfillment: filters.fulfillment ?? "",
+            availableOnly: Boolean(filters.availableOnly),
+            sort,
+          }}
         />
+
+        <div className="min-w-0">
+          <ProductGrid
+            products={products}
+            emptyTitle={
+              hasActiveFilters(filters)
+                ? "Nothing matches those filters."
+                : query
+                  ? `Nothing matched “${query}”.`
+                  : "Nothing listed yet."
+            }
+            emptyBody={
+              hasActiveFilters(filters)
+                ? "Widen the price range or clear a filter to see more."
+                : "Check the spelling, try a shorter search, or browse a category below."
+            }
+          />
+        </div>
       </div>
 
       {/* Never a bare empty page: always offer somewhere to go next. */}

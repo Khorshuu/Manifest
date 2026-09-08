@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   attributeValues,
@@ -10,7 +10,7 @@ import {
   variantOptionValues,
 } from "@/db/schema";
 import { loadCardAggregates } from "./card-data";
-import { PUBLIC_STATUSES } from "./products";
+import { buildProductWhere, publicProductWhere, type ProductFilters } from "./facets";
 
 /**
  * Queries that serve shoppers.
@@ -40,11 +40,6 @@ export type ProductCard = {
   ratingAverage: number | null;
   reviewCount: number;
 };
-
-const publicProductWhere = and(
-  isNull(products.archivedAt),
-  inArray(products.status, [...PUBLIC_STATUSES]),
-);
 
 type ProductRow = {
   id: string;
@@ -121,40 +116,19 @@ function sortedProductIds(sort: ProductSort) {
   }
 }
 
-export async function listProductCards(options: {
-  categoryIds?: string[];
-  query?: string;
-  brand?: string;
-  preorderOnly?: boolean;
+export type ListProductsOptions = ProductFilters & {
   sort?: ProductSort;
   limit?: number;
   offset?: number;
-} = {}): Promise<ProductCard[]> {
-  const filters = [publicProductWhere];
+};
 
-  if (options.categoryIds?.length) {
-    filters.push(inArray(products.categoryId, options.categoryIds));
-  }
-
-  if (options.brand) {
-    filters.push(eq(products.brand, options.brand));
-  }
-
-  if (options.query) {
-    const term = `%${options.query}%`;
-    filters.push(
-      or(ilike(products.title, term), ilike(products.brand, term))!,
-    );
-  }
-
-  if (options.preorderOnly) {
-    filters.push(eq(products.status, "preorder_open"));
-  }
-
+export async function listProductCards(
+  options: ListProductsOptions = {},
+): Promise<ProductCard[]> {
   const rows = await db
     .select(productColumns)
     .from(products)
-    .where(and(...filters))
+    .where(await buildProductWhere(options))
     .orderBy(sortedProductIds(options.sort ?? "relevance"))
     .limit(options.limit ?? 24)
     .offset(options.offset ?? 0);
@@ -162,27 +136,18 @@ export async function listProductCards(options: {
   return toCards(rows);
 }
 
-export async function countProducts(options: {
-  categoryIds?: string[];
-  query?: string;
-} = {}): Promise<number> {
-  const filters = [publicProductWhere];
-
-  if (options.categoryIds?.length) {
-    filters.push(inArray(products.categoryId, options.categoryIds));
-  }
-
-  if (options.query) {
-    const term = `%${options.query}%`;
-    filters.push(
-      or(ilike(products.title, term), ilike(products.brand, term))!,
-    );
-  }
-
+/**
+ * Counts exactly what `listProductCards` would return for the same filters.
+ * Both go through `buildProductWhere` so the two cannot drift — they did once,
+ * and a filtered listing reported more pages than it had.
+ */
+export async function countProducts(
+  filters: ProductFilters = {},
+): Promise<number> {
   const [row] = await db
     .select({ value: sql<number>`count(*)::int` })
     .from(products)
-    .where(and(...filters));
+    .where(await buildProductWhere(filters));
 
   return row.value;
 }
@@ -346,4 +311,79 @@ export async function getProductRating(productId: string) {
     average: row.average === null ? null : Number(row.average),
     count: Number(row.count),
   };
+}
+
+export type Suggestion = {
+  kind: "product" | "brand" | "category";
+  label: string;
+  href: string;
+};
+
+/**
+ * Autosuggest for the header search.
+ *
+ * Prefix matches rank above matches inside a word, because someone typing
+ * "stu" means "Studio", not "Headphones, studio reference". Nothing here can
+ * return a draft or an archived product — it goes through the same public
+ * predicate as every other shopper query.
+ */
+export async function suggestSearch(
+  term: string,
+  limit = 8,
+): Promise<Suggestion[]> {
+  const trimmed = term.trim();
+  if (trimmed.length < 2) return [];
+
+  const prefix = `${trimmed}%`;
+  const anywhere = `%${trimmed}%`;
+
+  const [productRows, brandRows, categoryRows] = await Promise.all([
+    db
+      .select({ title: products.title, slug: products.slug })
+      .from(products)
+      .where(and(publicProductWhere, ilike(products.title, anywhere)))
+      .orderBy(
+        // Prefix first, then alphabetical, so the order is stable rather than
+        // whatever the planner returns.
+        asc(sql`case when ${products.title} ilike ${prefix} then 0 else 1 end`),
+        asc(products.title),
+      )
+      .limit(limit),
+
+    db
+      .selectDistinct({ brand: products.brand })
+      .from(products)
+      .where(and(publicProductWhere, ilike(products.brand, anywhere)))
+      .orderBy(asc(products.brand))
+      .limit(4),
+
+    db
+      .select({ name: categories.name, slug: categories.slug })
+      .from(categories)
+      .where(ilike(categories.name, anywhere))
+      .orderBy(asc(categories.name))
+      .limit(4),
+  ]);
+
+  const suggestions: Suggestion[] = [
+    ...productRows.map((row) => ({
+      kind: "product" as const,
+      label: row.title,
+      href: `/products/${row.slug}`,
+    })),
+    ...brandRows
+      .filter((row): row is { brand: string } => Boolean(row.brand))
+      .map((row) => ({
+        kind: "brand" as const,
+        label: row.brand,
+        href: `/search?q=${encodeURIComponent(row.brand)}`,
+      })),
+    ...categoryRows.map((row) => ({
+      kind: "category" as const,
+      label: row.name,
+      href: `/categories/${row.slug}`,
+    })),
+  ];
+
+  return suggestions.slice(0, limit);
 }
