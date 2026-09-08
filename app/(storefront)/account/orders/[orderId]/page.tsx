@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { LandedBreakdown } from "@/components/landed-breakdown";
 import { OrderProgress } from "@/components/order-progress";
 import { getCurrentUser } from "@/lib/auth";
 import { getOrderForUser } from "@/lib/orders";
@@ -71,12 +72,12 @@ export default async function AccountOrderPage({
         </ul>
 
         <dl className="mt-4 flex flex-col gap-2 text-body">
-          <div className="flex justify-between gap-4">
-            <dt className="text-ink/70">Total</dt>
-            <dd className="tabular-nums text-ink">
-              {formatBdt(order.totalBdt)}
-            </dd>
-          </div>
+          <LandedBreakdown
+            goodsBdt={order.subtotalBdt}
+            shippingBdt={order.shippingFeeBdt}
+            dutyBdt={order.dutyBdt}
+            totalBdt={order.totalBdt}
+          />
           <div className="flex justify-between gap-4">
             <dt className="text-ink/70">Paid</dt>
             <dd className="tabular-nums text-ink">

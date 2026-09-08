@@ -75,7 +75,8 @@ export const auditLog = pgTable(
     /** e.g. "product.price_changed", "variant.capacity_changed" */
     action: text("action").notNull(),
     entityType: text("entity_type").notNull(),
-    entityId: uuid("entity_id").notNull(),
+    /** A uuid for most entities, but a key for a site setting. */
+    entityId: text("entity_id").notNull(),
     beforeJson: jsonb("before_json"),
     afterJson: jsonb("after_json"),
     createdAt: timestamp("created_at", { withTimezone: true })

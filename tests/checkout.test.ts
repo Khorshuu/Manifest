@@ -39,6 +39,7 @@ import {
   type PaymentMethod,
 } from "@/lib/providers/payment";
 import type { SessionUser } from "@/lib/auth/session";
+import { updateSetting } from "@/lib/admin";
 import { createTestDatabase } from "./helpers/database";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
@@ -73,11 +74,17 @@ beforeEach(async () => {
     .values([
       { email: "staff@example.com", passwordHash: "x", role: "staff_admin" },
       { email: "shopper@example.com", passwordHash: "x", role: "customer" },
+      {
+        email: "settings-admin@example.com",
+        passwordHash: "x",
+        role: "super_admin",
+      },
     ])
     .returning({ id: users.id, role: users.role });
 
   staff.id = rows.find((r) => r.role === "staff_admin")!.id;
   customerId = rows.find((r) => r.role === "customer")!.id;
+  superAdminUser.id = rows.find((r) => r.role === "super_admin")!.id;
 
   const [address] = await harness.db
     .insert(addresses)
@@ -147,6 +154,20 @@ async function seedVariant(
 async function cartFor(): Promise<string> {
   return getOrCreateCart({ sessionToken: newCartToken() });
 }
+
+/** A fresh cart holding one of the given variant. */
+async function cartWith(variantId: string): Promise<string> {
+  const cartId = await cartFor();
+  await addToCart(cartId, variantId, 1);
+  return cartId;
+}
+
+/** Only a super admin may change a setting, so the test needs one. */
+const superAdminUser: SessionUser = {
+  id: "",
+  email: "settings-admin@example.com",
+  role: "super_admin",
+};
 
 describe("cart totals", () => {
   it("computes the subtotal from the live price, not a stored one", async () => {
@@ -322,7 +343,45 @@ describe("placing an order", () => {
       .select()
       .from(orders)
       .where(eq(orders.id, placed.orderId));
-    expect(order.subtotalBdt).toBe(750_00);
+
+    expect(order.totalBdt).toBe(750_00);
+    // The landed price is split into goods, freight and duty, and the three
+    // add back to what the shopper agreed to pay (lib/pricing/landed.ts).
+    expect(
+      order.subtotalBdt + order.shippingFeeBdt + order.dutyBdt,
+    ).toBe(750_00);
+  });
+
+  it("records what the landed price is made of", async () => {
+    const variant = await seedVariant({ priceBdt: 2000_00 });
+    const cartId = await cartFor();
+    await addToCart(cartId, variant.id, 1);
+
+    const placed = await place(cartId, "key-breakdown");
+
+    const [order] = await harness.db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, placed.orderId));
+
+    // Real figures from the configured rates, not zeroes.
+    expect(order.shippingFeeBdt).toBeGreaterThan(0);
+    expect(order.dutyBdt).toBeGreaterThan(0);
+    expect(order.subtotalBdt).toBeGreaterThan(0);
+    expect(order.subtotalBdt).toBeLessThan(order.totalBdt);
+  });
+
+  /** The split is bookkeeping: it must never change what is charged. */
+  it("charges the same whatever the duty rate is set to", async () => {
+    const variant = await seedVariant({ priceBdt: 1234_00 });
+
+    const first = await place(await cartWith(variant.id), "key-rate-a");
+
+    await updateSetting(superAdminUser, "landed.duty_percent", 5);
+    const second = await place(await cartWith(variant.id), "key-rate-b");
+
+    expect(second.totalBdt).toBe(first.totalBdt);
+    expect(second.amountDueNowBdt).toBe(first.amountDueNowBdt);
   });
 
   it("reserves capacity as part of placing the order", async () => {

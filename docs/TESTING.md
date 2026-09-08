@@ -28,6 +28,8 @@ One happy-path spec per major flow, run against a seeded database:
 - Admin: place an order, then find the message it produced in the notification outbox, addressed to the email that placed it.
 - Filter a category listing by price and by attribute value, confirm the count matches what is shown, and confirm a filtered URL can be opened directly.
 - Type in the header search, pick a suggestion with the keyboard, and land on the product.
+- A landed price is never added to: the cart figure carries through to checkout unchanged, and the order pages show the goods, freight and duty already inside it.
+- Admin: only a super admin can change a site setting; staff see the values with disabled inputs, and both the page and the API refuse anyone else.
 - Admin: walk a new product through all six wizard steps — including a real image upload and a real price — and confirm it is then visible on the storefront to a signed-out visitor.
 - A delivered customer writes a review, staff approve it, and it appears on the product page for a signed-out visitor.
 

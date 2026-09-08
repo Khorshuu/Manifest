@@ -418,7 +418,7 @@ Carried forward, and honest about it:
 - `[x]` Faceted filtering and search autosuggest — done after Phase 15; see the baseline below.
 - `[~]` Notifications. The outbox, the templates, and the admin screen exist and are tested — see the notifications baseline below. No email or SMS provider is connected, so nothing reaches a customer yet; the mock provider records the attempt and the admin screen says so on the page.
 - `[ ]` The balance payment for deposit orders, still blocked on the open question in DATABASE.md.
-- `[ ]` Shipping fees and duty as separate computed lines. Both are folded into the landed price, which matches the promise made to shoppers but leaves `orders.shipping_fee_bdt` always zero.
+- `[x]` Shipping fees and duty as separate computed lines — done after Phase 15; see the baseline below.
 - `[ ]` A real payment gateway and a real courier. Both sit behind interfaces with working mocks.
 - `[ ]` A full axe accessibility audit, two-factor authentication for admins, and a shared rate-limit store.
 
@@ -541,6 +541,30 @@ Two real gaps closed on the way:
 - The readiness checklist originally included "every deposit variant states its percentage". That state cannot exist — `product_variants_deposit_requires_percent_check` refuses it in the database — so the check was removed rather than left as unreachable code, and a test now asserts the constraint is what enforces it.
 
 Five e2e tests in `shipping.spec.ts` were marked `test.slow()` for the same reason as the earlier three: each runs a whole guest checkout before its assertion, and they timed out only under the load of the full suite.
+
+## Landed price split, and site settings (added after Phase 15)
+
+Every order now records what its landed price is made of, and the rates behind that split are editable at `/admin/settings` — a page the admin nav had linked to since Phase 11 without it existing.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm run build` | `[x]` passes |
+| `npm test` | `[x]` passes — 445 passed, 1 skipped, 30 files |
+| `npm run test:e2e` | `[~]` `e2e/landed-price.spec.ts` passes, 12 tests across mobile and desktop. **The full 298-test sweep was not run for this slice** — the run was stopped, so the suite is not verified end to end here. |
+| The parts always sum to the total | `[x]` verified across many prices, including ones that do not divide evenly — rounding is absorbed by duty so the sum stays exact |
+| Nothing is added at checkout | `[x]` verified in the browser: the cart figure carries through to checkout unchanged, and both say "Shipping and duty: Included" |
+| Rates cannot change what is charged | `[x]` verified: the same order placed under two different duty percentages produces an identical total and an identical amount taken now |
+| Freight cannot exceed the price | `[x]` verified: a cheap, heavy item yields all freight and zero goods rather than a negative goods value |
+| Customer and staff both see the split | `[x]` verified on the guest lookup page and the admin order page |
+| Only a super admin writes settings | `[x]` verified in `lib/` and at the API — staff read with disabled inputs and get 403 from `PATCH`, a customer is redirected and also gets 403 |
+| A corrupt setting cannot break checkout | `[x]` verified: a hand-written non-numeric value falls back to the built-in default rather than throwing |
+| Settings changes are audited | `[x]` verified in `lib/` and in the browser — the audit log shows the value that replaced the old one |
+
+Two schema changes: `0004` adds `orders.duty_bdt`; `0005` widens `audit_log.entity_id` from `uuid` to `text`, because a site setting is keyed by name and the audit log has to be able to name what changed.
+
+Note for the next session: the dev database has not had `npm run db:setup` run since these migrations were added.
 
 ## Open items carried from other docs
 

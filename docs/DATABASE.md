@@ -257,6 +257,24 @@ site_settings
 
 `reviews.order_item_id` is what makes "verified/delivered purchase" checkable in a single join rather than a separate flag someone has to remember to set correctly. `audit_log` is append-only from application code — nothing ever updates or deletes a row in it — and is written to by every admin mutation named in MASTER_PRODUCT_SPEC.md §4 and §7 (price changes, capacity changes, and more broadly any create/edit/archive on `products`, `product_variants`, `orders`, `users`, `site_settings`).
 
+## Landed price on an order
+
+`orders` carries the split of every landed price, added in migration `0004`:
+
+```
+orders
+  subtotal_bdt        int not null   -- goods value
+  shipping_fee_bdt    int not null   -- freight into Bangladesh
+  duty_bdt            int not null   -- customs duty
+  total_bdt           int not null   -- what the shopper pays; equals the three above
+```
+
+The three parts always sum to `total_bdt` exactly. Nothing is charged on top: the price is the input to the split, not the output (DECISIONS.md D-010). Orders written before migration `0004` have zero shipping and zero duty, which still satisfies the sum.
+
+The rates live in `site_settings` under `landed.shipping_per_kg_bdt`, `landed.duty_percent` and `landed.assumed_weight_grams`.
+
+Migration `0005` widened `audit_log.entity_id` from `uuid` to `text`, because a site setting is keyed by name rather than by id and the audit log has to be able to name what changed.
+
 ## Notifications
 
 ```

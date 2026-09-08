@@ -22,6 +22,15 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - An order reaching `payment_confirmed` is the trigger that actually reserves preorder capacity and sends the confirmation notification — not `placed`, since a placed-but-unpaid order must not hold a slot indefinitely. An order that never reaches `payment_confirmed` within a short window is cancelled and its (not-yet-reserved) capacity needs no release.
 - Idempotency: order creation requires a client-supplied key, stored uniquely on `orders.idempotency_key`. A retried create with the same key returns the original order rather than raising a duplicate error to the caller — retries are expected (client timeout, double tap) and must be invisible to the shopper.
 
+## Landed price
+
+- A variant price is a landed price: goods, freight into Bangladesh and customs duty are already inside it, and nothing is added at checkout. The cart and the checkout summary both say "Shipping and duty: Included" rather than showing a line that later grows.
+- At placement the price is split into `subtotal_bdt` (goods), `shipping_fee_bdt` and `duty_bdt`. The three always add back to exactly `total_bdt`, with rounding absorbed by duty — a breakdown that does not sum to the total is worse than none (DECISIONS.md D-010).
+- Freight is priced from the variant weight and `landed.shipping_per_kg_bdt`, falling back to `landed.assumed_weight_grams` when a variant has no weight. Duty is `landed.duty_percent` of the goods value, not of the whole price.
+- Freight is capped at the price itself, so a cheap heavy item can never produce a negative goods value.
+- Changing the rates changes the bookkeeping and nothing else. What a shopper pays comes from the variant price alone, and a test asserts the total is identical across two different duty rates.
+- Orders placed before the split existed carry zero shipping and zero duty. Those pages show a single total rather than a breakdown that would claim the whole price was goods.
+
 ## Notifications
 
 - Every status a customer's order reaches produces exactly one message, written to the `notifications` outbox in the same transaction as the status change (DECISIONS.md D-009). Placement, payment confirmation, each shipping stage, cancellation and refund are all covered.

@@ -14,6 +14,8 @@ import {
   deliverQueuedNotificationsInBackground,
   queueOrderNotification,
 } from "@/lib/notifications";
+import { getSettings } from "@/lib/admin/settings";
+import { splitLandedOrder } from "@/lib/pricing";
 import { reserveCapacity } from "@/lib/preorder";
 import {
   getPaymentProvider,
@@ -119,6 +121,20 @@ export async function placeOrder(
     throw new CheckoutError("That delivery address is not yours.");
   }
 
+  // Read before the transaction opens: settings are configuration, and holding
+  // a transaction open across an extra round trip buys nothing.
+  const configured = await getSettings([
+    "landed.shipping_per_kg_bdt",
+    "landed.duty_percent",
+    "landed.assumed_weight_grams",
+  ]);
+
+  const rates = {
+    shippingPerKgBdt: configured["landed.shipping_per_kg_bdt"],
+    dutyPercent: configured["landed.duty_percent"],
+    assumedWeightGrams: configured["landed.assumed_weight_grams"],
+  };
+
   const placed = await db.transaction(async (tx) => {
     const lines = await tx
       .select({
@@ -131,6 +147,7 @@ export async function placeOrder(
         paymentMode: productVariants.paymentMode,
         depositPercent: productVariants.depositPercent,
         estimatedArrivalFrom: productVariants.estimatedArrivalFrom,
+        weightGrams: productVariants.weightGrams,
       })
       .from(cartItems)
       .innerJoin(productVariants, eq(cartItems.variantId, productVariants.id))
@@ -153,9 +170,20 @@ export async function placeOrder(
 
     // Prices come from the rows just read inside this transaction, never from
     // the client and never from the cart.
-    const subtotalBdt = lines.reduce(
+    const landedTotalBdt = lines.reduce(
       (sum, line) => sum + line.priceBdt * line.quantity,
       0,
+    );
+
+    // The landed price is what the shopper pays; this only records what it is
+    // made of, so the total is unchanged by the split (lib/pricing/landed.ts).
+    const breakdown = splitLandedOrder(
+      lines.map((line) => ({
+        unitPriceBdt: line.priceBdt,
+        quantity: line.quantity,
+        weightGrams: line.weightGrams,
+      })),
+      rates,
     );
 
     const amountDueNowBdt = lines.reduce((sum, line) => {
@@ -177,10 +205,13 @@ export async function placeOrder(
         guestPhone: input.guestPhone,
         status: "placed",
         shippingAddressId: input.shippingAddressId,
-        subtotalBdt,
-        shippingFeeBdt: 0,
+        // The three parts add back to exactly the landed total, so what the
+        // shopper pays is the same as it was before the split existed.
+        subtotalBdt: breakdown.goodsBdt,
+        shippingFeeBdt: breakdown.shippingBdt,
+        dutyBdt: breakdown.dutyBdt,
         discountBdt: 0,
-        totalBdt: subtotalBdt,
+        totalBdt: landedTotalBdt,
         amountDueNowBdt,
         idempotencyKey: input.idempotencyKey,
       })

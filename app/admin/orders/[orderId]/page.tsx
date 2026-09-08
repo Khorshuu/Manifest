@@ -197,7 +197,26 @@ export default async function AdminOrderPage({
           <section className="border border-blue-300 p-5">
             <h2 className="font-display text-h3 text-ink">Totals</h2>
             <dl className="mt-3 flex flex-col gap-2 text-meta">
+              {/* What the landed price is made of, as recorded at placement. */}
               <div className="flex justify-between gap-4">
+                <dt className="text-ink/70">Goods</dt>
+                <dd className="tabular-nums text-ink">
+                  {formatBdt(order.subtotalBdt)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-ink/70">Shipping</dt>
+                <dd className="tabular-nums text-ink">
+                  {formatBdt(order.shippingFeeBdt)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-ink/70">Duty</dt>
+                <dd className="tabular-nums text-ink">
+                  {formatBdt(order.dutyBdt)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4 border-t border-blue-300 pt-2">
                 <dt className="text-ink/70">Order total</dt>
                 <dd className="tabular-nums text-ink">
                   {formatBdt(order.totalBdt)}

@@ -47,6 +47,8 @@ export const orders = pgTable(
     subtotalBdt: integer("subtotal_bdt").notNull(),
     shippingFeeBdt: integer("shipping_fee_bdt").notNull().default(0),
     discountBdt: integer("discount_bdt").notNull().default(0),
+    /** Customs duty already inside the landed price, recorded so it can be seen. */
+    dutyBdt: integer("duty_bdt").notNull().default(0),
     totalBdt: integer("total_bdt").notNull(),
     /** Deposit or full amount actually charged at placement. */
     amountDueNowBdt: integer("amount_due_now_bdt").notNull(),

@@ -45,6 +45,7 @@ const customerOrderColumns = {
   shippingAddressId: orders.shippingAddressId,
   subtotalBdt: orders.subtotalBdt,
   shippingFeeBdt: orders.shippingFeeBdt,
+  dutyBdt: orders.dutyBdt,
   discountBdt: orders.discountBdt,
   totalBdt: orders.totalBdt,
   amountDueNowBdt: orders.amountDueNowBdt,

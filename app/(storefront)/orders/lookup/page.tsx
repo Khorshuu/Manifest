@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { LandedBreakdown } from "@/components/landed-breakdown";
 import { OrderProgress } from "@/components/order-progress";
 import { getGuestOrder } from "@/lib/orders";
 import { formatBdt } from "@/lib/money";
@@ -122,12 +123,14 @@ export default async function OrderLookupPage({
               ))}
             </ul>
 
-            <p className="mt-4 text-body text-ink">
-              Total{" "}
-              <span className="tabular-nums font-medium">
-                {formatBdt(order.totalBdt)}
-              </span>
-            </p>
+            <dl className="mt-4 flex flex-col gap-2 text-body">
+              <LandedBreakdown
+                goodsBdt={order.subtotalBdt}
+                shippingBdt={order.shippingFeeBdt}
+                dutyBdt={order.dutyBdt}
+                totalBdt={order.totalBdt}
+              />
+            </dl>
           </section>
         ) : null}
       </div>

@@ -4,6 +4,16 @@ Architecture decision log. One entry per meaningful choice, newest first. Each e
 
 ---
 
+## D-010: The landed price is split for the books, never added to at checkout
+
+**Decision:** A variant's price is the landed price — goods, freight and customs duty already inside it. At order placement that price is decomposed into `subtotal_bdt` (goods), `shipping_fee_bdt` and `duty_bdt`, which always add back to exactly `total_bdt`. The rates live in `site_settings` (`landed.shipping_per_kg_bdt`, `landed.duty_percent`, `landed.assumed_weight_grams`).
+
+**Alternatives considered:** the conventional model — goods at the top, freight and duty added as lines at checkout. It is simpler, it is what every other importer does, and it is exactly the surprise this shop exists to avoid (MASTER_PRODUCT_SPEC.md §5). The other alternative was leaving `shipping_fee_bdt` permanently zero, which is what the code did before: honest, but it left the business unable to see what a sale was made of.
+
+**Why:** The promise to a shopper is one fixed number with nothing to pay at the door. Adding lines at checkout would break that promise even if the arithmetic matched. Deriving the split from the price keeps the promise exactly and still gives the shop a real freight and duty figure per order. Because the price is the input, changing the duty percentage cannot change what anyone is charged — a test asserts that directly.
+
+**Cost:** The split is an estimate, not a customs declaration. Freight is priced by weight from a single rate, and duty by one percentage rather than by HS code. When real invoices arrive, the rates get better; the decomposition does not have to change.
+
 ## D-009: Notifications go through a transactional outbox, not a direct send
 
 **Decision:** An order event writes a row to `notifications` inside the same transaction as the change that caused it. Delivery is a separate step (`deliverQueuedNotifications`) that reads queued rows and calls the provider. Each row carries a `dedupe_key` of `order:<order id>:<status>` under a unique constraint.
