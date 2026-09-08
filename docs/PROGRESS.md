@@ -24,7 +24,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[x]` **Phase 9 — Orders.** Customer order history and tracking, shopper self-cancellation while nothing has been sourced, the admin order pipeline with filters, forward-only status transitions, and refunds through the payment provider. Verified — see Phase 9 baseline below.
 - `[x]` **Phase 10 — Shipping.** Shipping provider interface with an idempotent mock, shipment booking, manual tracking references, staff-only internal notes, and the tracking reference surfaced to shoppers. Verified — see Phase 10 baseline below.
 - `[x]` **Phase 11 — Admin ops.** Live dashboard metrics with capacity alerts and top products, staff and role management, three CSV exports, and the audit log viewer with filtering. Verified — see Phase 11 baseline below.
-- `[ ]` **Phase 12 — Analytics.** Funnel and revenue reporting from real data.
+- `[x]` **Phase 12 — Analytics.** Purchase funnel with per-step conversion, revenue by day, preorder capacity utilisation, order stage breakdown, and new customer counts — all from recorded data, with the gaps named. Verified — see Phase 12 baseline below.
 - `[ ]` **Phase 13 — SEO/performance.** Metadata, structured data, sitemap, performance budget pass.
 - `[ ]` **Phase 14 — Security hardening.** Full pass against `SECURITY.md`.
 - `[ ]` **Phase 15 — Full QA.** End-to-end regression across every flow in `MASTER_PRODUCT_SPEC.md`.
@@ -275,6 +275,30 @@ Carried forward from this phase:
 - `[ ]` The product management step wizard from MASTER_PRODUCT_SPEC.md section 4. The current form is a single page.
 - `[ ]` Customer management beyond the list: no detail view, and no anonymisation flow for a deletion request.
 - `[ ]` Analytics beyond the dashboard — the funnel reporting in Phase 12.
+
+## Verification baseline (end of Phase 12)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 292 tests, 21 files |
+| `npm run test:e2e` | `[x]` passes — 158 tests, mobile and desktop |
+| Revenue counts only money collected | `[x]` verified: an unpaid order contributes nothing, and a refunded order drops back out |
+| Revenue stays behind the super-admin gate | `[x]` verified in lib/ and in the browser — a staff admin sees the funnel and no revenue section at all |
+| No division by zero on an empty period | `[x]` verified for both the funnel and preorder utilisation |
+
+### Reporting says what it cannot measure
+
+Nothing records product views or individual add-to-cart attempts, so the funnel starts at carts created rather than at the top. Rather than approximating, `getFunnel` returns a `missing` list and the page renders it under "Not measured yet". A partial funnel presented as complete would be the kind of plausible-looking number CLAUDE.md section 7 rules out.
+
+Charts are plain bordered bars rather than a charting library: the design system prefers borders to decoration, and one fewer dependency is worth more here than a rendered axis.
+
+Carried forward from this phase:
+
+- `[ ]` Product view and add-to-cart events, which would complete the funnel.
+- `[ ]` Cohort and repeat-purchase reporting. Nothing in the data model prevents it; it is simply not built.
 
 ## Open items carried from other docs
 
