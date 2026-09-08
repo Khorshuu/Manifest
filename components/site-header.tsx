@@ -1,0 +1,62 @@
+import Link from "next/link";
+import { getCategoryTree } from "@/lib/catalog";
+import { getCurrentUser, isStaff } from "@/lib/auth";
+
+/**
+ * The one place the brand blue is allowed to dominate — it anchors the
+ * identity the way a shipping company's header does, without colouring the
+ * rest of the page (docs/DESIGN_GUIDELINES.md).
+ */
+export async function SiteHeader() {
+  const [tree, user] = await Promise.all([getCategoryTree(), getCurrentUser()]);
+  const topLevel = tree.slice(0, 5);
+
+  return (
+    <header className="bg-blue-600 text-paper">
+      <div className="mx-auto flex w-full max-w-[1280px] flex-wrap items-center gap-x-8 gap-y-3 px-4 py-4 md:px-6">
+        <Link href="/" className="font-display text-h3 tracking-tight">
+          Manifest
+        </Link>
+
+        <nav aria-label="Categories" className="flex-1">
+          <ul className="flex flex-wrap gap-x-5 gap-y-2">
+            {topLevel.map((category) => (
+              <li key={category.id}>
+                <Link
+                  href={`/categories/${category.slug}`}
+                  className="text-meta hover:underline"
+                >
+                  {category.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <form action="/search" className="order-last w-full md:order-none md:w-64">
+          <label htmlFor="site-search" className="sr-only">
+            Search products
+          </label>
+          <input
+            id="site-search"
+            name="q"
+            type="search"
+            placeholder="Search products"
+            className="min-h-11 w-full rounded-control border border-blue-500 bg-paper px-3 text-body text-ink"
+          />
+        </form>
+
+        <div className="flex items-center gap-4 text-meta">
+          {isStaff(user) ? (
+            <Link href="/admin" className="hover:underline">
+              Admin
+            </Link>
+          ) : null}
+          <Link href={user ? "/account" : "/login"} className="hover:underline">
+            {user ? "Account" : "Sign in"}
+          </Link>
+        </div>
+      </div>
+    </header>
+  );
+}

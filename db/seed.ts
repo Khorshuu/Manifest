@@ -201,13 +201,13 @@ export async function seed(db: SeedDatabase) {
   await db.insert(productImages).values([
     {
       productId: candyProduct.id,
-      url: "/seed/candy-box.jpg",
+      url: "/seed/candy-box.svg",
       altText: "Seasonal candy variety box in its retail packaging",
       sortOrder: 0,
     },
     {
       productId: headphoneProduct.id,
-      url: "/seed/headphones.jpg",
+      url: "/seed/headphones.svg",
       altText: "Open-back studio reference headphones, three-quarter view",
       sortOrder: 0,
     },

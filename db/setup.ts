@@ -30,7 +30,12 @@ async function applyMigrations() {
       try {
         await db.execute(trimmed);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        // Drizzle wraps driver errors, so the useful text is on the cause.
+        const message = [
+          error instanceof Error ? error.message : String(error),
+          error instanceof Error && error.cause ? String(error.cause) : "",
+        ].join(" ");
+
         // Re-running setup on an existing database is expected and harmless.
         if (/already exists/i.test(message)) continue;
         throw error;

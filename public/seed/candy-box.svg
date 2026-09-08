@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img" aria-label="Placeholder product photograph">
+  <rect width="600" height="600" fill="#F2F7FF"/>
+  <rect x="120" y="180" width="360" height="260" fill="#DCE9FF" stroke="#BBD3FF" stroke-width="2"/>
+  <path d="M120 250h360" stroke="#8AB4FF" stroke-width="2"/>
+  <rect x="270" y="180" width="60" height="260" fill="#F0A631" opacity="0.35"/>
+  <text x="300" y="500" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" fill="#8AB4FF">Product photography</text>
+</svg>

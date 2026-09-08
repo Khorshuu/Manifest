@@ -94,7 +94,16 @@ test("an unwanted combination can be disabled without deleting it", async ({
 
   await expect(page.getByRole("heading", { name: /Variants \(2\)/ })).toBeVisible();
   await page.getByRole("checkbox", { name: /^Select / }).first().check();
+
+  // Wait for the request, not just for text to appear: under parallel load the
+  // refresh can land after the assertion would otherwise have run.
+  const patched = page.waitForResponse(
+    (r) =>
+      r.url().includes("/api/admin/variants") &&
+      r.request().method() === "PATCH",
+  );
   await page.getByRole("button", { name: /^Disable 1$/ }).click();
+  expect((await patched).status()).toBe(200);
 
   await expect(page.getByText("1 variant updated.")).toBeVisible();
   await expect(page.getByText("Disabled")).toBeVisible();

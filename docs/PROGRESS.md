@@ -19,7 +19,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - `[~]` **Phase 4 — Product system.** Category tree with cycle protection, attribute and value management, product create/update/archive/restore with slug derivation, an admin catalog UI, and admin API routes. Image upload is not built yet and carries into the next slice of this phase.
 - `[x]` **Phase 5 — Variation engine.** Cartesian combination generation with a 500-variant guard, idempotent regeneration that never disturbs existing variants, per-combination enable/disable, bulk edit, and the admin variant matrix. Verified — see Phase 5 baseline below.
 - `[~]` **Phase 6 — Inventory & preorder engine.** Locked-transaction capacity reservation and release, availability evaluation, waitlist, and the preorder window lifecycle (open, close, extend). Verified — see Phase 6 baseline below. Admin UI for the window controls is carried forward.
-- `[ ]` **Phase 7 — Storefront.** Home, category/PLP, PDP, search, related products.
+- `[~]` **Phase 7 — Storefront.** Home page with the Import Manifest signature patterns, category listings with subtree inclusion and sorting, product detail with variant selection and the landed-price panel, search, and related products. Verified — see Phase 7 baseline below. Faceted filtering and the reviews UI are carried forward.
 - `[ ]` **Phase 8 — Cart & checkout.** Cart persistence, address, payment method selection (mock provider), idempotent order placement.
 - `[ ]` **Phase 9 — Orders.** Customer order history/tracking, admin order pipeline, status transitions, refunds.
 - `[ ]` **Phase 10 — Shipping.** Tracking abstraction (mock), manual tracking updates from admin.
@@ -137,6 +137,36 @@ Carried forward from this phase:
 
 - `[ ]` Admin UI for opening, closing, and extending a preorder window (the `lib/preorder` functions exist and are tested; there is no form yet).
 - `[ ]` Notifying the waitlist when capacity frees up — still an open question in DATABASE.md (automatic re-offer vs manual).
+
+## Verification baseline (end of Phase 7)
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 173 tests, 16 files |
+| `npm run test:e2e` | `[x]` passes — 72 tests, mobile and desktop |
+| UI inspected | `[x]` home page and product page viewed at 375px and 1440px against seeded data |
+| No sideways scroll at 320px | `[x]` asserted in the smoke suite, not only eyeballed |
+| Sourcing cost never reaches the storefront | `[x]` asserted against the rendered HTML |
+
+### A bug every green test had missed
+
+The product card aggregates — photo, price, rating — were written as correlated subqueries inside the product select. Drizzle drops the table qualifier on a column whose table is not part of the outer query, so `product_images.product_id = products.id` rendered as `"product_id" = "id"`: a comparison of two columns of the same table, always false. Every card silently showed "No photo yet" and no rating, and nothing failed, because no test asserted that the data arrived.
+
+Found by looking at the page. Fixed by fetching the aggregates in a small fixed number of keyed queries (`lib/catalog/card-data.ts`), and two regression tests now assert that a card carries its photograph and a real price.
+
+### Test data no longer pollutes development
+
+The end-to-end suite was writing into the development database, so the local catalog filled with "Test Product" rows and the storefront became impossible to review. `npm run test:e2e` now creates and seeds a dedicated `preorder_e2e` database first.
+
+Carried forward from this phase:
+
+- `[ ]` Faceted filtering by price, brand, and attribute (sorting is done; facets are not).
+- `[ ]` The reviews list and rating distribution on the product page — the data model and aggregates exist, the UI does not.
+- `[ ]` Search autosuggest and suggested corrections on a miss. Fuzzy matching is deferred by MASTER_PRODUCT_SPEC.md section 7, but the suggestion behaviour it does ask for is not built.
+- `[ ]` `next/image` for product media once the storage integration lands. Plain image tags with explicit dimensions are used meanwhile.
 
 ## Open items carried from other docs
 
