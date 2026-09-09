@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { IconSearch } from "./icons";
 import { useEffect, useId, useRef, useState } from "react";
+import { useHeaderTheme } from "./header-theme";
 
 type Suggestion = {
   kind: "product" | "brand" | "category";
@@ -27,6 +28,13 @@ const KIND_LABELS: Record<Suggestion["kind"], string> = {
 export function SearchBox({ defaultValue = "" }: { defaultValue?: string }) {
   const router = useRouter();
   const listId = useId();
+  /*
+   * The field belongs to the header, so it takes the header's treatment: a
+   * white box with a blue border while the header stands on its own bar, and a
+   * thin translucent field drawn in the current lettering colour while the
+   * header floats over the hero photograph.
+   */
+  const { floating } = useHeaderTheme();
   const [term, setTerm] = useState(defaultValue);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [open, setOpen] = useState(false);
@@ -99,7 +107,7 @@ export function SearchBox({ defaultValue = "" }: { defaultValue?: string }) {
   return (
     <div
       ref={containerRef}
-      className="relative order-last w-full md:order-none md:ml-auto md:w-64 lg:w-80"
+      className="relative order-last w-full md:order-none md:ml-auto md:w-64 lg:w-52 xl:w-72"
     >
       <form action="/search" className="relative">
         <label htmlFor="site-search" className="sr-only">
@@ -129,14 +137,20 @@ export function SearchBox({ defaultValue = "" }: { defaultValue?: string }) {
           }}
           onFocus={() => suggestions.length > 0 && setOpen(true)}
           onKeyDown={onKeyDown}
-          className="min-h-11 w-full rounded-control border border-blue-500 bg-paper py-2 pl-10 pr-3 text-body text-ink"
+          className={`min-h-11 w-full rounded-control py-2 pl-10 pr-3 text-body transition-[background-color,border-color,color] duration-500 ease-[var(--ease-out-quint)] ${
+            floating
+              ? "border border-[color:var(--head-line)] bg-[color:var(--head-field)] text-[color:var(--head-fg)] placeholder:text-[color:var(--head-muted)]"
+              : "border border-blue-500 bg-paper text-ink"
+          }`}
         />
 
         {/* Decorative: the field already has a label and a placeholder, so
             this is an affordance rather than information. */}
         <IconSearch
           size={18}
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink/50"
+          className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 ${
+            floating ? "text-[color:var(--head-muted)]" : "text-ink/50"
+          }`}
         />
       </form>
 

@@ -4,6 +4,12 @@ Architecture decision log. One entry per meaningful choice, newest first. Each e
 
 ---
 
+## D-016: The header's treatment over a hero is measured in the browser, with a manual override
+
+**Decision:** The floating header picks navy or pale lettering from the average relative luminance of the current hero image, computed client-side by drawing the image into a 32×32 canvas (`lib/hero-tone.ts`). A per-slug map, `HERO_TONE_OVERRIDES`, overrides the measurement where it is wrong. The first server render assumes a light background, and a correction after measurement crossfades over 500ms rather than snapping.
+
+**Why:** The alternatives were each worse in a specific way. Storing a tone on the product record would make whoever uploads a photograph answer a question about the *home page* while editing a *product*, and it would go stale the moment the photograph is replaced. Computing it on the server would mean rasterising SVG and decoding images inside a request, for a decision that changes nothing anyone can act on. A fixed dark scrim over the whole photograph would make the header readable by making every hero image darker, which is the one thing the brief ruled out. Measuring in the browser costs a 32×32 `getImageData` per slide, once, and degrades to a readable default whenever the pixels cannot be read — a tainted canvas throws, and the header simply keeps the treatment it had. The override exists because an average is wrong in a predictable case: an image that is mostly dark with a bright sky exactly where the navigation sits.
+
 ## D-015: Refunds are recorded, not charged
 
 **Decision:** The refund control records a refund that staff have already paid by hand. It does not call the payment gateway. Staff enter the amount, the reason, and the reference of the transfer they made; the system writes a refund payment row against the charge it reverses. The product owner set this: "refund will be done manually as per our terms and that will be set later but refund will be manual."

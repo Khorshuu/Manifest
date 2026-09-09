@@ -37,7 +37,7 @@ export async function SiteHeader() {
           {isStaff(user) ? (
             <Link
               href="/admin"
-              className="hidden min-h-11 items-center rounded-control px-2 transition-colors hover:bg-paper/15 sm:inline-flex"
+              className="hidden min-h-11 items-center rounded-control px-2 transition-colors hover:bg-[color:var(--head-ghost)] sm:inline-flex"
             >
               Admin
             </Link>
@@ -45,7 +45,7 @@ export async function SiteHeader() {
 
           <Link
             href={user ? "/account" : "/login"}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 transition-colors hover:bg-paper/15"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 transition-colors hover:bg-[color:var(--head-ghost)]"
           >
             {/*
              * Icon *and* label, at every width. Dropping the word below `sm`
@@ -61,7 +61,7 @@ export async function SiteHeader() {
 
           <Link
             href="/cart"
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 transition-colors hover:bg-paper/15"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 transition-colors hover:bg-[color:var(--head-ghost)]"
           >
             <IconCart size={18} className="shrink-0" />
             Cart

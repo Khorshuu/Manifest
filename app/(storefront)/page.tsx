@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CategoryBento } from "@/components/category-bento";
 import { ClosingRail } from "@/components/closing-rail";
-import { HeroCarousel } from "@/components/hero-carousel";
+import { HeroShowcase } from "@/components/hero-showcase";
 import { IconCalendar, IconSeal, IconTag } from "@/components/icons";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { ProductCard } from "@/components/product-card";
@@ -16,7 +16,18 @@ import {
   listProductCards,
 } from "@/lib/catalog";
 import { serverInstant } from "@/lib/clock";
+import { formatArrivalWindow } from "@/lib/format";
+import { HERO_TONE_OVERRIDES } from "@/lib/hero-tone";
 import { formatBdt } from "@/lib/money";
+
+/** The catalogue's own words for a product's state, as the cards show them. */
+const AVAILABILITY: Record<string, string> = {
+  in_stock: "In stock",
+  preorder_open: "Preorder open",
+  preorder_closed: "Preorder closed",
+  coming_soon: "Coming soon",
+  discontinued: "Discontinued",
+};
 
 export const metadata: Metadata = {
   title: "Preorder American goods, delivered in Bangladesh",
@@ -37,15 +48,18 @@ export default async function HomePage() {
       pickCategoryImages(),
     ]);
 
-  // The featured rotation: whatever is closing soonest, then the newest, up
-  // to four. Real products only — an empty slot would be an advertisement for
-  // nothing.
+  // The featured rotation: whatever is closing soonest, then the newest. Real
+  // products only — an empty slot would be an advertisement for nothing.
+  //
+  // Five rather than four. The showcase under the hero shows four at a time on
+  // a wide screen and scrolls to the rest, so the fifth is what proves the row
+  // is a curated selection rather than a fixed set of slots.
   const featured = [...closingSoon, ...newest]
     .filter(
       (product, index, all) =>
         all.findIndex((other) => other.slug === product.slug) === index,
     )
-    .slice(0, 4);
+    .slice(0, 5);
 
   // What is already shown above does not appear again below.
   const shownSlugs = new Set([
@@ -77,6 +91,13 @@ export default async function HomePage() {
     closesAt: product.closesAt ? product.closesAt.toISOString() : null,
     remaining: product.remainingCapacity,
     total: product.totalCapacity,
+    availability: AVAILABILITY[product.status] ?? product.status,
+    arrival: formatArrivalWindow(product.arrivesFrom, product.arrivesTo),
+    closingSoon: product.closingSoon,
+    // Almost always null: the header measures the photograph itself, and an
+    // entry here exists only where that measurement was looked at and found
+    // wrong. See lib/hero-tone.ts.
+    tone: HERO_TONE_OVERRIDES[product.slug] ?? null,
   }));
 
   const railItems = closingSoon.map((product) => ({
@@ -134,7 +155,7 @@ export default async function HomePage() {
 
   return (
     <>
-      <HeroCarousel slides={slides} serverNow={serverNow} />
+      <HeroShowcase slides={slides} serverNow={serverNow} />
       <Ticker items={tickerItems} />
 
       <ClosingRail items={railItems} serverNow={serverNow} />

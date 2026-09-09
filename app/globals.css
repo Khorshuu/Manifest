@@ -623,87 +623,313 @@ input[type="radio"] {
 }
 
 /*
- * The campaign banner.
+ * The immersive hero, and the header drawn over it.
  *
- * The hero is a bright, full-bleed promotional band — the shape a shopper
- * already knows from every large retailer — rather than a dark panel. These
- * are the three layers of its ground; see components/hero-backdrop.tsx.
+ * The first screen is one photograph. The header floats inside it with no bar
+ * of its own, the copy sits low and left over the image, and the curated row of
+ * products is lifted onto the foot of it — so the whole thing reads as a single
+ * composition rather than as a banner with a shop somewhere below it.
+ *
+ * Everything below is written against two tones, because the header and the
+ * hero copy both have to stay readable over a bright product shot and a dark
+ * one. `data-tone` says how light the imagery is; the lettering always takes
+ * the opposite. See lib/hero-tone.ts.
  */
-.hero-banner__wash {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(
-      68% 120% at 82% 26%,
-      color-mix(in srgb, var(--color-blue-200) 88%, white) 0%,
-      transparent 62%
-    ),
-    radial-gradient(
-      70% 110% at 6% 96%,
-      color-mix(in srgb, var(--color-blue-300) 62%, transparent) 0%,
-      transparent 64%
-    ),
-    linear-gradient(160deg, #ffffff 0%, var(--color-blue-50) 46%, #e8f0ff 100%);
+
+/* Roughly what the floating header occupies, so the stage can hold its content
+   clear of it without measuring anything at runtime. */
+:root {
+  --header-h: 7rem;
 }
 
-/* Ruled paper, at a size where it reads as texture rather than as a grid. */
-.hero-banner__rule {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(to right, var(--color-ink) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--color-ink) 1px, transparent 1px);
-  background-size: 72px 72px;
-  opacity: 0.045;
-  mask-image: radial-gradient(90% 90% at 50% 40%, black 30%, transparent 78%);
+@media (min-width: 1024px) {
+  :root {
+    --header-h: 6rem;
+  }
+}
+
+.hero-stage[data-tone="dark"] {
+  --hero-fg: #ffffff;
+  --hero-muted: rgb(255 255 255 / 0.76);
+  --hero-line: rgb(255 255 255 / 0.3);
+  --hero-arrow-bg: rgb(10 21 38 / 0.42);
+  background: linear-gradient(155deg, #17294a 0%, var(--color-ink) 46%, var(--color-ink-deep) 100%);
 }
 
 /*
- * A warm bloom behind the product, breathing on a long cycle.
+ * The ground under a bright slide is warm paper, not white.
  *
- * The one moving thing in the banner, and it is deliberately slow and large:
- * three heroes have now been rejected here for putting small, fast, faint
- * movement behind the headline, and the lesson recorded in docs/PROGRESS.md is
- * that scale beats incident.
+ * The catalogue's photography is shot on a pale ground, and laid straight onto
+ * a white page it produced a first screen that read as an empty document with
+ * words on it. Multiplying the image onto a warm ground keeps every product's
+ * own colour, adds the warmth the imagery does not have, and costs a real
+ * photograph nothing — multiply against near-white leaves the photograph alone.
  */
-.hero-banner__bloom {
-  position: absolute;
-  right: -8%;
-  top: -22%;
-  width: 62vw;
-  max-width: 900px;
-  aspect-ratio: 1;
-  border-radius: 9999px;
-  background: radial-gradient(
-    circle,
-    rgb(240 166 49 / 0.3) 0%,
-    rgb(240 166 49 / 0.1) 42%,
-    transparent 68%
-  );
-  filter: blur(24px);
-  animation: hero-bloom 16s ease-in-out infinite alternate;
+.hero-stage[data-tone="light"] {
+  --hero-fg: var(--color-ink);
+  --hero-muted: rgb(18 35 63 / 0.74);
+  --hero-line: rgb(18 35 63 / 0.24);
+  --hero-arrow-bg: rgb(255 255 255 / 0.72);
+  background: linear-gradient(152deg, #fdf9f3 0%, #f4f5fa 46%, #e7edf8 100%);
 }
 
-@keyframes hero-bloom {
+.hero-stage[data-tone="light"] .hero-wash {
+  mix-blend-mode: multiply;
+  opacity: 0.92;
+}
+
+/* The colour of the whole screen comes from the product itself: a blurred copy
+   of the photograph, scaled past every edge. It is what lets one square
+   catalogue image fill a wide screen without being cropped to a stripe. */
+.hero-wash {
+  transform: scale(1.25);
+  filter: blur(56px) saturate(1.75) contrast(1.08);
+  animation: hero-drift 24s ease-out both;
+}
+
+/*
+ * The subject, held to the right of the wash.
+ *
+ * Neither the mask nor the blend is decoration. Product photography arrives
+ * with a ground of its own, and dropped straight onto the stage that ground
+ * reads as a rectangle pasted over the image: a visible box with a hard corner
+ * in the middle of the first screen. Feathering the frame and blending the
+ * near-white of the ground into the stage lets the subject sit *in* the
+ * photograph rather than on top of it.
+ *
+ * The blend is per tone because the arithmetic is. Over warm paper, multiply
+ * drops everything lighter than the ground and leaves the product; over ink
+ * there is nothing to drop, so the subject is laid down as it is and given a
+ * cast shadow to sit it on the stage.
+ */
+.hero-subject {
+  animation: hero-settle 1200ms var(--ease-out-quint) both;
+  /*
+   * A circle, not an ellipse, and the difference matters. `object-contain`
+   * draws a square photograph in the middle of a wider box, so an ellipse
+   * sized to the box stays fully opaque across the picture's own left and
+   * right edges and leaves them showing as a hard vertical line. A circle
+   * takes its radius from the short side, which is the picture, so the
+   * falloff lands on the edge it is meant to soften.
+   */
+  mask-image: radial-gradient(
+    closest-side circle at 50% 50%,
+    black 62%,
+    rgb(0 0 0 / 0.5) 86%,
+    transparent 100%
+  );
+}
+
+.hero-stage[data-tone="light"] .hero-subject {
+  mix-blend-mode: multiply;
+}
+
+.hero-stage[data-tone="dark"] .hero-subject {
+  filter: drop-shadow(0 40px 60px rgb(6 14 28 / 0.5));
+}
+
+/*
+ * One slow, large movement and nothing else. Three heroes have been rejected
+ * here for small, fast, faint motion behind the headline; the lesson recorded
+ * in docs/PROGRESS.md is that scale beats incident.
+ */
+@keyframes hero-drift {
+  from {
+    transform: scale(1.25) translate3d(0, 0, 0);
+  }
   to {
-    transform: translate3d(-4%, 5%, 0) scale(1.1);
+    transform: scale(1.34) translate3d(-1.5%, -1%, 0);
+  }
+}
+
+@keyframes hero-settle {
+  from {
+    transform: scale(1.06) translate3d(2%, 0, 0);
+  }
+  to {
+    transform: none;
   }
 }
 
 /*
- * The sticker.
+ * The grade.
  *
- * A rotated disc pinned to the corner of the photograph, the way a promotional
- * sticker sits on a shop window. It carries a real figure — how many places are
- * left in this batch — because a sticker that says nothing is an advertisement
- * for nothing.
+ * Warm light out of the top right, cool shade into the lower left, multiplied
+ * over the image. It is the cheapest thing that turns a flat, evenly lit
+ * catalogue picture into something that reads as a lit scene, and because it is
+ * built from the brand's own brass and blue it also keeps every slide, whatever
+ * the product's colours, recognisably part of one shop.
  */
-.hero-sticker {
-  transform: rotate(-9deg);
+.hero-grade {
+  mix-blend-mode: multiply;
+  background:
+    radial-gradient(
+      82% 74% at 76% 18%,
+      rgb(240 166 49 / 0.24) 0%,
+      transparent 62%
+    ),
+    radial-gradient(
+      96% 82% at 8% 96%,
+      rgb(37 99 235 / 0.2) 0%,
+      transparent 68%
+    );
+}
+
+/*
+ * The only overlay on the photograph: a wash out of the corner the words are
+ * in. It is directional on purpose — a flat scrim over the whole image darkens
+ * the product, which is the one thing on the screen worth looking at.
+ */
+.hero-stage[data-tone="dark"] .hero-scrim {
+  background:
+    linear-gradient(
+      to top,
+      rgb(7 16 30 / 0.94) 0%,
+      rgb(7 16 30 / 0.72) 30%,
+      rgb(7 16 30 / 0.24) 60%,
+      transparent 86%
+    ),
+    linear-gradient(
+      to right,
+      rgb(7 16 30 / 0.8) 0%,
+      rgb(7 16 30 / 0.34) 44%,
+      transparent 70%
+    );
+}
+
+.hero-stage[data-tone="light"] .hero-scrim {
+  background:
+    linear-gradient(
+      to top,
+      rgb(255 255 255 / 0.95) 0%,
+      rgb(255 255 255 / 0.78) 30%,
+      rgb(255 255 255 / 0.26) 60%,
+      transparent 86%
+    ),
+    linear-gradient(
+      to right,
+      rgb(255 255 255 / 0.82) 0%,
+      rgb(255 255 255 / 0.36) 44%,
+      transparent 70%
+    ),
+    /* A vignette, which is what a bright wash needs to stop reading as a blank
+       page with words on it: the light stays in the middle and the corners
+       fall away. */
+      radial-gradient(
+        128% 108% at 46% 34%,
+        transparent 42%,
+        rgb(18 35 63 / 0.1) 78%,
+        rgb(18 35 63 / 0.2) 100%
+      );
+}
+
+/*
+ * Film grain, at the strength where it is felt rather than seen. It is what
+ * stops a large flat gradient from banding, and it gives generated artwork the
+ * texture of a photograph rather than of a vector.
+ */
+.hero-grain {
+  pointer-events: none;
+  opacity: 0.14;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+}
+
+/*
+ * How long the current slide has left, as a hairline across the top of the
+ * stage. Continuous motion has to be stoppable (WCAG 2.2.2): it pauses with the
+ * rotation itself — under the pointer, on focus, and for good once anyone
+ * chooses a slide by hand.
+ */
+.hero-progress {
+  animation-name: hero-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+  transform: scaleX(0);
+}
+
+.hero-progress[data-running="false"] {
+  animation-play-state: paused;
+}
+
+@keyframes hero-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.hero-arrow {
+  border: 1px solid var(--hero-line);
+  background: var(--hero-arrow-bg);
+  color: var(--hero-fg);
+  backdrop-filter: blur(8px);
+  transition:
+    background-color 220ms var(--ease-out-quint),
+    border-color 220ms var(--ease-out-quint),
+    transform 220ms var(--ease-out-quint);
+}
+
+.hero-arrow:hover {
+  border-color: var(--color-brass);
+}
+
+/*
+ * The header's veil.
+ *
+ * Two gradient layers on the header itself, crossfading as the slide under it
+ * changes. It is the thinnest treatment that keeps the navigation readable over
+ * any photograph, and it is on the header rather than on the hero so that the
+ * lettering always has its own ground — including on the way past, when the bar
+ * is halfway between the two states.
+ */
+.site-header::before,
+.site-header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  transition: opacity 500ms var(--ease-out-quint);
+}
+
+.site-header::before {
+  opacity: var(--veil-dark, 0);
+  background: linear-gradient(
+    to bottom,
+    rgb(7 16 30 / 0.66) 0%,
+    rgb(7 16 30 / 0.34) 52%,
+    transparent 100%
+  );
+}
+
+.site-header::after {
+  opacity: var(--veil-light, 0);
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.78) 0%,
+    rgb(255 255 255 / 0.42) 52%,
+    transparent 100%
+  );
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero-banner__bloom {
+  .hero-wash,
+  .hero-subject {
     animation: none;
+  }
+
+  /* The scale is part of the composition rather than part of the movement —
+     without it the blurred edges of the wash show inside the frame. */
+  .hero-wash {
+    transform: scale(1.25);
+  }
+
+  /* A bar that cannot animate would state a time remaining that is not true.
+     The count beside the arrows still says where the slider is. */
+  .hero-progress {
+    display: none;
   }
 }

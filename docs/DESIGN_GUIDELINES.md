@@ -105,18 +105,52 @@ every card look the same.
 Depth carries hierarchy: only things that lift get a shadow, and the amount says how far. Two
 elements at `float` on one screen means neither is floating.
 
-### Signature pattern: photography-led hero
-Full-bleed product photography on the right half of the hero, headline set in Fraunces on the
-left on `white`, a small vertical numbered index (`01`, `02`) running down the far-left edge to
-mark hero slides if there's more than one. A single scroll cue at the bottom-left, no more.
-Photography should be real product shots (the actual American goods, styled plainly) — never
-stock lifestyle imagery.
+### Signature pattern: the immersive hero
+The home page opens on one photograph, not on a banner. The stage fills 84–90% of the first
+screen; the header is drawn inside it; the featured products are lifted onto its bottom edge so
+the three read as a single composition. Built in `components/hero-showcase.tsx`.
 
-### Signature pattern: brand header
-A confident nav bar in `blue-600` (or white with a `blue-600` logo mark and text) — logo left,
-primary nav center or right, cart/account icons far right. This is the single place the brand
-blue is allowed to dominate visually; it anchors the identity the way a shipping company's
-header does, without needing to color the rest of the page.
+The image is composed in two layers taken from the same photograph, which is what lets a square
+catalogue shot fill a wide screen without being cropped to a stripe of itself:
+
+| Layer | What it does |
+|---|---|
+| `.hero-wash` | The photograph, blurred and scaled past every edge. It gives the whole screen the product's own colour. |
+| `.hero-subject` | The same photograph, sharp, held beside the copy. Feathered with a **circle** mask (an ellipse sized to the box leaves the picture's own vertical edges showing as a hard line) and blended into the ground so its studio backdrop does not read as a pasted rectangle. |
+| `.hero-grade` | Warm light out of the top right, cool shade into the lower left, multiplied. Turns an evenly lit catalogue picture into a lit scene, in the brand's own brass and blue. |
+| `.hero-scrim` | The only overlay, and directional: it comes out of the corner the words are in. A flat scrim over the whole image darkens the product, which is the one thing worth looking at. |
+| `.hero-grain` | Film grain at 14%. Stops a large gradient banding and gives generated artwork the texture of a photograph. |
+
+Copy sits low and left in a column capped at 34rem. Below `lg` the subject moves above the
+words; on a phone it is dropped altogether, because a phone screen is exactly as tall as the
+words need and a subject anywhere on it lands behind the headline.
+
+Photography should be real product shots (the actual American goods, styled plainly) — never
+stock lifestyle imagery. Until real photography exists the drawn artwork stands in, and the
+composition above is what makes it hold a full screen.
+
+### Signature pattern: the adaptive header
+No solid rectangle of brand colour. Two states, one component (`components/header-shell.tsx`):
+
+- **Floating.** Over a hero the header has no bar at all — wordmark, categories, search, account
+  and cart drawn directly on the photograph, over a veil thin enough to be felt rather than
+  seen. The routes this applies to are listed in `OVERLAY_ROUTES` in `header-theme.tsx`.
+- **Bar.** Everywhere else, and on the home page once the photograph has scrolled away: white,
+  a `blue-300` hairline, ink lettering, `--shadow-raise`.
+
+Over a hero the header takes the **opposite** treatment to the imagery: navy over a bright
+slide, pale over a dark one. It is measured rather than guessed — `lib/hero-tone.ts` reads the
+average relative luminance of each slide's image off a canvas, and `HERO_TONE_OVERRIDES` in the
+same file lets whoever chose a photograph state the answer where the average gets it wrong (an
+image that is mostly dark with a bright sky exactly where the navigation sits). The hero reports
+what it measured through `components/header-theme.tsx`; the header only reacts, and every colour
+in it is a CSS variable so the whole bar crossfades in one movement rather than element by
+element.
+
+Contrast over a photograph cannot be checked by axe — it reports "incomplete" wherever a
+background image is involved — so it is measured from the rendered pixels instead. At the last
+pass, on the seeded catalogue: nav links 6.4:1, account 10.8:1, wordmark 15.7:1, hero body copy
+6.6:1, headline 15.4:1.
 
 ### Signature pattern: light feature strip
 Between the hero and the product grid, one `blue-50` band holds 3–4 short trust points (e.g.
@@ -194,7 +228,13 @@ nausea.
 - **Loud moments are rationed.** The split-flap countdown, the hero, and the stamp when an order
   status advances. Three on the whole site; a fourth would make all four read as decoration.
 - **Continuous motion must be stoppable** and reachable without a pointer (WCAG 2.2.2) — see the
-  manifest strip's Hold button.
+  manifest strip's Hold button, and the hero's progress hairline, which pauses with the rotation
+  under the pointer, on focus, and for good once anyone chooses a slide by hand.
+- **The hero's vocabulary**, in full: a 900ms crossfade between slides, a 24-second drift across
+  the wash, a 1.2-second settle on the subject, the copy rising in on a stagger, the cards
+  entering 70ms apart, the header crossfading between treatments over 500ms, and the active card
+  lifting 2px. Every one is slow and large. Three heroes have been rejected here for small, fast,
+  faint movement, and the lesson holds: **scale beats incident.**
 - Prefer CSS. Framer Motion is imported only where a spring or an exit animation genuinely earns
   it (cart line removal, the hero slide change), because the home page is measured against a
   200KB gzipped JavaScript budget.

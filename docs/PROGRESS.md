@@ -1288,3 +1288,117 @@ crawler and a slow connection see.
 | `e2e/experience.spec.ts` | `[x]` passes — rotation, hover pause, live countdown, keyboard |
 | `e2e/seo.spec.ts` | `[x]` passes, including the heading with JavaScript disabled and both JavaScript budgets |
 | Reduced motion | `[x]` verified: the bloom stops, and the browser console is clean |
+
+## The immersive hero and the adaptive header (added after Phase 15)
+
+The owner asked for the home page to be rebuilt around one large photograph,
+with the header drawn inside it rather than on a bar above it, and the featured
+products attached to the foot of the image. The reference they pointed at was a
+pharmacy storefront; what was taken from it is structural — an immersive hero,
+a transparent header, a curated product row overlapping the image — and nothing
+else. No colour, type, imagery or layout was copied from it.
+
+`[x]` The hero and the product showcase are one component,
+`components/hero-showcase.tsx`. They share the slide index, so the hero drives
+the row and choosing a card drives the hero, which is what makes them read as
+one composition rather than as a banner with a shelf under it.
+
+`[x]` The header floats over the hero with no bar of its own, and takes the
+opposite treatment to whatever is behind it: navy lettering over a bright slide,
+pale over a dark one. It is measured rather than guessed — see below. Once the
+photograph has scrolled away it takes back a white bar with a `blue-300`
+hairline. Every other page of the shop gets that same white bar. The solid
+`blue-600` rectangle is gone.
+
+`[x]` Five featured products rather than four. Four are visible at once on a
+wide screen and the fifth is reached by scrolling the row, which is what proves
+it is a curated selection rather than a fixed set of slots.
+
+`[x]` Everything the previous hero carried is still carried: the eyebrow, the
+brand statement as the page's `h1`, the landed-price promise, the batch's brand,
+title, price, arrival window, capacity meter, live countdown, and one loud
+call to action with a quiet second route beside it. Nothing about preorder or
+batch availability was removed.
+
+### How the header knows what it is sitting on
+
+`lib/hero-tone.ts` draws each slide's image into a 32×32 canvas and averages the
+relative luminance of the pixels that are not transparent. Above 0.55 the
+background counts as light and the header goes navy; below it the header goes
+pale. The switch point sits above the midpoint on purpose, because the header
+also lays a veil over what is behind it: a middling ground is pulled towards the
+veil rather than left ambiguous.
+
+Three things about it are deliberate:
+
+- **Every slide is measured on mount, not the one on screen.** A measurement
+  that arrived after the crossfade would show as the header changing its mind.
+- **It returns null rather than a guess** when the browser will not give up the
+  pixels. A cross-origin image with no CORS headers taints the canvas and
+  `getImageData` throws; the header then keeps the readable treatment it had.
+- **`HERO_TONE_OVERRIDES` exists** for the case an average gets wrong — an image
+  that is mostly dark with a bright sky exactly where the navigation sits. It is
+  empty, because nothing in the catalogue needs one. Adding an entry is one line
+  and requires looking at the slide first.
+
+The route the header floats on is read from the path rather than announced by
+the hero on mount. An announcement only arrives after hydration, so the server
+would render the solid bar and the browser would swap it a moment later — a
+visible flash on the first screen of the site.
+
+### Making catalogue artwork hold a full screen
+
+The catalogue has no photography yet; it has drawn artwork, each piece on a pale
+ground of its own. Three things had to be solved before that could fill 90% of a
+screen without looking like a large flat drawing, and all three are as useful
+when real photography lands as they are now:
+
+1. **The wash.** A blurred, over-scaled copy of the same image behind the sharp
+   one. It gives the whole screen the product's own colour, and it is what lets
+   a square image fill a wide screen without being cropped to a stripe.
+2. **The blend.** Multiplied onto a warm paper ground rather than laid on white.
+   Multiply drops everything lighter than the ground, so the artwork's studio
+   backdrop disappears and the product stays. Laid on white instead, the
+   backdrop read as a rectangle pasted into the middle of the first screen.
+3. **A circle mask, not an ellipse.** `object-contain` draws a square picture in
+   the middle of a wider box. An ellipse sized to the box stays fully opaque
+   across the picture's own left and right edges and leaves them showing as a
+   hard vertical line — which is exactly what the first attempt did. A circle
+   takes its radius from the short side, which is the picture.
+
+**This is still a stand-in, and it is worth stating plainly: there is no
+photography in this repository.** The hero is built to show a real photograph
+the moment staff upload one, and it will look better for it. Nothing here
+fabricates a photograph or pretends one exists.
+
+### Responsive
+
+- **Desktop.** Subject beside the copy, controls and the slide count in the
+  lower right, four cards across the foot of the image.
+- **Tablet.** Subject above the copy — the copy runs the full width at that size,
+  so a subject held to the right sits behind the headline rather than next to
+  it. Categories drop to their own row under the bar.
+- **Phone.** No subject layer at all. A phone screen is exactly as tall as the
+  words need, and nothing is lost: the wash still carries the product's colour
+  across the whole screen, and the card resting on the foot of the image carries
+  the product itself at size. The header is two compact rows and the showcase is
+  a swipeable rail.
+
+### Verification
+
+| Gate | Result |
+| --- | --- |
+| `npm run lint` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| Axe at AA, home, 1440×900 | `[x]` 0 violations |
+| Axe at AA, home, 390×844 | `[x]` 0 violations |
+| Contrast over the photograph | `[x]` measured from rendered pixels — nav 6.4:1, account 10.8:1, wordmark 15.7:1, eyebrow 10.9:1, body copy 6.6:1, headline 15.4:1, product title 15.2:1, price 15.3:1 |
+| Sideways scroll at 320, 390, 820, 1440, 1920 | `[x]` none |
+| Browser console, every width | `[x]` clean |
+| Every slide inspected, and the dark treatment forced with an override | `[x]` both treatments readable |
+| Header on a page with no hero (product, scrolled home) | `[x]` white bar, correct |
+| `npm test` | `[ ]` **not run — the owner stopped it.** Nothing in this change touches server code, but the suite has not confirmed that. |
+| `npm run test:e2e` | `[ ]` **not run.** `e2e/experience.spec.ts` and `e2e/smoke.spec.ts` assert against this hero, and the markup they need was kept deliberately: the region is still named "Featured preorders", each card is still a button named `Show <title>` carrying `aria-current`, the slide's product title is still the only `h2` in it, and the `h1` and the landed-price sentence are unchanged. That is reasoning, not a passing run. |
+
+The three heroes before this one are archived under `docs/archive`, the newest
+of them in `hero-campaign-banner.md`, each restorable in one command.
