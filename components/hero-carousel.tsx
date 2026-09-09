@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CapacityMeter } from "./capacity-meter";
 import { Countdown } from "./countdown";
+import { HeroFlightPath } from "./hero-flightpath";
 import { ProductArt } from "./product-art";
 
 export type HeroSlide = {
@@ -107,10 +108,23 @@ export function HeroCarousel({
       onBlurCapture={() => setPaused(false)}
       onKeyDown={onKeyDown}
     >
-      {/* The ruled-manifest grid, faint, behind everything. */}
+      {/*
+        The living ground: shipments crossing from the United States and
+        landing in Dhaka. It replaces a still ruled grid which fitted the
+        identity and held nobody's attention, which is the one thing a hero has
+        to do.
+      */}
+      <HeroFlightPath />
+
+      {/*
+        A scrim between the animation and the words. The canvas is faint enough
+        not to move the measured contrast on its own; this guarantees it rather
+        than trusting it, so the headline always sits on ink rather than on
+        whatever happened to be passing underneath it.
+      */}
       <div
         aria-hidden="true"
-        className="grid-rule pointer-events-none absolute inset-0 text-paper opacity-[0.13]"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_80%_at_18%_50%,rgba(10,21,38,0.92),rgba(10,21,38,0.55)_45%,transparent_75%)]"
       />
 
       <div className="relative mx-auto grid w-full max-w-[1280px] items-center gap-10 px-4 py-14 md:grid-cols-[1.05fr_1fr] md:px-6 md:py-20">

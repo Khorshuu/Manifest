@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { StatusBadge } from "@/components/status-badge";
 import { getCurrentUser } from "@/lib/auth";
-import { listOrdersForStaff } from "@/lib/orders";
+import { listCancellationRequests, listOrdersForStaff } from "@/lib/orders";
 import { formatBdt } from "@/lib/money";
 import { formatShortDate } from "@/lib/format";
 import type { OrderStatus } from "@/db/schema";
@@ -10,7 +10,17 @@ import type { OrderStatus } from "@/db/schema";
 export const metadata: Metadata = { title: "Orders" };
 export const dynamic = "force-dynamic";
 
-const FILTERS: { value: OrderStatus | "all"; label: string }[] = [
+/*
+ * "Cancellation requested" is not an order status — the order carries on in
+ * whatever stage it was in while somebody decides. It is a queue of orders
+ * whose shoppers have asked to stop, which is a different question from where
+ * an order has got to, and it sits first because it is the only filter here
+ * that is waiting on a person.
+ */
+type Filter = OrderStatus | "all" | "cancellation_requested";
+
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: "cancellation_requested", label: "Cancellation requested" },
   { value: "all", label: "All" },
   { value: "placed", label: "Awaiting payment" },
   { value: "payment_confirmed", label: "Paid" },
@@ -34,10 +44,21 @@ export default async function AdminOrdersPage({
   const status = typeof params.status === "string" ? params.status : "all";
 
   const user = await getCurrentUser();
-  const orders = await listOrdersForStaff(
-    user,
-    status === "all" ? {} : { status: status as OrderStatus },
-  );
+  const showingRequests = status === "cancellation_requested";
+
+  const requests = showingRequests
+    ? await listCancellationRequests(user)
+    : [];
+  const orders = showingRequests
+    ? []
+    : await listOrdersForStaff(
+        user,
+        status === "all" ? {} : { status: status as OrderStatus },
+      );
+
+  // The count sits on the tab whether or not it is the one being viewed, so a
+  // waiting customer is visible from any of them.
+  const waitingCount = (await listCancellationRequests(user)).length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -60,13 +81,69 @@ export default async function AdminOrdersPage({
                 }`}
               >
                 {filter.label}
+                {filter.value === "cancellation_requested" &&
+                waitingCount > 0 ? (
+                  <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-card bg-stamp-red px-1 font-medium tabular-nums text-paper">
+                    {waitingCount}
+                  </span>
+                ) : null}
               </Link>
             </li>
           ))}
         </ul>
       </nav>
 
-      {orders.length === 0 ? (
+      {showingRequests ? (
+        requests.length === 0 ? (
+          <div className="border border-blue-300 p-8">
+            <p className="text-body text-ink">
+              Nobody is waiting on a cancellation.
+            </p>
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-4">
+            {requests.map((request) => (
+              <li
+                key={request.id}
+                className="border border-blue-300 bg-paper p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link
+                      href={`/admin/orders/${request.id}`}
+                      className="font-display text-h3 tabular-nums text-blue-600 hover:underline"
+                    >
+                      {request.orderNumber}
+                    </Link>
+                    <p className="mt-1 text-meta text-ink/70">
+                      Asked{" "}
+                      {request.requestedAt
+                        ? formatShortDate(request.requestedAt)
+                        : "—"}
+                      {" · currently "}
+                      {LABELS[request.status] ?? request.status}
+                    </p>
+                  </div>
+                  <p className="tabular-nums text-ink">
+                    {formatBdt(request.totalBdt)}
+                  </p>
+                </div>
+
+                {/* The customer's own words, which is usually what decides it. */}
+                <p className="mt-3 max-w-[70ch] border-l-2 border-brass pl-3 text-body text-ink/80">
+                  {request.reason?.trim()
+                    ? request.reason
+                    : "No reason given."}
+                </p>
+
+                <p className="mt-3 text-meta text-ink/70">
+                  Open the order to approve or decline this.
+                </p>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : orders.length === 0 ? (
         <div className="border border-blue-300 p-8">
           <p className="text-body text-ink">No orders with that status.</p>
         </div>

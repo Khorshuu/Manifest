@@ -9,7 +9,9 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 async function signIn(page: Page, email: string) {
-  await page.goto("/");
+  // Any route with an origin will do, and the home page is the heaviest one in
+  // the application — this only needs somewhere to fetch the logout from.
+  await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 
   await page.goto("/login");
@@ -158,17 +160,24 @@ test("acceptance 5: staff advance an order through every stage", async ({
 
   // The pipeline is finished, so only a refund remains.
   await expect(
-    page.getByRole("button", { name: "Refund this order" }),
+    page.getByRole("button", { name: "Record a refund" }),
   ).toBeVisible();
 });
 
 /**
  * "A shopper cancels a preorder before its batch is purchased and receives a
- * full refund" — and after sourcing begins, staff handle it instead.
+ * full refund."
+ *
+ * The shopper's part of that is now a request rather than the cancellation
+ * itself: staff review it and cancel from the admin side (DECISIONS.md D-014).
+ * So the criterion is met across two steps, and this walks both — the shopper
+ * asks, and staff approve, and only then is the order cancelled.
  */
-test("acceptance 7: cancellation before sourcing, refund after", async ({
+test("acceptance 7: a shopper asks to cancel, and staff approve it", async ({
   page,
 }) => {
+  test.slow();
+
   await signIn(page, "customer@example.com");
   await addCandyToCart(page);
   await page.goto("/checkout");
@@ -193,16 +202,32 @@ test("acceptance 7: cancellation before sourcing, refund after", async ({
   await page.getByRole("link", { name: orderNumber }).click();
   await page.waitForURL((url) => url.pathname.startsWith("/account/orders/"));
 
-  await page.getByRole("button", { name: "Cancel this order" }).click();
-  const cancelled = page.waitForResponse(
+  await page.getByRole("button", { name: "Ask us to cancel" }).click();
+  await page.getByLabel("Reason (optional)").fill("Ordered the wrong size");
+
+  const requested = page.waitForResponse(
     (r) => r.url().includes("/api/orders/") && r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Yes, cancel it" }).click();
-  expect((await cancelled).status()).toBe(200);
+  await page.getByRole("button", { name: "Send the request" }).click();
+  expect((await requested).status()).toBe(200);
 
-  await expect(
-    page.getByText("This order is no longer in progress."),
-  ).toBeVisible();
+  // The order is still running: nothing has been decided yet.
+  await expect(page.getByText(/You asked us to cancel this order/)).toBeVisible();
+
+  // Staff see it waiting, with the shopper's own words.
+  await signIn(page, "staff@example.com");
+  await page.goto("/admin/orders?status=cancellation_requested");
+  await expect(page.getByText("Ordered the wrong size")).toBeVisible();
+
+  await page.getByRole("link", { name: orderNumber }).click();
+  const resolved = page.waitForResponse(
+    (r) => r.url().includes("/api/orders/") && r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Approve and cancel" }).click();
+  expect((await resolved).status()).toBe(200);
+
+  await page.reload();
+  await expect(page.getByText("Cancelled").first()).toBeVisible();
 });
 
 /**

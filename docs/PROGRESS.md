@@ -914,3 +914,139 @@ Two tests needed fixing, and the reasons are worth keeping:
 
 Still carried forward: the cart, checkout and account screens have not had this
 treatment.
+
+## Deposit balance payments (added after Phase 15)
+
+The last of the open questions carried since Phase 8. The product owner chose
+staff-triggered, recorded as **DECISIONS.md D-012**: the balance on a deposit
+order is collected when a member of staff presses a button, never automatically
+on a pipeline event.
+
+- `lib/orders/balance.ts` computes what an order still owes from its own payment
+  rows and takes it once.
+- A Payment panel on the admin order page states total, paid and outstanding
+  before anything is pressed, and asks a second time before money moves.
+- The customer's order page says what is left and that we will collect it —
+  not "pay now", which would be a button that does not exist.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 548 passed, 2 skipped, 36 files |
+| The amount comes from the payments, not the order column | `[x]` verified: after a refund, what is owed follows the payment rows rather than `amount_due_now_bdt`, which records what was asked for at placement |
+| A request cannot name its own amount | `[x]` verified at the API — a body carrying `amountBdt` is refused with 400 rather than partly applied |
+| The same balance cannot be taken twice | `[x]` verified three ways: a captured row short-circuits before the provider is called, an *initiated* row is resumed rather than replaced, and the provider is handed a key derived from the order |
+| A cancelled or refunded order is refused | `[x]` verified |
+| The customer is told, once | `[x]` verified: two collections produce one message |
+| Who took it is recorded | `[x]` verified — an `order.balance_taken` audit row carrying the actor |
+| The fulfilment stage does not move | `[x]` verified: this is money, not goods |
+| Only staff | `[x]` verified in `lib/` and at the API — 403 for a customer, 401 anonymous, and no payment row written when refused |
+
+### A production defect the parallel tests found
+
+Several of the new end-to-end tests check out at the same time, and checkout
+started returning **500**. The cause was not the new code:
+
+`nextOrderNumber` allocated the human-facing order number as `count(*) + 1`
+over the orders already placed that year — a read-then-write against a
+**UNIQUE** column. Two checkouts in the same instant read the same count, both
+tried to insert the same number, and one customer got "Something went wrong" at
+the moment they pressed Place order. It would have happened in production the
+first time two people ordered at once, and no existing test could see it
+because PGlite serves one connection and nothing on it can genuinely race.
+
+Migration `0009` adds a Postgres sequence, and `nextOrderNumber` takes its
+value from `nextval`. `tests/order-number-concurrency.test.ts` runs twenty
+simultaneous allocations against the real server and asserts they are all
+different — and is **confirmed to fail** when the read-then-write is put back.
+
+The first fix for this was a counter row incremented with an upsert. That is
+equally correct and was wrong anyway: the upsert holds a row lock for the rest
+of the transaction, so every checkout queued behind every other one. The
+end-to-end suite went from 9 minutes to 12.7 and ten tests timed out — all of
+them on the same worker, all passing on their own. A sequence takes no
+transaction-scoped lock at all, and a second test asserts that twenty
+concurrent callers do not queue.
+
+Two consequences of the sequence, both deliberate and both recorded in the
+code: numbering runs continuously rather than restarting each year, because
+restarting needs exactly the lock this avoids; and a rolled-back placement
+leaves a gap, because a sequence does not roll back. A number nobody was ever
+given is not a problem worth a lock.
+
+## Cancellation review, manual refunds, and a living hero (added after Phase 15)
+
+Three things the product owner asked for directly, and one defect found on the
+way.
+
+**A shopper's cancellation is now a request** (DECISIONS.md D-014). The button
+says "Ask us to cancel" and takes their reason in their own words. It records a
+request and changes nothing else — the order keeps its status, keeps moving,
+and keeps its capacity, because until somebody decides, the place is still
+theirs. Staff see the queue as the first tab of the order pipeline, with a count
+badge visible from every other tab, and approve or decline from the order page.
+
+**Refunds are recorded, not charged** (DECISIONS.md D-015). No gateway call.
+Staff enter an amount, a reason, and the reference of the transfer they made by
+hand. A part refund leaves the order running; a full one closes it and returns
+any places still held.
+
+**The hero ground moves.** A still ruled grid was replaced by a canvas of
+shipments crossing from both edges and landing on a pulsing destination, with
+trails, arrival rings and pointer parallax. Written by hand rather than with a
+library: the home page went from 181.4KB to **183.0KB gzipped** against the
+200KB budget, so the whole effect cost 1.6KB. It stops completely when scrolled
+past, when the tab is hidden, and when the visitor has asked for reduced motion,
+where it draws one still frame instead.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 554 passed, 2 skipped, 36 files |
+| `npm run test:e2e` | `[x]` passes — 396 passed, 4 skipped, mobile and desktop |
+| Axe at AA | `[x]` passes over the animated hero — the canvas draws nothing solid, and a radial scrim guarantees the headline sits on ink |
+| Home page JavaScript | `[x]` 183.0 KB gzipped, measured against a production build |
+| Asking to cancel does not cancel | `[x]` verified in `lib/` and end to end — the status is unchanged and the reserved places are still held |
+| Approving returns the places | `[x]` verified; declining leaves the order exactly as it was |
+| Asking twice is not an error | `[x]` verified — the second request reports the first |
+| Only staff answer a request | `[x]` verified — 403 for the customer who owns the order |
+| A part refund cannot exceed what is left | `[x]` verified: refund rows point at the charge they reverse, so a second part refund knows what remains |
+
+### Two defects found by the new tests
+
+**Order numbers raced.** `nextOrderNumber` allocated `count(*) + 1` against a
+UNIQUE column, so two checkouts in the same instant collided and one customer
+got "Something went wrong" as they pressed Place order. Migration `0009` moves
+it to a Postgres sequence. `tests/order-number-concurrency.test.ts` proves it
+against a real server and is **confirmed to fail** on the old scheme. A counter
+row with an upsert was tried first and rejected: correct, but it holds a row
+lock for the rest of the transaction and serialised every checkout, costing the
+suite four minutes.
+
+**Refunds had no link to the charge they reversed.** A refund was only a
+negative number against the order, so nothing could tell how much of a given
+charge was still refundable — repeated part refunds could between them have
+exceeded what was taken. Migration `0010` adds the link, backfills the existing
+rows, and adds a check constraint that a refund must point at a charge.
+
+### The suite was slow and flaky, and the cause was mine
+
+Ten to fourteen tests were timing out per run, all passing in isolation. Three
+causes, all self-inflicted:
+
+- Every spec's sign-in helper opened the **home page** purely to have an origin
+  for a logout `fetch` — 25 occurrences across 16 files, on almost every test.
+  The home page rebuild had made it the heaviest route on the site: 0.27s warm
+  against 0.04s for `/login`. Pointed at `/login` instead.
+- The new balance spec walked the whole checkout form in every test, testing
+  checkout a second time and starving everything else. It places its order
+  through the API now.
+- The default 30s timeout no longer matched a grown suite on a dev server shared
+  by eight workers. Raised to 60s, with the assertion timeout kept at 10s so a
+  missing element still fails fast with a useful message.
+
+Carried forward: the cart, checkout, confirmation and account screens have not
+had the design treatment the storefront pages got, and admin has no mobile
+navigation, which `CLAUDE.md` section 8 asks for.

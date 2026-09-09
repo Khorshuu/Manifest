@@ -165,3 +165,57 @@ export function composeWaitlistMessage(
     ].join("\n\n"),
   };
 }
+
+export type BalanceNotificationFacts = {
+  orderNumber: string;
+  amountBdt: number;
+  totalBdt: number;
+};
+
+/**
+ * What a customer is told when the balance on a deposit order is taken.
+ *
+ * Staff decide when this happens (DECISIONS.md D-012), so the message has to
+ * say what was charged and against which order — a payment the customer did
+ * not initiate is exactly the kind that needs explaining, not announcing.
+ */
+export function composeBalanceMessage(
+  facts: BalanceNotificationFacts,
+): ComposedMessage {
+  return {
+    subject: `Balance received for order ${facts.orderNumber}`,
+    body: [
+      `We have taken the remaining ${money(facts.amountBdt)} on order ${facts.orderNumber}.`,
+      `That settles it in full: ${money(facts.totalBdt)}, with shipping and customs duty already inside the price.`,
+      "Nothing further is due, and nothing is owed to the courier on delivery.",
+    ].join("\n\n"),
+  };
+}
+
+export type PartialRefundFacts = {
+  orderNumber: string;
+  amountBdt: number;
+  /** What the order still comes to after this refund. */
+  remainingTotalBdt: number;
+};
+
+/**
+ * What a customer is told when part of an order is refunded.
+ *
+ * Deliberately not the `refunded` order message. That one says the order is
+ * over, and a partial refund is the opposite: a price correction or a goodwill
+ * payment on an order that is still coming. Telling someone their order was
+ * refunded when it is still on its way would be worse than saying nothing.
+ */
+export function composePartialRefundMessage(
+  facts: PartialRefundFacts,
+): ComposedMessage {
+  return {
+    subject: `${money(facts.amountBdt)} refunded on order ${facts.orderNumber}`,
+    body: [
+      `We have refunded ${money(facts.amountBdt)} against order ${facts.orderNumber}.`,
+      `The order itself is unchanged and still on its way. What you have paid for it now stands at ${money(facts.remainingTotalBdt)}.`,
+      "The refund reaches the account you paid from, on that provider's own timescale.",
+    ].join("\n\n"),
+  };
+}

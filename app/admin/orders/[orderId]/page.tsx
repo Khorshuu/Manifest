@@ -2,9 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { OrderProgress } from "@/components/order-progress";
-import { allowedTransitions, getOrderForStaff } from "@/lib/orders";
+import {
+  allowedTransitions,
+  getBalanceState,
+  getOrderForStaff,
+  refundableTotal,
+} from "@/lib/orders";
 import { formatBdt } from "@/lib/money";
 import { formatDate } from "@/lib/format";
+import { BalancePanel } from "./balance-panel";
 import { OrderActions } from "./order-actions";
 import { ShippingPanel } from "./shipping-panel";
 
@@ -21,6 +27,12 @@ export default async function AdminOrderPage({
 
   const allowed = allowedTransitions(order.status);
   const canRefund = allowed.includes("refunded");
+  // Computed from the payment rows, so it is right whatever the order column
+  // said at placement time.
+  const balance = await getBalanceState(orderId);
+  // What can still be refunded, worked out from the payment rows rather than
+  // from the order total: part of it may already have been paid back.
+  const refundableBdt = await refundableTotal(orderId);
 
   return (
     <div className="flex flex-col gap-8">
@@ -160,10 +172,28 @@ export default async function AdminOrderPage({
                   orderId={order.id}
                   allowed={allowed}
                   canRefund={canRefund}
+                  refundableBdt={refundableBdt}
+                  cancellationRequested={order.cancellationRequestedAt !== null}
                 />
               )}
             </div>
           </section>
+
+          {balance ? (
+            <section className="border border-blue-300 p-5">
+              <h2 className="font-display text-h3 text-ink">Payment</h2>
+              <div className="mt-4">
+                <BalancePanel
+                  orderId={order.id}
+                  totalBdt={balance.totalBdt}
+                  paidBdt={balance.paidBdt}
+                  outstandingBdt={balance.outstandingBdt}
+                  collectable={balance.collectable}
+                  reason={balance.reason}
+                />
+              </div>
+            </section>
+          ) : null}
 
           <section className="border border-blue-300 p-5">
             <h2 className="font-display text-h3 text-ink">Shipping</h2>

@@ -51,6 +51,10 @@ const customerOrderColumns = {
   amountDueNowBdt: orders.amountDueNowBdt,
   trackingReference: orders.trackingReference,
   placedAt: orders.placedAt,
+  /* Their own request, so they can see it is with us rather than ask twice.
+     cancellationReason is theirs too, but the page has no use for reading
+     their own words back at them. */
+  cancellationRequestedAt: orders.cancellationRequestedAt,
 };
 
 async function loadRelated(orderId: string, shippingAddressId: string) {

@@ -17,6 +17,8 @@ export type AuditAction =
   | "category.updated"
   | "order.status_changed"
   | "order.refunded"
+  /** The balance on a deposit order, taken by staff — DECISIONS.md D-012. */
+  | "order.balance_taken"
   | "review.moderated"
   | "user.two_factor_enabled"
   | "user.two_factor_disabled"

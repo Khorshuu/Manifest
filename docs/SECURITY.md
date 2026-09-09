@@ -58,7 +58,7 @@ Any account may turn it on at `/account/security`; the page recommends it in as 
 ## Open questions
 
 - ~~Should two-factor authentication be mandatory for `super_admin` and `staff_admin`?~~ **Decided: no.** It stays available and recommended, and any account may turn it on. Compulsory would mean an admin who loses both their phone and their recovery codes needs someone with database access to get back in, and the business does not want that failure mode. Revisit if an admin account is ever compromised, or if a payment processor requires it.
-- What is the data retention period required for order records under applicable Bangladeshi law, which sets the floor for how long anonymization can be deferred?
+- ~~What is the data retention period required for order records under applicable Bangladeshi law, which sets the floor for how long anonymization can be deferred?~~ **Decided: there is none.** The product owner chose to keep customer records indefinitely, so nothing is anonymised on age and no sweep exists to need a period (DECISIONS.md D-013). `anonymiseCustomer` stays for a customer who asks to be forgotten — that is a request to comply with, not a retention policy. The trade is that the longer personal data is held the more there is to lose in a breach, which raises the value of the controls above and makes an encrypted-at-rest database matter more when this is deployed for real.
 
 ## Implementation notes (Phase 3)
 

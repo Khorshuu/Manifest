@@ -6,7 +6,9 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 async function signIn(page: Page, email: string) {
-  await page.goto("/");
+  // Any route with an origin will do, and the home page is the heaviest one in
+  // the application — this only needs somewhere to fetch the logout from.
+  await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 
   await page.goto("/login");

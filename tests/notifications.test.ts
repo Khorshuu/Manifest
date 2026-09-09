@@ -29,7 +29,8 @@ import {
 } from "@/lib/notifications";
 import {
   advanceOrder,
-  cancelOwnOrder,
+  requestCancellation,
+  resolveCancellationRequest,
   confirmPayment,
   placeOrder,
   refundOrder,
@@ -239,7 +240,10 @@ describe("queueing", () => {
 
   it("tells the customer when they cancel their own order", async () => {
     const placed = await placeTestOrder();
-    await cancelOwnOrder(shopper, placed.orderId);
+    // The shopper asks; staff approve. Only the approval is a cancellation,
+    // so only the approval tells the customer their order has ended.
+    await requestCancellation(shopper, placed.orderId, "Changed my mind");
+    await resolveCancellationRequest(staff, placed.orderId, "approve");
 
     const templates = (await outboxFor(placed.orderId)).map((r) => r.template);
     expect(templates).toContain("order.cancelled");

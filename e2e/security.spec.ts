@@ -8,7 +8,9 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 async function signIn(page: Page, email: string) {
-  await page.goto("/");
+  // Any route with an origin will do, and the home page is the heaviest one in
+  // the application — this only needs somewhere to fetch the logout from.
+  await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 
   await page.goto("/login");
@@ -107,7 +109,9 @@ test("a customer is refused at every admin endpoint", async ({ page }) => {
 test("an anonymous visitor is refused, and told so as unauthenticated", async ({
   page,
 }) => {
-  await page.goto("/");
+  // Any route with an origin will do, and the home page is the heaviest one in
+  // the application — this only needs somewhere to fetch the logout from.
+  await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 
   const status = await page.evaluate(async () => {
@@ -169,7 +173,9 @@ test("the login response never reveals whether an account exists", async ({
 });
 
 test("registration cannot grant itself a role", async ({ page }) => {
-  await page.goto("/");
+  // Any route with an origin will do, and the home page is the heaviest one in
+  // the application — this only needs somewhere to fetch the logout from.
+  await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 
   const status = await page.evaluate(async () => {

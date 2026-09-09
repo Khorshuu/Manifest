@@ -61,15 +61,46 @@ export type PlacedOrder = {
   reused: boolean;
 };
 
-/** Human-facing order number. Sequential within a year, zero-padded. */
+/**
+ * Human-facing order number: the year it was placed, then a zero-padded
+ * sequence.
+ *
+ * Allocated from a Postgres sequence rather than by counting the orders
+ * already placed. The count was a read-then-write race against a unique
+ * column: two checkouts in the same instant read the same number, both tried
+ * to insert it, and one customer got "Something went wrong" at the moment they
+ * pressed Place order. It surfaced when several end-to-end tests started
+ * checking out in parallel, and it would have surfaced in production the first
+ * time two people ordered at once.
+ *
+ * `nextval` is atomic and takes no transaction-scoped lock, so concurrent
+ * checkouts do not queue behind each other. A counter row incremented with an
+ * upsert would also be correct, and was tried first — but it holds a row lock
+ * for the rest of the transaction, which serialised every placement and cost
+ * the end-to-end suite four minutes.
+ *
+ * Two consequences, both deliberate. The sequence does not restart each year,
+ * so numbering runs continuously and the year is a label rather than a
+ * counter — restarting it would need exactly the lock this avoids. And a
+ * rolled-back placement leaves a gap, because a sequence does not roll back;
+ * a number nobody was ever given is not a problem worth a lock.
+ */
 async function nextOrderNumber(tx: typeof db): Promise<string> {
   const year = new Date().getUTCFullYear();
-  const [row] = await tx
-    .select({ value: sql<number>`count(*)::int` })
-    .from(orders)
-    .where(sql`${orders.orderNumber} like ${`ORD-${year}-%`}`);
 
-  return `ORD-${year}-${String(row.value + 1).padStart(6, "0")}`;
+  // postgres-js returns an array of rows; PGlite returns { rows }. The rest of
+  // this file uses the query builder, which hides the difference — a raw
+  // `nextval` cannot.
+  const result = (await tx.execute(
+    sql`select nextval('order_number_seq') as value`,
+  )) as unknown as
+    | { value: string | number }[]
+    | { rows: { value: string | number }[] };
+
+  const first = Array.isArray(result) ? result[0] : result.rows?.[0];
+  const value = Number(first?.value ?? 0);
+
+  return `ORD-${year}-${String(value).padStart(6, "0")}`;
 }
 
 /**

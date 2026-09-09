@@ -1,12 +1,14 @@
-import { and, asc, eq, isNull, lt, or } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { notifications, orders, users } from "@/db/schema";
+import { notifications, orders, payments, users } from "@/db/schema";
 import {
   DeliveryError,
   getNotificationProvider,
 } from "@/lib/providers/notification";
 import {
+  composeBalanceMessage,
   composeOrderMessage,
+  composePartialRefundMessage,
   isNotifiedStatus,
   type NotifiedStatus,
 } from "./templates";
@@ -215,4 +217,131 @@ let backgroundDelivery = true;
  */
 export function setBackgroundDeliveryForTesting(enabled: boolean): void {
   backgroundDelivery = enabled;
+}
+
+/**
+ * Queues the message for a balance taken on a deposit order.
+ *
+ * Separate from `queueOrderNotification` because this is not an order status:
+ * the fulfilment stage does not move when money changes hands, and a template
+ * keyed on status could not describe it.
+ */
+export async function queueBalanceNotification(
+  tx: Executor,
+  orderId: string,
+  amountBdt: number,
+): Promise<QueuedNotification | null> {
+  const [order] = await tx
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      totalBdt: orders.totalBdt,
+      userId: orders.userId,
+      guestEmail: orders.guestEmail,
+      userEmail: users.email,
+    })
+    .from(orders)
+    .leftJoin(users, eq(users.id, orders.userId))
+    .where(eq(orders.id, orderId))
+    .limit(1);
+
+  if (!order) return null;
+
+  const recipient = order.userEmail ?? order.guestEmail;
+  if (!recipient) return null;
+
+  const message = composeBalanceMessage({
+    orderNumber: order.orderNumber,
+    amountBdt,
+    totalBdt: order.totalBdt,
+  });
+
+  const [row] = await tx
+    .insert(notifications)
+    .values({
+      orderId,
+      userId: order.userId,
+      recipient,
+      channel: "email",
+      template: "order.balance_taken",
+      subject: message.subject,
+      body: message.body,
+      // One balance per order, so a repeated collection cannot write twice.
+      dedupeKey: `order:${orderId}:balance`,
+    })
+    .onConflictDoNothing({ target: notifications.dedupeKey })
+    .returning({
+      id: notifications.id,
+      dedupeKey: notifications.dedupeKey,
+      recipient: notifications.recipient,
+      subject: notifications.subject,
+    });
+
+  return row ?? null;
+}
+
+/**
+ * Queues the message for a partial refund.
+ *
+ * Keyed on the amount as well as the order, because an order can be partly
+ * refunded more than once and each is a separate thing to be told about — the
+ * order-status dedupe key would silence every refund after the first.
+ */
+export async function queuePartialRefundNotification(
+  tx: Executor,
+  orderId: string,
+  amountBdt: number,
+): Promise<QueuedNotification | null> {
+  const [order] = await tx
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      totalBdt: orders.totalBdt,
+      userId: orders.userId,
+      guestEmail: orders.guestEmail,
+      userEmail: users.email,
+    })
+    .from(orders)
+    .leftJoin(users, eq(users.id, orders.userId))
+    .where(eq(orders.id, orderId))
+    .limit(1);
+
+  if (!order) return null;
+
+  const recipient = order.userEmail ?? order.guestEmail;
+  if (!recipient) return null;
+
+  // What has actually been paid, refunds netted off, after this one.
+  const [totals] = await tx
+    .select({ paid: sql<number>`coalesce(sum(${payments.amountBdt}), 0)::int` })
+    .from(payments)
+    .where(and(eq(payments.orderId, orderId), ne(payments.status, "failed")));
+
+  const message = composePartialRefundMessage({
+    orderNumber: order.orderNumber,
+    amountBdt,
+    remainingTotalBdt: Number(totals?.paid ?? 0),
+  });
+
+  const [row] = await tx
+    .insert(notifications)
+    .values({
+      orderId,
+      userId: order.userId,
+      recipient,
+      channel: "email",
+      template: "order.partial_refund",
+      subject: message.subject,
+      body: message.body,
+      dedupeKey: `order:${orderId}:partial_refund:${amountBdt}:${Date.now()}`,
+    })
+    .onConflictDoNothing({ target: notifications.dedupeKey })
+    .returning({
+      id: notifications.id,
+      dedupeKey: notifications.dedupeKey,
+      recipient: notifications.recipient,
+      subject: notifications.subject,
+    });
+
+  return row ?? null;
 }

@@ -4,6 +4,74 @@ Architecture decision log. One entry per meaningful choice, newest first. Each e
 
 ---
 
+## D-015: Refunds are recorded, not charged
+
+**Decision:** The refund control records a refund that staff have already paid by hand. It does not call the payment gateway. Staff enter the amount, the reason, and the reference of the transfer they made; the system writes a refund payment row against the charge it reverses. The product owner set this: "refund will be done manually as per our terms and that will be set later but refund will be manual."
+
+**Alternatives considered:** calling `provider.refund` so the gateway returns the money automatically, which is what the code did until now.
+
+**Why:** The refund terms themselves are not written yet, and an automatic refund makes a decision the business has not made. Paying by hand also matches how the money actually moves for a shop this size — bKash and bank transfers reconciled by a person — and it removes a failure mode that is genuinely nasty: a gateway call that fails halfway leaves a customer's money somewhere this system cannot see.
+
+The system's job is therefore bookkeeping, and it does that strictly. A refund is always a payment row, never a silent adjustment to a figure on the order (docs/SECURITY.md), and each row points at the charge it reverses so a second part-refund can tell how much of that charge is left.
+
+`provider.refund` stays in the payment interface. When a real gateway arrives it may be worth automating, and the interface should not have to be re-invented to do it.
+
+**What it costs:** nothing stops staff recording a refund they did not actually pay. That is a bookkeeping risk rather than a technical one, and the audit row naming who recorded it is the control.
+
+---
+
+## D-014: A shopper's cancellation is a request; staff make the decision
+
+**Decision:** The customer's control asks us to cancel. It records a request and changes nothing else: the order keeps its status, keeps moving, and keeps its capacity. Requests appear in their own category in the admin order pipeline, with the customer's reason in their own words, and staff approve or decline from the order page. Approving runs the ordinary cancellation, which is what returns the places. The product owner set this: "I will do the final cancel after the client cancels ... we will recheck the thing, client feedback and then cancel from the admin site."
+
+**Alternatives considered:** what this used to do — the shopper cancelling outright while the order had not been sourced, with capacity returned immediately.
+
+**Why:** This is a business that buys goods abroad in batches. Whether a cancellation is straightforward depends on where the batch has got to, on what the customer actually wants, and on terms the owner has not written yet. A button that made that decision on its own would be making it wrongly some of the time and irreversibly every time.
+
+Three consequences, all deliberate:
+
+**Capacity is held until the decision.** It used to come back the moment the shopper pressed the button. Releasing it early would sell their place to somebody else while they were still waiting to hear from us, which is the opposite of what a request means.
+
+**Requests are allowed after sourcing.** The old rule refused a shopper outright once the item had been bought. That is exactly the case where somebody needs to talk to us, so a request is allowed at any stage before delivered, cancelled or refunded, and staff decline the ones that cannot be honoured.
+
+**Asking twice is not an error.** A second request returns the first one rather than failing, because somebody pressing again is somebody wondering whether it registered.
+
+The customer is only told their order is cancelled when it actually is — on approval, through the same message as any other cancellation. Nothing is sent when the request is filed, because "we have your request" is a promise the outbox cannot yet keep with no email provider connected; the order page shows the request instead.
+
+---
+
+## D-013: Customer records are kept indefinitely; nothing is deleted on age
+
+**Decision:** There is no retention period and no scheduled sweep. A customer's name, address and contact details stay until somebody asks for them to be removed. The product owner decided this directly: "information will always stay."
+
+**Alternatives considered:** anonymising personal fields automatically once an order passed some age — a few years, matching whatever Bangladeshi tax law requires records to be kept for.
+
+**Why:** SECURITY.md carried "the data retention period under Bangladeshi law" as an open question, because a sweep needs an age to sweep at and guessing that number wrong is the kind of mistake that matters in both directions — deleting something the tax authority wanted, or keeping something a person was entitled to have removed. The owner's answer removes the question rather than answering it: nothing expires, so no age is needed.
+
+**What this does not change.** `anonymiseCustomer` stays exactly as it is. It exists for a customer who asks to be forgotten, and a shop with no way to comply with such a request has a legal exposure rather than a retention policy. The decision here is about *automatic* deletion, not about refusing a request.
+
+**What it costs.** The longer personal data is held, the more there is to lose in a breach. That is a real trade and the owner has made it knowingly. It raises the value of the controls already in place — the session hashing, the argon2id passwords, the role gates, the audit log — and it means an encrypted-at-rest database matters more than it otherwise would when this is deployed for real.
+
+If a retention period is ever set, the sweep is small: `anonymiseCustomer` already does the work, and a scheduled job would only have to choose which accounts to call it for. The maintenance route at `/api/cron/maintenance` is where it would go.
+
+---
+
+## D-012: The balance on a deposit order is taken by staff, not charged automatically
+
+**Decision:** When an order was placed with a deposit, the remaining balance is collected when a member of staff presses a button on the admin order page. It is not charged automatically on any event — not when the window closes, not when the goods are sourced, not when they land. The amount is computed on the server from the order's own payment rows; the request carries no figure. The customer is told by email once it is taken, and sees what is outstanding on their order page in the meantime.
+
+**Alternatives considered:** charging the balance automatically at a fixed point in the pipeline, most plausibly when the order reaches `shipped_from_us`.
+
+**Why:** DATABASE.md recorded this as an open question and the product owner answered it directly: staff-triggered. That is also the safer default. An automatic charge fires on a schedule nobody is watching, against a card or wallet the customer authorised weeks earlier for a smaller amount, and the first a person hears of it is their bank. A batch that goes wrong — a supplier shortfall, a price change, a customer who has asked to cancel — becomes a set of charges to unwind rather than charges never made. Staff pressing a button is one person deciding one order is ready to settle, which is what the money actually depends on.
+
+The cost is that a balance can be forgotten. That is visible rather than silent: the admin order page states what is outstanding, and the figure is computed from payments rather than from `amount_due_now_bdt`, which records what was asked for at placement and would otherwise drift as refunds and captures accumulate.
+
+Idempotency has three layers, because a duplicate here costs a real person real money: a captured balance row short-circuits before the provider is called, an *initiated* row is resumed rather than replaced, and the provider is handed a key derived from the order id.
+
+If the business later wants this automatic, the same function is what a scheduler would call; only the trigger changes.
+
+---
+
 ## D-011: The waitlist is notified when places open, and no place is held
 
 **Decision:** When capacity is returned to a full preorder variant — an order cancelled, or staff raising the ceiling — everyone at the front of that variant's waitlist is sent a message saying places are available, oldest entry first, up to the number of places that actually opened. No place is reserved for them: the first person to order takes it. Each entry is marked `notified_at` so nobody is told twice, and the message says plainly that nothing is being held.

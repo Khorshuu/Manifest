@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { LandedBreakdown } from "@/components/landed-breakdown";
 import { OrderProgress } from "@/components/order-progress";
-import { getGuestOrder } from "@/lib/orders";
+import { getBalanceState, getGuestOrder } from "@/lib/orders";
 import { formatBdt } from "@/lib/money";
 import { formatDate } from "@/lib/format";
 
@@ -22,6 +22,7 @@ export default async function OrderLookupPage({
   // Both are required: an order number alone must not reveal an order.
   const order =
     orderNumber && email ? await getGuestOrder(orderNumber, email) : null;
+  const balance = order ? await getBalanceState(order.id) : null;
   const searched = Boolean(orderNumber && email);
 
   return (
@@ -131,6 +132,29 @@ export default async function OrderLookupPage({
                 totalBdt={order.totalBdt}
               />
             </dl>
+
+            {/*
+              A deposit order still owes something, and the customer should not
+              have to work that out from two figures. The balance is taken by
+              us rather than by them (DECISIONS.md D-012), so this says what is
+              left and that we will collect it — not "pay now", which would be
+              a button that does not exist.
+            */}
+            {balance && balance.outstandingBdt > 0 ? (
+              <div className="mt-4 border border-brass/60 bg-paper-raised p-4">
+                <p className="text-body text-ink">
+                  <span className="font-medium tabular-nums">
+                    {formatBdt(balance.outstandingBdt)}
+                  </span>{" "}
+                  still to pay on this order.
+                </p>
+                <p className="mt-1 text-meta text-ink/70">
+                  You paid {formatBdt(balance.paidBdt)} as a deposit. We take
+                  the rest before the batch is dispatched, and write to you when
+                  we do. There is nothing to settle with the courier.
+                </p>
+              </div>
+            ) : null}
           </section>
         ) : null}
       </div>

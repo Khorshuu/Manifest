@@ -8,8 +8,10 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function signIn(page: Page, email: string) {
   // Sign out first: the login page redirects away when a session already
-  // exists, so switching accounts mid-test would otherwise hang.
-  await page.goto("/");
+  // exists, so switching accounts mid-test would otherwise hang. The logout
+  // is a fetch, so this only needs an origin — and the home page, which it
+  // used to load, is the heaviest route in the application.
+  await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 
   await page.goto("/login");
@@ -33,7 +35,9 @@ async function signIn(page: Page, email: string) {
 async function registerCustomer(page: Page): Promise<string> {
   const email = `shopper-${crypto.randomUUID().slice(0, 8)}@example.com`;
 
-  await page.goto("/");
+  // Any route with an origin will do, and the home page is the heaviest one in
+  // the application — this only needs somewhere to fetch the logout from.
+  await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 
   const status = await page.evaluate(async (address: string) => {
@@ -106,7 +110,7 @@ test("a shopper can open their own order and see its progress", async ({
   await expect(page.getByText("Delivering to")).toBeVisible();
 });
 
-test("a shopper can cancel an order that has not been sourced", async ({
+test("a shopper asks to cancel, and the order carries on until staff answer", async ({
   page,
 }) => {
   const orderNumber = await placeOrderAsCustomer(page);
@@ -114,17 +118,23 @@ test("a shopper can cancel an order that has not been sourced", async ({
   await page.goto("/account");
   await page.getByRole("link", { name: orderNumber }).click();
 
-  await page.getByRole("button", { name: "Cancel this order" }).click();
-  // Irreversible, so it asks first.
-  await expect(page.getByText("This cannot be undone.")).toBeVisible();
+  await page.getByRole("button", { name: "Ask us to cancel" }).click();
+  await page.getByLabel("Reason (optional)").fill("Changed my mind");
 
-  const cancelled = page.waitForResponse(
+  const requested = page.waitForResponse(
     (r) => r.url().includes("/api/orders/") && r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Yes, cancel it" }).click();
-  expect((await cancelled).status()).toBe(200);
+  await page.getByRole("button", { name: "Send the request" }).click();
+  expect((await requested).status()).toBe(200);
 
-  await expect(page.getByText("This order is no longer in progress.")).toBeVisible();
+  // A request, not a cancellation: the panel says it is with us, and the order
+  // is still in progress (DECISIONS.md D-014).
+  await expect(
+    page.getByText(/You asked us to cancel this order/),
+  ).toBeVisible();
+  await expect(
+    page.getByText("This order is no longer in progress."),
+  ).toHaveCount(0);
 });
 
 test("an anonymous visitor cannot reach the account area", async ({ page }) => {

@@ -55,6 +55,18 @@ export const orders = pgTable(
     /** Unique constraint is what makes order creation idempotent under retry. */
     idempotencyKey: text("idempotency_key").notNull().unique(),
     internalNotes: text("internal_notes"),
+    /**
+     * When the shopper asked to cancel, and why in their own words.
+     *
+     * A request rather than a cancellation: staff review it, speak to the
+     * customer, and make the final decision (DECISIONS.md D-014). Capacity is
+     * held until then, because until then nothing has been decided.
+     */
+    cancellationRequestedAt: timestamp("cancellation_requested_at", {
+      withTimezone: true,
+    }),
+    /** The customer's wording. Never mixed with internalNotes, which is staff's. */
+    cancellationReason: text("cancellation_reason"),
     trackingReference: text("tracking_reference"),
     placedAt: timestamp("placed_at", { withTimezone: true })
       .notNull()
@@ -147,6 +159,15 @@ export const payments = pgTable(
     /** 'mock' until real gateway credentials exist — see DECISIONS.md D-004. */
     provider: text("provider").notNull(),
     providerRef: text("provider_ref"),
+    /**
+     * The charge this row reverses. Set on refunds, null on charges.
+     *
+     * Without it a refund is only a negative number against the order, which
+     * is enough to know the net and not enough to know how much of any one
+     * charge is still refundable — so a partial refund could not tell whether
+     * it was about to return more than was taken.
+     */
+    refundedPaymentId: uuid("refunded_payment_id"),
     /** bkash, nagad, rocket, card, bank_transfer, cod */
     method: text("method"),
     amountBdt: integer("amount_bdt").notNull(),

@@ -25,9 +25,15 @@ export default async function AccountOrderPage({
 
   if (!order) notFound();
 
-  // A shopper may cancel only while nothing has been bought on their behalf.
-  const canCancel =
-    order.status === "placed" || order.status === "payment_confirmed";
+  /*
+   * A shopper may ask to cancel while the order is still running. It is a
+   * request rather than a cancellation — staff decide (DECISIONS.md D-014) —
+   * so it stays available after sourcing, which is exactly the case where
+   * somebody needs to talk to us.
+   */
+  const canCancel = !["cancelled", "refunded", "delivered"].includes(
+    order.status,
+  );
 
   return (
     <div className="mx-auto w-full max-w-[900px] px-4 py-8 md:px-6">
@@ -127,11 +133,19 @@ export default async function AccountOrderPage({
         <section className="mt-10 border-t border-blue-300 pt-6">
           <h2 className="font-display text-h3 text-ink">Need to cancel?</h2>
           <p className="mt-2 max-w-[60ch] text-meta text-ink/70">
-            You can cancel while we have not yet bought your item in the US.
-            After that, contact us and we will look at it with you.
+            Ask us and we will look at it with you. If we have not yet bought
+            your item in the US it is usually straightforward; after that it
+            depends on where the batch has got to.
           </p>
           <div className="mt-4">
-            <CancelOrderButton orderId={order.id} />
+            <CancelOrderButton
+              orderId={order.id}
+              requestedAt={
+                order.cancellationRequestedAt
+                  ? order.cancellationRequestedAt.toISOString()
+                  : null
+              }
+            />
           </div>
         </section>
       ) : null}

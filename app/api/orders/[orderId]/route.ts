@@ -4,8 +4,10 @@ import { getCurrentUser } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import {
   advanceOrder,
-  cancelOwnOrder,
   refundOrder,
+  requestCancellation,
+  resolveCancellationRequest,
+  takeBalancePayment,
 } from "@/lib/orders";
 
 const ORDER_STATUSES = [
@@ -21,7 +23,25 @@ const ORDER_STATUSES = [
 ] as const;
 
 const schema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("cancel") }).strict(),
+  /*
+   * A shopper asking to cancel. It records a request rather than cancelling —
+   * staff make the final decision (DECISIONS.md D-014) — so it carries the
+   * customer's reason in their own words.
+   */
+  z
+    .object({
+      action: z.literal("cancel"),
+      reason: z.string().trim().max(500).optional(),
+    })
+    .strict(),
+  /* Staff answering that request. */
+  z
+    .object({
+      action: z.literal("resolve_cancellation"),
+      decision: z.enum(["approve", "decline"]),
+      note: z.string().trim().max(500).optional(),
+    })
+    .strict(),
   z
     .object({
       action: z.literal("advance"),
@@ -33,8 +53,24 @@ const schema = z.discriminatedUnion("action", [
     .object({
       action: z.literal("refund"),
       reason: z.string().trim().min(1, "Give a reason for the refund.").max(500),
+      /*
+       * Optional, and in paisa. Present means refund part of the order and
+       * leave it where it is; absent means refund everything still refundable
+       * and close the order. How much is left is decided on the server from
+       * the payment rows — this can only ask for less than that, never more.
+       */
+      amountBdt: z.number().int().positive().max(100_000_000).optional(),
+      /* The bKash or bank transaction staff made by hand, for the books. */
+      reference: z.string().trim().max(120).optional(),
     })
     .strict(),
+  /*
+   * Deliberately carries no amount. The balance is whatever the order still
+   * owes, computed from its own payment rows on the server — a request that
+   * could name a figure would be a request that could name the wrong one
+   * (CLAUDE.md section 7).
+   */
+  z.object({ action: z.literal("take_balance") }).strict(),
 ]);
 
 export async function POST(
@@ -63,7 +99,20 @@ export async function POST(
     switch (parsed.data.action) {
       case "cancel":
         return NextResponse.json({
-          result: await cancelOwnOrder(user, orderId),
+          result: await requestCancellation(
+            user,
+            orderId,
+            parsed.data.reason ?? "",
+          ),
+        });
+      case "resolve_cancellation":
+        return NextResponse.json({
+          result: await resolveCancellationRequest(
+            user,
+            orderId,
+            parsed.data.decision,
+            parsed.data.note,
+          ),
         });
       case "advance":
         return NextResponse.json({
@@ -76,7 +125,14 @@ export async function POST(
         });
       case "refund":
         return NextResponse.json({
-          result: await refundOrder(user, orderId, parsed.data.reason),
+          result: await refundOrder(user, orderId, parsed.data.reason, {
+            amountBdt: parsed.data.amountBdt,
+            reference: parsed.data.reference,
+          }),
+        });
+      case "take_balance":
+        return NextResponse.json({
+          result: await takeBalancePayment(user, orderId),
         });
     }
   } catch (error) {

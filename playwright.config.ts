@@ -19,6 +19,23 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   reporter: "list",
+  /*
+   * Sixty seconds rather than the default thirty.
+   *
+   * The suite runs against `next dev`, which compiles routes on demand, and
+   * eight parallel workers share one server process. As the suite grew, tests
+   * began timing out in the middle of ordinary navigations — a sign-in
+   * redirect, a response wait — while passing comfortably on their own. That
+   * is a budget problem, not a defect, and the honest fix is to admit the work
+   * takes longer rather than to keep marking individual tests slow until they
+   * all are.
+   *
+   * The assertion timeout stays much shorter than the test timeout on purpose:
+   * a missing element should fail in seconds with a useful message, not sit
+   * there consuming the whole budget.
+   */
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
   use: {
     baseURL,
     trace: "on-first-retry",

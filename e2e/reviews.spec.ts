@@ -11,7 +11,9 @@ import { expect, test, type Page } from "@playwright/test";
 const PRODUCT = "/products/seasonal-candy-variety-box";
 
 async function signIn(page: Page, email: string) {
-  await page.goto("/");
+  // Any route with an origin will do, and the home page is the heaviest one in
+  // the application — this only needs somewhere to fetch the logout from.
+  await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 
   await page.goto("/login");
@@ -29,7 +31,9 @@ async function signIn(page: Page, email: string) {
 async function registerCustomer(page: Page): Promise<string> {
   const email = `reviewer-${crypto.randomUUID().slice(0, 8)}@example.com`;
 
-  await page.goto("/");
+  // Any route with an origin will do, and the home page is the heaviest one in
+  // the application — this only needs somewhere to fetch the logout from.
+  await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 
   const status = await page.evaluate(async (address: string) => {
@@ -181,7 +185,9 @@ test("someone who has not received the product cannot review it", async ({
 test("an anonymous visitor is asked to sign in rather than shown a form", async ({
   page,
 }) => {
-  await page.goto("/");
+  // Any route with an origin will do, and the home page is the heaviest one in
+  // the application — this only needs somewhere to fetch the logout from.
+  await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
   await page.goto(PRODUCT);
 

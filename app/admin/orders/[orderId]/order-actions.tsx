@@ -19,17 +19,26 @@ export function OrderActions({
   orderId,
   allowed,
   canRefund,
+  refundableBdt,
+  cancellationRequested,
 }: {
   orderId: string;
   allowed: string[];
   canRefund: boolean;
+  /** What is still refundable, worked out on the server from the payments. */
+  refundableBdt: number;
+  /** True while the shopper is waiting on an answer to a cancellation. */
+  cancellationRequested: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [refundReason, setRefundReason] = useState("");
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReference, setRefundReference] = useState("");
   const [refunding, setRefunding] = useState(false);
+  const [decisionNote, setDecisionNote] = useState("");
 
   async function send(body: Record<string, unknown>) {
     setPending(true);
@@ -51,7 +60,10 @@ export function OrderActions({
 
     setNote("");
     setRefundReason("");
+    setRefundAmount("");
+    setRefundReference("");
     setRefunding(false);
+    setDecisionNote("");
     router.refresh();
   }
 
@@ -59,6 +71,66 @@ export function OrderActions({
 
   return (
     <div className="flex flex-col gap-5">
+      {cancellationRequested ? (
+        <div className="border border-stamp-red bg-paper-raised p-4">
+          <h3 className="font-display text-h3 text-ink">
+            This shopper has asked to cancel
+          </h3>
+          <p className="mt-1 text-meta text-ink/70">
+            Their reason is on the orders list. Approving cancels the order and
+            returns any places it is still holding; declining leaves it exactly
+            as it is. Neither pays any money back — a refund is recorded
+            separately, once you have made it.
+          </p>
+
+          <div className="mt-3 flex flex-col gap-2">
+            <label
+              htmlFor="decisionNote"
+              className="text-meta font-medium text-ink"
+            >
+              What did you agree with them?
+            </label>
+            <input
+              id="decisionNote"
+              value={decisionNote}
+              onChange={(event) => setDecisionNote(event.target.value)}
+              placeholder="Recorded in the order history"
+              className="min-h-11 rounded-control border border-blue-300 px-3 text-body"
+            />
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-3">
+            <Button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                send({
+                  action: "resolve_cancellation",
+                  decision: "approve",
+                  note: decisionNote || undefined,
+                })
+              }
+            >
+              Approve and cancel
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pending}
+              onClick={() =>
+                send({
+                  action: "resolve_cancellation",
+                  decision: "decline",
+                  note: decisionNote || undefined,
+                })
+              }
+            >
+              Decline, keep the order
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-2">
         <label htmlFor="note" className="text-meta font-medium text-ink">
           Note for this status change
@@ -100,7 +172,7 @@ export function OrderActions({
               variant="secondary"
               onClick={() => setRefunding(true)}
             >
-              Refund this order
+              Record a refund
             </Button>
           ) : (
             <div className="flex flex-col gap-3">
@@ -117,19 +189,65 @@ export function OrderActions({
                 required
                 className="min-h-11 rounded-control border border-blue-300 px-3 text-body"
               />
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="refundAmount"
+                  className="text-meta font-medium text-ink"
+                >
+                  Amount in taka (leave empty to refund all of it)
+                </label>
+                <input
+                  id="refundAmount"
+                  type="number"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  value={refundAmount}
+                  onChange={(event) => setRefundAmount(event.target.value)}
+                  placeholder={`Up to ${refundableBdt / 100}`}
+                  className="min-h-11 rounded-control border border-blue-300 px-3 text-body tabular-nums"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="refundReference"
+                  className="text-meta font-medium text-ink"
+                >
+                  Reference of the transfer you made
+                </label>
+                <input
+                  id="refundReference"
+                  value={refundReference}
+                  onChange={(event) => setRefundReference(event.target.value)}
+                  placeholder="bKash or bank transaction id"
+                  className="min-h-11 rounded-control border border-blue-300 px-3 text-body"
+                />
+              </div>
+
               <p className="text-meta text-ink/70">
-                This returns the money through the payment provider and records
-                a refund against the order. It cannot be undone.
+                This records a refund you have already paid by hand; it does not
+                move any money itself. A part refund leaves the order running. A
+                full one closes it and returns any places it still holds.
+                Neither can be undone.
               </p>
+
               <div className="flex flex-wrap gap-3">
                 <Button
                   type="button"
                   disabled={pending || refundReason.trim().length === 0}
                   onClick={() =>
-                    send({ action: "refund", reason: refundReason })
+                    send({
+                      action: "refund",
+                      reason: refundReason,
+                      reference: refundReference.trim() || undefined,
+                      amountBdt: refundAmount.trim()
+                        ? Math.round(Number(refundAmount) * 100)
+                        : undefined,
+                    })
                   }
                 >
-                  {pending ? "Refunding…" : "Confirm refund"}
+                  {pending ? "Recording…" : "Record this refund"}
                 </Button>
                 <Button
                   type="button"

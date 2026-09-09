@@ -24,7 +24,9 @@ import {
   advanceOrder,
   allowedTransitions,
   canTransition,
-  cancelOwnOrder,
+  requestCancellation,
+  resolveCancellationRequest,
+  listCancellationRequests,
   CancellationError,
   confirmPayment,
   listOrdersForStaff,
@@ -257,40 +259,139 @@ describe("cancelling", () => {
     expect(await reservedFor(variantId)).toBe(3);
   });
 
-  it("lets a shopper cancel their own unsourced order", async () => {
+  /*
+   * A shopper asking to cancel records a request; staff make the final call
+   * (DECISIONS.md D-014). The order keeps its status and — importantly — its
+   * capacity, because until somebody decides, the place is still theirs.
+   */
+  it("records a request rather than cancelling, and holds the places", async () => {
     const { placed, variantId } = await placeTestOrder(10, 2);
 
-    await cancelOwnOrder(shopper, placed.orderId);
+    await requestCancellation(shopper, placed.orderId, "Ordered by mistake");
 
     const [order] = await harness.db
-      .select({ status: orders.status })
+      .select({
+        status: orders.status,
+        requestedAt: orders.cancellationRequestedAt,
+        reason: orders.cancellationReason,
+      })
+      .from(orders)
+      .where(eq(orders.id, placed.orderId));
+
+    expect(order.status).toBe("placed");
+    expect(order.requestedAt).not.toBeNull();
+    expect(order.reason).toBe("Ordered by mistake");
+    expect(await reservedFor(variantId)).toBe(2);
+  });
+
+  it("shows the request to staff", async () => {
+    const { placed } = await placeTestOrder();
+    await requestCancellation(shopper, placed.orderId, "Changed my mind");
+
+    const queue = await listCancellationRequests(staff);
+    const mine = queue.find((row) => row.id === placed.orderId);
+
+    expect(mine).toBeDefined();
+    expect(mine!.reason).toBe("Changed my mind");
+  });
+
+  it("cancels and returns the places when staff approve", async () => {
+    const { placed, variantId } = await placeTestOrder(10, 2);
+    await requestCancellation(shopper, placed.orderId, "No longer needed");
+
+    await resolveCancellationRequest(staff, placed.orderId, "approve");
+
+    const [order] = await harness.db
+      .select({
+        status: orders.status,
+        requestedAt: orders.cancellationRequestedAt,
+      })
       .from(orders)
       .where(eq(orders.id, placed.orderId));
 
     expect(order.status).toBe("cancelled");
+    expect(order.requestedAt).toBeNull();
     expect(await reservedFor(variantId)).toBe(0);
+  });
+
+  it("leaves the order alone when staff decline", async () => {
+    const { placed, variantId } = await placeTestOrder(10, 2);
+    await requestCancellation(shopper, placed.orderId, "Maybe");
+
+    await resolveCancellationRequest(
+      staff,
+      placed.orderId,
+      "decline",
+      "Already shipped from the US",
+    );
+
+    const [order] = await harness.db
+      .select({
+        status: orders.status,
+        requestedAt: orders.cancellationRequestedAt,
+      })
+      .from(orders)
+      .where(eq(orders.id, placed.orderId));
+
+    expect(order.status).toBe("placed");
+    expect(order.requestedAt).toBeNull();
+    expect(await reservedFor(variantId)).toBe(2);
+  });
+
+  it("treats asking twice as asking once", async () => {
+    const { placed } = await placeTestOrder();
+
+    const first = await requestCancellation(shopper, placed.orderId, "One");
+    const second = await requestCancellation(shopper, placed.orderId, "Two");
+
+    expect(first.alreadyRequested).toBe(false);
+    expect(second.alreadyRequested).toBe(true);
+  });
+
+  it("refuses a customer trying to answer their own request", async () => {
+    const { placed } = await placeTestOrder();
+    await requestCancellation(shopper, placed.orderId, "Please");
+
+    await expect(
+      resolveCancellationRequest(shopper, placed.orderId, "approve"),
+    ).rejects.toThrow();
   });
 
   it("refuses to let a shopper cancel someone else's order", async () => {
     const { placed } = await placeTestOrder();
     await expect(
-      cancelOwnOrder(otherShopper, placed.orderId),
+      requestCancellation(otherShopper, placed.orderId, "Not mine"),
     ).rejects.toThrow(/not yours/);
   });
 
-  it("refuses a shopper cancelling once sourcing has begun", async () => {
+  /*
+   * A request is allowed while the goods are still coming, sourcing included —
+   * that is the case staff most need to see, because it is the one where the
+   * item has been bought and somebody has to decide what to do about it.
+   */
+  it("allows a request once sourcing has begun", async () => {
     const { placed } = await placeTestOrder();
     await advanceOrder(staff, placed.orderId, "payment_confirmed");
     await advanceOrder(staff, placed.orderId, "sourcing");
 
-    await expect(cancelOwnOrder(shopper, placed.orderId)).rejects.toThrow(
-      CancellationError,
-    );
+    const result = await requestCancellation(shopper, placed.orderId, "Sorry");
+    expect(result.status).toBe("sourcing");
+  });
+
+  it("refuses a request on an order that is already cancelled", async () => {
+    const { placed } = await placeTestOrder();
+    await advanceOrder(staff, placed.orderId, "cancelled");
+
+    await expect(
+      requestCancellation(shopper, placed.orderId, "Too late"),
+    ).rejects.toThrow(CancellationError);
   });
 
   it("refuses an anonymous caller", async () => {
     const { placed } = await placeTestOrder();
-    await expect(cancelOwnOrder(null, placed.orderId)).rejects.toThrow();
+    await expect(
+      requestCancellation(null, placed.orderId, "Anyone"),
+    ).rejects.toThrow();
   });
 });
 
