@@ -4,6 +4,46 @@ Architecture decision log. One entry per meaningful choice, newest first. Each e
 
 ---
 
+## D-020: The homepage hero is one image, chosen by staff, stored in `site_settings`
+
+**Decision:** The rotating five-slide hero is gone. There is one hero image, one set of hero words, one featured batch, and all of it is a single row in `site_settings` under the key `home.hero`, edited at `/admin/homepage`. Writing needs a staff session; the storefront reads it with no session at all. The photograph goes through the existing media provider, so it lands wherever product photography lands.
+
+**Alternatives considered:** a new `homepage_hero` table; hero fields on the product record; keeping the hero in source and letting a developer change it.
+
+**Why:** A table for one row is a migration and a model for something that is configuration, and `site_settings` already carries the audit trail, the staff gate and the "corrupt row falls back to the default" behaviour that a front page needs. Putting the fields on a product would ask whoever uploads a photograph to answer a question about the *homepage* while editing a *product*, and it goes stale the moment the featured product changes. Leaving it in source fails the brief outright — the owner asked to change the hero without touching code.
+
+Two details are deliberate. The `imageUrl` is never accepted as a posted string: it is set by uploading a file or cleared, so the front page cannot be pointed at an arbitrary address on the internet. And the call-to-action link is validated as an internal path, because a text field that becomes an `href` is how an open redirect gets built by accident.
+
+**What it costs:** staff, not just a super admin, can change the front page of the shop. That is the same bar as uploading product photography, which is the comparison that matters — the audit log names who changed it, and nothing here can move money.
+
+## D-019: A recommendation is scored, never random, and it falls back to popular
+
+**Decision:** `lib/catalog/recommendations.ts` scores every public product against the one being viewed: a relationship staff stated in `product_related` counts 10, the same category 4, a shared tag 3, the same brand 2, a comparable price 1. Anything scoring zero is not a recommendation. When too few products score, the row is topped up with the best-rated products instead of being left short or filled at random.
+
+**Alternatives considered:** behavioural recommendations from browsing or purchase history; the previous behaviour, which was "four other products in the same category".
+
+**Why:** Behavioural recommendations need traffic this shop does not have yet, and they need view-tracking that the privacy posture in SECURITY.md would have to be re-argued for. Everything used here is already recorded and already curated by hand, which is the strength of a small catalogue: staff know that a kettle goes with a grinder, and `product_related` is where they say so. The fallback is explicitly *popular* rather than *random* because a shopper can see the sense in "this is what people rate highly" and cannot see any sense in an unrelated product.
+
+## D-018: Search is Postgres full-text over the whole listing, with a GIN index the query must match
+
+**Decision:** Searching matches the listing's own text — title, brand, description with its markup stripped, bullet points, spec table, tags and meta description — through `to_tsvector('english', …)`, plus the category name, the variants' attribute values, and the title as a plain substring. Every typed word becomes a prefix term (`key:*`) and terms are ANDed. Migration `0012_product_search.sql` adds a GIN index on exactly the same expression the query builds.
+
+**Alternatives considered:** a hosted search service; `pg_trgm` similarity; keeping `title ILIKE '%term%'`.
+
+**Why:** The old query found a product only for someone who already knew its name — the one shopper who does not need a search box. A hosted service is a second system to run, pay for and keep in step with the catalogue, for a catalogue that fits comfortably in Postgres. Trigrams handle typos well but rank badly across fields and need a separate extension. Full-text is already in the database, ranks with `ts_rank_cd`, and is fast behind the index.
+
+Three things are worth knowing later. The document expression is duplicated in the migration and in `lib/catalog/search.ts`, with a comment on both sides, because Postgres only uses an expression index when the expression matches exactly — a mismatch does not break search, it silently makes it a sequential scan. Prefix terms are what make the same code serve the autocomplete while someone is still typing. And the substring match on the title is kept alongside full-text because a stemmed prefix query cannot find "board" inside "Keyboard", which shoppers try constantly.
+
+## D-017: One rounded sans for the whole shop, replacing the serif display face
+
+**Decision:** Fraunces and Inter are replaced by Figtree in five weights. Display and body are the same family; weight and tracking separate them. Radii grow from 4px/2px to 10px/14px/20px.
+
+**Alternatives considered:** keeping Fraunces for headings and adding a rounded sans only on the homepage.
+
+**Why:** The owner's brief for the redesign names a modern rounded sans as the reference and rules out a serif display face by name. Applying it only to the homepage would give the shop two identities a click apart, which is worse than either identity on its own. One variable family also takes a font file off the critical path of a first screen that is now dominated by a photograph.
+
+**What it costs:** the editorial character the serif carried is gone, and the shop reads as a modern catalogue rather than a printed manifest. That was the trade the brief asked for, and it is reversible in one file — `app/layout.tsx` loads the family and `app/globals.css` maps it to `--font-display` and `--font-sans`.
+
 ## D-016: The header's treatment over a hero is measured in the browser, with a manual override
 
 **Decision:** The floating header picks navy or pale lettering from the average relative luminance of the current hero image, computed client-side by drawing the image into a 32×32 canvas (`lib/hero-tone.ts`). A per-slug map, `HERO_TONE_OVERRIDES`, overrides the measurement where it is wrong. The first server render assumes a light background, and a correction after measurement crossfades over 500ms rather than snapping.

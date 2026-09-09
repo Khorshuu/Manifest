@@ -11,50 +11,42 @@ import { expect, test } from "@playwright/test";
 
 const PRODUCT = "/products/seasonal-candy-variety-box";
 
-test("the hero rotates and can be driven by hand", async ({ page }) => {
+/**
+ * The hero is one image now, not a carousel.
+ *
+ * The redesign removed the rotation deliberately, so what is asserted here is
+ * that it stays removed: nothing on the first screen changes what it says
+ * while someone is reading it.
+ */
+test("the hero holds still", async ({ page }) => {
   await page.goto("/");
 
-  const carousel = page.getByRole("region", { name: "Featured preorders" });
-  await expect(carousel).toBeVisible();
+  const hero = page.getByRole("region", { name: "Featured batch" });
+  await expect(hero).toBeVisible();
 
-  const tabs = carousel.getByRole("button", { name: /^Show / });
-  const count = await tabs.count();
-  test.skip(count < 2, "The seeded catalogue has only one featured product.");
+  const headline = page.getByRole("heading", { level: 1 });
+  await expect(headline).toBeVisible();
+  const first = await hero.innerText();
 
-  // The first slide is the selected one.
-  await expect(tabs.first()).toHaveAttribute("aria-current", "true");
-
-  const firstHeading = await carousel
-    .getByRole("heading", { level: 2 })
-    .innerText();
-
-  // A click moves it.
-  await tabs.nth(1).click();
-  await expect(tabs.nth(1)).toHaveAttribute("aria-current", "true");
-  await expect(
-    carousel.getByRole("heading", { level: 2 }),
-  ).not.toHaveText(firstHeading);
-
-  // And so does the keyboard, which is the part usually forgotten.
-  await tabs.nth(1).press("ArrowLeft");
-  await expect(tabs.first()).toHaveAttribute("aria-current", "true");
-});
-
-/** Rotation that continues while someone is reading is worse than none. */
-test("the hero stops rotating while the pointer is on it", async ({ page }) => {
-  await page.goto("/");
-
-  const carousel = page.getByRole("region", { name: "Featured preorders" });
-  const tabs = carousel.getByRole("button", { name: /^Show / });
-  test.skip((await tabs.count()) < 2, "Needs more than one featured product.");
-
-  await carousel.hover();
-  const heading = await carousel.getByRole("heading", { level: 2 }).innerText();
-
-  // Longer than the rotation interval.
+  // Longer than the old rotation interval, and then some.
   await page.waitForTimeout(8000);
 
-  await expect(carousel.getByRole("heading", { level: 2 })).toHaveText(heading);
+  expect((await hero.innerText()).replace(/\d+ (day|hour|minute|second)/g, ""))
+    .toBe(first.replace(/\d+ (day|hour|minute|second)/g, ""));
+});
+
+/** One scroll from the top has to reach a product, a price and a way in. */
+test("the showcase sits directly under the hero", async ({ page }) => {
+  await page.goto("/");
+
+  const showcase = page.getByRole("region", { name: "Featured products" });
+  await expect(showcase).toBeVisible();
+
+  const cards = showcase.getByRole("link");
+  expect(await cards.count()).toBeGreaterThan(0);
+
+  // Every card states its own price rather than making someone open it.
+  await expect(showcase.getByText(/BDT|Price to be confirmed/).first()).toBeVisible();
 });
 
 test("the preorder countdown is live and announced once", async ({ page }) => {

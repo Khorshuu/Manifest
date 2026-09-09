@@ -68,6 +68,8 @@ export function Gallery({
                 <img
                   src={image.url}
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   className="size-20 object-cover"
                 />
               </button>

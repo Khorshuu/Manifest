@@ -5,6 +5,7 @@ import { LogoutButton } from "./logout-button";
 
 const navigation = [
   { href: "/admin", label: "Overview", superAdminOnly: false },
+  { href: "/admin/homepage", label: "Homepage", superAdminOnly: false },
   { href: "/admin/products", label: "Products", superAdminOnly: false },
   { href: "/admin/categories", label: "Categories", superAdminOnly: false },
   { href: "/admin/orders", label: "Orders", superAdminOnly: false },

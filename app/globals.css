@@ -32,27 +32,43 @@
   --color-stamp-red-text: #c62f24; /* 5.48:1 */
 
   /* Type */
-  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  /*
+   * One family, two roles. `display` is the same face carried heavier and
+   * tighter — see the `font-display` rule below — so a heading and the
+   * sentence under it are unmistakably the same voice. No serif anywhere.
+   */
+  --font-display: var(--font-figtree), ui-rounded, "Segoe UI", system-ui, sans-serif;
+  --font-sans: var(--font-figtree), ui-rounded, "Segoe UI", system-ui, sans-serif;
 
-  --text-display: 3rem;
-  --text-display--line-height: 1.1;
-  --text-h1: 2.125rem;
-  --text-h1--line-height: 1.2;
-  --text-h2: 1.5rem;
-  --text-h2--line-height: 1.3;
+  --text-display: 3.25rem;
+  --text-display--line-height: 1.05;
+  --text-h1: 2.25rem;
+  --text-h1--line-height: 1.15;
+  --text-h2: 1.625rem;
+  --text-h2--line-height: 1.25;
   --text-h3: 1.1875rem;
-  --text-h3--line-height: 1.4;
+  --text-h3--line-height: 1.35;
   --text-body: 1rem;
   --text-body--line-height: 1.6;
   --text-meta: 0.8125rem;
   --text-meta--line-height: 1.5;
-  --text-price: 1.25rem;
-  --text-price--line-height: 1.2;
+  /* Pricing is heavy and a size larger than it was: on a catalogue card the
+     price is the second thing read, right after the photograph. */
+  --text-price: 1.375rem;
+  --text-price--line-height: 1.15;
 
-  /* Radius — two values only: controls, and document-edge cards */
-  --radius-control: 4px;
-  --radius-card: 2px;
+  /*
+   * Radius. Three values: controls, cards, and the media inside a card.
+   *
+   * These were 4px and 2px — a deliberately document-like, hard-cornered
+   * shop. The redesign brief asks for the opposite: large rounded product
+   * imagery and a moderately rounded call to action that is neither a pill nor
+   * a square. Media is the roundest thing on the page because the photograph
+   * is what the catalogue is selling.
+   */
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-media: 20px;
 
   /*
    * Depth.
@@ -352,6 +368,22 @@ body {
   color: var(--color-ink);
 }
 
+/*
+ * The display role, now that display and body are the same typeface.
+ *
+ * Weight and tracking are what separate a heading from a sentence here, and
+ * they are set once rather than repeated at three hundred call sites. It sits
+ * in `base` on purpose: a `font-semibold` or `font-medium` written beside
+ * `font-display` on a particular element is a utility, and utilities outrank
+ * base, so the local decision still wins wherever one was made.
+ */
+@layer base {
+  .font-display {
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+}
+
 /* Focus ring: brass, 2px, 2px offset — DESIGN_GUIDELINES.md accessibility floor */
 :focus-visible {
   outline: 2px solid var(--color-brass);
@@ -366,16 +398,34 @@ body {
  * admin forms in particular were plain browser boxes. The focus *ring* is
  * still the global brass outline above — this only adds the border and ground
  * change, so a field looks live before the outline lands.
+ *
+ * The ground and the lettering sit in `@layer base`, and that placement is the
+ * point. Unlayered CSS beats anything in a layer whatever the specificity, so
+ * as plain top-level rules they outranked every Tailwind utility: the header's
+ * translucent search field lost to them and rendered as a solid white box over
+ * the hero photograph. In the base layer they are the default a field falls
+ * back to, and a deliberate class on one field wins.
+ *
+ * The hover, focus and disabled states stay outside the layer on purpose. They
+ * are behaviour rather than appearance, and a field that carries its own
+ * border colour should still answer the pointer.
  */
-input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-select,
-textarea {
-  background: var(--color-paper);
-  color: var(--color-ink);
-  transition:
-    border-color 150ms ease-out,
-    box-shadow 150ms ease-out,
-    background-color 150ms ease-out;
+@layer base {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    transition:
+      border-color 150ms ease-out,
+      box-shadow 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: color-mix(in srgb, var(--color-ink) 45%, transparent);
+  }
 }
 
 input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):hover:not(:disabled),
@@ -396,11 +446,6 @@ select:disabled,
 textarea:disabled {
   background: var(--color-blue-50);
   cursor: not-allowed;
-}
-
-input::placeholder,
-textarea::placeholder {
-  color: color-mix(in srgb, var(--color-ink) 45%, transparent);
 }
 
 /* The radio and checkbox take the brand colour rather than the browser's. */

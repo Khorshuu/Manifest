@@ -1,18 +1,23 @@
 import type { Metadata } from "next";
-import { Fraunces, Inter } from "next/font/google";
+import { Figtree } from "next/font/google";
 import "./globals.css";
 import { organisationJsonLd, siteUrl } from "@/lib/seo";
 
-const fraunces = Fraunces({
-  variable: "--font-fraunces",
+/**
+ * One typeface for the whole shop.
+ *
+ * It used to be two — a serif for headings and a grotesk for everything else.
+ * The owner asked for the modern rounded catalogue voice instead, and a serif
+ * display face is the one thing that brief rules out, so both roles are now
+ * played by weights of a single geometric sans with softened terminals.
+ * Loading one variable family also takes a font file off the critical path of
+ * a first screen that is now dominated by a photograph.
+ */
+const figtree = Figtree({
+  variable: "--font-figtree",
   subsets: ["latin"],
   display: "swap",
-});
-
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-  display: "swap",
+  weight: ["400", "500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
@@ -37,7 +42,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${fraunces.variable} ${inter.variable} h-full antialiased`}
+      className={`${figtree.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <script

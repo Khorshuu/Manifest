@@ -2,7 +2,11 @@ import Link from "next/link";
 import { HeaderShell } from "@/components/header-shell";
 import { IconCart, IconUser } from "@/components/icons";
 import { SearchBox } from "@/components/search-box";
-import { getCategoryTree } from "@/lib/catalog";
+import {
+  collectSubtreeIds,
+  countPublicProductsByCategory,
+  getCategoryTree,
+} from "@/lib/catalog";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { countCartItems } from "@/lib/cart";
 import { findCartId } from "@/lib/cart/session";
@@ -16,21 +20,43 @@ import { findCartId } from "@/lib/cart/session";
  * behaviours that need a browser.
  */
 export async function SiteHeader() {
-  const [tree, user, cartId] = await Promise.all([
+  const [tree, counts, user, cartId] = await Promise.all([
     getCategoryTree(),
+    countPublicProductsByCategory(),
     getCurrentUser(),
     findCartId(),
   ]);
   const cartCount = cartId ? await countCartItems(cartId) : 0;
-  const topLevel = tree.slice(0, 5).map((category) => ({
+
+  /*
+   * The whole catalogue, two levels deep, with live counts.
+   *
+   * A top-level shelf holds nothing directly — the products are filed in its
+   * children — so its number is rolled up from the whole subtree. A child's is
+   * its own subtree for the same reason.
+   */
+  const rollUp = (category: (typeof tree)[number]) =>
+    collectSubtreeIds(category).reduce(
+      (total, id) => total + (counts.get(id) ?? 0),
+      0,
+    );
+
+  const sections = tree.map((category) => ({
     id: category.id,
     name: category.name,
     slug: category.slug,
+    productCount: rollUp(category),
+    children: category.children.map((child) => ({
+      id: child.id,
+      name: child.name,
+      slug: child.slug,
+      productCount: rollUp(child),
+    })),
   }));
 
   return (
     <HeaderShell
-      categories={topLevel}
+      sections={sections}
       search={<SearchBox />}
       actions={
         <div className="flex shrink-0 items-center gap-1 text-meta sm:gap-3">

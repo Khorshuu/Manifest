@@ -11,6 +11,7 @@ import {
   variantOptionValues,
 } from "@/db/schema";
 import { loadCardAggregates } from "./card-data";
+import { searchCondition, searchRank, toTsQuery } from "./search";
 import { buildProductWhere, publicProductWhere, type ProductFilters } from "./facets";
 
 /**
@@ -28,6 +29,14 @@ export type ProductCard = {
   slug: string;
   brand: string | null;
   status: string;
+  /**
+   * One line about the product, for the card.
+   *
+   * Taken from the listing's own words — its first selling point, or the
+   * opening of its description with the markup removed. Never written here:
+   * a card that invents a description is a card that lies about a product.
+   */
+  summary: string | null;
   imageUrl: string | null;
   imageAlt: string;
   /** Lowest price across purchasable variants, in BDT paisa. */
@@ -52,6 +61,8 @@ type ProductRow = {
   slug: string;
   brand: string | null;
   status: string;
+  descriptionHtml: string | null;
+  bulletFeatures: unknown;
 };
 
 const productColumns = {
@@ -60,7 +71,44 @@ const productColumns = {
   slug: products.slug,
   brand: products.brand,
   status: products.status,
+  descriptionHtml: products.descriptionHtml,
+  bulletFeatures: products.bulletFeatures,
 };
+
+/**
+ * The one-line description a card shows.
+ *
+ * The first bullet point if the listing has one — those are written as short
+ * claims already — and otherwise the opening of the description with its tags
+ * stripped. Trimmed on a word boundary, because a sentence cut mid-word reads
+ * as a rendering fault rather than as an abbreviation.
+ */
+const SUMMARY_LIMIT = 110;
+
+function summarise(row: ProductRow): string | null {
+  const bullets = Array.isArray(row.bulletFeatures)
+    ? row.bulletFeatures.filter(
+        (entry): entry is string => typeof entry === "string" && entry.trim() !== "",
+      )
+    : [];
+
+  const source =
+    bullets[0] ??
+    (row.descriptionHtml
+      ? row.descriptionHtml
+          .replace(/<[^>]*>/g, " ")
+          .replace(/&[a-z]+;/gi, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+      : "");
+
+  if (!source) return null;
+  if (source.length <= SUMMARY_LIMIT) return source;
+
+  const clipped = source.slice(0, SUMMARY_LIMIT);
+  const lastSpace = clipped.lastIndexOf(" ");
+  return `${(lastSpace > 40 ? clipped.slice(0, lastSpace) : clipped).replace(/[,.;:]$/, "")}…`;
+}
 
 /** Joins the base rows to their aggregates in one further round of queries. */
 async function toCards(rows: ProductRow[]): Promise<ProductCard[]> {
@@ -69,7 +117,12 @@ async function toCards(rows: ProductRow[]): Promise<ProductCard[]> {
   return rows.map((row) => {
     const aggregate = aggregates.get(row.id);
     return {
-      ...row,
+      id: row.id,
+      title: row.title,
+      slug: row.slug,
+      brand: row.brand,
+      status: row.status,
+      summary: summarise(row),
       imageUrl: aggregate?.imageUrl ?? null,
       imageAlt: aggregate?.imageAlt ?? row.title,
       fromPriceBdt: aggregate?.fromPriceBdt ?? null,
@@ -98,7 +151,16 @@ export type ProductSort =
  * a lateral join rather than a bare subquery — the join keeps the outer table
  * in scope, which is exactly what the correlated subqueries lacked.
  */
-function sortedProductIds(sort: ProductSort) {
+function sortedProductIds(sort: ProductSort, query?: string) {
+  /*
+   * "Relevance" means something now. With a search behind it, the best answer
+   * first; with no search — a category page, the full catalogue — there is
+   * nothing to be relevant to, so it stays newest first.
+   */
+  if (sort === "relevance" && query?.trim()) {
+    return desc(searchRank(query));
+  }
+
   switch (sort) {
     case "price_asc":
     case "price_desc": {
@@ -136,7 +198,7 @@ export async function listProductCards(
     .select(productColumns)
     .from(products)
     .where(await buildProductWhere(options))
-    .orderBy(sortedProductIds(options.sort ?? "relevance"))
+    .orderBy(sortedProductIds(options.sort ?? "relevance", options.query))
     .limit(options.limit ?? 24)
     .offset(options.offset ?? 0);
 
@@ -302,6 +364,29 @@ export async function listClosingSoon(limit = 4): Promise<ProductCard[]> {
   return toCards(rows);
 }
 
+/**
+ * One card by slug, or null.
+ *
+ * Used by the homepage hero, where staff may have named the product it
+ * features. It goes through the same public predicate as every other shopper
+ * query, so a hero pointed at a draft or an archived product shows the
+ * fallback rather than an unpublished listing.
+ */
+export async function getProductCardBySlug(
+  slug: string,
+): Promise<ProductCard | null> {
+  const rows = await db
+    .select(productColumns)
+    .from(products)
+    .where(and(publicProductWhere, eq(products.slug, slug)))
+    .limit(1);
+
+  if (rows.length === 0) return null;
+
+  const [card] = await toCards(rows);
+  return card ?? null;
+}
+
 /** Kept for the review aggregate used on the product page. */
 export async function getProductRating(productId: string) {
   const [row] = await db
@@ -321,18 +406,28 @@ export async function getProductRating(productId: string) {
 }
 
 export type Suggestion = {
-  kind: "product" | "brand" | "category";
+  kind: "product" | "brand" | "category" | "search";
   label: string;
   href: string;
+  /** Products carry their photograph; nothing else does. */
+  thumbnailUrl?: string | null;
+  /** A second line — a product's brand, a category's parent. */
+  hint?: string | null;
 };
 
 /**
  * Autosuggest for the header search.
  *
- * Prefix matches rank above matches inside a word, because someone typing
- * "stu" means "Studio", not "Headphones, studio reference". Nothing here can
- * return a draft or an archived product — it goes through the same public
- * predicate as every other shopper query.
+ * Four kinds of answer, in the order a shopper wants them: the products
+ * themselves, the categories that hold them, the brands, and searches worth
+ * running that the shopper has not typed. A product matches on everything the
+ * listing says about itself, not only its title — the same rule the search
+ * page follows, so the dropdown never suggests less than the page would find.
+ *
+ * Nothing here can return a draft or an archived product; it goes through the
+ * same public predicate as every other shopper query. It returns labels,
+ * links and a photograph — never a price or a stock level, so this endpoint
+ * cannot be used to enumerate the catalogue faster than browsing it.
  */
 export async function suggestSearch(
   term: string,
@@ -341,42 +436,77 @@ export async function suggestSearch(
   const trimmed = term.trim();
   if (trimmed.length < 2) return [];
 
-  const prefix = `${trimmed}%`;
   const anywhere = `%${trimmed}%`;
+  const matches = searchCondition(trimmed);
 
-  const [productRows, brandRows, categoryRows] = await Promise.all([
+  const [productRows, brandRows, categoryRows, tagRows] = await Promise.all([
     db
-      .select({ title: products.title, slug: products.slug })
+      .select({ id: products.id, title: products.title, slug: products.slug, brand: products.brand })
       .from(products)
-      .where(and(publicProductWhere, ilike(products.title, anywhere)))
-      .orderBy(
-        // Prefix first, then alphabetical, so the order is stable rather than
-        // whatever the planner returns.
-        asc(sql`case when ${products.title} ilike ${prefix} then 0 else 1 end`),
-        asc(products.title),
-      )
-      .limit(limit),
+      .where(matches ? and(publicProductWhere, matches) : publicProductWhere)
+      // Best answer first, then alphabetically, so equal ranks come back in a
+      // stable order rather than whatever the planner happens to return.
+      .orderBy(desc(searchRank(trimmed)), asc(products.title))
+      .limit(5),
 
     db
       .selectDistinct({ brand: products.brand })
       .from(products)
       .where(and(publicProductWhere, ilike(products.brand, anywhere)))
       .orderBy(asc(products.brand))
-      .limit(4),
+      .limit(3),
 
     db
       .select({ name: categories.name, slug: categories.slug })
       .from(categories)
       .where(ilike(categories.name, anywhere))
       .orderBy(asc(categories.name))
-      .limit(4),
+      .limit(3),
+
+    /*
+     * Searches worth running.
+     *
+     * These are the listing's own tags — words staff filed the product under —
+     * so a suggested search always leads somewhere. Inventing phrases would
+     * make the dropdown look clever and take shoppers to empty pages.
+     */
+    toTsQuery(trimmed)
+      ? db
+          .select({ tag: sql<string>`lower(tag.value)` })
+          .from(products)
+          .innerJoin(
+            sql`jsonb_array_elements_text(${products.tags}) as tag(value)`,
+            sql`true`,
+          )
+          .where(
+            and(
+              publicProductWhere,
+              sql`jsonb_typeof(${products.tags}) = 'array'`,
+              sql`tag.value ilike ${anywhere}`,
+            ),
+          )
+          .groupBy(sql`lower(tag.value)`)
+          .orderBy(asc(sql`lower(tag.value)`))
+          .limit(3)
+      : Promise.resolve([] as { tag: string }[]),
   ]);
+
+  const photographs = await loadCardAggregates(
+    productRows.map((row) => row.id),
+  );
 
   const suggestions: Suggestion[] = [
     ...productRows.map((row) => ({
       kind: "product" as const,
       label: row.title,
       href: `/products/${row.slug}`,
+      thumbnailUrl: photographs.get(row.id)?.imageUrl ?? null,
+      hint: row.brand,
+    })),
+    ...categoryRows.map((row) => ({
+      kind: "category" as const,
+      label: row.name,
+      href: `/categories/${row.slug}`,
     })),
     ...brandRows
       .filter((row): row is { brand: string } => Boolean(row.brand))
@@ -385,11 +515,14 @@ export async function suggestSearch(
         label: row.brand,
         href: `/search?q=${encodeURIComponent(row.brand)}`,
       })),
-    ...categoryRows.map((row) => ({
-      kind: "category" as const,
-      label: row.name,
-      href: `/categories/${row.slug}`,
-    })),
+    ...tagRows
+      // A tag that is simply the word already typed suggests nothing.
+      .filter((row) => row.tag && row.tag !== trimmed.toLowerCase())
+      .map((row) => ({
+        kind: "search" as const,
+        label: row.tag,
+        href: `/search?q=${encodeURIComponent(row.tag)}`,
+      })),
   ];
 
   return suggestions.slice(0, limit);

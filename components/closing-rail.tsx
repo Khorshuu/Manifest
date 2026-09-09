@@ -159,6 +159,8 @@ export function ClosingRail({
                     alt={item.imageAlt}
                     width={400}
                     height={320}
+                    loading="lazy"
+                    decoding="async"
                     className="size-full object-cover"
                   />
                 ) : (

@@ -47,28 +47,68 @@ export function FilterPanel({
       ))}
       <input type="hidden" name="sort" value={selected.sort} />
 
-      <details
-        open
-        className="group overflow-hidden rounded-card border border-blue-300 bg-paper shadow-[var(--shadow-raise)] md:open"
-      >
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-paper-raised px-4 py-3 text-body font-medium text-ink transition-colors hover:bg-blue-200/50 [&::-webkit-details-marker]:hidden">
-          <span className="flex items-center gap-2">
-            Filter
-            {hasFilters ? (
-              <span className="rounded-card border border-brass px-1.5 py-0.5 text-meta font-medium text-brass-text">
-                on
-              </span>
-            ) : null}
-          </span>
-          {/* The marker rotates with the disclosure, so the control says which
-              way it is going rather than only which way it is. */}
-          <IconChevronDown
-            size={18}
-            className="shrink-0 text-blue-500 transition-transform duration-200 group-open:rotate-180"
-          />
-        </summary>
+      {/*
+       * A drawer on a phone, a panel on a desktop, and no JavaScript in
+       * either.
+       *
+       * The control is a real checkbox with a real label: ticking it slides
+       * the sheet up from the bottom of the screen, and above `lg` the sheet
+       * is simply the panel, sitting in the page with the control hidden. A
+       * `<details>` cannot do both — its open state is one value for every
+       * viewport, so it is either a sheet already open on arrival or a panel
+       * closed on a desktop. The checkbox has no `name`, so it never reaches
+       * the query string.
+       */}
+      <input
+        type="checkbox"
+        id="filter-drawer"
+        className="peer sr-only"
+        aria-label="Show filters"
+      />
 
-        <div className="flex flex-col gap-6 border-t border-blue-300 p-4">
+      <label
+        htmlFor="filter-drawer"
+        className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-card border border-blue-300 bg-paper px-4 text-body font-semibold text-ink shadow-[var(--shadow-raise)] transition-colors hover:border-blue-500 lg:hidden"
+      >
+        <span className="flex items-center gap-2">
+          Filters
+          {hasFilters ? (
+            <span className="rounded-control border border-brass px-1.5 py-0.5 text-meta font-bold text-brass-text">
+              on
+            </span>
+          ) : null}
+        </span>
+        <IconChevronDown size={18} className="shrink-0 text-blue-500" />
+      </label>
+
+      {/* The ground behind the sheet. Tapping it closes the drawer, which is
+          the gesture everyone tries first. */}
+      <label
+        htmlFor="filter-drawer"
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-40 bg-ink/40 opacity-0 transition-opacity duration-300 peer-checked:pointer-events-auto peer-checked:opacity-100 lg:hidden"
+      />
+
+      <div
+        /*
+         * `invisible` while it is off-screen, and that matters as much as the
+         * transform: a panel merely pushed past the bottom of the screen keeps
+         * its inputs in the accessibility tree, so a keyboard tabs into a
+         * closed drawer and a screen reader reads out a form nobody opened.
+         */
+        className="invisible fixed inset-x-0 bottom-0 z-50 flex max-h-[82vh] translate-y-full flex-col overflow-hidden rounded-t-[var(--radius-media)] border border-blue-300 bg-paper shadow-[var(--shadow-float)] transition-[transform,visibility] duration-300 ease-[var(--ease-out-quint)] peer-checked:visible peer-checked:translate-y-0 lg:visible lg:static lg:max-h-none lg:translate-y-0 lg:rounded-card lg:shadow-[var(--shadow-raise)]"
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-blue-300 bg-paper-raised px-4 py-3 lg:py-3">
+          <p className="text-body font-semibold text-ink">Filter</p>
+          <label
+            htmlFor="filter-drawer"
+            className="inline-flex min-h-11 cursor-pointer items-center rounded-control px-3 text-meta font-semibold text-blue-600 lg:hidden"
+          >
+            Done
+          </label>
+        </div>
+
+        <div className="flex flex-col gap-6 overflow-y-auto p-4">
           <fieldset className="flex flex-col gap-2">
             <legend className="text-meta font-medium text-ink">
               Availability
@@ -192,10 +232,17 @@ export function FilterPanel({
             </fieldset>
           ))}
 
-          <div className="flex flex-wrap items-center gap-3">
+          {/*
+           * On a phone the actions are the sheet's own footer, and the button
+           * runs the full width of it — a control the width of its label sits
+           * in the bottom corner of the screen, which on this platform is
+           * where the browser and the operating system put their own
+           * furniture. On a wide screen it is an ordinary row.
+           */}
+          <div className="sticky bottom-0 -mx-4 -mb-4 flex flex-wrap items-center gap-3 border-t border-blue-300 bg-paper px-4 py-3 lg:static lg:m-0 lg:border-0 lg:p-0">
             <button
               type="submit"
-              className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body surface-brass sheen text-ink shadow-[var(--shadow-raise)] hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04]"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body surface-brass sheen text-ink shadow-[var(--shadow-raise)] hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04] lg:w-auto"
             >
               Apply
             </button>
@@ -212,7 +259,7 @@ export function FilterPanel({
             </span>
           </div>
         </div>
-      </details>
+      </div>
     </form>
   );
 }

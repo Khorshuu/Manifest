@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CategoryBento } from "@/components/category-bento";
 import { ClosingRail } from "@/components/closing-rail";
-import { HeroShowcase } from "@/components/hero-showcase";
+import { FeaturedShowcase } from "@/components/featured-showcase";
+import { Hero } from "@/components/hero";
 import { IconCalendar, IconSeal, IconTag } from "@/components/icons";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { ProductCard } from "@/components/product-card";
@@ -11,14 +12,14 @@ import {
   collectSubtreeIds,
   countPublicProductsByCategory,
   getCategoryTree,
+  getProductCardBySlug,
   pickCategoryImages,
   listClosingSoon,
   listProductCards,
 } from "@/lib/catalog";
 import { serverInstant } from "@/lib/clock";
 import { formatArrivalWindow } from "@/lib/format";
-import { HERO_PHOTOGRAPHS } from "@/lib/hero-media";
-import { HERO_TONE_OVERRIDES } from "@/lib/hero-tone";
+import { getHeroSettings } from "@/lib/homepage";
 import { formatBdt } from "@/lib/money";
 
 /** The catalogue's own words for a product's state, as the cards show them. */
@@ -39,28 +40,49 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [closingSoon, newest, tree, categoryCounts, serverNow, categoryImages] =
-    await Promise.all([
-      listClosingSoon(8),
-      listProductCards({ sort: "newest", limit: 20 }),
-      getCategoryTree(),
-      countPublicProductsByCategory(),
-      serverInstant(),
-      pickCategoryImages(),
-    ]);
+  const [
+    hero,
+    closingSoon,
+    newest,
+    tree,
+    categoryCounts,
+    serverNow,
+    categoryImages,
+  ] = await Promise.all([
+    getHeroSettings(),
+    listClosingSoon(8),
+    listProductCards({ sort: "newest", limit: 20 }),
+    getCategoryTree(),
+    countPublicProductsByCategory(),
+    serverInstant(),
+    pickCategoryImages(),
+  ]);
 
-  // The featured rotation: whatever is closing soonest, then the newest. Real
-  // products only — an empty slot would be an advertisement for nothing.
+  // The showcase: whatever is closing soonest, then the newest. Real products
+  // only — an empty slot would be an advertisement for nothing.
   //
-  // Five rather than four. The showcase under the hero shows four at a time on
-  // a wide screen and scrolls to the rest, so the fifth is what proves the row
-  // is a curated selection rather than a fixed set of slots.
+  // Six rather than four. Four fill a wide screen and the rest are reached by
+  // scrolling the row, which is what proves it is a curated selection rather
+  // than a fixed set of slots.
   const featured = [...closingSoon, ...newest]
     .filter(
       (product, index, all) =>
         all.findIndex((other) => other.slug === product.slug) === index,
     )
-    .slice(0, 5);
+    .slice(0, 6);
+
+  /*
+   * The batch the hero prices.
+   *
+   * Staff may name one; if they have not, or if the one they named has since
+   * been unpublished, it is whatever closes soonest. The hero never advertises
+   * a product that is not there — that is why the fallback is a live query
+   * rather than a stored copy of a product.
+   */
+  const chosen = hero.featuredSlug
+    ? await getProductCardBySlug(hero.featuredSlug)
+    : null;
+  const heroProduct = chosen ?? featured[0] ?? null;
 
   // What is already shown above does not appear again below.
   const shownSlugs = new Set([
@@ -82,29 +104,52 @@ export default async function HomePage() {
   const priceLabel = (value: number | null) =>
     value === null ? "Price to be confirmed" : formatBdt(value);
 
-  const slides = featured.map((product) => ({
-    slug: product.slug,
-    title: product.title,
-    brand: product.brand,
-    imageUrl: product.imageUrl,
-    imageAlt: product.imageAlt,
-    // Hero only. The card under it, and every other page, keep the catalogue
-    // image — see lib/hero-media.ts.
-    photograph: HERO_PHOTOGRAPHS[product.slug] ?? null,
-    priceLabel: priceLabel(product.fromPriceBdt),
-    closesAt: product.closesAt ? product.closesAt.toISOString() : null,
-    remaining: product.remainingCapacity,
-    total: product.totalCapacity,
-    availability: AVAILABILITY[product.status] ?? product.status,
-    arrival: formatArrivalWindow(product.arrivesFrom, product.arrivesTo),
-    closingSoon: product.closingSoon,
-    // Almost always null: the header measures the photograph itself, and an
-    // entry here exists only where that measurement was looked at and found
-    // wrong. See lib/hero-tone.ts.
-    tone: HERO_TONE_OVERRIDES[product.slug] ?? null,
-  }));
+  const heroFeature = heroProduct
+    ? {
+        slug: heroProduct.slug,
+        title: heroProduct.title,
+        brand: heroProduct.brand,
+        imageUrl: heroProduct.imageUrl,
+        imageAlt: heroProduct.imageAlt,
+        priceLabel: priceLabel(heroProduct.fromPriceBdt),
+        availability: AVAILABILITY[heroProduct.status] ?? heroProduct.status,
+        arrival: formatArrivalWindow(
+          heroProduct.arrivesFrom,
+          heroProduct.arrivesTo,
+        ),
+        closesAt: heroProduct.closesAt
+          ? heroProduct.closesAt.toISOString()
+          : null,
+        remaining: heroProduct.remainingCapacity,
+        total: heroProduct.totalCapacity,
+        closingSoon: heroProduct.closingSoon,
+      }
+    : null;
 
-  const railItems = closingSoon.map((product) => ({
+  /*
+   * The eyebrow states the batch's real position when staff have not written
+   * one of their own: a window that is about to shut, or one that is full,
+   * says more than any slogan and is checked against the catalogue.
+   */
+  const eyebrow =
+    hero.eyebrow ||
+    (heroProduct?.closingSoon
+      ? "This batch closes shortly"
+      : heroProduct?.remainingCapacity !== null &&
+          (heroProduct?.remainingCapacity ?? 1) <= 0
+        ? "This batch is full"
+        : "Ordering is open for this batch");
+
+  /*
+   * The closing rail carries what the showcase did not.
+   *
+   * They used to overlap almost exactly — the same four batches, twice, with
+   * two different headings — which reads as a page that has run out of things
+   * to say rather than as two sections.
+   */
+  const railItems = closingSoon
+    .filter((product) => !featured.some((card) => card.id === product.id))
+    .map((product) => ({
     id: product.id,
     slug: product.slug,
     title: product.title,
@@ -159,7 +204,28 @@ export default async function HomePage() {
 
   return (
     <>
-      <HeroShowcase slides={slides} serverNow={serverNow} />
+      <Hero
+        content={{
+          imageUrl: hero.imageUrl,
+          focalX: hero.focalX,
+          focalY: hero.focalY,
+          contrast: hero.contrast,
+          eyebrow,
+          headline: hero.headline,
+          support: hero.support,
+          ctaLabel: hero.ctaLabel,
+          ctaHref: hero.ctaHref,
+        }}
+        feature={heroFeature}
+        serverNow={serverNow}
+      />
+
+      <FeaturedShowcase
+        products={featured}
+        title="This batch"
+        summary="Open windows and the newest listings, priced with shipping and customs duty already inside."
+      />
+
       <Ticker items={tickerItems} />
 
       <ClosingRail items={railItems} serverNow={serverNow} />

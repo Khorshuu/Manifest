@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { CatalogMenu, type CatalogSection } from "./catalog-menu";
 import { useHeaderTheme } from "./header-theme";
 
 export type HeaderCategory = { id: string; name: string; slug: string };
@@ -29,14 +30,23 @@ export type HeaderCategory = { id: string; name: string; slug: string };
  * menu is open.
  */
 export function HeaderShell({
-  categories,
+  sections,
   search,
   actions,
 }: {
-  categories: HeaderCategory[];
+  /** The catalogue, two levels deep, with live counts. */
+  sections: CatalogSection[];
   search: ReactNode;
   actions: ReactNode;
 }) {
+  // The shelves themselves still read as links beside the wordmark on a wide
+  // screen; the panel is where their contents are.
+  const categories: HeaderCategory[] = sections.slice(0, 5).map((section) => ({
+    id: section.id,
+    name: section.name,
+    slug: section.slug,
+  }));
+
   const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname();
   const { floating, tone } = useHeaderTheme();
@@ -168,13 +178,25 @@ export function HeaderShell({
          * a bar with a second bar under it. Below that width they stay in the
          * collapsible row further down, where there is room for a tap target.
          */}
+        {/* The catalogue panel: every shelf and sub-shelf, from the tree staff
+            maintain. Beside it, the top shelves as plain links, because a
+            shopper who knows where they are going should not have to open a
+            panel to get there. */}
+        <CatalogMenu sections={sections} />
+
         <nav
           aria-label="Categories"
           className="hidden min-w-0 shrink lg:block"
         >
-          <ul className="flex flex-wrap items-center gap-x-6">
-            {categories.map((category) => (
-              <li key={category.id}>
+          {/* No wrapping. The catalogue button beside these holds every shelf,
+              so a link that will not fit on one line is hidden rather than
+              pushed onto a second row of navigation. */}
+          <ul className="flex items-center gap-x-6">
+            {categories.map((category, position) => (
+              <li
+                key={category.id}
+                className={position >= 3 ? "hidden 2xl:block" : ""}
+              >
                 <Link
                   href={`/categories/${category.slug}`}
                   className="link-draw whitespace-nowrap text-meta text-[color:var(--head-muted)] transition-colors hover:text-[color:var(--head-fg)]"
@@ -207,19 +229,51 @@ export function HeaderShell({
       <nav
         id="header-categories"
         aria-label="Categories"
-        className={`overflow-hidden transition-[max-height,opacity] duration-300 ease-[var(--ease-out-quint)] lg:hidden ${
-          menuOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
-        } ${tight ? "md:max-h-0 md:opacity-0" : "md:max-h-16 md:opacity-100"}`}
+        /*
+         * `invisible` as well as zero height, and that matters: a row that is
+         * merely clipped is still in the accessibility tree and still
+         * focusable, so a keyboard reached a closed menu's links and a screen
+         * reader read them out. Visibility takes it out of both, and it still
+         * animates. `md:visible` puts it back where the row is the navigation
+         * rather than a menu.
+         */
+        className={`overflow-hidden transition-[max-height,opacity,visibility] duration-300 ease-[var(--ease-out-quint)] lg:hidden ${
+          menuOpen ? "max-h-[32rem] opacity-100" : "max-h-0 opacity-0 invisible md:visible"
+        } ${tight ? "md:max-h-0 md:opacity-0 md:invisible" : "md:max-h-16 md:opacity-100"}`}
       >
         <ul className="mx-auto flex w-full max-w-[1360px] flex-col gap-0 border-t border-[color:var(--head-line)] px-4 pb-2 pt-1 md:flex-row md:flex-wrap md:gap-x-7 md:border-t-0 md:px-8">
-          {categories.map((category) => (
-            <li key={category.id}>
+          {sections.slice(0, 6).map((section) => (
+            <li key={section.id} className="md:shrink-0">
               <Link
-                href={`/categories/${category.slug}`}
-                className="flex min-h-11 items-center text-meta text-[color:var(--head-muted)] underline-offset-4 transition-colors hover:text-[color:var(--head-fg)] hover:underline md:min-h-9"
+                href={`/categories/${section.slug}`}
+                className="flex min-h-11 items-center gap-2 text-meta font-semibold text-[color:var(--head-muted)] underline-offset-4 transition-colors hover:text-[color:var(--head-fg)] hover:underline md:min-h-9"
               >
-                {category.name}
+                {section.name}
+                <span className="tabular-nums opacity-60">
+                  {section.productCount}
+                </span>
               </Link>
+
+              {/*
+               * The sub-shelves, on a phone only. On a tablet this row is the
+               * navigation itself and a second level in it would wrap into
+               * four lines; below `md` the row is a menu someone opened on
+               * purpose, and the whole catalogue is what they opened it for.
+               */}
+              {section.children.length > 0 ? (
+                <ul className="mb-1 flex flex-wrap gap-x-4 gap-y-0 pl-3 md:hidden">
+                  {section.children.map((child) => (
+                    <li key={child.id}>
+                      <Link
+                        href={`/categories/${child.slug}`}
+                        className="flex min-h-9 items-center text-meta text-[color:var(--head-muted)] opacity-80 underline-offset-4 hover:underline"
+                      >
+                        {child.name}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </li>
           ))}
         </ul>

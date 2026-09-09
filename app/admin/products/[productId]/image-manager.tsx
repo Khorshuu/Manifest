@@ -86,9 +86,29 @@ export function ImageManager({
                 height={160}
                 className="size-40 rounded-card border border-blue-300 object-cover"
               />
-              <p className="text-meta text-ink/70">{image.altText}</p>
+              <p className="text-meta text-ink/70">
+                {index === 0 ? (
+                  <span className="mr-1 font-semibold text-brass-text">
+                    Main ·
+                  </span>
+                ) : null}
+                {image.altText}
+              </p>
 
               <div className="flex flex-wrap gap-2">
+                {/* Promoting is one press. Reaching the front of a gallery by
+                    pressing "move up" four times is how an order ends up
+                    wrong. */}
+                <button
+                  type="button"
+                  disabled={pending || index === 0}
+                  onClick={() =>
+                    mutate({ action: "promote", imageId: image.id })
+                  }
+                  className="min-h-11 rounded-control border border-blue-300 px-2 text-meta text-blue-600 disabled:opacity-40"
+                >
+                  Make main
+                </button>
                 <button
                   type="button"
                   disabled={pending || index === 0}
@@ -102,6 +122,20 @@ export function ImageManager({
                   className="min-h-11 rounded-control border border-blue-300 px-2 text-meta text-blue-600 disabled:opacity-40"
                 >
                   Move up
+                </button>
+                <button
+                  type="button"
+                  disabled={pending || index === images.length - 1}
+                  onClick={() =>
+                    mutate({
+                      action: "reorder",
+                      imageId: image.id,
+                      direction: "down",
+                    })
+                  }
+                  className="min-h-11 rounded-control border border-blue-300 px-2 text-meta text-blue-600 disabled:opacity-40"
+                >
+                  Move down
                 </button>
                 <button
                   type="button"

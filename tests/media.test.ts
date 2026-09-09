@@ -18,6 +18,7 @@ import {
   createCategory,
   createProduct,
   listProductImages,
+  makeProductImagePrimary,
   MediaError,
   removeProductImage,
   reorderProductImage,
@@ -340,6 +341,37 @@ describe("attaching media to a product", () => {
     });
 
     await expect(removeProductImage(customer, created.id)).rejects.toThrow(
+      AuthorizationError,
+    );
+  });
+});
+
+describe("choosing the main photograph", () => {
+  const add = async (productId: string, altText: string) =>
+    addProductImage(staff, productId, {
+      data: PNG,
+      originalName: "photo.png",
+      contentType: "image/png",
+      altText,
+    });
+
+  it("moves one image to the front and keeps the rest in order", async () => {
+    const product = await seedProduct();
+    await add(product.id, "First");
+    await add(product.id, "Second");
+    const third = await add(product.id, "Third");
+
+    await makeProductImagePrimary(staff, third.id);
+
+    const order = (await listProductImages(product.id)).map((row) => row.altText);
+    expect(order).toEqual(["Third", "First", "Second"]);
+  });
+
+  it("refuses a customer", async () => {
+    const product = await seedProduct();
+    const image = await add(product.id, "First");
+
+    await expect(makeProductImagePrimary(customer, image.id)).rejects.toThrow(
       AuthorizationError,
     );
   });

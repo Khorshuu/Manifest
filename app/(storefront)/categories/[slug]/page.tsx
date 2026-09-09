@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ActiveFilters } from "@/components/active-filters";
 import { FilterPanel } from "@/components/filter-panel";
 import { PageHeading } from "@/components/page-heading";
 import { ProductGrid } from "@/components/product-grid";
 import { SortSelect } from "@/components/sort-select";
 import {
+  activeFilterChips,
   collectSubtreeIds,
   countProducts,
   findCategoryPath,
@@ -70,6 +72,14 @@ export default async function CategoryPage({
     listFacets(filters),
   ]);
 
+  // Attribute values arrive in the URL as ids; the chips need their names,
+  // and the facets this page already loaded carry them.
+  const valueLabels = new Map(
+    facets.attributes.flatMap((attribute) =>
+      attribute.values.map((value) => [value.id, value.label] as const),
+    ),
+  );
+
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pageHref = (target: number) => {
     const next = new URLSearchParams();
@@ -133,7 +143,19 @@ export default async function CategoryPage({
         </ul>
       ) : null}
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="mt-6">
+        <ActiveFilters
+          chips={activeFilterChips({
+            params: query,
+            path: `/categories/${category.slug}`,
+            valueLabels,
+          })}
+          clearHref={`/categories/${category.slug}`}
+          total={total}
+        />
+      </div>
+
+      <div className="mt-6 grid gap-8 lg:grid-cols-[260px_minmax(0,1fr)]">
         <FilterPanel
           facets={facets}
           action={`/categories/${category.slug}`}

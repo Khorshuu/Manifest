@@ -2,7 +2,6 @@ import Link from "next/link";
 import { IconStar } from "./icons";
 import { CapacityMeter } from "./capacity-meter";
 import { ProductArt } from "./product-art";
-import { StatusBadge } from "./status-badge";
 import { formatBdt } from "@/lib/money";
 import { formatArrivalWindow } from "@/lib/format";
 import type { ProductCard as ProductCardData } from "@/lib/catalog";
@@ -16,14 +15,26 @@ const statusLabels: Record<string, string> = {
 };
 
 /**
- * One fixed shape wherever a product appears. The whole card is a single
- * link, and nothing interactive nests inside it.
+ * One fixed shape wherever a product appears. The whole card is a single link,
+ * and nothing interactive nests inside it.
  *
- * The card carries four facts in a fixed order — what it is, what it costs,
- * whether it can still be had, and when it lands. They never move between
- * cards, so a grid can be scanned down a column rather than read card by card.
+ * The redesign brief put the photograph in charge: a large rounded image, then
+ * a bold name, a line of the listing's own description, and a heavy price. The
+ * card carries the same four facts it always did — what it is, what it costs,
+ * whether it can still be had, and when it lands — but it states them in that
+ * order and stops there. The badges, meters and ribbons that used to sit on
+ * every card now appear only when they are saying something true and urgent
+ * about *this* product; a warning printed on every card is one nobody reads on
+ * the card where it matters.
  */
-export function ProductCard({ product }: { product: ProductCardData }) {
+export function ProductCard({
+  product,
+  /** A denser variant for grids inside a page rather than a showcase row. */
+  compact = false,
+}: {
+  product: ProductCardData;
+  compact?: boolean;
+}) {
   const arrival = formatArrivalWindow(product.arrivesFrom, product.arrivesTo);
   const soldOut =
     product.remainingCapacity !== null && product.remainingCapacity <= 0;
@@ -32,21 +43,40 @@ export function ProductCard({ product }: { product: ProductCardData }) {
   // agrees and nothing is computed against a clock that differs per process.
   const closingSoon = !soldOut && product.closingSoon;
 
+  /*
+   * The meter earns its place only when a batch is genuinely going. Otherwise
+   * the availability is one line of type, which is what the reference layout
+   * asks for and what a catalogue reads like.
+   */
+  const pressure =
+    product.remainingCapacity !== null && product.totalCapacity
+      ? 1 - product.remainingCapacity / product.totalCapacity
+      : 0;
+  const showMeter = !soldOut && pressure >= 0.6;
+
+  const availability = soldOut
+    ? "Batch full"
+    : closingSoon
+      ? "Closing soon"
+      : (statusLabels[product.status] ?? product.status);
+
   return (
     <Link
       href={`/products/${product.slug}`}
-      className="media-zoom lift group flex h-full flex-col gap-2.5 rounded-card border border-blue-300 bg-paper p-2.5 shadow-[var(--shadow-raise)] sm:gap-3 sm:p-3"
+      className="media-zoom lift group flex h-full flex-col rounded-card bg-paper p-2 text-ink shadow-[var(--shadow-raise)] ring-1 ring-blue-300/70 transition-shadow hover:shadow-[var(--shadow-lift)]"
     >
-      <div className="surface-studio relative aspect-square w-full overflow-hidden rounded-card">
+      <div className="surface-studio relative aspect-square w-full overflow-hidden rounded-[var(--radius-media)]">
         {product.imageUrl ? (
-          /* Seed images are local placeholders; real media moves to
-             next/image once the storage integration lands. */
+          /* Seed and uploaded media are served from this origin; next/image
+             arrives with the object-storage integration. */
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={product.imageUrl}
             alt={product.imageAlt}
-            width={400}
-            height={400}
+            width={640}
+            height={640}
+            loading="lazy"
+            decoding="async"
             className="size-full object-cover"
           />
         ) : (
@@ -57,97 +87,86 @@ export function ProductCard({ product }: { product: ProductCardData }) {
           />
         )}
 
-        {/* Only when the window really is close: urgency invented is urgency
-            nobody believes the second time. */}
-        {closingSoon ? (
-          <span className="animate-rise absolute left-2 top-2 rounded-card border border-stamp-red bg-paper/95 px-2 py-1 text-meta font-medium text-stamp-red-text shadow-[var(--shadow-raise)] backdrop-blur-sm">
-            Closing soon
-          </span>
-        ) : null}
-
-        {/*
-         * The arrival window, held against the foot of the photograph until
-         * the pointer or the keyboard arrives. It is duplicated in the body
-         * below on small screens, so nothing here is only reachable by hover.
-         */}
-        {arrival ? (
+        {/* Only when the window really is close, or really is gone: urgency
+            invented is urgency nobody believes the second time. */}
+        {soldOut || closingSoon ? (
           <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 hidden translate-y-full bg-ink/85 px-3 py-2 text-meta text-paper backdrop-blur-sm transition-transform duration-300 ease-[var(--ease-out-quint)] group-hover:translate-y-0 group-focus-visible:translate-y-0 sm:block"
+            className={`absolute left-3 top-3 rounded-control px-2.5 py-1 text-meta font-bold shadow-[var(--shadow-raise)] backdrop-blur-sm ${
+              soldOut
+                ? "bg-ink/85 text-paper"
+                : "bg-paper/95 text-stamp-red-text"
+            }`}
           >
-            Arrives {arrival}
+            {soldOut ? "Batch full" : "Closing soon"}
           </span>
         ) : null}
       </div>
 
-      <div className="flex flex-1 flex-col gap-2">
+      <div
+        className={`flex flex-1 flex-col gap-1.5 px-1.5 pb-1 pt-3.5 ${compact ? "" : "sm:px-2.5"}`}
+      >
         {product.brand ? (
-          <span className="text-meta uppercase tracking-[0.12em] text-ink/70 [overflow-wrap:anywhere]">
+          <span className="text-meta font-semibold uppercase tracking-[0.12em] text-ink/70 [overflow-wrap:anywhere]">
             {product.brand}
           </span>
         ) : null}
 
-        <h3 className="font-display text-[1rem] leading-snug text-ink [overflow-wrap:anywhere] sm:text-h3">
+        <h3
+          className={`font-display leading-snug text-ink [overflow-wrap:anywhere] ${
+            compact ? "text-[1rem] sm:text-h3" : "text-h3 sm:text-[1.3125rem]"
+          }`}
+        >
           {product.title}
         </h3>
+
+        {product.summary ? (
+          <p className="line-clamp-2 text-meta leading-relaxed text-ink/70">
+            {product.summary}
+          </p>
+        ) : null}
 
         {product.reviewCount > 0 ? (
           <p className="flex items-center gap-1.5 text-meta text-ink/70">
             <IconStar size={14} className="shrink-0 fill-brass text-brass" />
-            <span className="tabular-nums">{product.ratingAverage}</span>
+            <span className="font-semibold tabular-nums">
+              {product.ratingAverage}
+            </span>
             <span aria-hidden="true">·</span>
             {product.reviewCount} review{product.reviewCount === 1 ? "" : "s"}
           </p>
         ) : null}
 
-        <p className="font-display text-[1.0625rem] font-semibold tabular-nums text-ink sm:text-price">
-          {product.fromPriceBdt === null
-            ? "Price to be confirmed"
-            : formatBdt(product.fromPriceBdt)}
-        </p>
-
-        {/* Pushes the availability block to the foot of the card, so a row of
-            cards with different title lengths still lines up along it. */}
-        <div className="mt-auto flex flex-col gap-2.5 border-t border-blue-200 pt-3">
-          <CapacityMeter
-            remaining={product.remainingCapacity}
-            total={product.totalCapacity}
-          />
-
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge
-              tone={
-                soldOut
-                  ? "negative"
-                  : product.status === "preorder_open"
-                    ? "preorder"
-                    : product.status === "in_stock"
-                      ? "positive"
-                      : "neutral"
-              }
+        {/* Pushes price and availability to the foot, so a row of cards with
+            different title lengths still lines up along it. */}
+        <div className="mt-auto flex flex-col gap-2 pt-3">
+          <p className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <span
+              className={`font-display font-extrabold tabular-nums text-ink ${compact ? "text-price" : "text-[1.5rem] leading-none"}`}
             >
-              {soldOut
-                ? "Full"
-                : (statusLabels[product.status] ?? product.status)}
-            </StatusBadge>
+              {product.fromPriceBdt === null
+                ? "Price to be confirmed"
+                : formatBdt(product.fromPriceBdt)}
+            </span>
+            <span
+              className={`text-meta font-semibold ${
+                soldOut
+                  ? "text-stamp-red-text"
+                  : closingSoon
+                    ? "text-brass-text"
+                    : "text-ink/70"
+              }`}
+            >
+              {availability}
+            </span>
+          </p>
 
-            {arrival ? (
-              <span className="text-meta text-ink/70 sm:sr-only">
-                Arrives {arrival}
-              </span>
-            ) : null}
-          </div>
-
-          {/* Scarcity is shown only when the number is real, and only when it
-              is genuinely scarce — a warning printed on every card is one
-              nobody reads on the card where it matters. */}
-          {!soldOut &&
-          product.remainingCapacity !== null &&
-          product.remainingCapacity <= 5 ? (
-            <p className="text-meta font-medium text-stamp-red-text">
-              Only {product.remainingCapacity} place
-              {product.remainingCapacity === 1 ? "" : "s"} left
-            </p>
+          {showMeter ? (
+            <CapacityMeter
+              remaining={product.remainingCapacity}
+              total={product.totalCapacity}
+            />
+          ) : arrival ? (
+            <p className="text-meta text-ink/70">Arrives {arrival}</p>
           ) : null}
         </div>
       </div>

@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { EmptyState } from "@/components/empty-state";
 import { IconCart } from "@/components/icons";
 import { PageHeading } from "@/components/page-heading";
+import { RecommendationSection } from "@/components/recommendation-section";
+import { listRecommendations } from "@/lib/catalog";
 import { getCartView } from "@/lib/cart";
 import { findCartId } from "@/lib/cart/session";
 import { CartLines } from "./cart-lines";
@@ -16,6 +18,19 @@ export const metadata: Metadata = {
 export default async function CartPage() {
   const cartId = await findCartId();
   const cart = cartId ? await getCartView(cartId) : null;
+
+  /*
+   * Something to go with what is already in the basket, scored against the
+   * first line rather than drawn at random — see lib/catalog/recommendations.
+   * Anything already in the cart is dropped, because recommending what someone
+   * has just added is how a shop looks as though it is not paying attention.
+   */
+  const inCart = new Set(cart?.lines.map((line) => line.productId) ?? []);
+  const alsoWorthAdding = cart?.lines[0]
+    ? (await listRecommendations(cart.lines[0].productId, 6)).filter(
+        (card) => !inCart.has(card.id),
+      ).slice(0, 4)
+    : [];
 
   const lineCount = cart?.lines.length ?? 0;
   const itemCount =
@@ -70,6 +85,12 @@ export default async function CartPage() {
           />
         </div>
       )}
+
+      <RecommendationSection
+        eyebrow="Goes with this"
+        title="Complete your order"
+        products={alsoWorthAdding}
+      />
     </div>
   );
 }

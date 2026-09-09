@@ -54,6 +54,17 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // A version header tells an attacker what to look up.
   poweredByHeader: false,
+  /*
+   * The development route indicator is off.
+   *
+   * It floats in the bottom-left corner of every page, which is where this
+   * shop puts things a shopper has to be able to press on a phone — the buy
+   * bar, and the footer of the filter drawer. It was intercepting those
+   * presses, in the browser and in the end-to-end suite alike, so a real
+   * control was unreachable in development for the sake of a development
+   * badge. Compile and runtime errors are still surfaced without it.
+   */
+  devIndicators: false,
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

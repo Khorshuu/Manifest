@@ -1443,3 +1443,135 @@ catalogue image with no other change.
 | Contrast over the photograph | `[x]` every measured element above 6.5:1 |
 | Sideways scroll | `[x]` none at either width |
 | Both header treatments, rotating | `[x]` inspected at 1440, 820 and 390 |
+
+## The homepage and discovery redesign (added after Phase 15)
+
+The owner supplied a brief with three references — the shop as it stood, a
+wide-hero pharmacy homepage for structure only, and a product-card screenshot
+for typography — and asked for a redesign of the first screen and of the whole
+product-discovery path, without breaking anything behind it. Nothing in the
+business layer was touched: no schema change to products, orders, variants or
+capacity, no change to pricing, checkout, permissions or the preorder engine.
+
+### What changed, and why
+
+`[x]` **One typeface, no serif.** Fraunces and Inter are gone; the shop is set
+in Figtree at five weights, with the display role defined once as 700 and
+-0.02em tracking. The brief rules out a serif display face by name. Radii grew
+with it: 10px controls, 14px cards, 20px media. See DECISIONS.md D-017.
+
+`[x]` **The hero is one image, and staff own it.** The five-slide rotation is
+gone — the brief asks for a single image, and what the carousel was also doing
+(proving the shop has more than one thing in it) is now done by the showcase
+directly beneath, where every card carries a name and a price. The photograph,
+the eyebrow, the headline, the supporting sentence, the button, its
+destination, the focal point, the header contrast mode and the featured product
+are one row in `site_settings`, edited at `/admin/homepage`. See D-020.
+
+`[x]` **The price sits high.** The hero holds about 78–84% of the first screen
+and its product block ends well above the foot of the image, with the showcase
+overlapping the bottom edge. One ordinary scroll reaches four large cards with
+names and prices on them.
+
+`[x]` **Search means what a shopper means.** It was `title ILIKE` and brand.
+It is now Postgres full-text across the title, brand, description with markup
+stripped, bullet points, spec table, tags and meta description, plus the
+category name, the variants' attribute values, and a substring match on the
+title. Every typed word is a prefix term, so it serves the autocomplete too.
+Migration `0012_product_search.sql` adds the matching GIN index. See D-018.
+
+`[x]` **Autocomplete is grouped and has thumbnails.** Products (with their
+photograph and brand), categories, brands, and suggested searches taken from
+the listings' own tags — never invented phrases, which would lead to empty
+pages. Debounced, cancellable, keyboard-navigable, with a loading mark and a
+real empty state. It still returns no price and no stock, so it cannot be used
+to enumerate the catalogue.
+
+`[x]` **A catalogue panel, from the real tree.** Every shelf and sub-shelf with
+live counts, opened by a button rather than by hover, closed by Escape, a click
+outside, or arriving somewhere. Nothing in it is hard-coded: a category added
+in the admin is in the menu on the next request.
+
+`[x]` **Filters gained chips, a clear-all and a mobile sheet.** Each chip
+removes exactly its own filter and is an ordinary link, so filtering and
+unfiltering are both navigations and the back button works. On a phone the
+panel is a bottom sheet driven by a checkbox and a label — no JavaScript, which
+a `<details>` could not do without being open on arrival on a desktop or shut
+on a phone.
+
+`[x]` **Recommendations are scored.** A stated relationship counts most, then
+the shelf, a shared tag, the brand, a comparable price. Nothing scoring zero is
+returned as a recommendation; a short row is topped up with the best-rated
+products rather than filled at random. See D-019.
+
+`[x]` **Product cards follow the reference.** Large rounded photograph, bold
+name, one line of the listing's own words, heavy price. The badges and meters
+that used to sit on every card now appear only when they are saying something
+true about that product — a full batch, a window closing, a batch more than 60%
+taken.
+
+`[x]` **Product media management gained "Make main" and "Move down".** Reaching
+the front of a gallery by pressing "move up" four times is how an order ends up
+wrong.
+
+### Two things worth knowing
+
+**The old hero's photograph is no longer wired in.** `lib/hero-media.ts` has
+been removed, and with it the mapping that put `public/hero/fragrance-bottle.jpg`
+on the home page. That file was flagged in this document as not licensed for
+this shop; it is still in the repository and is now used by nothing. The hero
+is whatever staff upload at `/admin/homepage`, and with nothing uploaded it
+falls back to the featured product's catalogue artwork.
+
+**A keyboard bug was found and fixed in passing.** The collapsed category row in
+the header was hidden by clipping its height, which leaves its links in the
+accessibility tree and reachable by Tab. It is `invisible` as well now, so a
+closed menu is closed for a keyboard and a screen reader too.
+
+### Two defects the redesign uncovered, both older than it
+
+**The header's search field could never have been translucent.** A top-level
+`input:not(…)` rule in `app/globals.css` set `background: var(--color-paper)`.
+Unlayered CSS beats anything inside a Tailwind layer whatever the specificity,
+so every utility on that field lost to it, and the "translucent bordered
+search" the brief asks for rendered as a solid white box over the hero
+photograph. The ground and the lettering now sit in `@layer base`; the hover,
+focus and disabled states stay outside it, because those are behaviour and a
+field that carries its own border colour should still answer the pointer.
+
+**A closed menu was reachable by keyboard.** The collapsed category row in the
+header, and now the filter drawer, were hidden by clipping height alone, which
+leaves their links and inputs in the accessibility tree. Both are `invisible`
+when closed.
+
+The Next.js development route indicator is also off (`devIndicators: false` in
+`next.config.ts`). It floats in the bottom-left corner, which is where this shop
+puts things a shopper presses on a phone — the buy bar, and the footer of the
+filter drawer — and it was intercepting those presses in the browser and in the
+end-to-end suite alike.
+
+### Verification
+
+| Gate | Result |
+| --- | --- |
+| `npm run lint` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run build` | `[x]` passes |
+| `npm test` | `[x]` passes — 603 tests, 40 files (2 skipped without a PostgreSQL server) |
+| `npm run test:e2e` | `[x]` passes — 400 passed, 4 skipped, mobile and desktop |
+| Axe at AA — home, search, category with filters, product detail | `[x]` 0 violations at both widths |
+| Sideways scroll at 320, 390, 820, 1440 | `[x]` none |
+| Browser console | `[x]` clean |
+| Hero photograph uploaded through `/admin/homepage` | `[x]` verified end to end in a browser: 201, stored by the media provider, live on the storefront on the next request |
+| Header contrast over a real photograph | `[x]` measured dark, header took the pale treatment; the drawn catalogue artwork measures light and it takes navy |
+| Search finds a product by a word only in its description | `[x]` verified in the browser and in `tests/search.test.ts` |
+| Mobile filter drawer | `[x]` opens, filters, and closes; its controls are unreachable while shut |
+| Catalogue panel | `[x]` every shelf and sub-shelf from the live tree, with counts |
+| Recommendations | `[x]` scored rows on the product page and the cart, deduplicated between the two |
+
+**Not verified, and stated plainly:** the production JavaScript budget was not
+re-measured after this change (`npm run test:e2e:prod` was not run in this
+session), and no real photography exists in the repository — the hero currently
+shows the sample image the owner supplied earlier, which carries another brand's
+copyright notice and must be replaced before the shop is public. Removing it is
+one press of **Remove** on `/admin/homepage`.

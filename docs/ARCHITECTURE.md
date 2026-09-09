@@ -26,6 +26,9 @@ components/             presentational UI, no direct data access
 lib/
   auth/                 session creation/validation, password hashing, role checks
   catalog/              category tree, attribute/variant combination logic, search
+    search.ts             the full-text document, the tsquery builder, the rank
+    recommendations.ts    scored "more like this", never a random draw
+  homepage/             the hero staff edit: read for the storefront, write for staff
   preorder/             capacity check, reservation, waitlist — the transactional core
   orders/               order creation, status transitions, idempotency
   notifications/        transactional outbox: compose, queue, deliver

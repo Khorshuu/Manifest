@@ -1,4 +1,4 @@
-import { and, asc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   attributeValues,
@@ -8,6 +8,7 @@ import {
   variantOptionValues,
 } from "@/db/schema";
 import { PUBLIC_STATUSES } from "./products";
+import { searchCondition } from "./search";
 
 /**
  * Faceted filtering for the listing and search pages.
@@ -21,6 +22,8 @@ import { PUBLIC_STATUSES } from "./products";
 
 export type ProductFilters = {
   categoryIds?: string[];
+  /** An explicit set of products, for a caller that has already chosen them. */
+  ids?: string[];
   query?: string;
   /** Attribute value ids. Values of the same attribute are OR-ed, different attributes AND-ed. */
   valueIds?: string[];
@@ -50,6 +53,10 @@ const liveVariant = sql`v.is_enabled = true and v.archived_at is null`;
 function baseConditions(filters: ProductFilters): SQL[] {
   const conditions: SQL[] = [publicProductWhere!];
 
+  if (filters.ids?.length) {
+    conditions.push(inArray(products.id, filters.ids));
+  }
+
   if (filters.categoryIds?.length) {
     conditions.push(inArray(products.categoryId, filters.categoryIds));
   }
@@ -59,8 +66,14 @@ function baseConditions(filters: ProductFilters): SQL[] {
   }
 
   if (filters.query) {
-    const term = `%${filters.query}%`;
-    conditions.push(or(ilike(products.title, term), ilike(products.brand, term))!);
+    /*
+     * Everything the listing says about itself, not just its name — see
+     * lib/catalog/search.ts. A search with nothing usable in it (punctuation
+     * only) narrows nothing rather than matching nothing, which is what a
+     * shopper who typed "???" is better served by.
+     */
+    const matches = searchCondition(filters.query);
+    if (matches) conditions.push(matches);
   }
 
   if (filters.fulfillment) {

@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ActiveFilters } from "@/components/active-filters";
 import { FilterPanel } from "@/components/filter-panel";
 import { PageHeading } from "@/components/page-heading";
 import { ProductGrid } from "@/components/product-grid";
 import { SortSelect } from "@/components/sort-select";
 import {
+  activeFilterChips,
   countProducts,
   getCategoryTree,
   hasActiveFilters,
@@ -47,6 +49,18 @@ export default async function SearchPage({
     getCategoryTree(),
   ]);
 
+  // Attribute values arrive in the URL as ids; the chips need their names,
+  // and the facets this page already loaded carry them.
+  const valueLabels = new Map(
+    facets.attributes.flatMap((attribute) =>
+      attribute.values.map((value) => [value.id, value.label] as const),
+    ),
+  );
+
+  // Clearing filters keeps the search itself — a shopper clearing a brand did
+  // not ask to be sent back to the whole catalogue.
+  const clearHref = query ? `/search?q=${encodeURIComponent(query)}` : "/search";
+
   const heading = preorderOnly
     ? "Open preorders"
     : query
@@ -72,7 +86,15 @@ export default async function SearchPage({
         aside={<SortSelect current={sort} />}
       />
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="mt-6">
+        <ActiveFilters
+          chips={activeFilterChips({ params, path: "/search", valueLabels })}
+          clearHref={clearHref}
+          total={total}
+        />
+      </div>
+
+      <div className="mt-6 grid gap-8 lg:grid-cols-[260px_minmax(0,1fr)]">
         <FilterPanel
           facets={facets}
           action="/search"

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import {
   addProductImage,
+  makeProductImagePrimary,
   removeProductImage,
   reorderProductImage,
 } from "@/lib/catalog";
@@ -72,6 +73,9 @@ const mutateSchema = z.discriminatedUnion("action", [
       direction: z.enum(["up", "down"]),
     })
     .strict(),
+  z
+    .object({ action: z.literal("promote"), imageId: z.string().uuid() })
+    .strict(),
 ]);
 
 export async function PATCH(
@@ -97,6 +101,8 @@ export async function PATCH(
 
     if (parsed.data.action === "remove") {
       await removeProductImage(user, parsed.data.imageId);
+    } else if (parsed.data.action === "promote") {
+      await makeProductImagePrimary(user, parsed.data.imageId);
     } else {
       await reorderProductImage(
         user,

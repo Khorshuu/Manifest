@@ -112,6 +112,53 @@ export async function removeProductImage(
   });
 }
 
+/**
+ * Makes one image the main one.
+ *
+ * The first image is what the card, the hero fallback and the top of the
+ * product page all show, and reaching it by pressing "move up" four times is
+ * how a gallery ends up in the wrong order. Every other image keeps its
+ * relative order behind it, so promoting one is not a reshuffle.
+ */
+export async function makeProductImagePrimary(
+  actor: SessionUser | null,
+  imageId: string,
+) {
+  const staff = requireStaff(actor);
+
+  const [image] = await db
+    .select()
+    .from(productImages)
+    .where(eq(productImages.id, imageId));
+
+  if (!image) throw new MediaError("That image no longer exists.");
+
+  const siblings = await listProductImages(image.productId);
+  if (siblings[0]?.id === imageId) return;
+
+  const order = [image, ...siblings.filter((row) => row.id !== imageId)];
+
+  await db.transaction(async (tx) => {
+    for (const [position, row] of order.entries()) {
+      await tx
+        .update(productImages)
+        .set({ sortOrder: position })
+        .where(eq(productImages.id, row.id));
+    }
+
+    await recordAudit(
+      {
+        actorUserId: staff.id,
+        action: "product.updated",
+        entityType: "product",
+        entityId: image.productId,
+        after: { mainImage: image.url },
+      },
+      tx,
+    );
+  });
+}
+
 /** Moves an image up or down the gallery order. */
 export async function reorderProductImage(
   actor: SessionUser | null,

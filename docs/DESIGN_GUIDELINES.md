@@ -56,24 +56,34 @@ Rules:
 
 ## Type
 
-- **Display / headlines**: Fraunces (serif) — used for product titles, section headers, the
-  hero. Set with slightly tight tracking at large sizes. This is the one place the brand shows
-  personality; don't dilute it by also using it for body copy or UI labels.
-- **UI / body / data**: Inter (grotesk sans) — everything else: nav, buttons, forms, tables,
-  prices, admin dashboard, product specs.
-- Two typefaces total. No monospace anywhere unless displaying an actual SKU/tracking code,
-  where a monospace numeral is functionally justified.
+**The typeface changed in the homepage redesign, and the change was deliberate.** The shop was
+set in Fraunces (serif) for display and Inter for everything else. The owner's brief for the
+new homepage rules out a serif display face and asks for a modern, slightly rounded,
+geometric sans — a premium catalogue voice rather than an editorial one — so both roles are
+now played by weights of one family.
+
+- **One family: Figtree.** Loaded once, in five weights (400–800). Display and body are the
+  same face; weight and tracking are what separate them.
+- **Display role** (`font-display`): 700 with -0.02em tracking by default, set once in
+  `app/globals.css` rather than at every call site. A weight utility written beside it on a
+  particular element still wins, because the rule lives in the `base` layer and utilities
+  outrank it.
+- **Hero headline**: 800, tracking -0.035em, clamped between 2.5rem and 4.75rem.
+- **Prices**: 800 and tabular, one size larger than they were. On a catalogue card the price is
+  the second thing read, straight after the photograph.
+- No monospace anywhere unless displaying an actual SKU or tracking code, where a monospace
+  numeral is functionally justified.
 
 Scale (base 16px):
-| Level | Size / Line-height | Weight | Typeface |
-|---|---|---|---|
-| Display | 48px / 1.1 | 600 | Fraunces |
-| H1 | 34px / 1.2 | 600 | Fraunces |
-| H2 | 24px / 1.3 | 600 | Fraunces |
-| H3 | 19px / 1.4 | 600 | Inter |
-| Body | 16px / 1.6 | 400 | Inter |
-| Small / meta | 13px / 1.5 | 400–500 | Inter |
-| Price | 20px / 1.2 | 600 | Inter |
+| Level | Size / Line-height | Weight |
+|---|---|---|
+| Display | 52px / 1.05 | 800 |
+| H1 | 36px / 1.15 | 700 |
+| H2 | 26px / 1.25 | 700 |
+| H3 | 19px / 1.35 | 700 |
+| Body | 16px / 1.6 | 400 |
+| Small / meta | 13px / 1.5 | 400–600 |
+| Price | 22px / 1.15 | 800 |
 
 Line length: cap body text around 70ch. No all-caps labels — use sentence case with color/weight
 for emphasis instead.
@@ -83,9 +93,12 @@ for emphasis instead.
 - Left-aligned throughout. No centered hero text, no centered marketing blocks.
 - Grid: 12-column on desktop, 4-column on mobile, 24px gutter.
 - Spacing scale (px): 4, 8, 12, 16, 24, 32, 48, 64, 96 — pick from this scale only.
-- Radius: two values only. `4px` for buttons/inputs/small controls, `2px` for cards/images
-  (barely-rounded, closer to a printed document corner than a soft app card). Never fully
-  pill-shaped buttons.
+- Radius: three values, enlarged in the homepage redesign. `10px` for buttons/inputs/small
+  controls, `14px` for cards, `20px` for the media inside a card. They were `4px` and `2px` —
+  a deliberately document-like, hard-cornered shop — and the redesign brief asks for the
+  opposite: large rounded product imagery, with the photograph the roundest thing on the page
+  because the photograph is what the catalogue is selling. Never fully pill-shaped buttons; a
+  call to action is moderately rounded, neither a pill nor a square.
 - Borders first: 1px `blue-300` is the default separator between sections, table rows, and card
   edges. Shadow is added on top of the border, never instead of it.
 

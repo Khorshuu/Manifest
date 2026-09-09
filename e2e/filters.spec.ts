@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 /**
  * Faceted filtering and autosuggest in the browser.
@@ -6,7 +6,51 @@ import { expect, test } from "@playwright/test";
  * The filter panel is an ordinary GET form on purpose: the URL carries the
  * state, so these tests can navigate straight to a filtered listing exactly as
  * a shared link would.
+ *
+ * Below `lg` the panel is a bottom sheet that has to be opened first, so every
+ * test that touches a control inside it calls `openFilters`. That is the real
+ * behaviour on a phone rather than a test convenience: a closed sheet is
+ * `invisible`, so its inputs are out of reach of a pointer and a keyboard
+ * alike.
  */
+
+async function openFilters(page: Page) {
+  /*
+   * Located by what it controls rather than by its words: the trigger reads
+   * "Filters on" once something is filtering, so matching on text alone
+   * silently stopped opening the sheet exactly when a test had filters
+   * applied — which is every test that needs it.
+   *
+   * It only exists below `lg`; on a wide screen the panel is part of the page
+   * and there is nothing to open.
+   */
+  /*
+   * Wait for the document to settle first.
+   *
+   * `waitForURL` resolves as soon as the address matches, which can be before
+   * the new document has replaced the old one. Opening the sheet at that
+   * moment opens it on the page that is about to be thrown away, and the
+   * assertion that follows then runs against a closed one.
+   */
+  await page.waitForLoadState("networkidle");
+
+  const trigger = page.locator('label[for="filter-drawer"]').first();
+  if (!(await trigger.isVisible())) return;
+
+  /*
+   * Retried, because this usually runs straight after a navigation: a click
+   * that lands while the new document is still being swapped in toggles a
+   * checkbox that is about to be replaced, and the sheet stays shut.
+   */
+  await expect(async () => {
+    if (!(await page.locator("#filter-drawer").isChecked())) {
+      await trigger.click();
+    }
+    await expect(page.getByRole("button", { name: "Apply" })).toBeVisible({
+      timeout: 2000,
+    });
+  }).toPass({ timeout: 15_000 });
+}
 
 test("the filter panel narrows the listing and the count agrees", async ({
   page,
@@ -23,12 +67,15 @@ test("the filter panel narrows the listing and the count agrees", async ({
    * the grid both build from `buildProductWhere` — and it does not move when
    * the heading copy is rewritten, which is exactly what broke this test once.
    */
-  const matches = async () =>
-    Number(
+  const matches = async () => {
+    // The sheet closes on every navigation, so the count is read with it open.
+    await openFilters(page);
+    return Number(
       (await page.getByText(/^\d+ matches?$/).first().innerText()).match(
         /\d+/,
       )![0],
     );
+  };
 
   const before = await matches();
   expect(before).toBeGreaterThan(0);
@@ -42,13 +89,17 @@ test("the filter panel narrows the listing and the count agrees", async ({
   await expect(page.getByText("Nothing matches those filters")).toBeVisible();
   expect(await matches()).toBe(0);
 
-  // Clearing brings them all back.
-  await page.getByRole("link", { name: "Clear" }).click();
-  await expect(page.getByText(new RegExp(`^${before} matches?$`))).toBeVisible();
+  // Clearing brings them all back. Exact, because the chips above the listing
+  // carry their own "Clear all" — the panel's own control is the one under
+  // test here.
+  await page.getByRole("link", { name: "Clear", exact: true }).click();
+  await page.waitForURL((url) => !url.search.includes("max=1"));
+  expect(await matches()).toBe(before);
 });
 
 test("filtering by an attribute value", async ({ page }) => {
   await page.goto("/search");
+  await openFilters(page);
 
   // The seeded catalog varies by Flavor and Color.
   const flavor = page.getByRole("group", { name: "Flavor" });
@@ -62,6 +113,7 @@ test("filtering by an attribute value", async ({ page }) => {
   await page.waitForURL(/value=/);
 
   // The choice survives the round trip, so the panel is not lying about state.
+  await openFilters(page);
   await expect(
     page.getByRole("group", { name: "Flavor" }).getByRole("checkbox").first(),
   ).toBeChecked();
@@ -78,6 +130,7 @@ test("in-stock only excludes the preorder catalog", async ({ page }) => {
 
 test("filters survive pagination and sorting", async ({ page }) => {
   await page.goto("/categories/snacks-groceries?max=100000&sort=price_asc");
+  await openFilters(page);
 
   await expect(page.getByLabel("To (BDT)")).toHaveValue("100000");
 
@@ -90,6 +143,7 @@ test("filters survive pagination and sorting", async ({ page }) => {
 test("a filtered listing can be linked", async ({ page }) => {
   const url = "/search?available=1&fulfillment=preorder&sort=price_asc";
   await page.goto(url);
+  await openFilters(page);
 
   await expect(
     page.getByRole("checkbox", { name: "Only what can be bought now" }),

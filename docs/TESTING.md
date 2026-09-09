@@ -70,3 +70,38 @@ Vitest reports every test in a file as skipped when its `beforeAll` throws. `tes
 ## Verifying a test can fail
 
 For any test guarding a rule with money behind it, break the rule deliberately once and confirm the test catches it. The no-overselling suite was confirmed this way: with `for update` removed it fails; with it restored it passes.
+
+## Testing a search you cannot eyeball
+
+`tests/search.test.ts` seeds a product whose only connection to the search term
+is a word in its description, or in one bullet point, or in a tag, or in its
+category's name, or in an option value on a variant — one case per test, each
+asserting the product comes back and an unrelated one does not. That shape
+matters: a single test searching for a word that appears in three fields passes
+even when two of the three are not searched at all.
+
+Three of them exist because the behaviour is easy to lose in a rewrite:
+
+- **"board" finds "Keyboard".** A stemmed prefix query cannot match inside a
+  word, so the plain substring match on the title is what carries this. Someone
+  tidying the query later will be tempted to drop it.
+- **"blockquote" finds nothing** in a listing whose description contains
+  `<p class='blockquote'>`. Markup is stripped before indexing, and a search
+  that matches tag names is a search that ranks by how a description was
+  written.
+- **A draft is never returned** — the same public predicate as every other
+  shopper query, asserted here rather than assumed.
+
+`tests/recommendations.test.ts` does the same for each recommendation signal
+separately, and asserts the fallback is *popular* rather than random by seeding
+a catalogue where nothing scores at all.
+
+`tests/homepage-hero.test.ts` covers the settings a shop's front page depends
+on: that a corrupt row degrades to the defaults instead of throwing, that a
+customer cannot write any of it, and that the call-to-action link refuses an
+absolute URL — a text field that becomes an `href` is how an open redirect gets
+built by accident.
+
+`e2e/homepage-admin.spec.ts` is the one that stops the admin page being a fake
+settings panel. It types into the real form, saves, loads the storefront with
+no session, asserts the words are on the page, and puts the hero back.

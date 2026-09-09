@@ -2,13 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { IconCheck } from "@/components/icons";
-import { Stagger, StaggerItem } from "@/components/motion";
-import { ProductCard } from "@/components/product-card";
 import {
   findCategoryPath,
   getCategoryTree,
   getPublicProductBySlug,
   getPublicVariants,
+  listRecommendations,
   listRelatedProducts,
 } from "@/lib/catalog";
 import { remainingCapacity } from "@/lib/catalog/variants";
@@ -24,6 +23,7 @@ import {
 } from "@/lib/reviews";
 import { Gallery } from "./gallery";
 import { Journey } from "@/components/journey";
+import { RecommendationSection } from "@/components/recommendation-section";
 import { ReviewsSection } from "./reviews-section";
 import { VariantPicker, type PickerVariant } from "./variant-picker";
 import { serverInstant } from "@/lib/clock";
@@ -55,7 +55,8 @@ export default async function ProductPage({
   const [
     variants,
     tree,
-    related,
+    suggested,
+    sameShelf,
     rating,
     reviews,
     breakdown,
@@ -64,7 +65,13 @@ export default async function ProductPage({
   ] = await Promise.all([
     getPublicVariants(product.id),
     getCategoryTree(),
-    listRelatedProducts(product.id, product.categoryId, 4),
+    // Scored against what the catalogue records about both products — see
+    // lib/catalog/recommendations.ts. Never a random draw.
+    listRecommendations(product.id, 4),
+    // Deliberately more than the row shows: whatever the recommendations
+    // already used is dropped below, and a short row would otherwise appear
+    // for a well-stocked shelf.
+    listRelatedProducts(product.id, product.categoryId, 8),
     getProductRating(product.id),
     listApprovedReviews(product.id),
     getRatingBreakdown(product.id),
@@ -73,6 +80,17 @@ export default async function ProductPage({
     // lib/clock.ts.
     serverInstant(),
   ]);
+
+  /*
+   * A product recommended above is not shown again immediately below it. The
+   * two rows answer different questions — "what else is like this" and "what
+   * else is on this shelf" — and the same four cards under both headings makes
+   * the page look as though one of them failed.
+   */
+  const suggestedIds = new Set(suggested.map((item) => item.id));
+  const remainingOnShelf = sameShelf
+    .filter((item) => !suggestedIds.has(item.id))
+    .slice(0, 4);
 
   // Both decided on the server: the form is only rendered for someone whose
   // delivered order entitles them to it, and submitting re-checks the same
@@ -301,51 +319,25 @@ export default async function ProductPage({
         alreadyReviewed={alreadyReviewed}
       />
 
-      {related.length > 0 ? (
-        <section className="mt-16 border-t border-ink/15 pt-10">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
-                <span aria-hidden="true" className="h-px w-8 bg-brass" />
-                Same shelf
-              </p>
-              <h2 className="mt-2 font-display text-h1 text-ink">
-                Also in this category
-              </h2>
-            </div>
+      <RecommendationSection
+        eyebrow="Chosen for this listing"
+        title="More like this"
+        products={suggested}
+      />
 
-            {breadcrumb.at(-1) ? (
-              <Link
-                href={`/categories/${breadcrumb.at(-1)!.slug}`}
-                className="text-meta text-blue-600 underline-offset-4 hover:underline"
-              >
-                Everything in {breadcrumb.at(-1)!.name}
-              </Link>
-            ) : null}
-          </div>
-
-          {/*
-           * The column count follows the number of cards. A three-card row in
-           * a four-column grid leaves a gap the width of a card, which reads
-           * as a listing that failed to load rather than a short one.
-           */}
-          <Stagger
-            className={`mt-8 grid grid-cols-2 gap-3 sm:gap-5 ${
-              related.length >= 4
-                ? "lg:grid-cols-4"
-                : related.length === 3
-                  ? "lg:grid-cols-3"
-                  : "lg:grid-cols-2"
-            }`}
-          >
-            {related.map((item) => (
-              <StaggerItem key={item.id} className="h-full">
-                <ProductCard product={item} />
-              </StaggerItem>
-            ))}
-          </Stagger>
-        </section>
-      ) : null}
+      <RecommendationSection
+        eyebrow="Same shelf"
+        title="Also in this category"
+        products={remainingOnShelf}
+        link={
+          breadcrumb.at(-1)
+            ? {
+                href: `/categories/${breadcrumb.at(-1)!.slug}`,
+                label: `Everything in ${breadcrumb.at(-1)!.name}`,
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }

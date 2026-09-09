@@ -4,6 +4,8 @@ export * from "./combinations";
 export * from "./media";
 export * from "./products";
 export * from "./card-data";
+export * from "./recommendations";
+export * from "./search";
 export * from "./storefront";
 export * from "./variants";
 export * from "./facets";

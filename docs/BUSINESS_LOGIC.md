@@ -81,7 +81,18 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - Price is filtered against variant prices, not a product-level field, because the price a shopper sees on a card is the lowest purchasable variant.
 - "Only what can be bought now" mirrors what the product page decides: stock remaining, or a preorder slot left with the window still open. A listing must not offer what the detail page then refuses.
 - Filters live in the URL and the panel is an ordinary GET form. A filtered listing can be linked and shared, and it works before any JavaScript has loaded.
-- Autosuggest returns labels and links only — never price or stock — and goes through the same public predicate as every other shopper query, so it cannot surface a draft.
+- Autosuggest returns labels, links and a product photograph — never price or stock — and goes through the same public predicate as every other shopper query, so it cannot surface a draft.
+- A chip removing a filter is an ordinary link back to the same listing with that parameter dropped, and it drops the page number with it: the results are about to change, so page three may no longer exist. Removing a filter never removes the search — someone clearing a brand did not ask to be sent back to the whole catalogue.
+- Search matches everything a listing says about itself (title, brand, description with markup stripped, bullet points, spec table, tags, meta description) plus its category's name and its variants' attribute values. Ranking prefers a title match to a mention in a paragraph, because that is what shoppers mean. See DECISIONS.md D-018.
+- A recommendation is scored against what the catalogue records — a relationship staff stated, the shelf, a shared tag, the brand, a comparable price — and anything scoring zero is not a recommendation. A short row is topped up with the best-rated products, never with a random draw. See D-019.
+
+## The homepage hero
+
+- The photograph, the words, the button and its destination are staff-owned settings, not source (DECISIONS.md D-020). Staff may write them; the storefront reads them with no session.
+- The price, availability, capacity and closing time under the headline are read from the featured product itself and are never typed into the hero. The hero cannot state a price the listing disagrees with.
+- If staff name a featured product that is later unpublished, the hero falls back to the batch closing soonest rather than showing a product that is not for sale.
+- The call-to-action destination must be a path on this site. It is a text field that becomes an `href`, which is how an open redirect gets built by accident.
+- The hero image is set by uploading a file, never by posting a URL, so the front page cannot be pointed at an address off this site.
 
 ## Variation engine (Phase 5)
 
