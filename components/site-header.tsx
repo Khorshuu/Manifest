@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { HeaderShell } from "@/components/header-shell";
+import { IconCart, IconUser } from "@/components/icons";
 import { SearchBox } from "@/components/search-box";
 import { getCategoryTree } from "@/lib/catalog";
 import { getCurrentUser, isStaff } from "@/lib/auth";
@@ -36,7 +37,7 @@ export async function SiteHeader() {
           {isStaff(user) ? (
             <Link
               href="/admin"
-              className="hidden min-h-11 items-center rounded-control px-2 underline-offset-4 hover:underline sm:inline-flex"
+              className="hidden min-h-11 items-center rounded-control px-2 transition-colors hover:bg-paper/15 sm:inline-flex"
             >
               Admin
             </Link>
@@ -44,15 +45,25 @@ export async function SiteHeader() {
 
           <Link
             href={user ? "/account" : "/login"}
-            className="inline-flex min-h-11 items-center rounded-control px-2 underline-offset-4 hover:underline"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 transition-colors hover:bg-paper/15"
           >
+            {/*
+             * Icon *and* label, at every width. Dropping the word below `sm`
+             * looked tidier and cost more than it bought: an icon-only
+             * navigation item is the thing every set of guidelines warns
+             * against, and it made the link's name the screen-reader sentence
+             * rather than the word. The search moved to its own row, so there
+             * is room for both.
+             */}
+            <IconUser size={18} className="shrink-0" />
             {user ? "Account" : "Sign in"}
           </Link>
 
           <Link
             href="/cart"
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 underline-offset-4 hover:underline"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 transition-colors hover:bg-paper/15"
           >
+            <IconCart size={18} className="shrink-0" />
             Cart
             {cartCount > 0 ? (
               /* Keyed on the count so it stamps each time it changes —

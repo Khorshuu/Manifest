@@ -36,7 +36,7 @@ export function OrderProgress({
   // Cancelled and refunded leave the pipeline rather than sitting inside it.
   if (status in TERMINAL_LABELS) {
     return (
-      <div className="border border-stamp-red p-4">
+      <div className="rounded-card border border-stamp-red bg-stamp-red/5 p-4">
         <p className="text-meta text-stamp-red-text">{TERMINAL_LABELS[status]}</p>
         <p className="mt-1 text-body text-ink">
           This order is no longer in progress.

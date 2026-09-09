@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { IconStar } from "./icons";
 import { CapacityMeter } from "./capacity-meter";
 import { ProductArt } from "./product-art";
 import { StatusBadge } from "./status-badge";
@@ -34,7 +35,7 @@ export function ProductCard({ product }: { product: ProductCardData }) {
   return (
     <Link
       href={`/products/${product.slug}`}
-      className="media-zoom group flex h-full flex-col gap-3 rounded-card border border-blue-300 bg-paper p-3 transition-[border-color,box-shadow,transform] duration-200 ease-[var(--ease-out-quint)] hover:-translate-y-1 hover:border-blue-500 hover:shadow-[var(--shadow-lift)] focus-visible:-translate-y-1 focus-visible:shadow-[var(--shadow-lift)]"
+      className="media-zoom lift group flex h-full flex-col gap-2.5 rounded-card border border-blue-300 bg-paper p-2.5 shadow-[var(--shadow-raise)] sm:gap-3 sm:p-3"
     >
       <div className="surface-studio relative aspect-square w-full overflow-hidden rounded-card">
         {product.imageUrl ? (
@@ -81,23 +82,25 @@ export function ProductCard({ product }: { product: ProductCardData }) {
 
       <div className="flex flex-1 flex-col gap-2">
         {product.brand ? (
-          <span className="text-meta uppercase tracking-[0.12em] text-ink/70">
+          <span className="text-meta uppercase tracking-[0.12em] text-ink/70 [overflow-wrap:anywhere]">
             {product.brand}
           </span>
         ) : null}
 
-        <h3 className="font-display text-h3 leading-snug text-ink">
+        <h3 className="font-display text-[1rem] leading-snug text-ink [overflow-wrap:anywhere] sm:text-h3">
           {product.title}
         </h3>
 
         {product.reviewCount > 0 ? (
-          <p className="text-meta text-ink/70">
-            <span aria-hidden="true">★</span> {product.ratingAverage} ·{" "}
+          <p className="flex items-center gap-1.5 text-meta text-ink/70">
+            <IconStar size={14} className="shrink-0 fill-brass text-brass" />
+            <span className="tabular-nums">{product.ratingAverage}</span>
+            <span aria-hidden="true">·</span>
             {product.reviewCount} review{product.reviewCount === 1 ? "" : "s"}
           </p>
         ) : null}
 
-        <p className="font-display text-price font-semibold tabular-nums text-ink">
+        <p className="font-display text-[1.0625rem] font-semibold tabular-nums text-ink sm:text-price">
           {product.fromPriceBdt === null
             ? "Price to be confirmed"
             : formatBdt(product.fromPriceBdt)}

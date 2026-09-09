@@ -63,7 +63,10 @@ export default async function AdminOrdersPage({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-600">Operations</p>
+        <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
+          <span aria-hidden="true" className="h-px w-8 bg-brass" />
+          Operations
+        </p>
         <h1 className="mt-2 font-display text-h1 text-ink">Orders</h1>
       </div>
 
@@ -95,7 +98,7 @@ export default async function AdminOrdersPage({
 
       {showingRequests ? (
         requests.length === 0 ? (
-          <div className="border border-blue-300 p-8">
+          <div className="surface-paper rounded-card border border-blue-300 p-8">
             <p className="text-body text-ink">
               Nobody is waiting on a cancellation.
             </p>
@@ -144,14 +147,14 @@ export default async function AdminOrdersPage({
           </ul>
         )
       ) : orders.length === 0 ? (
-        <div className="border border-blue-300 p-8">
+        <div className="surface-paper rounded-card border border-blue-300 p-8">
           <p className="text-body text-ink">No orders with that status.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto border border-blue-300">
+        <div className="overflow-x-auto rounded-card border border-blue-300 shadow-[var(--shadow-raise)]">
           <table className="w-full min-w-[720px] border-collapse text-body">
             <thead>
-              <tr className="text-left">
+              <tr className="bg-paper-raised text-left">
                 <th scope="col" className="px-4 py-3 text-meta font-medium">
                   Order
                 </th>

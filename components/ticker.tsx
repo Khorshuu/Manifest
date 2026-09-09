@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { IconPause, IconPlay } from "./icons";
 
 /**
  * The manifest strip: a departure-board line that runs under the hero.
@@ -56,10 +57,7 @@ export function Ticker({ items }: { items: string[] }) {
         aria-pressed={running ? "false" : "true"}
         className="mr-2 inline-flex min-h-11 shrink-0 items-center gap-2 rounded-control px-3 text-meta text-paper/70 transition-colors hover:text-brass"
       >
-        <span
-          aria-hidden="true"
-          className="inline-block size-2 rounded-[1px] bg-current"
-        />
+        {running ? <IconPause size={14} /> : <IconPlay size={14} />}
         {running ? "Hold" : "Run"}
         <span className="sr-only">the manifest strip</span>
       </button>

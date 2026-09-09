@@ -39,7 +39,7 @@ test("the filter panel narrows the listing and the count agrees", async ({
   await page.getByRole("button", { name: "Apply" }).click();
   await page.waitForURL(/max=1/);
 
-  await expect(page.getByText("Nothing matches those filters.")).toBeVisible();
+  await expect(page.getByText("Nothing matches those filters")).toBeVisible();
   expect(await matches()).toBe(0);
 
   // Clearing brings them all back.
@@ -73,7 +73,7 @@ test("in-stock only excludes the preorder catalog", async ({ page }) => {
   // rather than quietly ignore itself.
   await page.goto("/search?fulfillment=in_stock");
 
-  await expect(page.getByText("Nothing matches those filters.")).toBeVisible();
+  await expect(page.getByText("Nothing matches those filters")).toBeVisible();
 });
 
 test("filters survive pagination and sorting", async ({ page }) => {

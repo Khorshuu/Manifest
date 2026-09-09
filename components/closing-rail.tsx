@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CapacityMeter } from "./capacity-meter";
 import { Countdown } from "./countdown";
+import { IconArrowLeft, IconArrowRight } from "./icons";
 import { ProductArt } from "./product-art";
 
 export type RailItem = {
@@ -93,7 +94,7 @@ export function ClosingRail({
             aria-label="Scroll to earlier windows"
             className="inline-flex size-11 items-center justify-center rounded-control border border-ink/20 text-ink transition-colors hover:border-brass hover:text-brass-text disabled:opacity-40 disabled:hover:border-ink/20 disabled:hover:text-ink"
           >
-            <span aria-hidden="true">←</span>
+            <IconArrowLeft size={18} />
           </button>
           <button
             type="button"
@@ -102,22 +103,42 @@ export function ClosingRail({
             aria-label="Scroll to later windows"
             className="inline-flex size-11 items-center justify-center rounded-control border border-ink/20 text-ink transition-colors hover:border-brass hover:text-brass-text disabled:opacity-40 disabled:hover:border-ink/20 disabled:hover:text-ink"
           >
-            <span aria-hidden="true">→</span>
+            <IconArrowRight size={18} />
           </button>
         </div>
       </div>
 
       {/*
-       * Focusable because it scrolls: a keyboard user has to be able to reach
-       * the content that is off to the right without a pointer.
+       * The fades are the affordance. A tile cut off flat at the edge of the
+       * viewport reads as a layout that overflowed; the same tile disappearing
+       * under a soft edge reads as a queue that continues — and each one only
+       * appears when there is genuinely something in that direction.
        */}
-      <ul
-        ref={railRef}
-        onScroll={sync}
-        tabIndex={0}
-        aria-label="Preorder windows closing soon"
-        className="rail mt-8 flex snap-x gap-5 overflow-x-auto pb-4"
-      >
+      <div className="relative">
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-paper to-transparent transition-opacity duration-300 ${
+            atStart ? "opacity-0" : "opacity-100"
+          }`}
+        />
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-paper to-transparent transition-opacity duration-300 ${
+            atEnd ? "opacity-0" : "opacity-100"
+          }`}
+        />
+
+        {/*
+         * Focusable because it scrolls: a keyboard user has to be able to reach
+         * the content that is off to the right without a pointer.
+         */}
+        <ul
+          ref={railRef}
+          onScroll={sync}
+          tabIndex={0}
+          aria-label="Preorder windows closing soon"
+          className="rail mt-8 flex snap-x gap-5 overflow-x-auto pb-4"
+        >
         {items.map((item) => (
           <li
             key={item.id}
@@ -125,7 +146,7 @@ export function ClosingRail({
           >
             <Link
               href={`/products/${item.slug}`}
-              className="media-zoom group flex h-full flex-col gap-4 rounded-card border border-blue-300 bg-paper p-4 transition-[border-color,box-shadow,transform] duration-200 ease-[var(--ease-out-quint)] hover:-translate-y-1 hover:border-blue-500 hover:shadow-[var(--shadow-lift)] focus-visible:-translate-y-1 focus-visible:shadow-[var(--shadow-lift)]"
+              className="media-zoom lift group flex h-full flex-col gap-4 rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)]"
             >
               <div className="surface-studio relative aspect-[5/4] w-full overflow-hidden rounded-card">
                 {item.imageUrl ? (
@@ -166,13 +187,23 @@ export function ClosingRail({
 
               <CapacityMeter remaining={item.remaining} total={item.total} />
 
-              <p className="mt-auto pt-1 text-price font-semibold tabular-nums text-ink">
-                {item.priceLabel}
-              </p>
+              <div className="mt-auto flex items-center justify-between gap-3 border-t border-blue-200 pt-3">
+                <p className="font-display text-price font-semibold tabular-nums text-ink">
+                  {item.priceLabel}
+                </p>
+                <span className="inline-flex items-center gap-1.5 text-meta font-medium text-blue-600">
+                  Preorder
+                  <IconArrowRight
+                    size={16}
+                    className="transition-transform duration-200 ease-[var(--ease-out-quint)] group-hover:translate-x-1"
+                  />
+                </span>
+              </div>
             </Link>
           </li>
         ))}
-      </ul>
+        </ul>
+      </div>
     </section>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { IconSearch } from "./icons";
 import { useEffect, useId, useRef, useState } from "react";
 
 type Suggestion = {
@@ -96,8 +97,11 @@ export function SearchBox({ defaultValue = "" }: { defaultValue?: string }) {
   const showList = open && suggestions.length > 0;
 
   return (
-    <div ref={containerRef} className="relative order-last w-full md:order-none md:w-64">
-      <form action="/search">
+    <div
+      ref={containerRef}
+      className="relative order-last w-full md:order-none md:ml-auto md:w-64 lg:w-80"
+    >
+      <form action="/search" className="relative">
         <label htmlFor="site-search" className="sr-only">
           Search products
         </label>
@@ -125,7 +129,14 @@ export function SearchBox({ defaultValue = "" }: { defaultValue?: string }) {
           }}
           onFocus={() => suggestions.length > 0 && setOpen(true)}
           onKeyDown={onKeyDown}
-          className="min-h-11 w-full rounded-control border border-blue-500 bg-paper px-3 text-body text-ink"
+          className="min-h-11 w-full rounded-control border border-blue-500 bg-paper py-2 pl-10 pr-3 text-body text-ink"
+        />
+
+        {/* Decorative: the field already has a label and a placeholder, so
+            this is an affordance rather than information. */}
+        <IconSearch
+          size={18}
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink/50"
         />
       </form>
 
@@ -134,7 +145,7 @@ export function SearchBox({ defaultValue = "" }: { defaultValue?: string }) {
           id={listId}
           role="listbox"
           aria-label="Search suggestions"
-          className="absolute left-0 right-0 top-full z-20 mt-1 max-h-80 overflow-y-auto border border-blue-300 bg-paper"
+          className="animate-rise absolute left-0 right-0 top-full z-20 mt-2 max-h-80 overflow-hidden overflow-y-auto rounded-card border border-blue-300 bg-paper shadow-[var(--shadow-float)]"
         >
           {suggestions.map((suggestion, index) => (
             <li
@@ -152,7 +163,7 @@ export function SearchBox({ defaultValue = "" }: { defaultValue?: string }) {
                 className="flex min-h-11 items-center justify-between gap-3 px-3 py-2 text-body text-ink"
               >
                 <span className="min-w-0 truncate">{suggestion.label}</span>
-                <span className="shrink-0 text-meta text-ink/70">
+                <span className="shrink-0 rounded-card border border-blue-300 px-1.5 py-0.5 text-meta text-ink/70">
                   {KIND_LABELS[suggestion.kind]}
                 </span>
               </a>

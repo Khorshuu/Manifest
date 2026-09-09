@@ -65,7 +65,9 @@ test("a super admin manages staff roles", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Staff", level: 1 }),
   ).toBeVisible();
-  await expect(page.getByText("admin@example.com").first()).toBeVisible();
+  await expect(
+    page.getByRole("main").getByText("admin@example.com").first(),
+  ).toBeVisible();
 
   // Changing your own role is refused, and the UI says so rather than
   // offering a button that would fail.
@@ -104,7 +106,9 @@ test("the audit log shows who made each change", async ({ page }) => {
   await page.goto("/admin/audit");
   await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();
   await expect(page.getByText("product.created").first()).toBeVisible();
-  await expect(page.getByText("admin@example.com").first()).toBeVisible();
+  await expect(
+    page.getByRole("main").getByText("admin@example.com").first(),
+  ).toBeVisible();
 });
 
 test("the audit log filters by action", async ({ page }) => {

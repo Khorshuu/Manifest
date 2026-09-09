@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { IconArrowLeft } from "@/components/icons";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
@@ -36,11 +37,13 @@ export default async function AdminProductPage({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-600">
-          <Link href="/admin/products" className="hover:underline">
-            Products
-          </Link>
-        </p>
+        <Link
+          href="/admin/products"
+          className="inline-flex items-center gap-2 text-meta text-blue-600 underline-offset-4 hover:underline"
+        >
+          <IconArrowLeft size={16} />
+          Products
+        </Link>
         <h1 className="mt-2 font-display text-h1 text-ink">{product.title}</h1>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <StatusBadge tone={product.archivedAt ? "negative" : "neutral"}>
@@ -108,19 +111,19 @@ export default async function AdminProductPage({
       <div className="flex flex-wrap gap-3">
         <Link
           href={`/admin/products/${product.id}/wizard?step=basics`}
-          className="inline-flex min-h-11 items-center rounded-control bg-brass px-4 text-body font-medium text-ink"
+          className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body surface-brass sheen text-ink shadow-[var(--shadow-raise)] hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04]"
         >
           Open setup wizard
         </Link>
         <Link
           href={`/admin/products/${product.id}/variants`}
-          className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
+          className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
         >
           Manage variants
         </Link>
         <Link
           href={`/admin/products/${product.id}/windows`}
-          className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
+          className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
         >
           Preorder windows
         </Link>

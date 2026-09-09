@@ -341,12 +341,126 @@ body {
   font-family: var(--font-sans);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  /* The brand blue, at the weight a highlight wants. A default system
+     highlight on a page this deliberate is the sort of thing that reads as
+     unfinished without anyone being able to say why. */
+  -webkit-tap-highlight-color: color-mix(in srgb, var(--color-blue-600) 18%, transparent);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-blue-600) 22%, transparent);
+  color: var(--color-ink);
 }
 
 /* Focus ring: brass, 2px, 2px offset — DESIGN_GUIDELINES.md accessibility floor */
 :focus-visible {
   outline: 2px solid var(--color-brass);
   outline-offset: 2px;
+}
+
+/*
+ * Form controls.
+ *
+ * Written as element selectors rather than a utility because every input on
+ * the site should answer the pointer and the keyboard the same way, and the
+ * admin forms in particular were plain browser boxes. The focus *ring* is
+ * still the global brass outline above — this only adds the border and ground
+ * change, so a field looks live before the outline lands.
+ */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select,
+textarea {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  transition:
+    border-color 150ms ease-out,
+    box-shadow 150ms ease-out,
+    background-color 150ms ease-out;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled) {
+  border-color: var(--color-blue-500);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
+select:focus,
+textarea:focus {
+  border-color: var(--color-blue-600);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-blue-600) 12%, transparent);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background: var(--color-blue-50);
+  cursor: not-allowed;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: color-mix(in srgb, var(--color-ink) 45%, transparent);
+}
+
+/* The radio and checkbox take the brand colour rather than the browser's. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-blue-600);
+}
+
+/*
+ * A link that draws its own underline from the left rather than switching one
+ * on. Used on the footer and the quieter in-page links: it is the cheapest
+ * possible answer to "the page feels dead under the pointer".
+ */
+.link-draw {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0% 1px;
+  transition: background-size 260ms var(--ease-out-quint);
+}
+
+.link-draw:hover,
+.link-draw:focus-visible {
+  background-size: 100% 1px;
+}
+
+/*
+ * A surface that answers the pointer. One definition, so a card in the
+ * catalogue, an order in the account list and a row in admin all lift by the
+ * same amount — the inconsistency between them was more noticeable than the
+ * effect itself.
+ */
+.lift {
+  transition:
+    transform 220ms var(--ease-out-quint),
+    box-shadow 220ms var(--ease-out-quint),
+    border-color 220ms var(--ease-out-quint);
+}
+
+.lift:hover,
+.lift:focus-visible,
+.lift:focus-within {
+  transform: translateY(-2px);
+  border-color: var(--color-blue-500);
+  box-shadow: var(--shadow-lift);
+}
+
+/* The rail's scrollbar, so a horizontal scroller does not carry the operating
+   system's grey bar across a designed surface. */
+.rail::-webkit-scrollbar {
+  height: 6px;
+}
+
+.rail::-webkit-scrollbar-thumb {
+  background: var(--color-blue-300);
+  border-radius: 999px;
+}
+
+.rail::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /*
@@ -484,6 +598,14 @@ body {
     transform: none;
   }
 
+  /* The border and shadow still change, so the pointer is still answered —
+     only the movement goes. */
+  .lift:hover,
+  .lift:focus-visible,
+  .lift:focus-within {
+    transform: none;
+  }
+
   /* The strip stops entirely rather than running very fast, which is what the
      blanket animation-duration override above would otherwise do to a loop. */
   .marquee {
@@ -497,5 +619,191 @@ body {
   .will-arrive {
     opacity: 1;
     animation: none;
+  }
+}
+
+/*
+ * The hero backdrop.
+ *
+ * Layered depth rather than a particle field: an oversized wordmark, two colour
+ * fields, a raking light and the route, each moving at a different rate against
+ * the pointer. `--px` and `--py` are written by components/hero-backdrop.tsx on
+ * an animation frame; every layer reads them at its own multiplier, which is
+ * what the design data means by "background slowest, foreground fastest".
+ */
+.hero-backdrop {
+  --px: 0;
+  --py: 0;
+}
+
+.hero-backdrop [data-depth] {
+  will-change: transform;
+}
+
+/* The destination, at the scale of the panel. */
+.hero-wordmark {
+  position: absolute;
+  /*
+   * Centred across the foot of the panel rather than bleeding off the left
+   * edge. Anchored left, the leading letters ran off screen and the word read
+   * as a smear of unrelated letterforms sitting directly behind the two
+   * buttons — the busiest part of the hero. Whole and centred, it is legibly
+   * the destination and it sits under the content rather than through it.
+   */
+  inset-inline: 0;
+  text-align: center;
+  bottom: -9%;
+  transform: translate3d(calc(var(--px) * 22px), calc(var(--py) * 14px), 0);
+  font-family: var(--font-display);
+  font-size: clamp(5rem, 15vw, 15rem);
+  font-weight: 600;
+  line-height: 0.78;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: transparent;
+  /* Faint enough to read as ground rather than as a second headline: the
+     content sits over the lower half of it, and at any heavier weight the
+     letterforms compete with the buttons they run behind. */
+  -webkit-text-stroke: 1.5px rgb(255 255 255 / 0.1);
+  user-select: none;
+}
+
+/* A second pass in solid, clipped to a gradient, so the word is not a flat
+   outline: it catches the light on one side. */
+.hero-wordmark span {
+  background: linear-gradient(
+    100deg,
+    rgb(255 255 255 / 0.08) 0%,
+    rgb(240 166 49 / 0.14) 42%,
+    transparent 72%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.hero-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(64px);
+  opacity: 0.9;
+}
+
+.hero-orb--brass {
+  width: 46vw;
+  height: 46vw;
+  max-width: 620px;
+  max-height: 620px;
+  left: 30%;
+  top: -18%;
+  background: radial-gradient(
+    circle,
+    rgb(240 166 49 / 0.5) 0%,
+    rgb(240 166 49 / 0) 68%
+  );
+  transform: translate3d(calc(var(--px) * 44px), calc(var(--py) * 26px), 0);
+  animation: hero-drift-a 22s ease-in-out infinite alternate;
+}
+
+.hero-orb--blue {
+  width: 54vw;
+  height: 54vw;
+  max-width: 760px;
+  max-height: 760px;
+  left: -14%;
+  bottom: -26%;
+  background: radial-gradient(
+    circle,
+    rgb(76 141 255 / 0.55) 0%,
+    rgb(76 141 255 / 0) 66%
+  );
+  transform: translate3d(calc(var(--px) * 30px), calc(var(--py) * 18px), 0);
+  animation: hero-drift-b 28s ease-in-out infinite alternate;
+}
+
+@keyframes hero-drift-a {
+  to {
+    translate: 6% 8%;
+  }
+}
+
+@keyframes hero-drift-b {
+  to {
+    translate: -7% -5%;
+  }
+}
+
+/* The route, and the arrival pulsing at the end of it. */
+.hero-route {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: translate3d(calc(var(--px) * -34px), calc(var(--py) * -20px), 0);
+}
+
+.hero-route__line {
+  stroke-dashoffset: 0;
+  animation: hero-route-run 3.2s linear infinite;
+}
+
+@keyframes hero-route-run {
+  to {
+    stroke-dashoffset: -44;
+  }
+}
+
+.hero-route__pulse {
+  transform-origin: 760px 230px;
+  animation: hero-arrive 2.8s ease-out infinite;
+}
+
+@keyframes hero-arrive {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  70%,
+  100% {
+    transform: scale(5.5);
+    opacity: 0;
+  }
+}
+
+/* A raking light, crossing on a long cycle. */
+.hero-sweep {
+  position: absolute;
+  inset: -30% -60%;
+  background: linear-gradient(
+    104deg,
+    transparent 38%,
+    rgb(255 255 255 / 0.055) 47%,
+    rgb(240 166 49 / 0.05) 51%,
+    transparent 60%
+  );
+  animation: hero-sweep-cross 13s ease-in-out infinite;
+}
+
+@keyframes hero-sweep-cross {
+  0%,
+  100% {
+    transform: translate3d(-22%, 0, 0);
+  }
+  50% {
+    transform: translate3d(22%, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-orb,
+  .hero-sweep,
+  .hero-route__line,
+  .hero-route__pulse {
+    animation: none;
+  }
+
+  .hero-wordmark,
+  .hero-orb,
+  .hero-route {
+    transform: none;
   }
 }

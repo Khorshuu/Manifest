@@ -38,14 +38,14 @@ export default async function PreorderWindowsPage({
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <p className="text-meta text-blue-600">
-          <Link href="/admin/products" className="hover:underline">
+        <p className="flex flex-wrap items-center gap-2 text-meta text-ink/70">
+          <Link href="/admin/products" className="text-blue-600 underline-offset-4 hover:underline">
             Products
           </Link>
-          {" / "}
+          <span aria-hidden="true">/</span>
           <Link
             href={`/admin/products/${productId}`}
-            className="hover:underline"
+            className="text-blue-600 underline-offset-4 hover:underline"
           >
             {product.title}
           </Link>

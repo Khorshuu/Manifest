@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CategoryBento } from "@/components/category-bento";
 import { ClosingRail } from "@/components/closing-rail";
 import { HeroCarousel } from "@/components/hero-carousel";
+import { IconCalendar, IconSeal, IconTag } from "@/components/icons";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { ProcessBand } from "@/components/process-band";
 import { ProductCard } from "@/components/product-card";
@@ -171,7 +172,7 @@ export default async function HomePage() {
             Nothing new since the batches above. Check back shortly.
           </p>
         ) : (
-          <Stagger className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <Stagger className="mt-8 grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-4">
             {arrivals.map((product) => (
               <StaggerItem key={product.id} className="h-full">
                 <ProductCard product={product} />
@@ -196,29 +197,46 @@ export default async function HomePage() {
 function Assurances() {
   const points = [
     {
+      icon: IconTag,
       title: "One landed price",
       body: "Shipping from the United States and Bangladeshi customs duty are inside the figure on the listing. The courier asks you for nothing.",
     },
     {
+      icon: IconSeal,
       title: "Nothing bought before the window shuts",
       body: "That is why the price holds. If a batch never fills, you are refunded rather than charged for a shipment that did not happen.",
     },
     {
+      icon: IconCalendar,
       title: "A stated arrival window",
       body: "Every listing carries the dates we expect it to land, and the order page keeps showing them as it moves through each stage.",
     },
   ];
 
   return (
-    <section className="border-t border-ink/10 bg-paper-raised">
-      <div className="mx-auto w-full max-w-[1280px] px-4 py-14 md:px-6">
-        <Stagger className="grid gap-px bg-ink/15 md:grid-cols-3">
+    <section className="surface-paper border-t border-ink/10">
+      <div className="mx-auto w-full max-w-[1280px] px-4 py-16 md:px-6">
+        <Stagger className="grid gap-5 md:grid-cols-3">
           {points.map((point) => (
-            <StaggerItem key={point.title} className="bg-paper-raised p-6">
-              <h2 className="font-display text-h3 text-ink">{point.title}</h2>
-              <p className="mt-2 max-w-[40ch] text-meta text-ink/70">
-                {point.body}
-              </p>
+            <StaggerItem key={point.title} className="h-full">
+              {/*
+               * Cards with a drawn mark rather than three columns of text
+               * separated by hairlines. The band is the last thing on the page
+               * and was reading as filler; the icon is what makes each point
+               * legible at a glance on the way past.
+               */}
+              <div className="lift flex h-full flex-col gap-3 rounded-card border border-blue-300 bg-paper p-6 shadow-[var(--shadow-raise)]">
+                <span
+                  aria-hidden="true"
+                  className="inline-flex size-11 items-center justify-center rounded-card border border-blue-300 bg-blue-50 text-blue-600"
+                >
+                  <point.icon size={22} />
+                </span>
+                <h2 className="font-display text-h3 text-ink">{point.title}</h2>
+                <p className="max-w-[42ch] text-meta text-ink/70">
+                  {point.body}
+                </p>
+              </div>
             </StaggerItem>
           ))}
         </Stagger>

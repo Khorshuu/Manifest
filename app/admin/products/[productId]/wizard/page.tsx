@@ -82,14 +82,14 @@ export default async function ProductWizardPage({
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-600">
-          <Link href="/admin/products" className="hover:underline">
+        <p className="flex flex-wrap items-center gap-2 text-meta text-ink/70">
+          <Link href="/admin/products" className="text-blue-600 underline-offset-4 hover:underline">
             Products
           </Link>
-          {" / "}
+          <span aria-hidden="true">/</span>
           <Link
             href={`/admin/products/${productId}`}
-            className="hover:underline"
+            className="text-blue-600 underline-offset-4 hover:underline"
           >
             {product.title}
           </Link>
@@ -136,7 +136,7 @@ export default async function ProductWizardPage({
             <div>
               <Link
                 href={nextHref}
-                className="inline-flex min-h-11 items-center rounded-control bg-brass px-4 text-body font-medium text-ink"
+                className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body surface-brass sheen text-ink shadow-[var(--shadow-raise)] hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04]"
               >
                 Continue
               </Link>
@@ -175,7 +175,7 @@ export default async function ProductWizardPage({
             <div>
               <Link
                 href={nextHref}
-                className="inline-flex min-h-11 items-center rounded-control bg-brass px-4 text-body font-medium text-ink"
+                className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body surface-brass sheen text-ink shadow-[var(--shadow-raise)] hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04]"
               >
                 Continue
               </Link>

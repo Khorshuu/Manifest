@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { IconClock } from "./icons";
 
 /**
  * Time left in a preorder window, as a departure board.
@@ -142,13 +143,21 @@ export function Countdown({
 
   if (parts.closed) {
     return (
-      <p className="text-meta text-stamp-red-text">This window has closed.</p>
+      <p className="flex items-center gap-1.5 text-meta text-stamp-red-text">
+        <IconClock size={14} className="shrink-0" />
+        This window has closed.
+      </p>
     );
   }
 
   if (variant === "inline") {
     return (
-      <p className={`text-meta ${tone === "dark" ? "text-paper/70" : "text-ink/70"}`}>
+      <p
+        className={`flex items-center gap-1.5 text-meta ${
+          tone === "dark" ? "text-paper/70" : "text-ink/70"
+        }`}
+      >
+        <IconClock size={14} className="shrink-0" />
         Closes in{" "}
         <span
           className={`font-medium tabular-nums ${

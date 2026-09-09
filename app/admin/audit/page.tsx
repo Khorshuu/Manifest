@@ -51,7 +51,10 @@ export default async function AdminAuditPage({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-600">Operations</p>
+        <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
+          <span aria-hidden="true" className="h-px w-8 bg-brass" />
+          Operations
+        </p>
         <h1 className="mt-2 font-display text-h1 text-ink">Audit log</h1>
         <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
           Every administrative change, with who made it. This log is written to
@@ -93,7 +96,7 @@ export default async function AdminAuditPage({
       ) : null}
 
       {entries.length === 0 ? (
-        <div className="border border-blue-300 p-8">
+        <div className="surface-paper rounded-card border border-blue-300 p-8">
           <p className="text-body text-ink">Nothing recorded yet.</p>
           <p className="mt-2 text-meta text-ink/70">
             Entries appear here as soon as an administrative change is made.
@@ -131,7 +134,7 @@ export default async function AdminAuditPage({
           {page > 1 ? (
             <Link
               href={`/admin/audit?${action ? `action=${action}&` : ""}page=${page - 1}`}
-              className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
+              className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
             >
               Previous
             </Link>
@@ -142,7 +145,7 @@ export default async function AdminAuditPage({
           {page < pageCount ? (
             <Link
               href={`/admin/audit?${action ? `action=${action}&` : ""}page=${page + 1}`}
-              className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
+              className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
             >
               Next
             </Link>

@@ -99,10 +99,10 @@ export default async function SearchPage({
             products={products}
             emptyTitle={
               hasActiveFilters(filters)
-                ? "Nothing matches those filters."
+                ? "Nothing matches those filters"
                 : query
-                  ? `Nothing matched “${query}”.`
-                  : "Nothing listed yet."
+                  ? `Nothing matched “${query}”`
+                  : "Nothing listed yet"
             }
             emptyBody={
               hasActiveFilters(filters)
@@ -122,7 +122,7 @@ export default async function SearchPage({
               <li key={category.id}>
                 <Link
                   href={`/categories/${category.slug}`}
-                  className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-3 text-meta text-blue-600 hover:border-blue-500"
+                  className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-3 text-meta border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
                 >
                   {category.name}
                 </Link>

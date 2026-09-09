@@ -93,7 +93,7 @@ export function TwoFactorPanel({ status }: { status: Status }) {
 
         <ul className="grid grid-cols-1 gap-2 font-mono text-body text-ink sm:grid-cols-2">
           {codes.map((code) => (
-            <li key={code} className="border border-blue-300 px-3 py-2">
+            <li key={code} className="rounded-card border border-blue-300 bg-paper px-3 py-2">
               {code}
             </li>
           ))}
@@ -152,7 +152,7 @@ export function TwoFactorPanel({ status }: { status: Status }) {
           apps accept the key typed in by hand.
         </p>
 
-        <div className="border border-blue-300 p-4">
+        <div className="rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)]">
           <p className="text-meta text-ink/70">Setup key</p>
           <p className="mt-1 break-all font-mono text-body text-ink">{secret}</p>
           <p className="mt-3 text-meta text-ink/70">Or this link</p>

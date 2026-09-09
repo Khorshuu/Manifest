@@ -14,7 +14,10 @@ export default async function AdminSettingsPage() {
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-600">Operations</p>
+        <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
+          <span aria-hidden="true" className="h-px w-8 bg-brass" />
+          Operations
+        </p>
         <h1 className="mt-2 font-display text-h1 text-ink">Settings</h1>
         <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
           Staff can read these; only a super admin can change them, and every

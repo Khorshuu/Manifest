@@ -47,7 +47,7 @@ export function ReviewForm({ productId }: { productId: string }) {
 
   if (done) {
     return (
-      <p className="border border-transit-green p-4 text-body text-ink">
+      <p className="rounded-card border border-transit-green bg-transit-green/10 p-4 text-body text-ink">
         Thank you. Your review is with us and appears here once someone has read
         it.
       </p>
@@ -57,7 +57,7 @@ export function ReviewForm({ productId }: { productId: string }) {
   return (
     <form
       onSubmit={submit}
-      className="flex max-w-xl flex-col gap-4 border border-blue-300 p-4"
+      className="flex max-w-xl flex-col gap-4 rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]"
       noValidate
     >
       <h3 className="font-display text-h3 text-ink">Write a review</h3>
@@ -68,7 +68,7 @@ export function ReviewForm({ productId }: { productId: string }) {
           {[5, 4, 3, 2, 1].map((value) => (
             <label
               key={value}
-              className="inline-flex min-h-11 items-center gap-2 rounded-control border border-blue-300 px-3 text-body text-ink"
+              className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-3 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
             >
               <input
                 type="radio"

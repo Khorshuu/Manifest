@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { LinkButton } from "@/components/button";
+import { EmptyState } from "@/components/empty-state";
+import { IconArrowRight, IconManifest, IconStar } from "@/components/icons";
+import { PageHeading } from "@/components/page-heading";
+import { Panel } from "@/components/panel";
 import { StatusBadge } from "@/components/status-badge";
 import { getCurrentUser } from "@/lib/auth";
 import { listOrdersForUser } from "@/lib/orders";
@@ -36,92 +41,126 @@ export default async function AccountPage() {
     listReviewableProducts(user),
   ]);
 
+  const inFlight = orders.filter(
+    (order) =>
+      order.status !== "delivered" &&
+      order.status !== "cancelled" &&
+      order.status !== "refunded",
+  ).length;
+
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-8 md:px-6">
-      <h1 className="font-display text-h1 text-ink">Your orders</h1>
-      <p className="mt-2 text-meta text-ink/70">
-        Signed in as {user.email} ·{" "}
-        <Link href="/account/security" className="text-blue-600 hover:underline">
-          Security
-        </Link>
-      </p>
+    <div className="mx-auto w-full max-w-[960px] px-4 py-10 md:px-6 md:py-12">
+      <PageHeading
+        eyebrow="Your account"
+        title="Your orders"
+        summary={
+          orders.length === 0
+            ? "Everything you order will be tracked here."
+            : `${orders.length} order${orders.length === 1 ? "" : "s"}${
+                inFlight > 0 ? `, ${inFlight} still on the way` : ""
+              }.`
+        }
+        aside={
+          <LinkButton href="/account/security" variant="secondary" size="sm">
+            Security
+          </LinkButton>
+        }
+      />
+
+      <p className="mt-3 text-meta text-ink/70">Signed in as {user.email}</p>
 
       {orders.length === 0 ? (
-        <div className="mt-8 border border-blue-300 p-8">
-          <p className="text-body text-ink">You have not ordered yet.</p>
-          <Link
-            href="/"
-            className="mt-4 inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
-          >
-            Browse products
-          </Link>
-        </div>
+        <EmptyState
+          className="mt-8"
+          icon={<IconManifest size={26} />}
+          title="You have not ordered yet"
+          body="When you preorder something, it appears here with its whole journey — from the batch closing to the courier reaching your door."
+          action={{ href: "/search?available=1", label: "See what is open" }}
+          secondary={{ href: "/orders/lookup", label: "Look up an order" }}
+        />
       ) : (
-        <ul className="mt-8 border-t border-blue-300">
+        <ul className="mt-8 flex flex-col gap-3">
           {orders.map((order) => (
-            <li
-              key={order.id}
-              className="flex flex-wrap items-center justify-between gap-4 border-b border-blue-300 py-4"
-            >
-              <div>
-                <Link
-                  href={`/account/orders/${order.id}`}
-                  className="font-display text-h3 tabular-nums text-blue-600 hover:underline"
-                >
-                  {order.orderNumber}
-                </Link>
-                <p className="text-meta text-ink/70">
-                  Placed {formatDate(order.placedAt)}
-                </p>
-              </div>
+            <li key={order.id}>
+              {/*
+               * The whole row is the link. It was a small blue order number
+               * inside a bare bordered row before, which made the largest
+               * target on the screen — the row — do nothing at all.
+               */}
+              <Link
+                href={`/account/orders/${order.id}`}
+                className="lift group flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)] sm:p-5"
+              >
+                <div className="min-w-0">
+                  <p className="font-display text-h3 tabular-nums text-ink">
+                    {order.orderNumber}
+                  </p>
+                  <p className="text-meta text-ink/70">
+                    Placed {formatDate(order.placedAt)}
+                  </p>
+                </div>
 
-              <div className="flex items-center gap-4">
-                <StatusBadge
-                  tone={
-                    order.status === "delivered"
-                      ? "positive"
-                      : order.status === "cancelled" ||
-                          order.status === "refunded"
-                        ? "negative"
-                        : "preorder"
-                  }
-                >
-                  {STATUS_LABELS[order.status] ?? order.status}
-                </StatusBadge>
-                <span className="tabular-nums text-body text-ink">
-                  {formatBdt(order.totalBdt)}
-                </span>
-              </div>
+                <div className="flex flex-wrap items-center gap-4">
+                  <StatusBadge
+                    tone={
+                      order.status === "delivered"
+                        ? "positive"
+                        : order.status === "cancelled" ||
+                            order.status === "refunded"
+                          ? "negative"
+                          : "preorder"
+                    }
+                  >
+                    {STATUS_LABELS[order.status] ?? order.status}
+                  </StatusBadge>
+
+                  <span className="font-display text-price font-semibold tabular-nums text-ink">
+                    {formatBdt(order.totalBdt)}
+                  </span>
+
+                  <IconArrowRight
+                    size={18}
+                    className="text-blue-500 transition-transform duration-200 ease-[var(--ease-out-quint)] group-hover:translate-x-1"
+                  />
+                </div>
+              </Link>
             </li>
           ))}
         </ul>
       )}
 
       {reviewable.length > 0 ? (
-        <section className="mt-12">
-          <h2 className="font-display text-h2 text-ink">
-            Products you can review
-          </h2>
+        <section className="mt-14">
+          <div className="flex items-baseline gap-3">
+            <IconStar size={20} className="shrink-0 text-brass" />
+            <h2 className="font-display text-h2 text-ink">
+              Products you can review
+            </h2>
+          </div>
           <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
             You are asked only about things that reached you. A review appears
             on the product page once someone here has read it.
           </p>
-          <ul className="mt-4 border-t border-blue-300">
-            {reviewable.map((product) => (
-              <li
-                key={product.productId}
-                className="flex flex-wrap items-center justify-between gap-4 border-b border-blue-300 py-4"
-              >
-                <p className="text-body text-ink">{product.title}</p>
-                <Link
-                  href={`/products/${product.slug}#reviews`}
-                  className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
+
+          <Panel className="mt-5 overflow-hidden">
+            <ul>
+              {reviewable.map((product) => (
+                <li
+                  key={product.productId}
+                  className="flex flex-wrap items-center justify-between gap-4 border-b border-blue-200 px-5 py-4 last:border-b-0"
                 >
-                  Write a review
-                </Link>
-              </li>
-            ))}
-          </ul>
+                  <p className="text-body text-ink">{product.title}</p>
+                  <LinkButton
+                    href={`/products/${product.slug}#reviews`}
+                    variant="secondary"
+                    size="sm"
+                  >
+                    Write a review
+                  </LinkButton>
+                </li>
+              ))}
+            </ul>
+          </Panel>
         </section>
       ) : null}
     </div>

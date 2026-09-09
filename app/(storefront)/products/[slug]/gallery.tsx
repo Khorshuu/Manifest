@@ -26,7 +26,7 @@ export function Gallery({
 
   if (images.length === 0) {
     return (
-      <div className="aspect-square w-full overflow-hidden rounded-card border border-blue-300 bg-blue-50">
+      <div className="surface-studio aspect-square w-full overflow-hidden rounded-card border border-blue-300 shadow-[var(--shadow-raise)]">
         {/* Generated artwork rather than an empty box: a young catalogue
             should still look deliberate. */}
         <ProductArt title={title} seed={slug} className="size-full" />
@@ -38,7 +38,7 @@ export function Gallery({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="media-zoom aspect-square w-full overflow-hidden rounded-card border border-blue-300 bg-blue-50">
+      <div className="media-zoom surface-studio aspect-square w-full overflow-hidden rounded-card border border-blue-300 shadow-[var(--shadow-raise)]">
         {/* Keyed so a change re-runs the fade rather than swapping silently. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -58,10 +58,10 @@ export function Gallery({
                 onClick={() => setIndex(position)}
                 aria-label={`Show ${image.altText}`}
                 aria-current={position === index ? "true" : undefined}
-                className={`overflow-hidden rounded-card border transition-colors duration-150 ${
+                className={`block overflow-hidden rounded-card border transition-[border-color,opacity,box-shadow] duration-150 ${
                   position === index
-                    ? "border-blue-600"
-                    : "border-blue-300 hover:border-blue-500"
+                    ? "border-blue-600 opacity-100 shadow-[var(--shadow-raise)]"
+                    : "border-blue-300 opacity-70 hover:border-blue-500 hover:opacity-100"
                 }`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}

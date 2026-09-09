@@ -57,7 +57,7 @@ export function CancelOrderButton({
 
   if (requestedAt) {
     return (
-      <div className="border border-brass/60 bg-paper-raised p-4">
+      <div className="rounded-card border border-brass/60 bg-paper-raised p-4 shadow-[var(--shadow-raise)]">
         <p className="text-body text-ink">
           You asked us to cancel this order on{" "}
           {new Date(requestedAt).toLocaleDateString()}.

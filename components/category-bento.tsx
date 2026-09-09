@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { IconArrowRight } from "./icons";
 import { Stagger, StaggerItem } from "./motion";
 
 export type BentoCategory = {
@@ -82,7 +83,7 @@ function BentoTile({
   return (
     <Link
       href={`/categories/${category.slug}`}
-      className={`media-zoom group relative flex flex-col justify-end overflow-hidden rounded-card border border-blue-300 bg-ink transition-[border-color,box-shadow,transform] duration-200 ease-[var(--ease-out-quint)] hover:-translate-y-1 hover:border-blue-500 hover:shadow-[var(--shadow-lift)] focus-visible:-translate-y-1 focus-visible:shadow-[var(--shadow-lift)] ${
+      className={`media-zoom lift group relative flex flex-col justify-end overflow-hidden rounded-card border border-blue-300 bg-ink shadow-[var(--shadow-raise)] ${
         lead ? "h-full min-h-[280px]" : "h-full min-h-[150px]"
       }`}
     >
@@ -105,7 +106,7 @@ function BentoTile({
           the tile and the words stay readable at the bottom. */}
       <span
         aria-hidden="true"
-        className="absolute inset-0 bg-gradient-to-t from-ink via-ink/75 to-ink/10"
+        className="absolute inset-0 bg-gradient-to-t from-ink from-[8%] via-ink/60 via-[48%] to-ink/5"
       />
 
       <span className="relative flex flex-col gap-1 p-4">
@@ -116,14 +117,12 @@ function BentoTile({
         </span>
         <span className="text-meta text-paper/75">{subtitle}</span>
 
-        <span className="mt-2 inline-flex items-center gap-2 text-meta text-brass">
+        <span className="mt-2 inline-flex items-center gap-2 text-meta font-medium text-brass">
           Open the shelf
-          <span
-            aria-hidden="true"
+          <IconArrowRight
+            size={16}
             className="transition-transform duration-200 ease-[var(--ease-out-quint)] group-hover:translate-x-1"
-          >
-            →
-          </span>
+          />
         </span>
       </span>
     </Link>

@@ -51,8 +51,14 @@ export function HeaderShell({
       data-scrolled={scrolled ? "true" : "false"}
       className="sticky top-0 z-40 border-b border-ink-deep/20 bg-blue-600 text-paper shadow-[var(--shadow-raise)]"
     >
+      {/*
+       * `flex-wrap` so the search field can take a row of its own on a phone.
+       * Nested inside the actions group it was squeezed to about forty pixels
+       * between the cart icon and the screen edge — a search box you cannot
+       * read your own query in.
+       */}
       <div
-        className={`mx-auto flex w-full max-w-[1280px] items-center gap-3 px-4 transition-[padding] duration-300 ease-[var(--ease-out-quint)] md:gap-6 md:px-6 ${
+        className={`mx-auto flex w-full max-w-[1280px] flex-wrap items-center gap-x-3 gap-y-2 px-4 transition-[padding] duration-300 ease-[var(--ease-out-quint)] md:flex-nowrap md:gap-x-6 md:px-6 ${
           scrolled ? "py-2" : "py-3.5"
         }`}
       >
@@ -94,8 +100,15 @@ export function HeaderShell({
           </span>
         </Link>
 
-        <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-3 md:gap-5">
-          {search}
+        {/*
+         * Both are direct children of the wrapping row, so on a phone the
+         * actions stay beside the wordmark and the search drops to a second
+         * line at full width. From `md` the row stops wrapping and they sit
+         * side by side as before.
+         */}
+        {search}
+
+        <div className="ml-auto flex shrink-0 items-center md:ml-0">
           {actions}
         </div>
       </div>

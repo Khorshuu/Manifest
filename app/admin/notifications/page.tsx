@@ -25,7 +25,10 @@ export default async function AdminNotificationsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-600">Operations</p>
+        <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
+          <span aria-hidden="true" className="h-px w-8 bg-brass" />
+          Operations
+        </p>
         <h1 className="mt-2 font-display text-h1 text-ink">Notifications</h1>
         <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
           Every message the shop has for a customer. A message is written here
@@ -62,7 +65,7 @@ export default async function AdminNotificationsPage() {
       <DrainButton queued={counts.queued} />
 
       {rows.length === 0 ? (
-        <div className="border border-blue-300 p-8">
+        <div className="surface-paper rounded-card border border-blue-300 p-8">
           <p className="text-body text-ink">Nothing to send yet.</p>
           <p className="mt-2 text-meta text-ink/70">
             Messages appear here as soon as an order is placed or moves on.

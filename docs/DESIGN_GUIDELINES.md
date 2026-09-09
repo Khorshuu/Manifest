@@ -86,8 +86,24 @@ for emphasis instead.
 - Radius: two values only. `4px` for buttons/inputs/small controls, `2px` for cards/images
   (barely-rounded, closer to a printed document corner than a soft app card). Never fully
   pill-shaped buttons.
-- Borders over shadows: 1px `blue-300` is the default separator between sections, table rows,
-  and card edges.
+- Borders first: 1px `blue-300` is the default separator between sections, table rows, and card
+  edges. Shadow is added on top of the border, never instead of it.
+
+### Depth
+The original brief said borders and never shadows. That produced a page where nothing had any
+hierarchy, so there is now a four-step scale, defined once in `app/globals.css` and referenced
+by token everywhere. It stays cool-toned and tight rather than the soft grey blur that makes
+every card look the same.
+
+| Token | Where |
+|---|---|
+| `--shadow-raise` | The resting state of any card, panel, table or tile. |
+| `--shadow-lift` | What a card moves to under the pointer, and the resting state of a panel that carries the main action on a screen (a cart or checkout summary). |
+| `--shadow-float` | Things genuinely above the page: the hero photograph, a search dropdown. At most one per screen. |
+| `--shadow-brass` | The call to action on hover, and nothing else. |
+
+Depth carries hierarchy: only things that lift get a shadow, and the amount says how far. Two
+elements at `float` on one screen means neither is floating.
 
 ### Signature pattern: photography-led hero
 Full-bleed product photography on the right half of the hero, headline set in Fraunces on the
@@ -130,11 +146,58 @@ Square-cornered (2px radius) badges with a 1px border in the semantic color and 
 same color on a transparent/paper background — not solid filled pills. E.g. "Preorder open" in
 brass outline, "Sold out" in stamp-red outline, "Delivered" in transit-green outline.
 
+## Shared components
+
+Anything that appears on more than one screen is defined once. This section exists because it
+was not true: at one point 41 separate places hand-wrote
+`inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 …`, and they
+quietly disagreed about padding, weight, hover and press. That inconsistency, more than any
+single screen, is what made the quieter pages look unfinished beside the storefront.
+
+| Component | Use it for |
+|---|---|
+| `components/button.tsx` | `Button` for actions, `LinkButton` for links that read as buttons. Four variants (`primary`, `secondary`, `quiet`, `danger`), three sizes. `buttonClass()` exports the recipe for the rare case that needs a bare element. Never hand-write a control. |
+| `components/panel.tsx` | `Panel` is the boxed surface — card radius, border, optional depth. `SectionHeading` is the brass-ruled heading for a band inside a page. |
+| `components/page-heading.tsx` | The `h1` version of the same heading. One per page. |
+| `components/empty-state.tsx` | Every "there is nothing here" on the site: a drawn mark, a title, a sentence saying why, and a way out. |
+| `components/icons.tsx` | The whole icon set. 24×24 grid, 1.5 stroke, `currentColor`, decorative unless given a `title`. |
+| `components/skeleton.tsx` | Loading states, shaped like the content they stand in for. |
+| `components/status-badge.tsx` | Any status. Outlined, never a filled pill. |
+
+### Icons
+Single-line, drawn in `components/icons.tsx` rather than pulled from a library: they cost
+nothing at runtime against the JavaScript budget, they carry the shipping-document identity
+(square corners, ruled lines, a customs seal) instead of a generic app language, and one file
+guarantees the stroke width, cap and grid are identical everywhere.
+
+Never use a typographic character as an icon — `→`, `←`, `★` and `·` render at a different
+weight in every face and were the one place the icon language came from the typeface. Never use
+an emoji.
+
 ## Motion
-One deliberate moment only: when an order status advances, the new checkpoint square fills in
-with a brief (200ms) stamp-down animation (scale 1.15 → 1, opacity fade). No scroll-triggered
-fade-ups on every section, no hover-lift on every card. Buttons get a simple 100ms background
-transition on press; that's it.
+
+The original brief allowed exactly one animated moment on the whole site. The product owner
+looked at the result and rejected it as generic, so the brief is overridden: movement, hover
+states, sliders and countdowns are wanted. Two constraints did *not* move and are not
+negotiable — every page keeps passing the axe audit at AA, and everything here is switched off
+by `prefers-reduced-motion`, which for some people is the difference between a usable page and
+nausea.
+
+- **Entrances** come from `components/motion.tsx`. An entrance may never be the reason something
+  cannot be read: it hides only what is genuinely below the fold, plays once, and touches
+  nothing at all when reduced motion is asked for.
+- **The pointer is always answered.** `.lift` is the one definition for a surface that responds
+  — a catalogue card, an order row, an admin tile all move by the same amount. Under reduced
+  motion the border and shadow still change; only the movement goes.
+- **Presses land on the first frame.** Every control sinks slightly (`active:scale-[0.985]`),
+  in CSS, so it does not wait for JavaScript.
+- **Loud moments are rationed.** The split-flap countdown, the hero, and the stamp when an order
+  status advances. Three on the whole site; a fourth would make all four read as decoration.
+- **Continuous motion must be stoppable** and reachable without a pointer (WCAG 2.2.2) — see the
+  manifest strip's Hold button.
+- Prefer CSS. Framer Motion is imported only where a spring or an exit animation genuinely earns
+  it (cart line removal, the hero slide change), because the home page is measured against a
+  200KB gzipped JavaScript budget.
 
 ## Voice & copy
 - Plain, direct, active voice. "Track your order," not "Order Tracking Portal."

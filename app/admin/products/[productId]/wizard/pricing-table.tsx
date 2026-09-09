@@ -144,7 +144,7 @@ export function PricingTable({
 
   if (variants.length === 0) {
     return (
-      <div className="border border-blue-300 p-6">
+      <div className="rounded-card border border-blue-300 bg-paper p-6 shadow-[var(--shadow-raise)]">
         <p className="text-body text-ink">There is nothing to price yet.</p>
         <p className="mt-2 text-meta text-ink/70">
           Go back a step and generate the variants first.
@@ -157,7 +157,7 @@ export function PricingTable({
     <div className="flex min-w-0 flex-col gap-8">
       <form
         onSubmit={applyPriceToAll}
-        className="flex flex-wrap items-end gap-3 border border-blue-300 p-4"
+        className="flex flex-wrap items-end gap-3 rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)]"
       >
         <div className="flex flex-col gap-1">
           <label htmlFor="bulkPrice" className="text-meta font-medium text-ink">
@@ -185,7 +185,7 @@ export function PricingTable({
           const state = rows[variant.id];
 
           return (
-            <li key={variant.id} className="min-w-0 border border-blue-300 p-4">
+            <li key={variant.id} className="lift min-w-0 rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)]">
               <form onSubmit={(event) => saveRow(variant.id, event)} noValidate>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <h3 className="font-display text-h3 text-ink">
@@ -326,7 +326,7 @@ export function PricingTable({
       <div>
         <a
           href={nextHref}
-          className="inline-flex min-h-11 items-center rounded-control bg-brass px-4 text-body font-medium text-ink"
+          className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body surface-brass sheen text-ink shadow-[var(--shadow-raise)] hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04]"
         >
           Continue
         </a>

@@ -57,7 +57,7 @@ test("the cart is emptied once the order is placed", async ({ page }) => {
   await page.waitForURL(/\/checkout\/confirmation/);
 
   await page.goto("/cart");
-  await expect(page.getByText("Your cart is empty.")).toBeVisible();
+  await expect(page.getByText("Your cart is empty")).toBeVisible();
 });
 
 /**
@@ -190,8 +190,10 @@ test("removing the last item returns the empty state", async ({ page }) => {
   await page.getByRole("button", { name: "Remove" }).click();
   await removed;
 
-  await expect(page.getByText("Your cart is empty.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Browse products" })).toBeVisible();
+  await expect(page.getByText("Your cart is empty")).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "See what is open" }),
+  ).toBeVisible();
 });
 
 test("an order can be tracked with its number and email", async ({ page }) => {
@@ -235,6 +237,6 @@ test("tracking needs the right email, not just the order number", async ({
   );
 
   await expect(
-    page.getByText("We could not find an order with those details."),
+    page.getByText("We could not find that order"),
   ).toBeVisible();
 });

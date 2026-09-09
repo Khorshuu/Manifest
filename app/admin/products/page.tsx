@@ -34,19 +34,22 @@ export default async function AdminProductsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-meta text-blue-600">Catalog</p>
+          <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
+          <span aria-hidden="true" className="h-px w-8 bg-brass" />
+          Catalog
+        </p>
           <h1 className="mt-2 font-display text-h1 text-ink">Products</h1>
         </div>
         <Link
           href="/admin/products/new"
-          className="inline-flex min-h-11 items-center rounded-control bg-brass px-4 text-body font-medium text-ink"
+          className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body surface-brass sheen text-ink shadow-[var(--shadow-raise)] hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04]"
         >
           Add product
         </Link>
       </div>
 
       {rows.length === 0 ? (
-        <div className="border border-blue-300 p-8 text-center">
+        <div className="surface-paper rounded-card border border-blue-300 p-8 text-center">
           <p className="text-body text-ink">No products yet.</p>
           <p className="mt-2 text-meta text-ink/70">
             Add your first listing to start taking preorders.
@@ -60,7 +63,7 @@ export default async function AdminProductsPage() {
         </div>
       ) : (
         /* The manifest table: bordered ledger, zebra rows, numbers right-aligned */
-        <div className="overflow-x-auto border border-blue-300">
+        <div className="overflow-x-auto rounded-card border border-blue-300 shadow-[var(--shadow-raise)]">
           <table className="w-full min-w-[640px] border-collapse text-body">
             <thead>
               <tr className="bg-paper text-left">

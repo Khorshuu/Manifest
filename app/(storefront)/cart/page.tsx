@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { EmptyState } from "@/components/empty-state";
+import { IconCart } from "@/components/icons";
+import { PageHeading } from "@/components/page-heading";
 import { getCartView } from "@/lib/cart";
 import { findCartId } from "@/lib/cart/session";
 import { CartLines } from "./cart-lines";
@@ -15,24 +17,34 @@ export default async function CartPage() {
   const cartId = await findCartId();
   const cart = cartId ? await getCartView(cartId) : null;
 
+  const lineCount = cart?.lines.length ?? 0;
+  const itemCount =
+    cart?.lines.reduce((total, line) => total + line.quantity, 0) ?? 0;
+
   return (
-    <div className="mx-auto w-full max-w-[1280px] px-4 py-8 md:px-6">
-      <h1 className="font-display text-h1 text-ink">Your cart</h1>
+    <div className="mx-auto w-full max-w-[1280px] px-4 py-10 md:px-6 md:py-12">
+      <PageHeading
+        eyebrow="Your basket"
+        title="Your cart"
+        summary={
+          lineCount === 0
+            ? "Nothing here yet."
+            : `${itemCount} item${itemCount === 1 ? "" : "s"} across ${lineCount} line${
+                lineCount === 1 ? "" : "s"
+              }. Every price already carries shipping and customs duty.`
+        }
+      />
 
       {!cart || cart.lines.length === 0 ? (
         /* An empty cart links somewhere, never to nowhere. */
-        <div className="mt-8 border border-blue-300 p-8">
-          <p className="text-body text-ink">Your cart is empty.</p>
-          <p className="mt-2 max-w-[60ch] text-meta text-ink/70">
-            Browse the open preorders and add something you cannot get locally.
-          </p>
-          <Link
-            href="/"
-            className="mt-4 inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
-          >
-            Browse products
-          </Link>
-        </div>
+        <EmptyState
+          className="mt-8 max-w-[720px]"
+          icon={<IconCart size={26} />}
+          title="Your cart is empty"
+          body="Browse the open preorders and add something you cannot get locally. Nothing is charged until you check out, and nothing is bought until the batch closes."
+          action={{ href: "/search?available=1", label: "See what is open" }}
+          secondary={{ href: "/", label: "Back to the shop" }}
+        />
       ) : (
         <div className="mt-8">
           <CartLines
@@ -47,6 +59,10 @@ export default async function CartPage() {
               unitPriceBdt: line.unitPriceBdt,
               lineTotalBdt: line.lineTotalBdt,
               problem: line.problem,
+              fulfillmentMode: line.fulfillmentMode,
+              paymentMode: line.paymentMode,
+              depositPercent: line.depositPercent,
+              available: line.available,
             }))}
             subtotalBdt={cart.subtotalBdt}
             dueNowBdt={cart.dueNowBdt}

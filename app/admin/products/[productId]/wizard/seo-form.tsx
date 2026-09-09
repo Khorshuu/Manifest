@@ -93,7 +93,7 @@ export function SeoForm({
         </p>
       </div>
 
-      <section aria-label="Search result preview" className="border border-blue-300 p-4">
+      <section aria-label="Search result preview" className="rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)]">
         <p className="text-meta text-ink/70">Preview</p>
         <p className="mt-2 truncate text-body text-blue-600">{shownTitle}</p>
         <p className="text-meta text-transit-green-text">/products/{product.slug}</p>

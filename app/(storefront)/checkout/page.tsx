@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { addresses } from "@/db/schema";
+import { CheckoutSteps } from "@/components/checkout-steps";
+import { EmptyState } from "@/components/empty-state";
+import { IconAlert } from "@/components/icons";
+import { PageHeading } from "@/components/page-heading";
 import { getCurrentUser } from "@/lib/auth";
 import { getCartView } from "@/lib/cart";
 import { findCartId } from "@/lib/cart/session";
@@ -33,26 +36,23 @@ export default async function CheckoutPage() {
     : [];
 
   return (
-    <div className="mx-auto w-full max-w-[1280px] px-4 py-8 md:px-6">
-      <p className="text-meta text-blue-600">
-        <Link href="/cart" className="hover:underline">
-          Cart
-        </Link>
-      </p>
-      <h1 className="mt-2 font-display text-h1 text-ink">Checkout</h1>
+    <div className="mx-auto w-full max-w-[1280px] px-4 py-10 md:px-6 md:py-12">
+      <PageHeading
+        eyebrow="Almost there"
+        title="Checkout"
+        summary="Where it goes and how you pay. The price you see is the price you pay — the courier asks for nothing at the door."
+      />
+
+      <CheckoutSteps current="details" />
 
       {cart.hasProblems ? (
-        <div className="mt-6 border border-stamp-red p-5">
-          <p className="text-body text-ink">
-            Some items in your cart changed. Review them before continuing.
-          </p>
-          <Link
-            href="/cart"
-            className="mt-3 inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
-          >
-            Back to cart
-          </Link>
-        </div>
+        <EmptyState
+          className="mt-8 max-w-[720px]"
+          icon={<IconAlert size={26} />}
+          title="Some items changed"
+          body="A batch closed or filled up while these were in your cart. Review them and they can go through."
+          action={{ href: "/cart", label: "Back to cart" }}
+        />
       ) : (
         <div className="mt-8">
           <CheckoutForm
@@ -67,6 +67,15 @@ export default async function CheckoutPage() {
               label: `${address.recipientName}, ${address.addressLine1}, ${address.city}`,
             }))}
             defaultEmail={user?.email ?? ""}
+            lines={cart.lines.map((line) => ({
+              itemId: line.itemId,
+              title: line.productTitle,
+              optionSummary: line.optionSummary,
+              quantity: line.quantity,
+              lineTotalBdt: line.lineTotalBdt,
+              imageUrl: line.imageUrl,
+              slug: line.productSlug,
+            }))}
           />
         </div>
       )}

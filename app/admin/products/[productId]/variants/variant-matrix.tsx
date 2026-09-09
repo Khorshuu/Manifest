@@ -246,10 +246,10 @@ export function VariantMatrix({
             No variants yet. Generate them from the attributes above.
           </p>
         ) : (
-          <div className="overflow-x-auto border border-blue-300">
+          <div className="overflow-x-auto rounded-card border border-blue-300 shadow-[var(--shadow-raise)]">
             <table className="w-full min-w-[720px] border-collapse text-body">
               <thead>
-                <tr className="text-left">
+                <tr className="bg-paper-raised text-left">
                   <th scope="col" className="px-4 py-3 text-meta font-medium">
                     <span className="sr-only">Select</span>
                   </th>

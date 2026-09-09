@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { IconCheck } from "@/components/icons";
+import { Stagger, StaggerItem } from "@/components/motion";
 import { ProductCard } from "@/components/product-card";
 import {
   findCategoryPath,
@@ -216,60 +218,75 @@ export default async function ProductPage({
         arrivesTo={variants[0]?.estimatedArrivalTo ?? null}
       />
 
-      <div className="mt-12 grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:items-start">
-      {bullets.length > 0 ? (
-        <section className="max-w-[62ch]">
-          <h2 className="font-display text-h2 text-ink">What you get</h2>
-          <ul className="mt-4 flex flex-col gap-2">
-            {bullets.map((bullet) => (
-              <li key={bullet} className="text-body text-ink/80">
-                {bullet}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {product.descriptionHtml ? (
-        <section className="max-w-[62ch]">
-          <h2 className="font-display text-h2 text-ink">Description</h2>
-          <div
-            className="mt-4 text-body text-ink/80"
-            /* Authored by staff only — customers cannot create listings. */
-            dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
-          />
-        </section>
-      ) : null}
-
-      {specs.length > 0 ? (
-        <section className="lg:sticky lg:top-6">
-          <h2 className="font-display text-h2 text-ink">Specifications</h2>
-          {/* The manifest table, reused from the admin side */}
-          <div className="mt-4 max-w-[640px] overflow-x-auto border border-ink/15">
-            <table className="w-full border-collapse text-body">
-              <tbody>
-                {specs.map((spec, index) => (
-                  <tr
-                    key={spec.label}
-                    className={index % 2 === 1 ? "bg-blue-200/40" : undefined}
+      {/*
+       * Two columns, each with its own contents — not three sections dropped
+       * into a two-column grid, which is what this was. In that arrangement
+       * the description landed in the narrow right column and the
+       * specifications wrapped to a second row, leaving most of the right-hand
+       * side of the page blank.
+       */}
+      <div className="mt-12 grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-10">
+          {bullets.length > 0 ? (
+            <section className="max-w-[62ch]">
+              <h2 className="font-display text-h2 text-ink">What you get</h2>
+              <ul className="mt-4 flex flex-col gap-3">
+                {bullets.map((bullet) => (
+                  <li
+                    key={bullet}
+                    className="flex items-start gap-3 text-body text-ink/80"
                   >
-                    <th
-                      scope="row"
-                      className="border-b border-blue-300 px-4 py-3 text-left text-meta font-medium text-ink/70"
-                    >
-                      {spec.label}
-                    </th>
-                    <td className="border-b border-blue-300 px-4 py-3 text-ink">
-                      {spec.value}
-                    </td>
-                  </tr>
+                    <IconCheck
+                      size={18}
+                      className="mt-1 shrink-0 text-transit-green-text"
+                    />
+                    {bullet}
+                  </li>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
+              </ul>
+            </section>
+          ) : null}
 
+          {product.descriptionHtml ? (
+            <section className="max-w-[62ch]">
+              <h2 className="font-display text-h2 text-ink">Description</h2>
+              <div
+                className="mt-4 text-body text-ink/80"
+                /* Authored by staff only — customers cannot create listings. */
+                dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
+              />
+            </section>
+          ) : null}
+        </div>
+
+        {specs.length > 0 ? (
+          <section className="min-w-0 lg:sticky lg:top-28">
+            <h2 className="font-display text-h2 text-ink">Specifications</h2>
+            {/* The manifest table, reused from the admin side */}
+            <div className="mt-4 overflow-hidden rounded-card border border-ink/15 shadow-[var(--shadow-raise)]">
+              <table className="w-full border-collapse text-body">
+                <tbody>
+                  {specs.map((spec, index) => (
+                    <tr
+                      key={spec.label}
+                      className={index % 2 === 1 ? "bg-blue-200/40" : undefined}
+                    >
+                      <th
+                        scope="row"
+                        className="border-b border-blue-300 px-4 py-3 text-left text-meta font-medium text-ink/70 last:border-b-0"
+                      >
+                        {spec.label}
+                      </th>
+                      <td className="border-b border-blue-300 px-4 py-3 text-ink last:border-b-0">
+                        {spec.value}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
       </div>
 
       <ReviewsSection
@@ -285,13 +302,48 @@ export default async function ProductPage({
       />
 
       {related.length > 0 ? (
-        <section className="mt-14">
-          <h2 className="font-display text-h2 text-ink">Also in this category</h2>
-          <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {related.map((item) => (
-              <ProductCard key={item.id} product={item} />
-            ))}
+        <section className="mt-16 border-t border-ink/15 pt-10">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
+                <span aria-hidden="true" className="h-px w-8 bg-brass" />
+                Same shelf
+              </p>
+              <h2 className="mt-2 font-display text-h1 text-ink">
+                Also in this category
+              </h2>
+            </div>
+
+            {breadcrumb.at(-1) ? (
+              <Link
+                href={`/categories/${breadcrumb.at(-1)!.slug}`}
+                className="text-meta text-blue-600 underline-offset-4 hover:underline"
+              >
+                Everything in {breadcrumb.at(-1)!.name}
+              </Link>
+            ) : null}
           </div>
+
+          {/*
+           * The column count follows the number of cards. A three-card row in
+           * a four-column grid leaves a gap the width of a card, which reads
+           * as a listing that failed to load rather than a short one.
+           */}
+          <Stagger
+            className={`mt-8 grid grid-cols-2 gap-3 sm:gap-5 ${
+              related.length >= 4
+                ? "lg:grid-cols-4"
+                : related.length === 3
+                  ? "lg:grid-cols-3"
+                  : "lg:grid-cols-2"
+            }`}
+          >
+            {related.map((item) => (
+              <StaggerItem key={item.id} className="h-full">
+                <ProductCard product={item} />
+              </StaggerItem>
+            ))}
+          </Stagger>
         </section>
       ) : null}
     </div>

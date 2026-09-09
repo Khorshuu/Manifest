@@ -1050,3 +1050,131 @@ causes, all self-inflicted:
 Carried forward: the cart, checkout, confirmation and account screens have not
 had the design treatment the storefront pages got, and admin has no mobile
 navigation, which `CLAUDE.md` section 8 asks for.
+
+## Whole-product visual pass (added after Phase 15)
+
+The storefront had been through two design passes; the screens behind it had
+not. The gap carried forward at the end of the last session — "the cart,
+checkout, confirmation and account screens have not had the design treatment
+the storefront pages got, and admin has no mobile navigation" — was the whole
+of the problem, and it had a single cause rather than seven.
+
+### What was actually wrong
+
+**There was no component layer.** Forty-one separate places hand-wrote
+`inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4
+text-body text-blue-600` to mean "a link that is a button", and they disagreed
+about padding, weight, hover and press. Every boxed surface on the site was an
+ad-hoc `border border-blue-300 p-8` with no radius and no depth. Every empty
+state was a bare rectangle with a sentence in it, visually indistinguishable
+from a page that had failed to load. There were no icons at all — the design
+guidelines ask for thin line icons and the only ones on the site were the
+typographic characters `→`, `←` and `★`, which render at a different weight in
+every face.
+
+So the fix was a shared layer first, and screens second:
+
+- `components/icons.tsx` — the icon set. 24×24, 1.5 stroke, `currentColor`,
+  decorative unless given a title. Hand-drawn rather than a dependency: it
+  costs nothing against the JavaScript budget and the shapes carry the
+  shipping-document identity rather than a generic app language.
+- `components/button.tsx` — `Button` and `LinkButton` over one recipe, four
+  variants, three sizes, 44px minimum on all of them.
+- `components/panel.tsx` — `Panel` and `SectionHeading`.
+- `components/empty-state.tsx` — every "nothing here" on the site.
+- `components/skeleton.tsx` — loading states shaped like the content.
+- `components/checkout-steps.tsx` — where you are in buying something.
+
+`docs/DESIGN_GUIDELINES.md` gained a **Shared components** section and a
+**Depth** table recording the four-step shadow scale, and its Motion section
+was rewritten: it still described the single-animated-moment brief that the
+product owner overrode two sessions ago.
+
+### Screens rebuilt
+
+| Screen | What changed |
+| --- | --- |
+| Cart | Page heading treatment, line cards with the fulfilment mode and deposit stated per line, a quantity stepper, a floating summary with the assurances beside the button, a real empty state. |
+| Checkout | A step indicator, the three sections numbered and panelled, payment methods as selectable cards, the order lines shown in the summary, and the error given focus on a failed submit. |
+| Confirmation | The order number as the object of the page, a stamped success mark, and what happens next in three stages. |
+| Account and order detail | Order rows became cards where the whole row is the link, with the address and totals panelled. |
+| Order lookup | The heading treatment, shared fields, and the "not found" case as a real empty state rather than a grey box. |
+| Sign in | Was a form floating on a blank white page with no header, no footer and no colour — the least trustworthy thing to show someone about to type a password. Now a branded split panel that stacks on a phone. |
+| 404 and errors | There were none, so a bad product link landed on the framework's own black-and-white page. Now `app/(storefront)/not-found.tsx`, `app/not-found.tsx`, and error boundaries for the storefront and admin. |
+| Admin | A proper navigation shell: ten links wrapped into three rows on a phone and had no menu at all. The sections now have a row of their own on desktop with the current one marked, and collapse behind a button below `md`. Tables, tiles, panels and empty states brought onto the shared components. |
+
+### Two layout defects fixed
+
+**The product page had a hole in it.** Three sections — bullets, description,
+specifications — were dropped into a two-column grid, so the description landed
+in the narrow right column and the specifications wrapped to a second row,
+leaving most of the right-hand side of the page blank. They are two columns
+with contents now.
+
+**The dark process band was half empty.** The three steps occupied the left
+half of a full-bleed section and nothing occupied the right. It now carries a
+drawn waybill — which deliberately shows **no figures**, because a decorative
+document with plausible numbers on it is indistinguishable from a real quote,
+and CLAUDE.md section 7 does not allow a number that did not come from a query.
+
+**The mobile header search was unusable.** Nested inside the actions group it
+was squeezed to about forty pixels between the cart icon and the screen edge.
+The header row wraps now, so search takes a line of its own below `md`.
+
+### What the suite caught, and why it was right to
+
+The end-to-end run found six real regressions in this pass. They are worth
+recording because five of them are the same mistake: **a visual change that
+quietly altered what an element is called.**
+
+**The admin bar failed the accessibility audit.** Marking the current section
+by making the others fainter put white at 75–85% opacity on `blue-600`.
+Measured, that is 3.61:1 to 4.20:1 — every one of them below the 4.5:1 floor,
+and none of it visible to the eye as a problem. Only full `paper` clears it
+(5.17:1), so the current section is marked by weight and a brass underline
+instead, and nothing on that bar is translucent any more.
+
+**Sign out went behind the menu.** Tidying the admin bar moved it into the
+collapsed section list on a phone, so the one control an operator on a shared
+machine needs to find immediately was invisible until they opened a menu. It
+is back in the bar at every width.
+
+**The payment radio stopped being a radio.** Making the method cards the
+control meant hiding the input with `sr-only`, which leaves an element with no
+box — so nothing aiming at the radio itself could act on it. It is a
+transparent overlay across the card now: same appearance, still a real radio.
+
+**Every required field was renamed.** Adding a required marker inside the
+`<label>` changed each field's accessible name — "Email" became "Email *" —
+because a label's text *is* the field's name. The mark sits beside the label
+now, and the `required` attribute does the announcing, which it always did.
+
+**"Cart" and "Account" lost their words.** Reducing them to icons below `sm`
+made the links' names the screen-reader sentence rather than the word, and an
+icon-only navigation item is the one thing every guideline in the design data
+warns against. Icon and label, at every width.
+
+**One test was passing for the wrong reason.** `getByText("admin@example.com")`
+had been matching the operator's identity in the admin chrome rather than the
+row in the staff table, so it would have passed on any page at all. It is
+scoped to `main` now and asserts what it says it does.
+
+Four assertions were updated rather than fixed, all of them naming copy that
+was deliberately rewritten — the cart and listing empty states, and the "we
+could not find that order" message. Each still asserts the same behaviour.
+
+### Verification
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 554 passed, 2 skipped, 36 files |
+| `npm run test:e2e` | `[x]` passes — mobile and desktop |
+| Axe at AA | `[x]` passes — `e2e/accessibility.spec.ts` over every storefront and admin screen, including the four admin pages the contrast regression above broke |
+| Screens inspected | `[x]` home, catalogue, category, product, cart, checkout, confirmation, account, order lookup, sign-in, 404, and five admin screens, at 1440px and 390px |
+
+Nothing in this pass touched an API route, a query, a schema or a business
+rule. The changes are markup, class names, three new presentational components
+and the shared component layer above.

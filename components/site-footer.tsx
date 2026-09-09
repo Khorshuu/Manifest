@@ -1,4 +1,11 @@
 import Link from "next/link";
+import {
+  IconArrowRight,
+  IconPlane,
+  IconSeal,
+  IconTruck,
+  IconUser,
+} from "./icons";
 
 /**
  * The footer, laid out as the foot of a form: the promise on the left, the
@@ -9,34 +16,62 @@ import Link from "next/link";
  */
 
 const HELP = [
-  { href: "/orders/lookup", label: "Track an order" },
-  { href: "/search?available=1", label: "What can be bought now" },
-  { href: "/account", label: "Your account" },
+  { href: "/orders/lookup", label: "Track an order", icon: IconTruck },
+  { href: "/search?available=1", label: "What can be bought now", icon: IconPlane },
+  { href: "/account", label: "Your account", icon: IconUser },
+];
+
+const HOW = [
+  "Nothing is bought until the window closes.",
+  "Cancel for a full refund until we buy it.",
+  "Duty is paid by us, in advance.",
 ];
 
 export function SiteFooter() {
   return (
     <footer className="surface-paper mt-16 border-t border-ink/15">
-      <div className="mx-auto grid w-full max-w-[1280px] gap-10 px-4 py-12 md:grid-cols-[1.5fr_1fr_1fr] md:px-6">
+      <div className="mx-auto grid w-full max-w-[1280px] gap-10 px-4 py-14 md:grid-cols-[1.5fr_1fr_1fr] md:px-6">
         <div>
-          <p className="font-display text-h3 text-ink">Manifest</p>
-          <p className="mt-3 max-w-[46ch] text-meta text-ink/70">
+          <p className="flex items-baseline gap-2 font-display text-h2 tracking-tight text-ink">
+            Manifest
+            <span
+              aria-hidden="true"
+              className="text-meta uppercase tracking-[0.2em] text-ink/60"
+            >
+              BD
+            </span>
+          </p>
+          <p className="mt-4 max-w-[46ch] text-meta text-ink/70">
             American products sourced to order and delivered in Bangladesh.
             Every price includes shipping and customs duty, so the amount you
             see is the amount you pay.
           </p>
+
+          <Link
+            href="/search?available=1"
+            className="mt-6 inline-flex items-center gap-2 text-meta font-medium text-blue-600 underline-offset-4 hover:underline"
+          >
+            See every open window
+            <IconArrowRight size={16} />
+          </Link>
         </div>
 
         <div>
-          <h2 className="text-meta font-medium text-ink">Help</h2>
-          <ul className="mt-3 flex flex-col gap-2">
-            {HELP.map((link) => (
-              <li key={link.href}>
+          <h2 className="text-meta font-medium uppercase tracking-[0.14em] text-ink">
+            Help
+          </h2>
+          <ul className="mt-4 flex flex-col gap-1">
+            {HELP.map(({ href, label, icon: Glyph }) => (
+              <li key={href}>
                 <Link
-                  href={link.href}
-                  className="text-meta text-ink/70 hover:text-ink hover:underline"
+                  href={href}
+                  className="group inline-flex min-h-9 items-center gap-2.5 text-meta text-ink/70 transition-colors hover:text-ink"
                 >
-                  {link.label}
+                  <Glyph
+                    size={17}
+                    className="shrink-0 text-blue-400 transition-colors group-hover:text-blue-600"
+                  />
+                  <span className="link-draw">{label}</span>
                 </Link>
               </li>
             ))}
@@ -44,11 +79,16 @@ export function SiteFooter() {
         </div>
 
         <div>
-          <h2 className="text-meta font-medium text-ink">How preordering works</h2>
-          <ul className="mt-3 flex flex-col gap-2 text-meta text-ink/70">
-            <li>Nothing is bought until the window closes.</li>
-            <li>Cancel for a full refund until we buy it.</li>
-            <li>Duty is paid by us, in advance.</li>
+          <h2 className="text-meta font-medium uppercase tracking-[0.14em] text-ink">
+            How preordering works
+          </h2>
+          <ul className="mt-4 flex flex-col gap-2.5">
+            {HOW.map((line) => (
+              <li key={line} className="flex items-start gap-2.5 text-meta text-ink/70">
+                <IconSeal size={16} className="mt-0.5 shrink-0 text-blue-400" />
+                {line}
+              </li>
+            ))}
           </ul>
         </div>
       </div>

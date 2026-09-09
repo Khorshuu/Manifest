@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { IconArrowLeft } from "@/components/icons";
 import Link from "next/link";
 import { getCategoryTree, type CategoryNode } from "@/lib/catalog";
 import { ProductForm } from "./product-form";
@@ -21,16 +22,18 @@ export default async function NewProductPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-600">
-          <Link href="/admin/products" className="hover:underline">
-            Products
-          </Link>
-        </p>
+        <Link
+          href="/admin/products"
+          className="inline-flex items-center gap-2 text-meta text-blue-600 underline-offset-4 hover:underline"
+        >
+          <IconArrowLeft size={16} />
+          Products
+        </Link>
         <h1 className="mt-2 font-display text-h1 text-ink">Add product</h1>
       </div>
 
       {categories.length === 0 ? (
-        <div className="border border-blue-300 p-6">
+        <div className="rounded-card border border-blue-300 bg-paper p-6 shadow-[var(--shadow-raise)]">
           <p className="text-body text-ink">
             Add a category before adding a product.
           </p>

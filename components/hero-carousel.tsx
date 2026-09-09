@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CapacityMeter } from "./capacity-meter";
 import { Countdown } from "./countdown";
-import { HeroFlightPath } from "./hero-flightpath";
+import { HeroBackdrop } from "./hero-backdrop";
+import { IconArrowLeft, IconArrowRight } from "./icons";
 import { ProductArt } from "./product-art";
 
 export type HeroSlide = {
@@ -109,26 +110,31 @@ export function HeroCarousel({
       onKeyDown={onKeyDown}
     >
       {/*
-        The living ground: shipments crossing from the United States and
-        landing in Dhaka. It replaces a still ruled grid which fitted the
-        identity and held nobody's attention, which is the one thing a hero has
-        to do.
+        Layered depth: an oversized destination wordmark, two drifting colour
+        fields, a raking light and the route, each moving at its own rate
+        against the pointer.
       */}
-      <HeroFlightPath />
+      <HeroBackdrop />
 
       {/*
-        A scrim between the animation and the words. The canvas is faint enough
-        not to move the measured contrast on its own; this guarantees it rather
-        than trusting it, so the headline always sits on ink rather than on
-        whatever happened to be passing underneath it.
+        A scrim between the backdrop and the words. The layers behind are bright
+        by design, so this is what guarantees the headline keeps its measured
+        contrast rather than depending on where an orb happens to have drifted.
       */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_80%_at_18%_50%,rgba(10,21,38,0.92),rgba(10,21,38,0.55)_45%,transparent_75%)]"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(62%_72%_at_20%_50%,rgba(10,21,38,0.86),rgba(10,21,38,0.34)_52%,transparent_78%)]"
       />
 
-      <div className="relative mx-auto grid w-full max-w-[1280px] items-center gap-10 px-4 py-14 md:grid-cols-[1.05fr_1fr] md:px-6 md:py-20">
-        <div className="flex min-w-0 flex-col gap-6">
+      {/*
+        Bounded to the viewport. At 1920×1080 with the browser at its default
+        zoom the hero used to run past the fold and the thumbnail strip fell off
+        the bottom — it only fitted at 80%. The padding and rhythm here, and the
+        media column's height cap below, are what keep the whole panel on one
+        screen at 100%.
+      */}
+      <div className="relative mx-auto grid w-full max-w-[1280px] items-center gap-8 px-4 py-10 md:grid-cols-[1.05fr_1fr] md:px-6 md:py-10">
+        <div className="flex min-w-0 flex-col gap-4">
           <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass">
             <span aria-hidden="true" className="h-px w-10 bg-brass" />
             Ordering is open for this batch
@@ -140,7 +146,7 @@ export function HeroCarousel({
            * can arrive in sequence; the sentence is a single heading to a
            * screen reader either way.
            */}
-          <h1 className="text-gradient-paper max-w-[15ch] font-display text-[clamp(2.5rem,6.2vw,4.5rem)] font-medium leading-[1.02] tracking-[-0.015em]">
+          <h1 className="text-gradient-paper max-w-[15ch] font-display text-[clamp(2.25rem,5vw,3.75rem)] font-medium leading-[1.02] tracking-[-0.015em]">
             {HEADLINE.map((word, position) => (
               <motion.span
                 key={word}
@@ -164,7 +170,7 @@ export function HeroCarousel({
           </p>
 
           {/* Keyed on the slide so it re-enters rather than swapping silently. */}
-          <div key={slide.slug} className="animate-rise flex flex-col gap-5">
+          <div key={slide.slug} className="animate-rise flex flex-col gap-4">
             <div className="flex flex-wrap items-end gap-x-6 gap-y-2 border-t border-paper/20 pt-5">
               <div className="min-w-0 flex-1">
                 {slide.brand ? (
@@ -223,7 +229,7 @@ export function HeroCarousel({
                   onClick={() => go(index - 1)}
                   className="inline-flex size-11 items-center justify-center rounded-control border border-paper/40 text-body text-paper transition-colors hover:border-brass hover:text-brass"
                 >
-                  <span aria-hidden="true">←</span>
+                  <IconArrowLeft size={18} />
                 </button>
                 <button
                   type="button"
@@ -231,7 +237,7 @@ export function HeroCarousel({
                   onClick={() => go(index + 1)}
                   className="inline-flex size-11 items-center justify-center rounded-control border border-paper/40 text-body text-paper transition-colors hover:border-brass hover:text-brass"
                 >
-                  <span aria-hidden="true">→</span>
+                  <IconArrowRight size={18} />
                 </button>
               </div>
 
@@ -274,7 +280,7 @@ export function HeroCarousel({
             className="absolute -right-3 -top-3 hidden h-[calc(100%-6rem)] w-full border border-brass/40 md:block"
           />
 
-          <div className="relative aspect-[4/5] w-full sm:aspect-[5/4] md:aspect-[4/5]">
+          <div className="relative aspect-[5/4] w-full md:aspect-auto md:h-[clamp(260px,38vh,400px)]">
             <AnimatePresence initial={false} mode="popLayout">
               <motion.div
                 key={slide.slug}

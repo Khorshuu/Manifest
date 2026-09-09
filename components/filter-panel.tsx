@@ -1,3 +1,4 @@
+import { IconChevronDown } from "./icons";
 import type { Facets } from "@/lib/catalog";
 import { formatBdt } from "@/lib/money";
 
@@ -46,9 +47,25 @@ export function FilterPanel({
       ))}
       <input type="hidden" name="sort" value={selected.sort} />
 
-      <details open className="border border-blue-300 md:open">
-        <summary className="cursor-pointer px-4 py-3 text-body font-medium text-ink">
-          Filter{hasFilters ? " · on" : ""}
+      <details
+        open
+        className="group overflow-hidden rounded-card border border-blue-300 bg-paper shadow-[var(--shadow-raise)] md:open"
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-paper-raised px-4 py-3 text-body font-medium text-ink transition-colors hover:bg-blue-200/50 [&::-webkit-details-marker]:hidden">
+          <span className="flex items-center gap-2">
+            Filter
+            {hasFilters ? (
+              <span className="rounded-card border border-brass px-1.5 py-0.5 text-meta font-medium text-brass-text">
+                on
+              </span>
+            ) : null}
+          </span>
+          {/* The marker rotates with the disclosure, so the control says which
+              way it is going rather than only which way it is. */}
+          <IconChevronDown
+            size={18}
+            className="shrink-0 text-blue-500 transition-transform duration-200 group-open:rotate-180"
+          />
         </summary>
 
         <div className="flex flex-col gap-6 border-t border-blue-300 p-4">
@@ -57,7 +74,7 @@ export function FilterPanel({
               Availability
             </legend>
 
-            <label className="flex min-h-11 items-center gap-2 text-body text-ink">
+            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-control px-1 text-body text-ink transition-colors hover:bg-blue-50">
               <input
                 type="checkbox"
                 name="available"
@@ -76,7 +93,7 @@ export function FilterPanel({
             ).map((option) => (
               <label
                 key={option.value}
-                className="flex min-h-11 items-center gap-2 text-body text-ink"
+                className="flex min-h-11 cursor-pointer items-center gap-2 rounded-control px-1 text-body text-ink transition-colors hover:bg-blue-50"
               >
                 <input
                   type="radio"
@@ -130,7 +147,7 @@ export function FilterPanel({
               {facets.brands.map((brand) => (
                 <label
                   key={brand.id}
-                  className="flex min-h-11 items-center gap-2 text-body text-ink"
+                  className="flex min-h-11 cursor-pointer items-center gap-2 rounded-control px-1 text-body text-ink transition-colors hover:bg-blue-50"
                 >
                   <input
                     type="checkbox"
@@ -158,7 +175,7 @@ export function FilterPanel({
               {attribute.values.map((value) => (
                 <label
                   key={value.id}
-                  className="flex min-h-11 items-center gap-2 text-body text-ink"
+                  className="flex min-h-11 cursor-pointer items-center gap-2 rounded-control px-1 text-body text-ink transition-colors hover:bg-blue-50"
                 >
                   <input
                     type="checkbox"
@@ -178,14 +195,14 @@ export function FilterPanel({
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="submit"
-              className="inline-flex min-h-11 items-center rounded-control bg-brass px-4 text-body font-medium text-ink"
+              className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body surface-brass sheen text-ink shadow-[var(--shadow-raise)] hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04]"
             >
               Apply
             </button>
             {hasFilters ? (
               <a
                 href={action}
-                className="inline-flex min-h-11 items-center text-body text-blue-600"
+                className="inline-flex min-h-11 items-center rounded-control px-2 text-body text-blue-600 transition-colors hover:bg-blue-50"
               >
                 Clear
               </a>

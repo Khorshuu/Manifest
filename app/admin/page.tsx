@@ -46,13 +46,24 @@ export default async function AdminOverviewPage() {
   return (
     <div className="flex flex-col gap-10">
       <div>
-        <p className="text-meta text-blue-600">Overview</p>
+        <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
+          <span aria-hidden="true" className="h-px w-8 bg-brass" />
+          Overview
+        </p>
         <h1 className="mt-2 font-display text-h1 text-ink">Today</h1>
       </div>
 
-      <dl className="grid grid-cols-1 gap-px border border-blue-300 bg-blue-300 sm:grid-cols-2 lg:grid-cols-3">
+      {/*
+       * Cards rather than cells in a hairline grid. Every figure here is a
+       * live query; giving each one its own surface is what lets an operator
+       * read the shape of the day at a glance instead of parsing a table.
+       */}
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((tile) => (
-          <div key={tile.label} className="bg-paper p-4">
+          <div
+            key={tile.label}
+            className="lift rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)]"
+          >
             <dt className="text-meta text-ink/70">{tile.label}</dt>
             <dd className="mt-2 font-display text-h2 tabular-nums text-ink">
               {tile.value}
@@ -68,10 +79,10 @@ export default async function AdminOverviewPage() {
             <StatusBadge tone="positive">Nothing near capacity</StatusBadge>
           </p>
         ) : (
-          <div className="mt-4 overflow-x-auto border border-blue-300">
+          <div className="mt-4 overflow-x-auto rounded-card border border-blue-300 shadow-[var(--shadow-raise)]">
             <table className="w-full min-w-[560px] border-collapse text-body">
               <thead>
-                <tr className="text-left">
+                <tr className="bg-paper-raised text-left">
                   <th scope="col" className="px-4 py-3 text-meta font-medium">
                     Product
                   </th>
@@ -122,7 +133,9 @@ export default async function AdminOverviewPage() {
           </div>
 
           {recent.length === 0 ? (
-            <p className="mt-4 text-body text-ink/70">No orders yet.</p>
+            <p className="surface-paper mt-4 rounded-card border border-blue-300 px-5 py-6 text-body text-ink/70">
+              No orders yet.
+            </p>
           ) : (
             <ul className="mt-4 border-t border-blue-300">
               {recent.map((order) => (
@@ -154,7 +167,7 @@ export default async function AdminOverviewPage() {
         <section>
           <h2 className="font-display text-h2 text-ink">Top products</h2>
           {topProducts.length === 0 ? (
-            <p className="mt-4 text-body text-ink/70">
+            <p className="surface-paper mt-4 rounded-card border border-blue-300 px-5 py-6 text-body text-ink/70">
               Nothing has been ordered yet.
             </p>
           ) : (
@@ -183,20 +196,20 @@ export default async function AdminOverviewPage() {
         <div className="mt-4 flex flex-wrap gap-3">
           <a
             href="/api/admin/export?report=orders"
-            className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
+            className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
           >
             Orders (CSV)
           </a>
           <a
             href="/api/admin/export?report=preorders"
-            className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
+            className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
           >
             Preorder capacity (CSV)
           </a>
           {showFinancials ? (
             <a
               href="/api/admin/export?report=margin"
-              className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
+              className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
             >
               Margin (CSV)
             </a>

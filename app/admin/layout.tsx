@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser, isStaff, isSuperAdmin } from "@/lib/auth";
+import { AdminNav } from "./admin-nav";
 import { LogoutButton } from "./logout-button";
 
 const navigation = [
@@ -29,38 +29,21 @@ export default async function AdminLayout({
   if (!user) redirect("/login?next=/admin");
   if (!isStaff(user)) redirect("/");
 
-  const visible = navigation.filter(
-    (item) => !item.superAdminOnly || isSuperAdmin(user),
-  );
+  const visible = navigation
+    .filter((item) => !item.superAdminOnly || isSuperAdmin(user))
+    .map(({ href, label }) => ({ href, label }));
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="bg-blue-600 text-paper">
-        <div className="mx-auto flex w-full max-w-[1280px] flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 md:px-6">
-          <Link href="/admin" className="font-display text-h3">
-            Admin
-          </Link>
-          <nav aria-label="Admin sections" className="flex-1">
-            <ul className="flex flex-wrap gap-x-5 gap-y-2">
-              {visible.map((item) => (
-                <li key={item.href}>
-                  <Link href={item.href} className="text-meta hover:underline">
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </nav>
-          <div className="flex items-center gap-3">
-            <span className="text-meta">
-              {user.email} · {user.role === "super_admin" ? "Super admin" : "Staff"}
-            </span>
-            <LogoutButton />
-          </div>
-        </div>
-      </header>
+      <AdminNav
+        items={visible}
+        identity={`${user.email} · ${
+          user.role === "super_admin" ? "Super admin" : "Staff"
+        }`}
+        signOut={<LogoutButton />}
+      />
 
-      <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 py-8 md:px-6">
+      <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 py-8 md:px-6 md:py-10">
         {children}
       </main>
     </div>

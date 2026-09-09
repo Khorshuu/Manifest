@@ -22,20 +22,25 @@ function percent(value: number): string {
 
 /**
  * A horizontal bar, drawn with a plain div rather than a charting library.
- * The design system asks for borders over decoration, and one dependency
- * fewer is worth more here than a rendered axis.
+ * One dependency fewer is worth more here than a rendered axis.
+ *
+ * The fill sits in a track rather than floating on the page: without one, a
+ * short bar and a missing bar look the same, and the row loses the sense of
+ * how much of the whole it represents. The figure itself is printed in the
+ * row heading above, so it is not repeated at the end of the bar.
  */
-function Bar({ share, label }: { share: number; label: string }) {
-  const width = Math.max(2, Math.round(share * 100));
+function Bar({ share }: { share: number }) {
+  const width = Math.max(1.5, Math.round(share * 100));
 
   return (
-    <div className="flex items-center gap-3">
+    <div
+      className="h-2.5 w-full overflow-hidden rounded-card bg-blue-200"
+      role="presentation"
+    >
       <div
-        className="h-3 rounded-none bg-blue-400"
+        className="h-full rounded-card bg-blue-600"
         style={{ width: `${width}%` }}
-        role="presentation"
       />
-      <span className="text-meta tabular-nums text-ink/70">{label}</span>
     </div>
   );
 }
@@ -70,23 +75,28 @@ export default async function AdminAnalyticsPage({
   const breakdownTotal = breakdown.reduce((sum, row) => sum + row.count, 0);
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-6">
       <div>
-        <p className="text-meta text-blue-600">Operations</p>
+        <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
+          <span aria-hidden="true" className="h-px w-8 bg-brass" />
+          Operations
+        </p>
         <h1 className="mt-2 font-display text-h1 text-ink">Analytics</h1>
       </div>
 
+      {/* One control rather than three loose buttons: the choices are
+          mutually exclusive, so they read better as segments of one thing. */}
       <nav aria-label="Reporting period">
-        <ul className="flex flex-wrap gap-2">
+        <ul className="inline-flex flex-wrap gap-1 rounded-control border border-blue-300 bg-paper-raised p-1">
           {PERIODS.map((period) => (
             <li key={period}>
               <Link
                 href={`/admin/analytics?days=${period}`}
                 aria-current={days === period ? "page" : undefined}
-                className={`inline-flex min-h-11 items-center rounded-control border px-3 text-meta ${
+                className={`inline-flex min-h-9 items-center rounded-control px-3 text-meta transition-colors ${
                   days === period
-                    ? "border-blue-600 text-blue-600"
-                    : "border-blue-300 text-ink"
+                    ? "bg-paper font-medium text-ink shadow-[var(--shadow-raise)]"
+                    : "text-ink/70 hover:bg-paper/70 hover:text-ink"
                 }`}
               >
                 Last {period} days
@@ -96,7 +106,7 @@ export default async function AdminAnalyticsPage({
         </ul>
       </nav>
 
-      <section>
+      <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] sm:p-6">
         <h2 className="font-display text-h2 text-ink">Funnel</h2>
 
         <ul className="mt-4 flex flex-col gap-4">
@@ -111,17 +121,14 @@ export default async function AdminAnalyticsPage({
                     : ""}
                 </span>
               </div>
-              <Bar
-                share={funnelTop === 0 ? 0 : step.value / funnelTop}
-                label={String(step.value)}
-              />
+              <Bar share={funnelTop === 0 ? 0 : step.value / funnelTop} />
             </li>
           ))}
         </ul>
 
         {/* Saying what is missing is part of the report. */}
         {funnel.missing.length > 0 ? (
-          <div className="mt-6 border border-blue-300 p-4">
+          <div className="surface-paper mt-6 rounded-card border border-blue-300 p-4">
             <p className="text-meta font-medium text-ink">
               Not measured yet
             </p>
@@ -137,7 +144,7 @@ export default async function AdminAnalyticsPage({
       </section>
 
       {revenue ? (
-        <section>
+        <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] sm:p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="font-display text-h2 text-ink">Revenue</h2>
             <p className="text-body tabular-nums text-ink">
@@ -162,10 +169,7 @@ export default async function AdminAnalyticsPage({
                       {point.orderCount === 1 ? "" : "s"}
                     </span>
                   </div>
-                  <Bar
-                    share={point.collectedBdt / revenuePeak}
-                    label={formatBdt(point.collectedBdt)}
-                  />
+                  <Bar share={point.collectedBdt / revenuePeak} />
                 </li>
               ))}
             </ul>
@@ -173,8 +177,8 @@ export default async function AdminAnalyticsPage({
         </section>
       ) : null}
 
-      <div className="grid gap-10 lg:grid-cols-2">
-        <section className="min-w-0">
+      <div className="grid gap-5 lg:grid-cols-2">
+        <section className="min-w-0 rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] sm:p-6">
           <h2 className="font-display text-h2 text-ink">Preorder commitment</h2>
           <dl className="mt-4 flex flex-col gap-2 text-body">
             <div className="flex justify-between gap-4">
@@ -204,7 +208,7 @@ export default async function AdminAnalyticsPage({
           </dl>
         </section>
 
-        <section className="min-w-0">
+        <section className="min-w-0 rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] sm:p-6">
           <h2 className="font-display text-h2 text-ink">Orders by stage</h2>
           {breakdown.length === 0 ? (
             <p className="mt-4 text-body text-ink/70">No orders yet.</p>
@@ -220,10 +224,7 @@ export default async function AdminAnalyticsPage({
                       {row.count}
                     </span>
                   </div>
-                  <Bar
-                    share={breakdownTotal === 0 ? 0 : row.count / breakdownTotal}
-                    label={String(row.count)}
-                  />
+                  <Bar share={breakdownTotal === 0 ? 0 : row.count / breakdownTotal} />
                 </li>
               ))}
             </ul>
@@ -231,7 +232,7 @@ export default async function AdminAnalyticsPage({
         </section>
       </div>
 
-      <section>
+      <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] sm:p-6">
         <h2 className="font-display text-h2 text-ink">New customers</h2>
         {signups.length === 0 ? (
           <p className="mt-4 text-body text-ink/70">

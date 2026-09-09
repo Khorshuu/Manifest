@@ -1,9 +1,39 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/button";
 import { Field } from "@/components/field";
+import { IconAlert } from "@/components/icons";
+
+/**
+ * A failed sign-in, shown as something that happened rather than as a line of
+ * red text below the fields — and given focus, so someone using a keyboard or
+ * a screen reader is told the attempt failed instead of being left at a form
+ * that looks unchanged.
+ */
+function SignInError({ message }: { message: string | null }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    if (message) ref.current?.focus();
+  }, [message]);
+
+  return (
+    <div aria-live="polite">
+      {message ? (
+        <p
+          ref={ref}
+          tabIndex={-1}
+          className="flex items-start gap-2 rounded-card border border-stamp-red bg-stamp-red/5 p-3 text-meta text-stamp-red-text"
+        >
+          <IconAlert size={16} className="mt-0.5 shrink-0" />
+          {message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 export function LoginForm({ redirectTo }: { redirectTo: string }) {
   const router = useRouter();
@@ -90,13 +120,9 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
           required
         />
 
-        <div aria-live="polite">
-          {error ? (
-            <p className="text-meta text-stamp-red-text">{error}</p>
-          ) : null}
-        </div>
+        <SignInError message={error} />
 
-        <Button type="submit" disabled={pending}>
+        <Button type="submit" size="lg" disabled={pending} className="w-full">
           {pending ? "Checking…" : "Continue"}
         </Button>
       </form>
@@ -121,11 +147,9 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
       />
 
       {/* Announced to screen readers as it appears, not just shown visually */}
-      <div aria-live="polite">
-        {error ? <p className="text-meta text-stamp-red-text">{error}</p> : null}
-      </div>
+      <SignInError message={error} />
 
-      <Button type="submit" disabled={pending}>
+      <Button type="submit" size="lg" disabled={pending} className="w-full">
         {pending ? "Signing in…" : "Sign in"}
       </Button>
     </form>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { IconArrowLeft } from "@/components/icons";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { OrderProgress } from "@/components/order-progress";
@@ -37,11 +38,13 @@ export default async function AdminOrderPage({
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <p className="text-meta text-blue-600">
-          <Link href="/admin/orders" className="hover:underline">
-            Orders
-          </Link>
-        </p>
+        <Link
+          href="/admin/orders"
+          className="inline-flex items-center gap-2 text-meta text-blue-600 underline-offset-4 hover:underline"
+        >
+          <IconArrowLeft size={16} />
+          Orders
+        </Link>
         <h1 className="mt-2 font-display text-h1 tabular-nums text-ink">
           {order.orderNumber}
         </h1>
@@ -56,10 +59,10 @@ export default async function AdminOrderPage({
         <div className="flex min-w-0 flex-col gap-8">
           <section>
             <h2 className="font-display text-h2 text-ink">Items</h2>
-            <div className="mt-4 overflow-x-auto border border-blue-300">
+            <div className="mt-4 overflow-x-auto rounded-card border border-blue-300 shadow-[var(--shadow-raise)]">
               <table className="w-full min-w-[480px] border-collapse text-body">
                 <thead>
-                  <tr className="text-left">
+                  <tr className="bg-paper-raised text-left">
                     <th scope="col" className="px-4 py-3 text-meta font-medium">
                       Item
                     </th>
@@ -160,7 +163,7 @@ export default async function AdminOrderPage({
         </div>
 
         <aside className="flex h-fit min-w-0 flex-col gap-6">
-          <section className="border border-blue-300 p-5">
+          <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
             <h2 className="font-display text-h3 text-ink">Move this order on</h2>
             <div className="mt-4">
               {allowed.length === 0 ? (
@@ -180,7 +183,7 @@ export default async function AdminOrderPage({
           </section>
 
           {balance ? (
-            <section className="border border-blue-300 p-5">
+            <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
               <h2 className="font-display text-h3 text-ink">Payment</h2>
               <div className="mt-4">
                 <BalancePanel
@@ -195,7 +198,7 @@ export default async function AdminOrderPage({
             </section>
           ) : null}
 
-          <section className="border border-blue-300 p-5">
+          <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
             <h2 className="font-display text-h3 text-ink">Shipping</h2>
             <div className="mt-4">
               <ShippingPanel
@@ -207,7 +210,7 @@ export default async function AdminOrderPage({
             </div>
           </section>
 
-          <section className="border border-blue-300 p-5">
+          <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
             <h2 className="font-display text-h3 text-ink">Delivery</h2>
             {order.address ? (
               <address className="mt-3 not-italic text-meta text-ink/80">
@@ -224,7 +227,7 @@ export default async function AdminOrderPage({
             )}
           </section>
 
-          <section className="border border-blue-300 p-5">
+          <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
             <h2 className="font-display text-h3 text-ink">Totals</h2>
             <dl className="mt-3 flex flex-col gap-2 text-meta">
               {/* What the landed price is made of, as recorded at placement. */}
