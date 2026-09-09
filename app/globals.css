@@ -623,187 +623,171 @@ input[type="radio"] {
 }
 
 /*
- * The hero backdrop.
+ * The hero backdrop: the departure board.
  *
- * Layered depth rather than a particle field: an oversized wordmark, two colour
- * fields, a raking light and the route, each moving at a different rate against
- * the pointer. `--px` and `--py` are written by components/hero-backdrop.tsx on
- * an animation frame; every layer reads them at its own multiplier, which is
- * what the design data means by "background slowest, foreground fastest".
+ * See components/hero-backdrop.tsx for why this is columns rather than tiles,
+ * and why the timing is stepped. The short version: a wall of two hundred
+ * flaps costs sixteen animated elements, and `steps()` is what makes the
+ * movement read as mechanical rather than as something sliding past.
  */
-.hero-backdrop {
-  --px: 0;
-  --py: 0;
+.hero-board {
+  /* The face of a flap, and the shadow in the seam between two of them. */
+  /*
+   * Presence is the whole point.
+   *
+   * The first pass of these values was measured to look tasteful and read as
+   * nothing — a faint horizontal banding behind a heavy scrim. Two earlier
+   * hero backgrounds were rejected for exactly that, so the faces here are
+   * deliberately strong enough to be seen as objects, and the scrim over them
+   * is doing the work of protecting the headline instead of hiding the board.
+   */
+  --flap-face: rgb(214 230 255 / 0.13);
+  --flap-edge: rgb(255 255 255 / 0.34);
+  --flap-under: rgb(255 255 255 / 0.05);
+  --flap-gap: rgb(4 10 22 / 0.9);
+  --flap-height: 46px;
 }
 
-.hero-backdrop [data-depth] {
+.hero-board__wall {
+  position: absolute;
+  /* Overscans the panel so no column ever shows its own top or bottom edge. */
+  inset: -12% -2%;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 5px;
+}
+
+/*
+ * One column of flaps, drawn as a repeating gradient rather than as elements.
+ *
+ * Each repeat is one flap: a lit top half, a darker bottom half, a bright
+ * hairline where the two faces meet, and a gap of ground between this flap and
+ * the next.
+ */
+.hero-board__column {
+  background-image: repeating-linear-gradient(
+    180deg,
+    var(--flap-face) 0,
+    var(--flap-face) calc(var(--flap-height) * 0.45),
+    var(--flap-edge) calc(var(--flap-height) * 0.45),
+    var(--flap-edge) calc(var(--flap-height) * 0.5),
+    var(--flap-under) calc(var(--flap-height) * 0.5),
+    var(--flap-under) calc(var(--flap-height) * 0.9),
+    var(--flap-gap) calc(var(--flap-height) * 0.9),
+    var(--flap-gap) var(--flap-height)
+  );
+  /* The animation moves the column by exactly one flap at a time, so it always
+     comes to rest with the faces aligned. */
+  animation-name: hero-board-step;
+  animation-iteration-count: infinite;
+  animation-timing-function: steps(1, end);
   will-change: transform;
 }
 
-/* The destination, at the scale of the panel. */
-.hero-wordmark {
-  position: absolute;
-  /*
-   * Centred across the foot of the panel rather than bleeding off the left
-   * edge. Anchored left, the leading letters ran off screen and the word read
-   * as a smear of unrelated letterforms sitting directly behind the two
-   * buttons — the busiest part of the hero. Whole and centred, it is legibly
-   * the destination and it sits under the content rather than through it.
-   */
-  inset-inline: 0;
-  text-align: center;
-  bottom: -9%;
-  transform: translate3d(calc(var(--px) * 22px), calc(var(--py) * 14px), 0);
-  font-family: var(--font-display);
-  font-size: clamp(5rem, 15vw, 15rem);
-  font-weight: 600;
-  line-height: 0.78;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  color: transparent;
-  /* Faint enough to read as ground rather than as a second headline: the
-     content sits over the lower half of it, and at any heavier weight the
-     letterforms compete with the buttons they run behind. */
-  -webkit-text-stroke: 1.5px rgb(255 255 255 / 0.1);
-  user-select: none;
-}
-
-/* A second pass in solid, clipped to a gradient, so the word is not a flat
-   outline: it catches the light on one side. */
-.hero-wordmark span {
-  background: linear-gradient(
-    100deg,
-    rgb(255 255 255 / 0.08) 0%,
-    rgb(240 166 49 / 0.14) 42%,
-    transparent 72%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-}
-
-.hero-orb {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(64px);
-  opacity: 0.9;
-}
-
-.hero-orb--brass {
-  width: 46vw;
-  height: 46vw;
-  max-width: 620px;
-  max-height: 620px;
-  left: 30%;
-  top: -18%;
-  background: radial-gradient(
-    circle,
-    rgb(240 166 49 / 0.5) 0%,
-    rgb(240 166 49 / 0) 68%
-  );
-  transform: translate3d(calc(var(--px) * 44px), calc(var(--py) * 26px), 0);
-  animation: hero-drift-a 22s ease-in-out infinite alternate;
-}
-
-.hero-orb--blue {
-  width: 54vw;
-  height: 54vw;
-  max-width: 760px;
-  max-height: 760px;
-  left: -14%;
-  bottom: -26%;
-  background: radial-gradient(
-    circle,
-    rgb(76 141 255 / 0.55) 0%,
-    rgb(76 141 255 / 0) 66%
-  );
-  transform: translate3d(calc(var(--px) * 30px), calc(var(--py) * 18px), 0);
-  animation: hero-drift-b 28s ease-in-out infinite alternate;
-}
-
-@keyframes hero-drift-a {
-  to {
-    translate: 6% 8%;
+@keyframes hero-board-step {
+  0%,
+  22% {
+    transform: translate3d(0, 0, 0);
+  }
+  25%,
+  47% {
+    transform: translate3d(0, calc(var(--flap-height) * -1), 0);
+  }
+  50%,
+  72% {
+    transform: translate3d(0, calc(var(--flap-height) * -2), 0);
+  }
+  75%,
+  97% {
+    transform: translate3d(0, calc(var(--flap-height) * -3), 0);
+  }
+  100% {
+    transform: translate3d(0, calc(var(--flap-height) * -4), 0);
   }
 }
 
-@keyframes hero-drift-b {
-  to {
-    translate: -7% -5%;
-  }
-}
-
-/* The route, and the arrival pulsing at the end of it. */
-.hero-route {
+/* The hall light: strong at the left, where the headline sits, falling away
+   across the board so the right-hand side keeps its structure. */
+.hero-board__light {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  transform: translate3d(calc(var(--px) * -34px), calc(var(--py) * -20px), 0);
+  background:
+    radial-gradient(
+      70% 110% at 4% 46%,
+      rgb(37 99 235 / 0.4) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      55% 80% at 92% 4%,
+      rgb(240 166 49 / 0.2) 0%,
+      transparent 62%
+    );
 }
 
-.hero-route__line {
-  stroke-dashoffset: 0;
-  animation: hero-route-run 3.2s linear infinite;
+/*
+ * An arrival crossing the board.
+ *
+ * One brass line, travelling down the whole panel on a long cycle — the moment
+ * a row on a real board turns over. It is the only warm, moving thing here, so
+ * it carries the eye without competing with the headline.
+ */
+.hero-board__arrival {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 2px;
+  /* Weighted to the right of the panel, where the board is, so it never draws
+     a line through the headline — which is what it looked like when it ran the
+     full width: an accident rather than a row turning over. */
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 38%,
+    rgb(240 166 49 / 0.5) 56%,
+    rgb(240 166 49 / 0.95) 74%,
+    rgb(240 166 49 / 0.5) 92%,
+    transparent 100%
+  );
+  box-shadow: 0 0 18px 2px rgb(240 166 49 / 0.28);
+  animation: hero-board-arrival 9s cubic-bezier(0.5, 0, 0.2, 1) infinite;
 }
 
-@keyframes hero-route-run {
-  to {
-    stroke-dashoffset: -44;
-  }
-}
-
-.hero-route__pulse {
-  transform-origin: 760px 230px;
-  animation: hero-arrive 2.8s ease-out infinite;
-}
-
-@keyframes hero-arrive {
+@keyframes hero-board-arrival {
   0% {
-    transform: scale(1);
-    opacity: 0.8;
+    transform: translateY(-10%);
+    opacity: 0;
   }
-  70%,
+  12% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
   100% {
-    transform: scale(5.5);
+    transform: translateY(calc(100vh + 10%));
     opacity: 0;
   }
 }
 
-/* A raking light, crossing on a long cycle. */
-.hero-sweep {
-  position: absolute;
-  inset: -30% -60%;
-  background: linear-gradient(
-    104deg,
-    transparent 38%,
-    rgb(255 255 255 / 0.055) 47%,
-    rgb(240 166 49 / 0.05) 51%,
-    transparent 60%
-  );
-  animation: hero-sweep-cross 13s ease-in-out infinite;
-}
-
-@keyframes hero-sweep-cross {
-  0%,
-  100% {
-    transform: translate3d(-22%, 0, 0);
-  }
-  50% {
-    transform: translate3d(22%, 0, 0);
+/* A smaller flap on a phone, so the board still reads as a board rather than
+   as four enormous bars. */
+@media (max-width: 640px) {
+  .hero-board {
+    --flap-height: 26px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero-orb,
-  .hero-sweep,
-  .hero-route__line,
-  .hero-route__pulse {
+  /* The board stands still and lit, which is a complete picture of it rather
+     than a broken one. */
+  .hero-board__column,
+  .hero-board__arrival {
     animation: none;
   }
 
-  .hero-wordmark,
-  .hero-orb,
-  .hero-route {
-    transform: none;
+  .hero-board__arrival {
+    opacity: 0.55;
+    transform: translateY(38vh);
   }
 }

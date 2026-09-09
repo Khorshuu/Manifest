@@ -5,7 +5,6 @@ import { ClosingRail } from "@/components/closing-rail";
 import { HeroCarousel } from "@/components/hero-carousel";
 import { IconCalendar, IconSeal, IconTag } from "@/components/icons";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
-import { ProcessBand } from "@/components/process-band";
 import { ProductCard } from "@/components/product-card";
 import { Ticker } from "@/components/ticker";
 import {
@@ -140,8 +139,16 @@ export default async function HomePage() {
 
       <ClosingRail items={railItems} serverNow={serverNow} />
 
-      <ProcessBand />
-
+      {/*
+       * The dark "how a batch works" band used to sit here and has been taken
+       * out at the owner's request. `components/process-band.tsx` is still in
+       * the tree, so putting it back is one line.
+       *
+       * What it explained is not lost: the three assurance cards at the foot of
+       * this page make the same three points, the product page walks the whole
+       * route stage by stage in `components/journey.tsx`, and the footer states
+       * the preorder terms on every page of the site.
+       */}
       <div className="surface-paper border-b border-ink/10 py-14">
         <CategoryBento categories={bentoCategories} />
       </div>

@@ -28,11 +28,13 @@ const HEADLINE = ["American", "goods,", "landed", "in", "Bangladesh"];
 /**
  * The front of the shop.
  *
- * Dark and full-bleed: the one place the brand takes the whole width, so a
- * first-time visitor lands on something with a point of view rather than on a
- * paragraph. The headline sets itself a word at a time on arrival — one
- * orchestrated moment, which lands harder than movement scattered over the
- * whole page.
+ * Rebuilt around one idea: the left side makes the promise, the right side is
+ * the product, and the details of the batch live on a tag pinned across the
+ * foot of the photograph rather than stacked under the headline. The previous
+ * version put the headline, the subheading, the product name, the price, the
+ * countdown, the capacity meter, two buttons and the slide controls into a
+ * single column — which left the most important thing on the page, the
+ * photograph, as the quieter half of the panel.
  *
  * Operable before decorative — arrows, dots and thumbnails are real buttons,
  * arrow keys work, rotation stops on hover, focus or any deliberate choice,
@@ -100,7 +102,7 @@ export function HeroCarousel({
 
   return (
     <section
-      className="surface-ink relative overflow-hidden text-paper"
+      className="relative overflow-hidden bg-ink-deep text-paper"
       aria-roledescription="carousel"
       aria-label="Featured preorders"
       onMouseEnter={() => setPaused(true)}
@@ -109,32 +111,21 @@ export function HeroCarousel({
       onBlurCapture={() => setPaused(false)}
       onKeyDown={onKeyDown}
     >
-      {/*
-        Layered depth: an oversized destination wordmark, two drifting colour
-        fields, a raking light and the route, each moving at its own rate
-        against the pointer.
-      */}
+      {/* A wall of flaps, stepping over and settling. */}
       <HeroBackdrop />
 
       {/*
-        A scrim between the backdrop and the words. The layers behind are bright
-        by design, so this is what guarantees the headline keeps its measured
-        contrast rather than depending on where an orb happens to have drifted.
+        A scrim between the board and the words. The board is deliberately
+        structured rather than faint, so this is what guarantees the headline
+        keeps its measured contrast wherever a lit column happens to be.
       */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(62%_72%_at_20%_50%,rgba(10,21,38,0.86),rgba(10,21,38,0.34)_52%,transparent_78%)]"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(58%_74%_at_14%_52%,rgba(10,21,38,0.94),rgba(10,21,38,0.6)_46%,rgba(10,21,38,0.1)_76%)]"
       />
 
-      {/*
-        Bounded to the viewport. At 1920×1080 with the browser at its default
-        zoom the hero used to run past the fold and the thumbnail strip fell off
-        the bottom — it only fitted at 80%. The padding and rhythm here, and the
-        media column's height cap below, are what keep the whole panel on one
-        screen at 100%.
-      */}
-      <div className="relative mx-auto grid w-full max-w-[1280px] items-center gap-8 px-4 py-10 md:grid-cols-[1.05fr_1fr] md:px-6 md:py-10">
-        <div className="flex min-w-0 flex-col gap-4">
+      <div className="relative mx-auto grid w-full max-w-[1280px] items-center gap-10 px-4 py-12 md:grid-cols-[1fr_1.05fr] md:px-6 md:py-16 lg:gap-16">
+        <div className="flex min-w-0 flex-col gap-6">
           <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass">
             <span aria-hidden="true" className="h-px w-10 bg-brass" />
             Ordering is open for this batch
@@ -146,88 +137,62 @@ export function HeroCarousel({
            * can arrive in sequence; the sentence is a single heading to a
            * screen reader either way.
            */}
-          <h1 className="text-gradient-paper max-w-[15ch] font-display text-[clamp(2.25rem,5vw,3.75rem)] font-medium leading-[1.02] tracking-[-0.015em]">
+          {/*
+           * The headline sets itself a word at a time, in CSS.
+           *
+           * This used to be Framer Motion, and it was wrong twice over. It
+           * branched its `initial` prop on `useReducedMotion()`, which the
+           * server cannot know — so anyone who had asked for reduced motion
+           * hydrated into a mismatch on the `h1` itself. And because Framer
+           * writes `opacity: 0` into the server-rendered markup, the headline
+           * of the whole site was invisible until JavaScript arrived to take
+           * it back.
+           *
+           * A keyframe has neither problem: identical markup on both sides,
+           * it runs without JavaScript, and the reduced-motion block at the
+           * end of globals.css collapses it to nothing.
+           */}
+          <h1 className="text-gradient-paper max-w-[13ch] font-display text-[clamp(2.5rem,5.6vw,4.25rem)] font-medium leading-[1.0] tracking-[-0.02em]">
             {HEADLINE.map((word, position) => (
-              <motion.span
+              <span
                 key={word}
-                className="mr-[0.28ch] inline-block"
-                initial={reduceMotion ? false : { opacity: 0, y: "0.35em" }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{
-                  duration: 0.55,
-                  delay: reduceMotion ? 0 : 0.06 * position,
-                  ease: [0.22, 1, 0.36, 1],
-                }}
+                className="animate-rise mr-[0.28ch] inline-block"
+                style={{ animationDelay: `${position * 70}ms` }}
               >
                 {word}
-              </motion.span>
+              </span>
             ))}
           </h1>
 
-          <p className="max-w-[50ch] text-body text-paper/80">
+          <p className="max-w-[46ch] text-body text-paper/80">
             One fixed price with shipping and customs duty already inside it.
             Every listing says when the window closes and when it arrives.
           </p>
 
-          {/* Keyed on the slide so it re-enters rather than swapping silently. */}
-          <div key={slide.slug} className="animate-rise flex flex-col gap-4">
-            <div className="flex flex-wrap items-end gap-x-6 gap-y-2 border-t border-paper/20 pt-5">
-              <div className="min-w-0 flex-1">
-                {slide.brand ? (
-                  <p className="text-meta uppercase tracking-[0.12em] text-paper/60">
-                    {slide.brand}
-                  </p>
-                ) : null}
-                <h2 className="font-display text-h2 text-paper">
-                  {slide.title}
-                </h2>
-              </div>
-              <p className="font-display text-price font-semibold tabular-nums text-brass">
-                {slide.priceLabel}
-              </p>
-            </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href={`/products/${slide.slug}`}
+              className="surface-brass sheen inline-flex min-h-[3.25rem] items-center rounded-control px-7 text-body font-medium text-ink shadow-[var(--shadow-raise)] transition-[box-shadow,transform,filter] duration-150 hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04] active:scale-[0.985]"
+            >
+              Preorder this
+            </Link>
 
-            {slide.closesAt ? (
-              <Countdown
-                closesAt={slide.closesAt}
-                tone="dark"
-                serverNow={serverNow}
-              />
-            ) : null}
-
-            <div className="max-w-sm">
-              <CapacityMeter
-                remaining={slide.remaining}
-                total={slide.total}
-                tone="dark"
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-4">
-              <Link
-                href={`/products/${slide.slug}`}
-                className="surface-brass sheen inline-flex min-h-12 items-center rounded-control px-6 text-body font-medium text-ink shadow-[var(--shadow-raise)] transition-[box-shadow,transform,filter] duration-150 hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04] active:scale-[0.985]"
-              >
-                Preorder this
-              </Link>
-
-              <Link
-                href="/search?preorder=1"
-                className="inline-flex min-h-12 items-center rounded-control border border-paper/40 px-5 text-body text-paper transition-colors hover:border-brass hover:text-brass"
-              >
-                Every open window
-              </Link>
-            </div>
+            <Link
+              href="/search?preorder=1"
+              className="inline-flex min-h-[3.25rem] items-center rounded-control border border-paper/40 px-6 text-body text-paper transition-colors hover:border-brass hover:text-brass"
+            >
+              Every open window
+            </Link>
           </div>
 
           {count > 1 ? (
-            <div className="flex flex-wrap items-center gap-4 pt-1">
+            <div className="mt-2 flex flex-wrap items-center gap-4 border-t border-paper/15 pt-5">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   aria-label="Previous product"
                   onClick={() => go(index - 1)}
-                  className="inline-flex size-11 items-center justify-center rounded-control border border-paper/40 text-body text-paper transition-colors hover:border-brass hover:text-brass"
+                  className="inline-flex size-11 items-center justify-center rounded-control border border-paper/40 text-paper transition-colors hover:border-brass hover:text-brass"
                 >
                   <IconArrowLeft size={18} />
                 </button>
@@ -235,7 +200,7 @@ export function HeroCarousel({
                   type="button"
                   aria-label="Next product"
                   onClick={() => go(index + 1)}
-                  className="inline-flex size-11 items-center justify-center rounded-control border border-paper/40 text-body text-paper transition-colors hover:border-brass hover:text-brass"
+                  className="inline-flex size-11 items-center justify-center rounded-control border border-paper/40 text-paper transition-colors hover:border-brass hover:text-brass"
                 >
                   <IconArrowRight size={18} />
                 </button>
@@ -274,17 +239,19 @@ export function HeroCarousel({
         </div>
 
         <div className="relative flex flex-col gap-4">
-          {/* An offset brass rule behind the image: the printed-form motif. */}
-          <div
-            aria-hidden="true"
-            className="absolute -right-3 -top-3 hidden h-[calc(100%-6rem)] w-full border border-brass/40 md:block"
-          />
-
-          <div className="relative aspect-[5/4] w-full md:aspect-auto md:h-[clamp(260px,38vh,400px)]">
+          <div className="relative aspect-[4/3] w-full sm:aspect-[5/4]">
             <AnimatePresence initial={false} mode="popLayout">
               <motion.div
                 key={slide.slug}
-                drag={reduceMotion || count < 2 ? false : "x"}
+                /*
+                 * Not branched on reduced motion, for two reasons. It is a
+                 * gesture rather than an animation — asking for stillness is
+                 * about what moves on its own, not about having a control
+                 * taken away — and the server cannot know the preference, so
+                 * branching it here rendered `touch-action` and `draggable` on
+                 * the server that the client then disagreed with.
+                 */
+                drag={count < 2 ? false : "x"}
                 dragConstraints={{ left: 0, right: 0 }}
                 dragElastic={0.16}
                 onDragEnd={(_event, info) => {
@@ -319,12 +286,56 @@ export function HeroCarousel({
           </div>
 
           {/*
+           * The tag.
+           *
+           * Everything a shopper is deciding about this batch, on one pale
+           * label across the foot of the photograph — the shipping label on a
+           * crate. Keyed on the slide so it re-enters rather than swapping its
+           * contents silently. It sits below the photograph on a phone, where
+           * overlapping it would cover the product.
+           */}
+          <div
+            key={slide.slug}
+            /* The brass rule along the top edge is what separates the tag from
+               the pale studio ground of the photograph behind it — without it
+               the two whites merge and the label stops reading as a separate
+               object pinned on. */
+            className="animate-rise relative z-10 rounded-card border border-blue-300 border-t-2 border-t-brass bg-paper p-4 text-ink shadow-[var(--shadow-float)] sm:mx-5 sm:-mt-14 sm:p-5"
+          >
+            <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+              <div className="min-w-0">
+                {slide.brand ? (
+                  <p className="text-meta uppercase tracking-[0.12em] text-ink/70">
+                    {slide.brand}
+                  </p>
+                ) : null}
+                <h2 className="font-display text-h2 leading-snug text-ink">
+                  {slide.title}
+                </h2>
+              </div>
+              <p className="font-display text-h2 font-semibold tabular-nums text-ink">
+                {slide.priceLabel}
+              </p>
+            </div>
+
+            {slide.closesAt ? (
+              <div className="mt-4 border-t border-blue-200 pt-4">
+                <Countdown closesAt={slide.closesAt} serverNow={serverNow} />
+              </div>
+            ) : null}
+
+            <div className="mt-4">
+              <CapacityMeter remaining={slide.remaining} total={slide.total} />
+            </div>
+          </div>
+
+          {/*
            * The rest of the featured batch, as a strip. It doubles as the
            * carousel's position indicator on a wide screen, where four small
            * dots are easy to miss.
            */}
           {count > 1 ? (
-            <ul className="grid grid-cols-4 gap-2">
+            <ul className="grid grid-cols-4 gap-2 sm:gap-3">
               {slides.map((entry, position) => (
                 <li key={`${entry.slug}-thumb`}>
                   <button

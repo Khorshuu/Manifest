@@ -1178,3 +1178,64 @@ could not find that order" message. Each still asserts the same behaviour.
 Nothing in this pass touched an API route, a query, a schema or a business
 rule. The changes are markup, class names, three new presentational components
 and the shared component layer above.
+
+## A new hero, and the blue band removed (added after Phase 15)
+
+**The dark "how a batch works" band is gone** from the middle of the home page,
+at the owner's request. `components/process-band.tsx` is still in the tree, so
+restoring it is one line in `app/(storefront)/page.tsx`. What it explained is
+not lost — the assurance cards at the foot of the home page make the same three
+points, `components/journey.tsx` walks the whole route on every product page,
+and the footer states the preorder terms on every page of the site.
+
+**The hero was rebuilt, backdrop and composition both.** The previous one is
+archived in full at `docs/archive/hero-orbs-backdrop.md` — component, CSS, and
+the one command that puts it back — because it was liked well enough to be
+worth keeping a way home.
+
+The backdrop is now a departure board: sixteen columns of flaps that step over
+and settle. Three earlier attempts at this hero failed the same way, and the
+lesson is recorded here because it keeps recurring — **subtlety is the failure
+mode**. A still ruled grid read as nothing; a field of faint dots read as noise;
+and the first pass of this board, at 5% white on the faces, read as faint
+horizontal banding. The values shipped are deliberately strong, and the scrim
+over them earns its keep by protecting the headline rather than by hiding the
+board.
+
+It costs nothing to run: columns rather than tiles means a wall of two hundred
+flaps is sixteen animated elements, `steps()` timing is what makes the movement
+read as mechanical, and there is no JavaScript in it at all.
+
+The composition changed too. The old hero stacked the headline, the
+subheading, the product name, the price, the countdown, the capacity meter, two
+buttons and the slide controls into one column, which left the photograph — the
+most important thing on the page — as the quieter half. The batch details now
+sit on a pale tag pinned across the foot of the photograph, the way a shipping
+label sits on a crate.
+
+### Two defects found while doing it
+
+Both were pre-existing, both only appeared under `prefers-reduced-motion`, and
+both had the same cause: **a render-affecting prop branched on
+`useReducedMotion()`, which the server cannot know.**
+
+- **The headline hydrated into a mismatch on the `h1` itself** — and worse,
+  Framer Motion writes `opacity: 0` into the server-rendered markup, so the
+  headline of the whole site was invisible until JavaScript arrived to take it
+  back. It is a CSS keyframe now: identical markup on both sides, runs without
+  JavaScript, and collapses to nothing under reduced motion.
+- **The slide image disagreed about `touch-action` and `draggable`**, because
+  dragging was switched off for reduced motion. That was wrong on its own
+  terms as well: asking for stillness is about what moves on its own, not about
+  having a control taken away.
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 554 passed, 2 skipped |
+| Axe at AA | `[x]` passes over the new hero, mobile and desktop |
+| `e2e/experience.spec.ts` | `[x]` passes — rotation, hover pause, live countdown |
+| Home page JavaScript budget | `[x]` passes — the headline no longer uses the motion library at all |
+| Reduced motion | `[x]` verified: the board stands still, and the browser console is clean where it previously reported a hydration mismatch |

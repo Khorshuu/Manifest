@@ -1,121 +1,66 @@
-"use client";
-
-import { useEffect, useRef } from "react";
-
 /**
- * The hero backdrop: layered depth, not a particle field.
+ * The hero backdrop: a departure board, at the scale of the panel.
  *
- * The first attempt at this was a canvas of faint dotted arcs and travelling
- * dots. It was rejected, correctly — low-contrast ambient effects read as noise
- * rather than as spectacle, however neatly the metaphor fits the business.
+ * Two earlier attempts were rejected and both failed the same way — they were
+ * *ambient*. A still ruled grid, then a field of faint dots and arcs. The note
+ * on the second one is the brief for this one: low-contrast drifting effects
+ * read as noise, and subtlety is the failure mode here, not the goal.
  *
- * This follows the direction the design data actually gives for a hero
- * background: multi-layer parallax, "background slowest, foreground fastest",
- * with the scale coming from oversized typography rather than from small moving
- * particles. Four layers, each moving at a different rate against the pointer
- * and the scroll:
+ * So this is not a texture. It is an object: the mechanical board that hangs
+ * in a departures hall, built from columns of flaps that step over and settle.
+ * It fits the shop exactly — every listing here is a batch with a departure and
+ * an arrival — and it is the same object the countdown already is, so the hero
+ * and the clock beneath it are now one idea at two sizes.
  *
- *   1. A vast outlined word, DHAKA — the destination, at display scale.
- *   2. Two colour fields, brass and blue, drifting slowly against each other.
- *   3. A raking light band that sweeps across on a long cycle.
- *   4. A route line with the origin and destination marked.
+ * Three things make it cheap enough to run for the life of the page:
  *
- * Everything moves by `transform` on a composited layer, so none of it costs
- * layout, and all of it stops for `prefers-reduced-motion`.
+ *   - Columns, not tiles. Each column is one element whose background is a
+ *     repeating gradient of flap faces, so a wall of two hundred flaps costs
+ *     sixteen animated nodes rather than two hundred.
+ *   - `steps()` timing. The movement is discrete, which is what makes it read
+ *     as mechanical rather than as something sliding. It is also the reason
+ *     this works at low contrast where a smooth drift did not: the eye catches
+ *     the change, not the tone.
+ *   - No JavaScript at all. There are no hooks here, nothing measures, nothing
+ *     runs per frame — the whole thing is CSS, so it costs the home page
+ *     nothing against its 200KB budget.
+ *
+ * It stops entirely for anyone who has asked for reduced motion, where it
+ * stands as a still board.
  */
+
+/** Enough columns to read as a wall, few enough to stay cheap. */
+const COLUMNS = 16;
+
 export function HeroBackdrop() {
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    let frame = 0;
-    // Where the pointer is heading, and where the layers have got to. Easing
-    // one towards the other is what stops the parallax feeling twitchy.
-    const target = { x: 0, y: 0 };
-    const current = { x: 0, y: 0 };
-
-    function onPointerMove(event: PointerEvent) {
-      const rect = root!.getBoundingClientRect();
-      target.x = (event.clientX - rect.left) / rect.width - 0.5;
-      target.y = (event.clientY - rect.top) / rect.height - 0.5;
-    }
-
-    function onLeave() {
-      target.x = 0;
-      target.y = 0;
-    }
-
-    function tick() {
-      current.x += (target.x - current.x) * 0.06;
-      current.y += (target.y - current.y) * 0.06;
-
-      root!.style.setProperty("--px", current.x.toFixed(4));
-      root!.style.setProperty("--py", current.y.toFixed(4));
-
-      frame = requestAnimationFrame(tick);
-    }
-
-    frame = requestAnimationFrame(tick);
-
-    const parent = root.parentElement ?? root;
-    parent.addEventListener("pointermove", onPointerMove);
-    parent.addEventListener("pointerleave", onLeave);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      parent.removeEventListener("pointermove", onPointerMove);
-      parent.removeEventListener("pointerleave", onLeave);
-    };
-  }, []);
-
   return (
     <div
-      ref={rootRef}
       aria-hidden="true"
-      className="hero-backdrop pointer-events-none absolute inset-0 overflow-hidden"
+      className="hero-board pointer-events-none absolute inset-0 overflow-hidden"
     >
-      {/* 2. Colour. Two large fields, drifting against each other. */}
-      <div className="hero-orb hero-orb--brass" />
-      <div className="hero-orb hero-orb--blue" />
-
-      {/* 1. The destination, at the scale of the panel itself. */}
-      <div className="hero-wordmark" data-depth="1">
-        <span>DHAKA</span>
+      <div className="hero-board__wall">
+        {Array.from({ length: COLUMNS }, (_, index) => (
+          <span
+            key={index}
+            className="hero-board__column"
+            style={{
+              /*
+               * Deterministic rather than random: the same board renders on the
+               * server and the client, and the pattern still reads as
+               * unsynchronised because the two figures share no common factor.
+               */
+              animationDelay: `${(index % 7) * 0.65 + (index % 3) * 0.22}s`,
+              animationDuration: `${5.5 + (index % 5) * 1.35}s`,
+            }}
+          />
+        ))}
       </div>
 
-      {/* 4. The route it travels, drawn once rather than animated per-particle. */}
-      <svg
-        className="hero-route"
-        data-depth="3"
-        viewBox="0 0 1200 600"
-        preserveAspectRatio="xMidYMid slice"
-      >
-        <path
-          d="M -60 470 C 240 300, 520 250, 760 230"
-          fill="none"
-          stroke="rgba(240,166,49,0.55)"
-          strokeWidth="2"
-          strokeDasharray="10 12"
-          className="hero-route__line"
-        />
-        <circle cx="-40" cy="465" r="7" fill="rgba(138,180,255,0.9)" />
-        <circle cx="760" cy="230" r="9" fill="rgba(240,166,49,0.95)" />
-        <circle
-          cx="760"
-          cy="230"
-          r="9"
-          fill="none"
-          stroke="rgba(240,166,49,0.7)"
-          strokeWidth="2"
-          className="hero-route__pulse"
-        />
-      </svg>
+      {/* The board is lit from the left, the way a hall is. */}
+      <div className="hero-board__light" />
 
-      {/* 3. A raking light, crossing on a long cycle. */}
-      <div className="hero-sweep" data-depth="2" />
+      {/* An arrival crossing the board on a long cycle: the one warm moment. */}
+      <div className="hero-board__arrival" />
     </div>
   );
 }
