@@ -125,6 +125,17 @@ Copy sits low and left in a column capped at 34rem. Below `lg` the subject moves
 words; on a phone it is dropped altogether, because a phone screen is exactly as tall as the
 words need and a subject anywhere on it lands behind the headline.
 
+**A real photograph skips all of it.** The layers above exist because a square drawing on a pale
+ground cannot fill a wide screen unaided; a photograph was already composed by whoever took it,
+so it is laid in edge to edge (`.hero-photo`) with nothing but a slow drift and the scrim.
+`lib/hero-media.ts` maps a product slug to a hero photograph — hero only, so the card underneath
+and every other page go on showing the catalogue image. Delete the entry once real media is
+uploaded through admin and the hero shows the real thing.
+
+Below `lg` the copy runs the full width of the page rather than beside the picture, so the scrim
+becomes a full vertical one at those widths. A directional wash is not enough when the words are
+over the image rather than next to it.
+
 Photography should be real product shots (the actual American goods, styled plainly) — never
 stock lifestyle imagery. Until real photography exists the drawn artwork stands in, and the
 composition above is what makes it hold a full screen.

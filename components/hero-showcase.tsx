@@ -8,6 +8,7 @@ import { Countdown } from "./countdown";
 import { useHeaderTheme } from "./header-theme";
 import { IconArrowLeft, IconArrowRight, IconSeal } from "./icons";
 import { ProductArt } from "./product-art";
+import type { HeroPhotograph } from "@/lib/hero-media";
 import { detectBackgroundTone, type BackgroundTone } from "@/lib/hero-tone";
 
 export type HeroSlide = {
@@ -16,6 +17,11 @@ export type HeroSlide = {
   brand: string | null;
   imageUrl: string | null;
   imageAlt: string;
+  /**
+   * What the hero shows, where that is not the catalogue image. See
+   * lib/hero-media.ts — the card underneath keeps showing `imageUrl`.
+   */
+  photograph: HeroPhotograph | null;
   priceLabel: string;
   closesAt: string | null;
   remaining: number | null;
@@ -117,8 +123,11 @@ export function HeroShowcase({
 
     (async () => {
       for (const entry of slides) {
-        if (entry.tone || !entry.imageUrl) continue;
-        const found = await detectBackgroundTone(entry.imageUrl);
+        // Whatever the hero actually shows, which is not always the catalogue
+        // image — see lib/hero-media.ts.
+        const source = entry.photograph?.url ?? entry.imageUrl;
+        if (entry.tone || !source) continue;
+        const found = await detectBackgroundTone(source);
         if (!live || !found) continue;
         setMeasured((current) =>
           current[entry.slug] === found
@@ -256,7 +265,21 @@ export function HeroShowcase({
               transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
               className="absolute inset-0"
             >
-              {slide.imageUrl ? (
+              {slide.photograph?.photographic ? (
+                /*
+                 * A real photograph is already a composition. It fills the
+                 * frame as it was shot — no wash, no mask, no blend — because
+                 * every one of those exists to make a square drawing on a pale
+                 * ground hold a wide screen, and applying them here would blur
+                 * and crop somebody's finished picture.
+                 */
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={slide.photograph.url}
+                  alt=""
+                  className="hero-photo absolute inset-0 size-full object-cover"
+                />
+              ) : slide.imageUrl ? (
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img

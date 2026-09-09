@@ -1402,3 +1402,44 @@ fabricates a photograph or pretends one exists.
 
 The three heroes before this one are archived under `docs/archive`, the newest
 of them in `hero-campaign-banner.md`, each restorable in one command.
+
+### A photograph in the hero, and what it proved
+
+The owner supplied a product photograph and asked for it in the hero. It is
+wired through `lib/hero-media.ts`, which maps a product slug to a hero image and
+is read by the home page only: the card under the hero, the listing pages and
+the product page all go on showing the catalogue artwork, so nothing about the
+product record changed.
+
+A photograph takes a different path through the hero than drawn artwork does.
+The wash, the mask and the multiply blend all exist to make a square drawing on
+a pale ground hold a wide screen; a photograph was composed by whoever took it,
+so it is laid in edge to edge with nothing but a slow drift over it. That is the
+`.hero-photo` branch.
+
+Two things it proved that the drawn catalogue could not:
+
+- **The adaptive header is real, not theoretical.** The photograph measures dark
+  and the header goes pale over it; the four drawn slides measure light and it
+  goes navy. Rotating through the batch now shows both treatments crossfading
+  into each other, which until now could only be seen by forcing an override.
+- **The scrim was tuned for a picture beside the words, not under them.** Below
+  `lg` the copy runs the full width, and over a real photograph the directional
+  wash was not enough — the body copy sat on the bottle. It is a full vertical
+  scrim at those widths now, and re-measured: nav 8.6:1, body copy 6.6:1 on
+  desktop and 11.4:1 on a phone, headline 17.8:1.
+
+`[!]` **The supplied photograph is not licensed for this shop.** It carries a
+visible copyright notice in its lower right corner and shows another brand's
+product. It is fine for looking at the design and it must not go public. Replace
+`public/hero/fragrance-bottle.jpg` with photography of the actual goods, or
+delete the entry in `lib/hero-media.ts` and the hero falls back to the
+catalogue image with no other change.
+
+| Gate, with the photograph in place | Result |
+| --- | --- |
+| `npm run lint`, `npm run typecheck` | `[x]` pass |
+| Axe at AA, 1440×900 and 390×844 | `[x]` 0 violations |
+| Contrast over the photograph | `[x]` every measured element above 6.5:1 |
+| Sideways scroll | `[x]` none at either width |
+| Both header treatments, rotating | `[x]` inspected at 1440, 820 and 390 |

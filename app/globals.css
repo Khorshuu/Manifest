@@ -678,6 +678,29 @@ input[type="radio"] {
   opacity: 0.92;
 }
 
+/*
+ * A real photograph, filling the frame.
+ *
+ * Nothing is done to it but a slow drift: it was composed by whoever took it,
+ * and the layered treatment below exists only because drawn artwork on a pale
+ * ground cannot hold a wide screen unaided. The subject in these shots sits
+ * right of centre, so the crop is held there as the frame narrows.
+ */
+.hero-photo {
+  object-position: 68% 50%;
+  transform: scale(1.04);
+  animation: hero-photo-drift 26s ease-out both;
+}
+
+@keyframes hero-photo-drift {
+  from {
+    transform: scale(1.04);
+  }
+  to {
+    transform: scale(1.11) translate3d(-1%, -0.5%, 0);
+  }
+}
+
 /* The colour of the whole screen comes from the product itself: a blurred copy
    of the photograph, scaled past every edge. It is what lets one square
    catalogue image fill a wide screen without being cropped to a stripe. */
@@ -824,6 +847,35 @@ input[type="radio"] {
 }
 
 /*
+ * Below `lg` the copy runs the full width of the page, so it is over the
+ * picture rather than beside it and the directional wash above is not enough on
+ * its own. The scrim becomes a full vertical one at those widths — still
+ * lightest at the top, where the photograph is doing the work, and heaviest
+ * under the words.
+ */
+@media (max-width: 1023px) {
+  .hero-stage[data-tone="dark"] .hero-scrim {
+    background: linear-gradient(
+      to top,
+      rgb(7 16 30 / 0.96) 0%,
+      rgb(7 16 30 / 0.88) 44%,
+      rgb(7 16 30 / 0.6) 72%,
+      rgb(7 16 30 / 0.3) 100%
+    );
+  }
+
+  .hero-stage[data-tone="light"] .hero-scrim {
+    background: linear-gradient(
+      to top,
+      rgb(255 255 255 / 0.96) 0%,
+      rgb(255 255 255 / 0.9) 44%,
+      rgb(255 255 255 / 0.64) 72%,
+      rgb(255 255 255 / 0.34) 100%
+    );
+  }
+}
+
+/*
  * Film grain, at the strength where it is felt rather than seen. It is what
  * stops a large flat gradient from banding, and it gives generated artwork the
  * texture of a photograph rather than of a vector.
@@ -917,7 +969,8 @@ input[type="radio"] {
 
 @media (prefers-reduced-motion: reduce) {
   .hero-wash,
-  .hero-subject {
+  .hero-subject,
+  .hero-photo {
     animation: none;
   }
 

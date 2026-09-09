@@ -17,6 +17,7 @@ import {
 } from "@/lib/catalog";
 import { serverInstant } from "@/lib/clock";
 import { formatArrivalWindow } from "@/lib/format";
+import { HERO_PHOTOGRAPHS } from "@/lib/hero-media";
 import { HERO_TONE_OVERRIDES } from "@/lib/hero-tone";
 import { formatBdt } from "@/lib/money";
 
@@ -87,6 +88,9 @@ export default async function HomePage() {
     brand: product.brand,
     imageUrl: product.imageUrl,
     imageAlt: product.imageAlt,
+    // Hero only. The card under it, and every other page, keep the catalogue
+    // image — see lib/hero-media.ts.
+    photograph: HERO_PHOTOGRAPHS[product.slug] ?? null,
     priceLabel: priceLabel(product.fromPriceBdt),
     closesAt: product.closesAt ? product.closesAt.toISOString() : null,
     remaining: product.remainingCapacity,
