@@ -129,3 +129,39 @@ export function composeOrderMessage(
       };
   }
 }
+
+export type WaitlistNotificationFacts = {
+  productTitle: string;
+  variantLabel: string;
+  productSlug: string;
+  /** How many places opened up. Stated plainly, because it sets expectations. */
+  places: number;
+};
+
+/**
+ * What someone on the waitlist is told when places open up again.
+ *
+ * The message is deliberate about what it is *not* promising. No place is held
+ * for them — see DECISIONS.md D-011 — so it says so, rather than letting
+ * someone read "a place is available" as "a place is yours" and find it gone
+ * an hour later. That would be worse than not writing at all.
+ */
+export function composeWaitlistMessage(
+  facts: WaitlistNotificationFacts,
+): ComposedMessage {
+  const what =
+    facts.variantLabel && facts.variantLabel !== "Single variant"
+      ? `${facts.productTitle} (${facts.variantLabel})`
+      : facts.productTitle;
+
+  return {
+    subject: `${what} is available again`,
+    body: [
+      `A place has opened up in the batch for ${what}.`,
+      facts.places === 1
+        ? "There is one place, and it is not held for you — whoever orders first takes it."
+        : `There are ${facts.places} places, and none is held for you — they go to whoever orders first.`,
+      "If you still want it, order now while the window is open.",
+    ].join("\n\n"),
+  };
+}

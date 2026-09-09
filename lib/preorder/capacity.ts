@@ -1,5 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { queueWaitlistNotifications } from "@/lib/notifications/waitlist";
 import { productVariants, waitlistEntries } from "@/db/schema";
 
 /**
@@ -276,6 +277,14 @@ export async function releaseCapacity(
         updatedAt: new Date(),
       })
       .where(eq(productVariants.id, variantId));
+
+    /*
+     * Somebody cancelled, so the places they held are open again. The people
+     * waiting are told inside this transaction, so a message exists if and
+     * only if the capacity really came back — and no place is held for them
+     * (DECISIONS.md D-011).
+     */
+    await queueWaitlistNotifications(tx, variantId, quantity);
     return;
   }
 

@@ -850,3 +850,34 @@ Two things worth recording:
 
 Still carried forward from Phase 6: notifying the waitlist when capacity frees
 up. The count is now visible on this screen, but nothing is sent.
+
+## Waitlist notifications (added after Phase 15)
+
+Carried forward since Phase 6, and blocked on an open question in DATABASE.md —
+automatic re-offer or manual. The product owner asked for work to continue
+rather than wait on the answer, so the simplest defensible option is built and
+recorded as **DECISIONS.md D-011: notify, do not hold.**
+
+When capacity returns to a full preorder variant — an order cancelled, or staff
+raising the ceiling — the people at the front of that variant's queue are told,
+oldest first, up to the number of places that actually opened. No place is
+reserved for them, and the message says so in as many words.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 533 passed, 2 skipped, 34 files |
+| `npm run test:e2e` | `[x]` passes — 382 passed, 4 skipped, mobile and desktop |
+| The queue is served in order | `[x]` verified: one place freed writes to the oldest entry and nobody else |
+| Places, not the size of the rise | `[x]` verified: a batch with two spare raised from 2 to 7 opens five, not five-plus-two |
+| Nobody is told twice | `[x]` verified: two releases in a row produce one message, because the dedupe key is the waitlist entry |
+| A message exists only if the capacity did | `[x]` it is written inside the transaction that returns the capacity, the same outbox rule as order events (D-009) |
+| Nothing is sent about a withdrawn product | `[x]` verified: a disabled variant produces no message |
+| The message does not promise a place | `[x]` asserted against the body text — "not held for you", "orders first" |
+| **Confirmed to fail** | `[x]` removing the call from `releaseCapacity` fails 5 of the 11 tests; the other 6 cover the staff-capacity path and the templates, which are untouched by that change |
+
+Not done: no email is actually delivered, because no email or SMS provider is
+connected. The message lands in the outbox and is visible at
+`/admin/notifications`, which says on the page that nothing was sent. That is
+the same state every other notification in this system is in.

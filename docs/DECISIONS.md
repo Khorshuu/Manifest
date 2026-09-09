@@ -4,6 +4,20 @@ Architecture decision log. One entry per meaningful choice, newest first. Each e
 
 ---
 
+## D-011: The waitlist is notified when places open, and no place is held
+
+**Decision:** When capacity is returned to a full preorder variant — an order cancelled, or staff raising the ceiling — everyone at the front of that variant's waitlist is sent a message saying places are available, oldest entry first, up to the number of places that actually opened. No place is reserved for them: the first person to order takes it. Each entry is marked `notified_at` so nobody is told twice, and the message says plainly that nothing is being held.
+
+**Alternatives considered:** reserving the freed place for the next person in the queue for some window — a few hours, say — before releasing it to everyone.
+
+**Why:** DATABASE.md recorded this as an open question, automatic re-offer versus manual, and the product owner asked for the work to continue rather than wait on the answer. So this is the simplest option that is defensible and cheap to change. A held place is a second kind of reservation: it needs its own expiry, its own scheduler to release it, its own display on the storefront ("held for someone else"), and its own interaction with the transaction that prevents overselling. MASTER_PRODUCT_SPEC.md does not ask for any of that, and CLAUDE.md §9 says to pick the simplest option that is secure and correct rather than invent complex behaviour.
+
+Nothing about this forecloses the other choice. The queue order is recorded, `notified_at` distinguishes told from untold, and adding a hold later means adding an expiry to the waitlist row — no data is lost or reinterpreted in the meantime.
+
+The honesty of the message is part of the decision. "A place is available" reads as "a place is yours" unless it says otherwise, and someone who drops what they are doing only to find the batch full again is worse served than someone who was never written to. So the message states that the place is not held.
+
+---
+
 ## D-010: The landed price is split for the books, never added to at checkout
 
 **Decision:** A variant's price is the landed price — goods, freight and customs duty already inside it. At order placement that price is decomposed into `subtotal_bdt` (goods), `shipping_fee_bdt` and `duty_bdt`, which always add back to exactly `total_bdt`. The rates live in `site_settings` (`landed.shipping_per_kg_bdt`, `landed.duty_percent`, `landed.assumed_weight_grams`).

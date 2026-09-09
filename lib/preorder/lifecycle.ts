@@ -2,6 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { productVariants, waitlistEntries } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
+import { queueWaitlistNotifications } from "@/lib/notifications/waitlist";
 import { requireStaff } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
@@ -79,8 +80,37 @@ export async function openPreorder(
       tx,
     );
 
+    /*
+     * Raising the ceiling opens places just as surely as a cancellation does,
+     * so the people waiting hear about it the same way. Measured as the change
+     * in what is actually buyable, not the change in the ceiling: a batch that
+     * was full at 10 and is now 15 has five places, and a batch that had two
+     * spare and went from 10 to 15 has seven.
+     */
+    const openedNow = remainingPlaces(
+      updated.preorderCapacity,
+      updated.preorderReserved,
+    );
+    const openedBefore = remainingPlaces(
+      before.preorderCapacity,
+      before.preorderReserved,
+    );
+
+    if (openedNow > openedBefore) {
+      await queueWaitlistNotifications(tx, variantId, openedNow - openedBefore);
+    }
+
     return updated;
   });
+}
+
+/**
+ * Places still buyable. An uncapped batch is treated as having none to
+ * announce — there was never a queue for it, because it was never full.
+ */
+function remainingPlaces(capacity: number | null, reserved: number): number {
+  if (capacity === null) return 0;
+  return Math.max(0, capacity - reserved);
 }
 
 /**
