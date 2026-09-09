@@ -767,5 +767,49 @@ Not done in this pass, and carried forward:
   They work and they pass, but the second pass stopped at the home page.
 - `[ ]` Real photography. Every image is still an illustration; the storage
   integration and `next/image` are unchanged.
-- `[ ]` The production JavaScript budget has not been re-measured since Framer
-  Motion arrived. `npm run test:e2e:prod` asserts it and was not run here.
+- `[x]` The production JavaScript budget was re-measured — see below.
+
+### The JavaScript budget, re-measured with Framer Motion in the build
+
+`docs/DESIGN_GUIDELINES.md` sets 200KB gzipped. Measured against a production
+build:
+
+| Page | Raw | Gzipped |
+| --- | --- | --- |
+| Product detail | 470.6 KB | **140.7 KB** |
+| Home | 594.9 KB | **181.4 KB** |
+
+The product page was 136.1 KB before this pass, so the motion library costs it
+about 4.6 KB. The home page is the heaviest on the site and the one a first-time
+visitor lands on, and it was **192.0 KB** — 8 KB of headroom — until the process
+band's scroll-linked rule moved from a Framer spring to a CSS scroll timeline,
+which took 10.6 KB off it. That is the right tool there twice over: a progress
+line *should* run backwards as you scroll back up, which is the behaviour that
+made scroll timelines wrong for entrances, and it costs no JavaScript at all.
+
+`e2e/seo.spec.ts` now asserts the budget on **both** pages. It previously
+watched only the product page, which is not the one at risk.
+
+## A production-only defect in product media (found after Phase 15)
+
+An uploaded photograph returned **404 under `next start`** while working
+perfectly in development. The local media provider wrote into `public/uploads`,
+and Next resolves that directory when the application is built — a file written
+there afterwards is never served. Every admin upload would have been broken in
+production, and nothing caught it because the media suite had only ever been run
+against the dev server.
+
+Uploads now go to `.uploads/` outside `public/`, served by a route handler at
+`/uploads/[key]` that reads from disk per request. That works in both modes and
+is closer in shape to the Cloudflare R2 implementation named in DECISIONS.md
+D-001, where the bytes never sit beside the application at all.
+
+| Gate | Result |
+| --- | --- |
+| An uploaded photograph is served in production | `[x]` verified by `npm run test:e2e:prod`, which is what found the defect |
+| The route refuses anything but a generated key | `[x]` verified for three traversal spellings, a non-image extension, and a well-formed key that does not exist |
+| `npm run test:e2e:prod` | `[x]` passes — 366 passed, 4 skipped, against a production build |
+
+The key is matched against the exact UUID-and-extension shape the system
+generates rather than merely being checked for `..`: a whitelist cannot be
+talked into matching a path, and a blacklist eventually can.

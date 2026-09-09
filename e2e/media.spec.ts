@@ -209,3 +209,40 @@ test("an uploaded photograph reaches the storefront", async ({ page }) => {
   expect(served.status).toBe(200);
   expect(served.type).toContain("image");
 });
+
+/**
+ * The upload route is the one place the application reads a file path from a
+ * URL, so it gets its own probes rather than being covered only by the happy
+ * path above.
+ *
+ * It exists because uploads cannot live in `public/`: Next resolves that
+ * directory when the application is built, so a file written there afterwards
+ * is served in development and 404s under `next start`. That was invisible
+ * until the suite was run against a production build.
+ */
+test("the upload route refuses anything that is not a generated key", async ({
+  page,
+}) => {
+  // The fetches below are relative, so the page needs an origin first.
+  await page.goto("/");
+
+  const attempts = [
+    // Traversal, in the spellings a proxy might decode differently.
+    "..%2F..%2Fpackage.json",
+    "..%5C..%5Cpackage.json",
+    "%2e%2e%2fpackage.json",
+    // A real generated shape, but an extension that is not an image.
+    "0f9c1d2e-3a4b-5c6d-7e8f-9a0b1c2d3e4f.sh",
+    // Well-formed and simply absent.
+    "0f9c1d2e-3a4b-5c6d-7e8f-9a0b1c2d3e4f.png",
+  ];
+
+  for (const attempt of attempts) {
+    const status = await page.evaluate(async (key: string) => {
+      const response = await fetch(`/uploads/${key}`);
+      return response.status;
+    }, attempt);
+
+    expect(status, `/uploads/${attempt} should not be served`).toBe(404);
+  }
+});

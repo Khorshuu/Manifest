@@ -281,6 +281,34 @@
   animation: rise-in 520ms var(--ease-out-quint) both;
 }
 
+/*
+ * The rule down the process band, drawn against the scroll position.
+ *
+ * A scroll timeline scrubs — it runs backwards as you scroll back up — which
+ * is wrong for an entrance and exactly right for a progress line. Without
+ * support the rule is simply drawn in full, which is a complete picture of the
+ * journey rather than a broken one.
+ */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .process-rule {
+      transform-origin: top center;
+      animation: draw-rule linear both;
+      animation-timeline: view();
+      animation-range: entry 55% cover 70%;
+    }
+  }
+}
+
+@keyframes draw-rule {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
 /* The batch meter fills as its card arrives. The width is already correct in
    the markup, so this only scales what is there: a browser that never runs the
    animation shows the true figure rather than an empty bar. */

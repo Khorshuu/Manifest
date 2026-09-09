@@ -48,7 +48,10 @@ next-env.d.ts
 /.postgres-dev
 
 # uploaded media (local provider)
-/public/uploads
+# Locally stored product media. Deliberately not in public/: Next resolves
+# that directory at build time, so a file written there afterwards is never
+# served by next start.
+/.uploads
 
 # Vendored design skills (~4.5MB of third-party data), installed per machine
 # with `uipro init --ai claude` and `npx @21st-dev/cli install-skill`.

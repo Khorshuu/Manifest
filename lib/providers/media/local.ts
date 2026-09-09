@@ -9,13 +9,25 @@ import {
   type UploadInput,
 } from "./types";
 
+/** Outside `public/`, and served by app/uploads/[key]/route.ts. */
+export const LOCAL_UPLOAD_DIR = join(process.cwd(), ".uploads");
+
 /**
- * Writes uploads to the public directory.
+ * Writes uploads to a directory on disk.
  *
  * This is the development implementation, and it is a real one: an admin can
  * upload a photograph and see it on the storefront. It is not suitable for a
  * serverless deployment, which has no persistent disk — that is what the R2
  * implementation is for (DECISIONS.md D-001).
+ *
+ * The files deliberately do *not* live in `public/`. Next.js resolves that
+ * directory when the application is built, so a file written into it
+ * afterwards is never served by `next start` — an upload worked in development
+ * and returned 404 in production, which only showed up once the end-to-end
+ * suite was run against a production build. They are served by a route handler
+ * instead, which reads from disk per request. That is also closer in shape to
+ * the R2 implementation, where the bytes never sit next to the application at
+ * all.
  */
 export class LocalMediaProvider implements MediaProvider {
   readonly name = "local";
@@ -23,10 +35,7 @@ export class LocalMediaProvider implements MediaProvider {
   private readonly directory: string;
   private readonly publicPath: string;
 
-  constructor(
-    directory = join(process.cwd(), "public", "uploads"),
-    publicPath = "/uploads",
-  ) {
+  constructor(directory = LOCAL_UPLOAD_DIR, publicPath = "/uploads") {
     this.directory = directory;
     this.publicPath = publicPath;
   }

@@ -1,14 +1,3 @@
-"use client";
-
-import {
-  motion,
-  useReducedMotion,
-  useScroll,
-  useSpring,
-  useTransform,
-} from "framer-motion";
-import { useRef } from "react";
-
 const steps = [
   {
     label: "Window open",
@@ -33,34 +22,20 @@ const steps = [
  * It exists to break the run of pale sections and to give the page a spine —
  * and the spine is literal: a rule that draws itself down the section as you
  * scroll through it, so the three steps read as one journey rather than three
- * unrelated boxes. The rule is decoration over content that is already
- * complete and legible without it.
+ * unrelated boxes.
+ *
+ * The rule is drawn by a CSS scroll timeline rather than a motion hook, which
+ * is the right tool twice over. A progress line *should* scrub — running
+ * backwards as you scroll back up is exactly what a progress line means, which
+ * is the opposite of an entrance, where it is a bug. And it takes no
+ * JavaScript: this section is on the home page, which was measured at 192KB
+ * gzipped against a 200KB budget, and a scroll-linked spring is an expensive
+ * way to move one rule. Where the browser cannot drive it, the rule is simply
+ * drawn in full, which is a complete and correct picture of the journey.
  */
 export function ProcessBand() {
-  const sectionRef = useRef<HTMLElement>(null);
-  const reduce = useReducedMotion();
-
-  const { scrollYProgress } = useScroll({
-    target: sectionRef,
-    // From the section's top reaching the bottom of the screen, to its bottom
-    // reaching the middle — the span over which someone is actually reading it.
-    offset: ["start end", "end center"],
-  });
-
-  // Spring rather than raw progress: the line should follow the scroll, not
-  // twitch with every wheel notch.
-  const drawn = useSpring(scrollYProgress, {
-    stiffness: 90,
-    damping: 24,
-    restDelta: 0.001,
-  });
-  const height = useTransform(drawn, [0, 1], ["0%", "100%"]);
-
   return (
-    <section
-      ref={sectionRef}
-      className="surface-ink relative overflow-hidden text-paper"
-    >
+    <section className="surface-ink relative overflow-hidden text-paper">
       <div
         aria-hidden="true"
         className="grid-rule pointer-events-none absolute inset-0 text-paper opacity-[0.08]"
@@ -87,10 +62,9 @@ export function ProcessBand() {
             aria-hidden="true"
             className="absolute left-[15px] top-2 h-[calc(100%-1rem)] w-px bg-paper/20 md:left-[23px]"
           />
-          <motion.span
+          <span
             aria-hidden="true"
-            className="absolute left-[15px] top-2 w-px origin-top bg-brass md:left-[23px]"
-            style={reduce ? { height: "100%" } : { height }}
+            className="process-rule absolute left-[15px] top-2 h-[calc(100%-1rem)] w-px bg-brass md:left-[23px]"
           />
 
           {steps.map((step, index) => (

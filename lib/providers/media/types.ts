@@ -138,3 +138,17 @@ export function validateUpload(input: UploadInput): ImageType {
 
   return sniffed;
 }
+
+/**
+ * The content type an uploaded file's extension implies.
+ *
+ * Only ever applied to a key this system generated, so the extension is one of
+ * the four above by construction — but it returns null rather than guessing if
+ * it is ever handed something else.
+ */
+export function contentTypeForExtension(extension: string): ImageType | null {
+  const match = (Object.entries(EXTENSIONS) as [ImageType, string][]).find(
+    ([, value]) => value === extension.toLowerCase(),
+  );
+  return match ? match[0] : null;
+}
