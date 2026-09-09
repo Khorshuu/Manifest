@@ -243,6 +243,16 @@ test("the upload route refuses anything that is not a generated key", async ({
       return response.status;
     }, attempt);
 
-    expect(status, `/uploads/${attempt} should not be served`).toBe(404);
+    /*
+     * Any refusal, not one particular code. Some of these encodings never
+     * reach the handler at all — the framework rejects the path itself with a
+     * 400 in development and a 404 in production — and pinning the number
+     * would make the test assert which layer refused rather than that the file
+     * was refused, which is the part that matters.
+     */
+    expect(
+      status,
+      `/uploads/${attempt} should not be served`,
+    ).toBeGreaterThanOrEqual(400);
   }
 });

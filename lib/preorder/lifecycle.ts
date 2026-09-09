@@ -203,3 +203,35 @@ export async function listWaitlist(actor: SessionUser | null, variantId: string)
     )
     .orderBy(waitlistEntries.createdAt);
 }
+
+/**
+ * How many people are waiting on each variant of one product.
+ *
+ * One query for the whole product rather than `countWaitlist` per variant: the
+ * windows screen shows every variant at once, and a product with a large
+ * matrix would otherwise issue a query per row.
+ */
+export async function countWaitlistByProduct(
+  actor: SessionUser | null,
+  productId: string,
+): Promise<Map<string, number>> {
+  requireStaff(actor);
+
+  const rows = await db
+    .select({
+      variantId: waitlistEntries.variantId,
+      waiting: sql<number>`count(*)::int`,
+    })
+    .from(waitlistEntries)
+    .innerJoin(
+      productVariants,
+      eq(productVariants.id, waitlistEntries.variantId),
+    )
+    .where(
+      sql`${productVariants.productId} = ${productId}
+          and ${waitlistEntries.notifiedAt} is null`,
+    )
+    .groupBy(waitlistEntries.variantId);
+
+  return new Map(rows.map((row) => [row.variantId, Number(row.waiting)]));
+}

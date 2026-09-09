@@ -813,3 +813,40 @@ D-001, where the bytes never sit beside the application at all.
 The key is matched against the exact UUID-and-extension shape the system
 generates rather than merely being checked for `..`: a whitelist cannot be
 talked into matching a path, and a blacklist eventually can.
+
+## Preorder window controls (added after Phase 15)
+
+The capacity engine has been in place and tested since Phase 6, and until now
+there was no screen that could reach it: a window could only be set by typing
+values in when a variant was first created. `/admin/products/<id>/windows` opens,
+extends and closes a window per variant, and shows capacity, reserved,
+remaining and how many people are waiting.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 522 passed, 2 skipped, 33 files |
+| `npm run test:e2e` | `[x]` passes — 380 passed, 4 skipped, mobile and desktop |
+| Axe at AA | `[x]` the new screen is in the audit and passes — 28 checks over thirteen pages |
+| UI inspected | `[x]` viewed at 375px and 1280px against the seeded headphones, which have one open variant and one deliberately full |
+| A window opens, extends and closes | `[x]` verified end to end in the browser, with the figures read back from the server after a reload rather than from the optimistic message |
+| Closing keeps the reserved places | `[x]` verified: the reserved count is identical before and after, because those are orders that still have to be fulfilled |
+| Capacity cannot drop below reserved | `[x]` verified at the API with a hand-written request — 400 with the reason, not a silent clamp |
+| A closing date in the past is refused | `[x]` verified at the API |
+| An unknown field is refused | `[x]` verified: a request that also tries to set `preorderReserved` is rejected rather than partly applied |
+| Only staff | `[x]` verified — 403 for a signed-in customer on both open and close, 401 anonymous |
+
+Two things worth recording:
+
+- The request body is a discriminated union rather than one shape with optional
+  fields. "Close" takes nothing, and a request that closes a window while also
+  carrying a capacity is a confused request, not a lenient one.
+- Whether a window has already shut is decided against the database clock and
+  passed to the client, not read from `Date.now()` during render. That is the
+  same fix as the countdown: reading a clock during render is impure, and it is
+  also the wrong clock, since everything else in this system decides "closed" in
+  SQL.
+
+Still carried forward from Phase 6: notifying the waitlist when capacity frees
+up. The count is now visible on this screen, but nothing is sent.

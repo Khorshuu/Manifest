@@ -148,4 +148,19 @@ test.describe("admin", () => {
     await page.goto("/admin/settings");
     await audit(page);
   });
+
+  /**
+   * The densest form on the site: three controls per variant, repeated down
+   * the page, which is exactly the shape that produces duplicate ids and
+   * labels pointing at the wrong field.
+   */
+  test("preorder windows", async ({ page }) => {
+    await signIn(page, "staff@example.com");
+    await page.goto("/admin/products");
+    await page
+      .getByRole("link", { name: /Studio Reference Headphones/ })
+      .click();
+    await page.getByRole("link", { name: "Preorder windows" }).click();
+    await audit(page);
+  });
 });

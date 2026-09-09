@@ -118,6 +118,12 @@ export default async function AdminProductPage({
         >
           Manage variants
         </Link>
+        <Link
+          href={`/admin/products/${product.id}/windows`}
+          className="inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
+        >
+          Preorder windows
+        </Link>
       </div>
 
       <section className="border-t border-blue-300 pt-6">
