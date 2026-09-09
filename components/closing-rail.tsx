@@ -69,8 +69,10 @@ export function ClosingRail({
 
   if (items.length === 0) return null;
 
+  // Tight against the banner above it, so the page reads as a shop rather than
+  // as a landing page with a shop somewhere below.
   return (
-    <section className="mx-auto w-full max-w-[1280px] px-4 py-14 md:px-6">
+    <section className="mx-auto w-full max-w-[1280px] px-4 pb-14 pt-10 md:px-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">

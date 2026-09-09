@@ -1,66 +1,31 @@
 /**
- * The hero backdrop: a departure board, at the scale of the panel.
+ * The ground under the campaign banner.
  *
- * Two earlier attempts were rejected and both failed the same way — they were
- * *ambient*. A still ruled grid, then a field of faint dots and arcs. The note
- * on the second one is the brief for this one: low-contrast drifting effects
- * read as noise, and subtlety is the failure mode here, not the goal.
+ * The hero is light now, so this is a studio sweep rather than a dark panel:
+ * a broad wash of daylight with the brand blue coming up from the lower left
+ * and a warm brass bloom behind the product on the right, so the photograph
+ * sits in light rather than on a flat colour.
  *
- * So this is not a texture. It is an object: the mechanical board that hangs
- * in a departures hall, built from columns of flaps that step over and settle.
- * It fits the shop exactly — every listing here is a batch with a departure and
- * an arrival — and it is the same object the countdown already is, so the hero
- * and the clock beneath it are now one idea at two sizes.
+ * Over it, a very faint ruled field — the printed-form motif the rest of the
+ * site is built on, at a size where it reads as paper texture rather than as a
+ * grid. It is the one place a graph-paper rule belongs: behind a photograph,
+ * on paper, at low contrast. Everywhere it was tried as the *subject* of a
+ * hero it failed, and the two archived heroes in `docs/archive` are the record
+ * of that.
  *
- * Three things make it cheap enough to run for the life of the page:
- *
- *   - Columns, not tiles. Each column is one element whose background is a
- *     repeating gradient of flap faces, so a wall of two hundred flaps costs
- *     sixteen animated nodes rather than two hundred.
- *   - `steps()` timing. The movement is discrete, which is what makes it read
- *     as mechanical rather than as something sliding. It is also the reason
- *     this works at low contrast where a smooth drift did not: the eye catches
- *     the change, not the tone.
- *   - No JavaScript at all. There are no hooks here, nothing measures, nothing
- *     runs per frame — the whole thing is CSS, so it costs the home page
- *     nothing against its 200KB budget.
- *
- * It stops entirely for anyone who has asked for reduced motion, where it
- * stands as a still board.
+ * There are no hooks here and nothing runs per frame. The whole thing is two
+ * gradients and one drifting bloom, so it costs the home page nothing against
+ * its JavaScript budget.
  */
-
-/** Enough columns to read as a wall, few enough to stay cheap. */
-const COLUMNS = 16;
-
 export function HeroBackdrop() {
   return (
     <div
       aria-hidden="true"
-      className="hero-board pointer-events-none absolute inset-0 overflow-hidden"
+      className="hero-banner pointer-events-none absolute inset-0 overflow-hidden"
     >
-      <div className="hero-board__wall">
-        {Array.from({ length: COLUMNS }, (_, index) => (
-          <span
-            key={index}
-            className="hero-board__column"
-            style={{
-              /*
-               * Deterministic rather than random: the same board renders on the
-               * server and the client, and the pattern still reads as
-               * unsynchronised because the two figures share no common factor.
-               */
-              animationDelay: `${(index % 7) * 0.65 + (index % 3) * 0.22}s`,
-              animationDuration: `${5.5 + (index % 5) * 1.35}s`,
-            }}
-          />
-        ))}
-      </div>
-
-      {/* The board is lit from the left, the way a hall is. */}
-      <div className="hero-board__light" />
-
-      {/* An arrival crossing the board on a long cycle: the one warm moment. */}
-      <div className="hero-board__arrival" />
+      <div className="hero-banner__wash" />
+      <div className="hero-banner__rule" />
+      <div className="hero-banner__bloom" />
     </div>
   );
 }

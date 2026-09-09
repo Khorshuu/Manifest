@@ -1239,3 +1239,52 @@ both had the same cause: **a render-affecting prop branched on
 | `e2e/experience.spec.ts` | `[x]` passes — rotation, hover pause, live countdown |
 | Home page JavaScript budget | `[x]` passes — the headline no longer uses the motion library at all |
 | Reduced motion | `[x]` verified: the board stands still, and the browser console is clean where it previously reported a hydration mismatch |
+
+## The hero as a campaign banner (added after Phase 15)
+
+The owner pointed at a large Greek pharmacy storefront and asked for that shape.
+What was worth taking from it is structural rather than decorative:
+
+- A bright, full-bleed promotional band instead of a dark panel.
+- **One** loud call to action, with the second route out of the hero as a quiet
+  link rather than a button competing for the same press.
+- Circular arrows sitting on the outer edges of the band, where they stay put
+  while the banner behind them changes.
+- A rotated sticker in the corner.
+- The next row of products butting straight up underneath, so the page reads as
+  a shop rather than as a landing page with a shop somewhere below it.
+
+What was deliberately not taken is the density. That banner is a printed
+advertisement carrying four logos and a paragraph of small print. This one
+carries the four things a preorder shopper is actually deciding on: what it is,
+what it costs, how long the window stays open, and how many places are left.
+The sticker carries a real figure for the same reason — a sticker that says
+nothing advertises nothing.
+
+The departure-board hero it replaced is archived at
+`docs/archive/hero-departure-board.md`, alongside the drifting-orbs hero before
+it in `docs/archive/hero-orbs-backdrop.md`. Both are complete and restorable in
+three steps; the choice between the three is taste rather than correctness.
+
+**Three heroes in, the recurring lesson is worth stating plainly: scale beats
+incident.** A still ruled grid read as nothing. A field of faint travelling dots
+read as noise. A wall of flaps at 5% white read as faint banding. Every one of
+them failed by being *small, fast and quiet*. The ruled field survives in this
+hero — but as paper texture behind a photograph at 4.5% opacity, which is the
+one job it was ever right for.
+
+The brand statement stays the page's `h1`, and it is set in CSS rather than with
+the motion library: `e2e/seo.spec.ts` renders the home page with JavaScript
+disabled and requires that heading to be visible, which is exactly what a
+crawler and a slow connection see.
+
+| Gate | Result |
+| --- | --- |
+| `npm run build` | `[x]` passes |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 554 passed, 2 skipped |
+| Axe at AA | `[x]` passes over the light banner, mobile and desktop |
+| `e2e/experience.spec.ts` | `[x]` passes — rotation, hover pause, live countdown, keyboard |
+| `e2e/seo.spec.ts` | `[x]` passes, including the heading with JavaScript disabled and both JavaScript budgets |
+| Reduced motion | `[x]` verified: the bloom stops, and the browser console is clean |

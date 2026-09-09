@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CapacityMeter } from "./capacity-meter";
 import { Countdown } from "./countdown";
 import { HeroBackdrop } from "./hero-backdrop";
-import { IconArrowLeft, IconArrowRight } from "./icons";
+import { IconArrowLeft, IconArrowRight, IconSeal } from "./icons";
 import { ProductArt } from "./product-art";
 
 export type HeroSlide = {
@@ -23,18 +23,23 @@ export type HeroSlide = {
 
 const INTERVAL_MS = 7000;
 
-const HEADLINE = ["American", "goods,", "landed", "in", "Bangladesh"];
-
 /**
- * The front of the shop.
+ * The front of the shop, as a campaign banner.
  *
- * Rebuilt around one idea: the left side makes the promise, the right side is
- * the product, and the details of the batch live on a tag pinned across the
- * foot of the photograph rather than stacked under the headline. The previous
- * version put the headline, the subheading, the product name, the price, the
- * countdown, the capacity meter, two buttons and the slide controls into a
- * single column — which left the most important thing on the page, the
- * photograph, as the quieter half of the panel.
+ * Built after the owner pointed at a large pharmacy storefront and asked for
+ * that shape. What was worth taking from it is structural rather than
+ * decorative: a bright, full-bleed promotional band instead of a dark panel;
+ * one loud call to action rather than two of equal weight; circular arrows
+ * sitting on the outer edges; a rotated sticker in the corner; and the next row
+ * of products butting straight up underneath, so the page reads as a shop
+ * rather than as a landing page with a shop below it.
+ *
+ * What was deliberately not taken is the density. That banner is a printed
+ * advertisement with four logos and a paragraph of small print in it. This one
+ * carries the four things a preorder shopper is actually deciding on — what it
+ * is, what it costs, how long the window is open, and how many places are left.
+ *
+ * Two heroes have been archived under `docs/archive` on the way to this one.
  *
  * Operable before decorative — arrows, dots and thumbnails are real buttons,
  * arrow keys work, rotation stops on hover, focus or any deliberate choice,
@@ -100,9 +105,15 @@ export function HeroCarousel({
     }
   }
 
+  /** Real, or absent. A sticker that says nothing advertises nothing. */
+  const sticker =
+    slide.remaining !== null && slide.remaining > 0
+      ? `${slide.remaining} place${slide.remaining === 1 ? "" : "s"} left`
+      : null;
+
   return (
     <section
-      className="relative overflow-hidden bg-ink-deep text-paper"
+      className="relative overflow-hidden border-b border-blue-300 bg-paper text-ink"
       aria-roledescription="carousel"
       aria-label="Featured preorders"
       onMouseEnter={() => setPaused(true)}
@@ -111,145 +122,133 @@ export function HeroCarousel({
       onBlurCapture={() => setPaused(false)}
       onKeyDown={onKeyDown}
     >
-      {/* A wall of flaps, stepping over and settling. */}
       <HeroBackdrop />
 
       {/*
-        A scrim between the board and the words. The board is deliberately
-        structured rather than faint, so this is what guarantees the headline
-        keeps its measured contrast wherever a lit column happens to be.
-      */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(58%_74%_at_14%_52%,rgba(10,21,38,0.94),rgba(10,21,38,0.6)_46%,rgba(10,21,38,0.1)_76%)]"
-      />
+       * The arrows sit on the outer edges of the band rather than inside the
+       * content column — the pattern the reference uses, and the reason it
+       * works is that they stay in the same place while the banner behind them
+       * changes. Hidden below `lg`, where a swipe is the natural gesture and
+       * an arrow overlapping the photograph would only be in the way.
+       */}
+      {count > 1 ? (
+        <>
+          <button
+            type="button"
+            aria-label="Previous product"
+            onClick={() => go(index - 1)}
+            className="absolute left-3 top-1/2 z-20 hidden size-12 -translate-y-1/2 items-center justify-center rounded-full border border-blue-300 bg-paper/90 text-ink shadow-[var(--shadow-lift)] backdrop-blur transition-colors hover:border-blue-500 hover:text-blue-600 lg:inline-flex"
+          >
+            <IconArrowLeft size={20} />
+          </button>
+          <button
+            type="button"
+            aria-label="Next product"
+            onClick={() => go(index + 1)}
+            className="absolute right-3 top-1/2 z-20 hidden size-12 -translate-y-1/2 items-center justify-center rounded-full border border-blue-300 bg-paper/90 text-ink shadow-[var(--shadow-lift)] backdrop-blur transition-colors hover:border-blue-500 hover:text-blue-600 lg:inline-flex"
+          >
+            <IconArrowRight size={20} />
+          </button>
+        </>
+      ) : null}
 
-      <div className="relative mx-auto grid w-full max-w-[1280px] items-center gap-10 px-4 py-12 md:grid-cols-[1fr_1.05fr] md:px-6 md:py-16 lg:gap-16">
-        <div className="flex min-w-0 flex-col gap-6">
-          <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass">
+      <div className="relative mx-auto grid w-full max-w-[1280px] items-center gap-8 px-4 py-10 md:grid-cols-[1.05fr_1fr] md:gap-12 md:px-6 md:py-14 lg:px-16">
+        <div className="flex min-w-0 flex-col gap-5">
+          <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
             <span aria-hidden="true" className="h-px w-10 bg-brass" />
             Ordering is open for this batch
           </p>
 
           {/*
-           * The one gradient headline on the site. A second would make both
-           * read as decoration. The words are separate spans purely so they
-           * can arrive in sequence; the sentence is a single heading to a
-           * screen reader either way.
-           */}
-          {/*
-           * The headline sets itself a word at a time, in CSS.
+           * The brand statement stays the page's heading — it is what the home
+           * page is *about*, and it has to be in the markup a crawler reads
+           * with no JavaScript running. The batch beside it is the campaign.
            *
-           * This used to be Framer Motion, and it was wrong twice over. It
-           * branched its `initial` prop on `useReducedMotion()`, which the
-           * server cannot know — so anyone who had asked for reduced motion
-           * hydrated into a mismatch on the `h1` itself. And because Framer
-           * writes `opacity: 0` into the server-rendered markup, the headline
-           * of the whole site was invisible until JavaScript arrived to take
-           * it back.
-           *
-           * A keyframe has neither problem: identical markup on both sides,
-           * it runs without JavaScript, and the reduced-motion block at the
-           * end of globals.css collapses it to nothing.
+           * Set in CSS rather than with the motion library: Framer writes
+           * `opacity: 0` into the server-rendered HTML, which would make the
+           * headline of the whole site invisible until JavaScript arrived.
            */}
-          <h1 className="text-gradient-paper max-w-[13ch] font-display text-[clamp(2.5rem,5.6vw,4.25rem)] font-medium leading-[1.0] tracking-[-0.02em]">
-            {HEADLINE.map((word, position) => (
-              <span
-                key={word}
-                className="animate-rise mr-[0.28ch] inline-block"
-                style={{ animationDelay: `${position * 70}ms` }}
-              >
-                {word}
-              </span>
-            ))}
+          <h1 className="max-w-[15ch] font-display text-[clamp(2.25rem,4.6vw,3.5rem)] font-medium leading-[1.04] tracking-[-0.02em] text-ink">
+            {["American", "goods,", "landed", "in", "Bangladesh"].map(
+              (word, position) => (
+                <span
+                  key={word}
+                  className="animate-rise mr-[0.28ch] inline-block"
+                  style={{ animationDelay: `${position * 70}ms` }}
+                >
+                  {word}
+                </span>
+              ),
+            )}
           </h1>
 
-          <p className="max-w-[46ch] text-body text-paper/80">
+          <p className="flex max-w-[46ch] items-start gap-2.5 text-body text-ink/70">
+            <IconSeal size={20} className="mt-0.5 shrink-0 text-brass-text" />
             One fixed price with shipping and customs duty already inside it.
             Every listing says when the window closes and when it arrives.
           </p>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href={`/products/${slide.slug}`}
-              className="surface-brass sheen inline-flex min-h-[3.25rem] items-center rounded-control px-7 text-body font-medium text-ink shadow-[var(--shadow-raise)] transition-[box-shadow,transform,filter] duration-150 hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04] active:scale-[0.985]"
-            >
-              Preorder this
-            </Link>
-
-            <Link
-              href="/search?preorder=1"
-              className="inline-flex min-h-[3.25rem] items-center rounded-control border border-paper/40 px-6 text-body text-paper transition-colors hover:border-brass hover:text-brass"
-            >
-              Every open window
-            </Link>
-          </div>
-
-          {count > 1 ? (
-            <div className="mt-2 flex flex-wrap items-center gap-4 border-t border-paper/15 pt-5">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-label="Previous product"
-                  onClick={() => go(index - 1)}
-                  className="inline-flex size-11 items-center justify-center rounded-control border border-paper/40 text-paper transition-colors hover:border-brass hover:text-brass"
-                >
-                  <IconArrowLeft size={18} />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Next product"
-                  onClick={() => go(index + 1)}
-                  className="inline-flex size-11 items-center justify-center rounded-control border border-paper/40 text-paper transition-colors hover:border-brass hover:text-brass"
-                >
-                  <IconArrowRight size={18} />
-                </button>
-              </div>
-
-              <div
-                role="group"
-                aria-label="Choose a featured product"
-                className="flex items-center gap-2"
-              >
-                {slides.map((entry, position) => (
-                  <button
-                    key={entry.slug}
-                    ref={(element) => {
-                      dotsRef.current[position] = element;
-                    }}
-                    type="button"
-                    aria-label={`Show ${entry.title}`}
-                    aria-current={position === index ? "true" : undefined}
-                    className={`h-1.5 rounded-card transition-[width,background-color] duration-300 ${
-                      position === index
-                        ? "w-10 bg-brass"
-                        : "w-5 bg-paper/40 hover:bg-paper/70"
-                    }`}
-                    onClick={() => go(position)}
-                  />
-                ))}
-              </div>
-
-              <p className="font-display text-meta tabular-nums text-paper/70">
-                {String(index + 1).padStart(2, "0")} /{" "}
-                {String(count).padStart(2, "0")}
+          {/* Keyed on the slide so the batch re-enters rather than swapping its
+              figures silently underneath the same words. */}
+          <div key={slide.slug} className="animate-rise flex flex-col gap-5">
+            {/* Stacked, not spread. Pushed to the far edge of a wide column the
+                price read as belonging to nothing; underneath its own title it
+                reads as that batch's price, which is what it is. */}
+            <div className="border-t border-blue-300 pt-5">
+              {slide.brand ? (
+                <p className="text-meta uppercase tracking-[0.12em] text-ink/70">
+                  {slide.brand}
+                </p>
+              ) : null}
+              <h2 className="mt-0.5 font-display text-h2 leading-snug text-ink">
+                {slide.title}
+              </h2>
+              <p className="mt-2 font-display text-[1.875rem] font-semibold leading-none tabular-nums text-ink">
+                {slide.priceLabel}
               </p>
             </div>
-          ) : null}
+
+            {slide.closesAt ? (
+              <Countdown closesAt={slide.closesAt} serverNow={serverNow} />
+            ) : null}
+
+            <div className="max-w-sm">
+              <CapacityMeter remaining={slide.remaining} total={slide.total} />
+            </div>
+
+            {/*
+             * One loud call to action, which is the single clearest thing the
+             * reference banner does. The second route out of the hero is a
+             * quiet link, not a button competing for the same press.
+             */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+              <Link
+                href={`/products/${slide.slug}`}
+                className="surface-brass sheen inline-flex min-h-[3.5rem] items-center rounded-control px-8 text-body font-medium text-ink shadow-[var(--shadow-raise)] transition-[box-shadow,transform,filter] duration-150 hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04] active:scale-[0.985]"
+              >
+                Preorder this
+              </Link>
+
+              <Link
+                href="/search?preorder=1"
+                className="link-draw text-body font-medium text-blue-600"
+              >
+                Every open window
+              </Link>
+            </div>
+          </div>
         </div>
 
         <div className="relative flex flex-col gap-4">
-          <div className="relative aspect-[4/3] w-full sm:aspect-[5/4]">
+          <div className="relative aspect-[4/3] w-full sm:aspect-[16/11]">
             <AnimatePresence initial={false} mode="popLayout">
               <motion.div
                 key={slide.slug}
                 /*
-                 * Not branched on reduced motion, for two reasons. It is a
-                 * gesture rather than an animation — asking for stillness is
-                 * about what moves on its own, not about having a control
-                 * taken away — and the server cannot know the preference, so
-                 * branching it here rendered `touch-action` and `draggable` on
-                 * the server that the client then disagreed with.
+                 * Not branched on reduced motion: it is a gesture rather than
+                 * an animation, and the server cannot know the preference, so
+                 * branching it renders `touch-action` and `draggable` that the
+                 * client then disagrees with.
                  */
                 drag={count < 2 ? false : "x"}
                 dragConstraints={{ left: 0, right: 0 }}
@@ -264,7 +263,7 @@ export function HeroCarousel({
                 animate={{ opacity: 1, scale: 1 }}
                 exit={reduceMotion ? undefined : { opacity: 0 }}
                 transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-                className="media-zoom surface-studio absolute inset-0 cursor-grab overflow-hidden rounded-card border border-paper/20 shadow-[var(--shadow-float)] active:cursor-grabbing"
+                className="media-zoom surface-studio absolute inset-0 cursor-grab overflow-hidden rounded-card border border-blue-300 shadow-[var(--shadow-float)] active:cursor-grabbing"
               >
                 {slide.imageUrl ? (
                   /* Placeholder media until the storage integration lands. */
@@ -283,50 +282,23 @@ export function HeroCarousel({
                 )}
               </motion.div>
             </AnimatePresence>
-          </div>
 
-          {/*
-           * The tag.
-           *
-           * Everything a shopper is deciding about this batch, on one pale
-           * label across the foot of the photograph — the shipping label on a
-           * crate. Keyed on the slide so it re-enters rather than swapping its
-           * contents silently. It sits below the photograph on a phone, where
-           * overlapping it would cover the product.
-           */}
-          <div
-            key={slide.slug}
-            /* The brass rule along the top edge is what separates the tag from
-               the pale studio ground of the photograph behind it — without it
-               the two whites merge and the label stops reading as a separate
-               object pinned on. */
-            className="animate-rise relative z-10 rounded-card border border-blue-300 border-t-2 border-t-brass bg-paper p-4 text-ink shadow-[var(--shadow-float)] sm:mx-5 sm:-mt-14 sm:p-5"
-          >
-            <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-              <div className="min-w-0">
-                {slide.brand ? (
-                  <p className="text-meta uppercase tracking-[0.12em] text-ink/70">
-                    {slide.brand}
-                  </p>
-                ) : null}
-                <h2 className="font-display text-h2 leading-snug text-ink">
-                  {slide.title}
-                </h2>
-              </div>
-              <p className="font-display text-h2 font-semibold tabular-nums text-ink">
-                {slide.priceLabel}
+            {/*
+             * The sticker, pinned to the outer corner of the photograph.
+             *
+             * On the *inner* corner it sat over the copy column and read as a
+             * collision rather than as a label. Out here it is clear of every
+             * line of text at every width, which is the whole reason a sticker
+             * goes in a corner in the first place.
+             */}
+            {sticker ? (
+              <p
+                key={`${slide.slug}-sticker`}
+                className="hero-sticker animate-rise absolute -right-3 -top-4 z-10 flex size-[5.5rem] flex-col items-center justify-center rounded-full bg-brass px-2 text-center text-meta font-medium leading-tight text-ink shadow-[var(--shadow-brass)] sm:-right-5 sm:size-24"
+              >
+                {sticker}
               </p>
-            </div>
-
-            {slide.closesAt ? (
-              <div className="mt-4 border-t border-blue-200 pt-4">
-                <Countdown closesAt={slide.closesAt} serverNow={serverNow} />
-              </div>
             ) : null}
-
-            <div className="mt-4">
-              <CapacityMeter remaining={slide.remaining} total={slide.total} />
-            </div>
           </div>
 
           {/*
@@ -340,13 +312,16 @@ export function HeroCarousel({
                 <li key={`${entry.slug}-thumb`}>
                   <button
                     type="button"
+                    ref={(element) => {
+                      dotsRef.current[position] = element;
+                    }}
                     onClick={() => go(position)}
                     aria-label={`Show ${entry.title}`}
                     aria-current={position === index ? "true" : undefined}
-                    className={`surface-studio block aspect-square w-full overflow-hidden rounded-card border transition-[border-color,opacity] duration-200 ${
+                    className={`surface-studio block aspect-square w-full overflow-hidden rounded-card border transition-[border-color,opacity,box-shadow] duration-200 ${
                       position === index
-                        ? "border-brass opacity-100"
-                        : "border-paper/25 opacity-60 hover:opacity-100"
+                        ? "border-brass opacity-100 shadow-[var(--shadow-raise)]"
+                        : "border-blue-300 opacity-70 hover:opacity-100"
                     }`}
                   >
                     {entry.imageUrl ? (
