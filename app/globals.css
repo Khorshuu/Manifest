@@ -53,6 +53,258 @@
   /* Radius — two values only: controls, and document-edge cards */
   --radius-control: 4px;
   --radius-card: 2px;
+
+  /*
+   * Depth.
+   *
+   * The original brief said borders, never shadows. The owner asked for a
+   * richer, more polished surface, so these exist — but they stay cool-toned
+   * and tight rather than the soft grey blur that makes every card look the
+   * same. Shadow carries hierarchy: only things that lift get one, and the
+   * amount says how far.
+   */
+  --shadow-raise: 0 1px 2px rgb(18 35 63 / 0.06), 0 2px 8px rgb(18 35 63 / 0.05);
+  --shadow-lift: 0 2px 4px rgb(18 35 63 / 0.07), 0 8px 24px rgb(18 35 63 / 0.09);
+  --shadow-float: 0 4px 8px rgb(18 35 63 / 0.08), 0 16px 48px rgb(18 35 63 / 0.14);
+  /* The one warm shadow, under the brass call to action only. */
+  --shadow-brass: 0 2px 6px rgb(138 90 0 / 0.24), 0 10px 28px rgb(138 90 0 / 0.20);
+
+  /* Easing. One curve for entrances, one for exits, one for springy presses. */
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-quint: cubic-bezier(0.64, 0, 0.78, 0);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/*
+ * Gradients.
+ *
+ * Written as utilities rather than tokens because each is a specific surface,
+ * not a colour anyone should reach for freely. They are all built from the
+ * palette above, so the shop still looks like one shop.
+ */
+
+/* The dark ground under the hero and the footer band: ink, with a blue lift
+   from the top-left corner so the panel has a light source. */
+.surface-ink {
+  background:
+    radial-gradient(
+      120% 100% at 12% 0%,
+      color-mix(in srgb, var(--color-blue-600) 34%, transparent) 0%,
+      transparent 58%
+    ),
+    linear-gradient(168deg, #17294a 0%, var(--color-ink) 42%, var(--color-ink-deep) 100%);
+}
+
+/* A pale field for bands that need separating without a hard edge. */
+.surface-paper {
+  background:
+    radial-gradient(
+      90% 70% at 88% 0%,
+      color-mix(in srgb, var(--color-blue-200) 60%, transparent) 0%,
+      transparent 60%
+    ),
+    linear-gradient(180deg, var(--color-paper) 0%, var(--color-paper-raised) 100%);
+}
+
+/* Behind product artwork: a soft studio sweep so the subject sits in light. */
+.surface-studio {
+  background:
+    radial-gradient(
+      70% 60% at 50% 22%,
+      var(--color-paper) 0%,
+      transparent 70%
+    ),
+    linear-gradient(165deg, var(--color-blue-50) 0%, var(--color-blue-200) 100%);
+}
+
+/* A hairline that fades at both ends, for section rules that should not
+   collide with the page edge. */
+.rule-fade {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-ink) 18%, transparent) 12%,
+    color-mix(in srgb, var(--color-ink) 18%, transparent) 88%,
+    transparent
+  );
+}
+
+/* The brass call to action, with a light edge along the top so the button
+   reads as a physical key rather than a coloured rectangle. */
+.surface-brass {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-brass) 88%, white) 0%,
+    var(--color-brass) 52%,
+    color-mix(in srgb, var(--color-brass) 90%, black) 100%
+  );
+}
+
+/*
+ * Text that carries the gradient itself. Used once, on the hero headline —
+ * a page with two of these has none.
+ */
+.text-gradient-paper {
+  background: linear-gradient(
+    150deg,
+    var(--color-paper) 0%,
+    var(--color-paper) 52%,
+    color-mix(in srgb, var(--color-blue-300) 90%, white) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* A sheen that crosses a surface once, on demand. */
+.sheen {
+  position: relative;
+  overflow: hidden;
+}
+
+.sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgb(255 255 255 / 0.22) 50%,
+    transparent 62%
+  );
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+
+.sheen:hover::after,
+.sheen:focus-visible::after {
+  animation: sheen-sweep 720ms var(--ease-out-quint);
+}
+
+@keyframes sheen-sweep {
+  to {
+    transform: translateX(120%);
+  }
+}
+
+/*
+ * The manifest strip. CSS rather than a motion hook: it runs for the whole
+ * life of the page, and a spring library driving a continuous loop would burn
+ * main-thread time for something a keyframe does for free.
+ *
+ * `data-running="false"` is set by the strip's own Hold button — moving content
+ * has to be stoppable, and the pause has to be reachable without a pointer.
+ */
+@keyframes marquee-run {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    /* Exactly one of the two identical passes, so the seam never shows. */
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.marquee {
+  animation: marquee-run 42s linear infinite;
+  will-change: transform;
+}
+
+.marquee[data-running="false"] {
+  animation-play-state: paused;
+}
+
+/* The strip fades out at both ends rather than being cut off by the viewport,
+   so the words appear to run past a window instead of hitting a wall. */
+.marquee-mask {
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    black 6%,
+    black 94%,
+    transparent 100%
+  );
+}
+
+/*
+ * A rail of tiles that scrolls sideways and settles on a tile. Used for the
+ * closing-soon rail, which is the one place horizontal scroll is right: the
+ * batches are a queue in time, and a queue reads better along an axis than
+ * broken into rows.
+ */
+.rail {
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.rail > * {
+  scroll-snap-align: start;
+}
+
+/*
+ * Scroll-driven entrances.
+ *
+ * The resting state of every one of these is the finished state: visible, in
+ * place, readable. The animation is layered on top only where the browser can
+ * drive it from the scroll position, so a browser without `animation-timeline`
+ * — or a page with no JavaScript at all — shows the content rather than an
+ * empty box waiting for an observer that will never run.
+ *
+ * `both` fill is deliberate: within the range the element is animating, and
+ * outside it the animation holds the end state rather than snapping back on
+ * the way up the page.
+ */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/*
+ * `will-arrive` is applied by components/motion.tsx, and only ever to an
+ * element that is currently below the fold — so nothing the visitor can see is
+ * ever hidden, and nothing stays hidden if the observer never runs, because
+ * the class is never applied in that case either.
+ */
+.will-arrive {
+  opacity: 0;
+}
+
+.will-arrive.arrived {
+  animation: rise-in 520ms var(--ease-out-quint) both;
+}
+
+/* The batch meter fills as its card arrives. The width is already correct in
+   the markup, so this only scales what is there: a browser that never runs the
+   animation shows the true figure rather than an empty bar. */
+.arrived .meter-fill {
+  transform-origin: left center;
+  animation: meter-fill 700ms var(--ease-out-quint) both;
+}
+
+@keyframes meter-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* The ruled-paper ground, as a utility so the hero and the process band share
+   one definition rather than two hand-written background-image strings. */
+.grid-rule {
+  background-image:
+    linear-gradient(to right, currentColor 1px, transparent 1px),
+    linear-gradient(to bottom, currentColor 1px, transparent 1px);
+  background-size: 56px 56px;
 }
 
 body {
@@ -202,5 +454,20 @@ body {
   .media-zoom:focus-within img,
   .media-zoom:focus-within svg {
     transform: none;
+  }
+
+  /* The strip stops entirely rather than running very fast, which is what the
+     blanket animation-duration override above would otherwise do to a loop. */
+  .marquee {
+    animation: none;
+    transform: none;
+  }
+
+  /* Belt and braces: motion.tsx never applies these when reduced motion is
+     asked for, but if one ever slipped through, the content stays readable
+     rather than sitting at zero opacity. */
+  .will-arrive {
+    opacity: 1;
+    animation: none;
   }
 }

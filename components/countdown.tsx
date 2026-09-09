@@ -79,8 +79,10 @@ function Flap({
   return (
     <div className="flex flex-col items-center gap-1.5">
       <div
-        className={`relative min-w-[3.75rem] overflow-hidden rounded-[3px] px-3 py-2 ${
-          dark ? "bg-ink-deep" : "bg-ink"
+        className={`relative min-w-[3.75rem] overflow-hidden rounded-[3px] px-3 py-2 shadow-[var(--shadow-raise)] ${
+          dark
+            ? "bg-gradient-to-b from-[#16233c] to-ink-deep"
+            : "bg-gradient-to-b from-[#1b3157] to-ink"
         }`}
       >
         {/* Keyed on the value, so each change flips rather than swapping. */}
@@ -110,13 +112,24 @@ export function Countdown({
   closesAt,
   variant = "blocks",
   tone = "light",
+  serverNow,
 }: {
   closesAt: string;
   variant?: "blocks" | "inline";
   tone?: Tone;
+  /**
+   * The instant the server rendered at, in milliseconds.
+   *
+   * Without it the first client render reads its own clock, which is never the
+   * same number the server used — so React finds "39" where the HTML says "40"
+   * and throws the whole subtree away with a hydration error in the console.
+   * Passing the server's instant down makes the first render on both sides
+   * identical; the interval below takes over immediately afterwards.
+   */
+  serverNow?: number;
 }) {
   const closing = new Date(closesAt);
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => serverNow ?? Date.now());
 
   useEffect(() => {
     // A whole second is enough: nothing here changes faster, and a tighter

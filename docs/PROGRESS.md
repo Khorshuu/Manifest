@@ -661,3 +661,111 @@ The sweep also prunes closed rate-limit windows and deletes expired sessions, bo
 - `DATABASE.md` open questions: whether balance payment is auto-triggered or staff-triggered; automatic waitlist re-offer vs manual.
 
 These don't block Phase 1 (scaffold has no dependency on their answers) but should be resolved before Phase 6 (preorder engine) and Phase 8 (checkout) reach them.
+
+## Storefront presentation, second pass (added after Phase 15)
+
+The owner looked at the shop and said it read as "very simple", and asked for
+something modern, animated and distinctive. This pass rebuilt the home page
+around the one thing that makes this business different from a marketplace —
+a batch that closes on a clock, with a countable number of places in it — and
+put that fact everywhere a shopper looks.
+
+What is new on the storefront:
+
+- A hero that sets its headline a word at a time, carries the live countdown,
+  the batch meter and a thumbnail strip of the rest of the featured batch.
+- A manifest strip under it: a running line of facts about the shop and the
+  batches genuinely open right now, with a real Hold button, because moving
+  content has to be stoppable by someone with no pointer (WCAG 2.2.2).
+- "Windows closing soon" — the open batches as a horizontal rail, ordered by
+  what shuts first, each with a countdown and a capacity meter.
+- A dark, full-bleed process band whose rule draws itself down the section as
+  it is scrolled, so three steps read as one journey.
+- A category bento with one large lead tile, each carrying a real photograph of
+  something filed in that shelf and a real count of what is in it.
+- Product cards that carry the batch meter, and state how many places are left
+  when the number is genuinely small.
+- A header that tightens on scroll and moves its categories behind a button on
+  a phone.
+
+The catalogue grew from 14 seeded products in 6 categories to 24 in 13, across
+five top-level shelves, with ten new illustrations. A grid of four items made
+every layout look like a shop that had not opened yet.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 515 passed, 9 skipped, 33 files |
+| `npm run test:e2e` | `[x]` passes — 362 passed, 4 skipped, mobile and desktop |
+| Axe at AA | `[x]` 26 checks over twelve pages, mobile and desktop, zero violations |
+| UI inspected | `[x]` home page viewed at 375px and 1440px against the real catalogue |
+| No sideways scroll | `[x]` asserted at 320px and checked at 375px |
+| No console errors | `[x]` checked in a real browser at both widths |
+
+### Three defects found by looking rather than by testing
+
+**Entrances that hid the page.** The first version used Framer Motion's
+`whileInView`, which puts `opacity: 0` into the server-rendered HTML — so
+anything below the fold was present in the DOM and blank on screen for anyone
+whose JavaScript failed, and in every capture that does not scroll. The second
+attempt used CSS `animation-timeline: view()`, which removes the JavaScript but
+*scrubs*: scrolling back up ran the entrance backwards and faded out sections
+that had already been read. What ships now hides only what is genuinely below
+the fold at mount, plays each entrance once, and never touches anything already
+on screen. The rule it enforces: **an entrance may never be the reason
+something cannot be read.**
+
+**A hydration mismatch on every page with a countdown.** `Countdown` read
+`Date.now()` for its first client render, which is never the number the server
+had already put in the HTML. React reported a hydration error and discarded the
+subtree. The render instant now comes from the database — the same clock that
+decides `closingSoon` in SQL — and is passed down, so both sides render the
+same figure.
+
+**A meter that could show the wrong number.** The capacity bar animated its
+width from zero, which means a browser that never ran the animation showed an
+empty batch. The width is now correct in the markup and only *scaled* by the
+animation, so the failure mode is a missing effect rather than a wrong figure.
+
+### Contrast, again
+
+The axe audit failed 18 of 26 checks the first time it ran on the new header.
+Two causes, both real: the batch meter had no accessible name
+(`aria-progressbar-name`), and the header used a translucent blue behind white
+text — white at 90% over `blue-600` measures **4.15:1**, under the 4.5:1 floor.
+The header is now opaque and its text fully white; no opacity is used on text
+anywhere on that ground.
+
+### Four end-to-end tests were asserting things that had stopped being true
+
+Fixed rather than deleted, and worth recording because three of the four were
+already failing before this pass:
+
+- `tests/rate-limit.test.ts` counted attempts against the wall clock with a
+  one-second window aligned to absolute time, so four calls that straddled a
+  second boundary landed in two windows and the count restarted. It failed
+  roughly whenever the run crossed one. The instant is now pinned.
+- A missing product was asserted to return **404**. It returns **200**. This
+  route renders a `loading.tsx`, so the response starts streaming before the
+  page body runs, and the status cannot be changed once headers are sent — this
+  is documented Next.js behaviour, and Next injects
+  `<meta name="robots" content="noindex">` instead, which is what actually keeps
+  the URL out of a search index. The test now asserts the guarantee that holds.
+  A real 404 status would need a `proxy` check before the body streams.
+- Three tests named a specific seeded product and assumed it appeared on the
+  home page. A 24-product catalogue pushes the two oldest off it. They now
+  assert against whatever the home page is showing, which is the behaviour
+  worth guarding.
+- One asserted a price with `getByText(/^BDT [\d,]+$/)`. `Intl` puts a
+  **non-breaking space** after the currency code, so a literal space never
+  matches.
+
+Not done in this pass, and carried forward:
+
+- `[ ]` The category, search and product pages have not had the same treatment.
+  They work and they pass, but the second pass stopped at the home page.
+- `[ ]` Real photography. Every image is still an illustration; the storage
+  integration and `next/image` are unchanged.
+- `[ ]` The production JavaScript budget has not been re-measured since Framer
+  Motion arrived. `npm run test:e2e:prod` asserts it and was not run here.

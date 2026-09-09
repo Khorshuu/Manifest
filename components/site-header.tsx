@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HeaderShell } from "@/components/header-shell";
 import { SearchBox } from "@/components/search-box";
 import { getCategoryTree } from "@/lib/catalog";
 import { getCurrentUser, isStaff } from "@/lib/auth";
@@ -9,6 +10,9 @@ import { findCartId } from "@/lib/cart/session";
  * The one place the brand blue is allowed to dominate — it anchors the
  * identity the way a shipping company's header does, without colouring the
  * rest of the page (docs/DESIGN_GUIDELINES.md).
+ *
+ * Everything here is fetched on the server; `HeaderShell` adds only the two
+ * behaviours that need a browser.
  */
 export async function SiteHeader() {
   const [tree, user, cartId] = await Promise.all([
@@ -17,56 +21,55 @@ export async function SiteHeader() {
     findCartId(),
   ]);
   const cartCount = cartId ? await countCartItems(cartId) : 0;
-  const topLevel = tree.slice(0, 5);
+  const topLevel = tree.slice(0, 5).map((category) => ({
+    id: category.id,
+    name: category.name,
+    slug: category.slug,
+  }));
 
   return (
-    <header className="bg-blue-600 text-paper">
-      <div className="mx-auto flex w-full max-w-[1280px] flex-wrap items-center gap-x-8 gap-y-3 px-4 py-4 md:px-6">
-        <Link href="/" className="font-display text-h3 tracking-tight">
-          Manifest
-        </Link>
-
-        <nav aria-label="Categories" className="flex-1">
-          <ul className="flex flex-wrap gap-x-5 gap-y-2">
-            {topLevel.map((category) => (
-              <li key={category.id}>
-                <Link
-                  href={`/categories/${category.slug}`}
-                  className="text-meta hover:underline"
-                >
-                  {category.name}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
-
-        <SearchBox />
-
-        <div className="flex items-center gap-4 text-meta">
+    <HeaderShell
+      categories={topLevel}
+      search={<SearchBox />}
+      actions={
+        <div className="flex shrink-0 items-center gap-1 text-meta sm:gap-3">
           {isStaff(user) ? (
-            <Link href="/admin" className="hover:underline">
+            <Link
+              href="/admin"
+              className="hidden min-h-11 items-center rounded-control px-2 underline-offset-4 hover:underline sm:inline-flex"
+            >
               Admin
             </Link>
           ) : null}
-          <Link href={user ? "/account" : "/login"} className="hover:underline">
+
+          <Link
+            href={user ? "/account" : "/login"}
+            className="inline-flex min-h-11 items-center rounded-control px-2 underline-offset-4 hover:underline"
+          >
             {user ? "Account" : "Sign in"}
           </Link>
-          <Link href="/cart" className="hover:underline">
+
+          <Link
+            href="/cart"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 underline-offset-4 hover:underline"
+          >
             Cart
             {cartCount > 0 ? (
               /* Keyed on the count so it stamps each time it changes —
                  the confirmation that an item really landed. */
               <span
                 key={cartCount}
-                className="animate-stamp ml-1 inline-flex min-w-5 items-center justify-center rounded-card border border-paper px-1 tabular-nums"
+                className="animate-stamp inline-flex min-w-5 items-center justify-center rounded-card bg-brass px-1 font-medium tabular-nums text-ink"
               >
                 {cartCount}
               </span>
             ) : null}
+            <span className="sr-only">
+              {cartCount === 1 ? "1 item in cart" : `${cartCount} items in cart`}
+            </span>
           </Link>
         </div>
-      </div>
-    </header>
+      }
+    />
   );
 }

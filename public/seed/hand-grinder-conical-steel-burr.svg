@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f9fc"/>
+      <stop offset="100%" stop-color="#e6e2f4"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.92" r="0.55">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <ellipse cx="300" cy="512" rx="190" ry="26" fill="url(#pool)"/>
+
+  <rect x="228" y="236" width="144" height="220" rx="16" fill="#4a5566"/>
+  <rect x="228" y="236" width="46" height="220" rx="16" fill="#ffffff" fill-opacity="0.12"/>
+  <rect x="216" y="222" width="168" height="26" rx="13" fill="#2b3543"/>
+  <path d="M300 222V150h96" fill="none" stroke="#2b3543" stroke-width="14" stroke-linecap="round"/>
+  <circle cx="404" cy="150" r="20" fill="#8a5a00"/>
+  <rect x="240" y="392" width="120" height="8" rx="4" fill="#12233f" fill-opacity="0.35"/>
+  <circle cx="300" cy="470" r="26" fill="#2b3543"/>
+  <text x="300" y="344" text-anchor="middle" font-family="Georgia, serif" font-size="26" fill="#f7f9fc">36</text>
+</svg>

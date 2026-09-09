@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f9fc"/>
+      <stop offset="100%" stop-color="#f2e8db"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.92" r="0.55">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <ellipse cx="300" cy="512" rx="190" ry="26" fill="url(#pool)"/>
+
+  <path d="M256 262h88v192a26 26 0 0 1-26 26h-36a26 26 0 0 1-26-26z" fill="#8a5a00"/>
+  <path d="M256 262h26v218a26 26 0 0 1-26-26z" fill="#ffffff" fill-opacity="0.18"/>
+  <rect x="276" y="222" width="48" height="42" fill="#8a5a00"/>
+  <rect x="266" y="186" width="68" height="40" rx="6" fill="#12233f"/>
+  <rect x="292" y="150" width="16" height="40" rx="6" fill="#3b4a5c"/>
+  <rect x="270" y="316" width="60" height="76" rx="4" fill="#f7f2e8"/>
+  <text x="300" y="352" text-anchor="middle" font-family="Georgia, serif" font-size="19" fill="#12233f">Beard</text>
+  <text x="300" y="376" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" letter-spacing="2" fill="#12233f" fill-opacity="0.6">30 ML</text>
+</svg>

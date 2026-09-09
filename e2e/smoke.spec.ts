@@ -13,8 +13,15 @@ test("the page states the landed-price promise", async ({ page }) => {
   await page.goto("/");
 
   // The core promise of the business, and the thing shoppers most need to
-  // trust: no surprise charge on delivery.
-  await expect(page.getByText("One price, duty included")).toBeVisible();
+  // trust: no surprise charge on delivery. Asserted twice because it is made
+  // twice on purpose — once in the hero, where a first-time visitor lands, and
+  // again at the foot of the page, where the objection actually surfaces.
+  await expect(
+    page.getByText(/shipping and customs duty already inside it/i),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "One landed price" }),
+  ).toBeVisible();
 });
 
 test("the body does not scroll sideways on a narrow screen", async ({ page }) => {

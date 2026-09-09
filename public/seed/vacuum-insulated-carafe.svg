@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f9fc"/>
+      <stop offset="100%" stop-color="#dce9ff"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.92" r="0.55">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <ellipse cx="300" cy="512" rx="190" ry="26" fill="url(#pool)"/>
+
+  <path d="M226 214h148v250a28 28 0 0 1-28 28H254a28 28 0 0 1-28-28z" fill="#5d6b7d"/>
+  <path d="M226 214h48v278h-20a28 28 0 0 1-28-28z" fill="#ffffff" fill-opacity="0.16"/>
+  <rect x="214" y="180" width="172" height="40" rx="10" fill="#2b3543"/>
+  <rect x="256" y="158" width="88" height="26" rx="8" fill="#3b4a5c"/>
+  <path d="M374 268h44a44 44 0 0 1 0 88h-44" fill="none" stroke="#5d6b7d" stroke-width="24"/>
+  <rect x="252" y="300" width="96" height="86" rx="4" fill="#f7f9fc" fill-opacity="0.9"/>
+  <text x="300" y="344" text-anchor="middle" font-family="Georgia, serif" font-size="27" fill="#12233f">1.2 L</text>
+  <text x="300" y="370" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" letter-spacing="2" fill="#12233f" fill-opacity="0.6">8 HOURS</text>
+</svg>

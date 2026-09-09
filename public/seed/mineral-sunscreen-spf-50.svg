@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f9fc"/>
+      <stop offset="100%" stop-color="#fdf0d8"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.92" r="0.55">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <ellipse cx="300" cy="512" rx="190" ry="26" fill="url(#pool)"/>
+
+  <path d="M242 234h116v230a26 26 0 0 1-26 26h-64a26 26 0 0 1-26-26z" fill="#f7f9fc"/>
+  <path d="M242 234h38v256h-12a26 26 0 0 1-26-26z" fill="#12233f" fill-opacity="0.06"/>
+  <rect x="268" y="190" width="64" height="48" rx="8" fill="#2563eb"/>
+  <rect x="262" y="176" width="76" height="20" rx="8" fill="#1b4fd0"/>
+  <circle cx="300" cy="318" r="34" fill="#f0a631"/>
+  <g stroke="#f0a631" stroke-width="7" stroke-linecap="round">
+    <path d="M300 262v-16M300 390v16M244 318h-16M356 318h16M262 280l-12-12M338 356l12 12M338 280l12-12M262 356l-12 12"/>
+  </g>
+  <text x="300" y="424" text-anchor="middle" font-family="Georgia, serif" font-size="34" fill="#12233f">SPF 50</text>
+</svg>

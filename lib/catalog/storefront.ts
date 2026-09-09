@@ -4,6 +4,7 @@ import {
   attributeValues,
   attributes,
   categories,
+  productImages,
   productVariants,
   products,
   reviews,
@@ -34,6 +35,8 @@ export type ProductCard = {
   fulfillmentMode: string | null;
   /** Null when uncapped, 0 when full. */
   remainingCapacity: number | null;
+  /** Every slot in the batch, taken or not. Null when nothing is capped. */
+  totalCapacity: number | null;
   closesAt: Date | null;
   /** The preorder window shuts within three days. Decided in SQL. */
   closingSoon: boolean;
@@ -72,6 +75,7 @@ async function toCards(rows: ProductRow[]): Promise<ProductCard[]> {
       fromPriceBdt: aggregate?.fromPriceBdt ?? null,
       fulfillmentMode: aggregate?.fulfillmentMode ?? null,
       remainingCapacity: aggregate?.remainingCapacity ?? null,
+      totalCapacity: aggregate?.totalCapacity ?? null,
       closesAt: aggregate?.closesAt ?? null,
       closingSoon: aggregate?.closingSoon ?? false,
       arrivesFrom: aggregate?.arrivesFrom ?? null,
@@ -389,4 +393,67 @@ export async function suggestSearch(
   ];
 
   return suggestions.slice(0, limit);
+}
+
+/**
+ * How many public listings sit in each category, counted once for the whole
+ * tree rather than a query per tile.
+ *
+ * A product is counted against its own category only. Rolling a child's
+ * products up into its parent would double-count them on a page that shows
+ * both, and the category pages themselves already include the subtree — so the
+ * number on a tile is "listings filed here", which is what the tile says.
+ */
+export async function countPublicProductsByCategory(): Promise<
+  Map<string, number>
+> {
+  const rows = await db
+    .select({
+      categoryId: products.categoryId,
+      total: sql<number>`count(*)::int`,
+    })
+    .from(products)
+    .where(publicProductWhere)
+    .groupBy(products.categoryId);
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.categoryId) continue;
+    counts.set(row.categoryId, Number(row.total));
+  }
+  return counts;
+}
+
+/**
+ * One representative photograph per category: the first image of the
+ * lowest-sorted public product filed there.
+ *
+ * A category tile with real goods on it reads as a shelf in a shop. The
+ * generated artwork that stood in before was drawn for square product cards,
+ * and at tile proportions it became a large initial across the panel — which
+ * looked like a placeholder, because it was one.
+ *
+ * Keyed by the category the product is filed in. Callers that show a top-level
+ * category roll its descendants up themselves, since only they know the tree.
+ */
+export async function pickCategoryImages(): Promise<
+  Map<string, { url: string; altText: string }>
+> {
+  const rows = await db
+    .selectDistinctOn([products.categoryId], {
+      categoryId: products.categoryId,
+      url: productImages.url,
+      altText: productImages.altText,
+    })
+    .from(products)
+    .innerJoin(productImages, eq(productImages.productId, products.id))
+    .where(publicProductWhere)
+    .orderBy(products.categoryId, productImages.sortOrder, products.createdAt);
+
+  const picks = new Map<string, { url: string; altText: string }>();
+  for (const row of rows) {
+    if (!row.categoryId) continue;
+    picks.set(row.categoryId, { url: row.url, altText: row.altText });
+  }
+  return picks;
 }

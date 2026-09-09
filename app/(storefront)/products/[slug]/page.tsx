@@ -24,6 +24,7 @@ import { Gallery } from "./gallery";
 import { Journey } from "@/components/journey";
 import { ReviewsSection } from "./reviews-section";
 import { VariantPicker, type PickerVariant } from "./variant-picker";
+import { serverInstant } from "@/lib/clock";
 
 export const dynamic = "force-dynamic";
 
@@ -49,16 +50,27 @@ export default async function ProductPage({
   const product = await getPublicProductBySlug(slug);
   if (!product) notFound();
 
-  const [variants, tree, related, rating, reviews, breakdown, user] =
-    await Promise.all([
-      getPublicVariants(product.id),
-      getCategoryTree(),
-      listRelatedProducts(product.id, product.categoryId, 4),
-      getProductRating(product.id),
-      listApprovedReviews(product.id),
-      getRatingBreakdown(product.id),
-      getCurrentUser(),
-    ]);
+  const [
+    variants,
+    tree,
+    related,
+    rating,
+    reviews,
+    breakdown,
+    user,
+    serverNow,
+  ] = await Promise.all([
+    getPublicVariants(product.id),
+    getCategoryTree(),
+    listRelatedProducts(product.id, product.categoryId, 4),
+    getProductRating(product.id),
+    listApprovedReviews(product.id),
+    getRatingBreakdown(product.id),
+    getCurrentUser(),
+    // The countdown renders from this rather than the browser clock — see
+    // lib/clock.ts.
+    serverInstant(),
+  ]);
 
   // Both decided on the server: the form is only rendered for someone whose
   // delivered order entitles them to it, and submitting re-checks the same
@@ -192,7 +204,7 @@ export default async function ProductPage({
             </h1>
           </div>
 
-          <VariantPicker variants={pickerVariants} />
+          <VariantPicker variants={pickerVariants} serverNow={serverNow} />
         </div>
       </div>
 

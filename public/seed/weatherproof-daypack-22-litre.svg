@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f9fc"/>
+      <stop offset="100%" stop-color="#d9e7e0"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.92" r="0.55">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <ellipse cx="300" cy="512" rx="190" ry="26" fill="url(#pool)"/>
+
+  <path d="M196 250h208v206a26 26 0 0 1-26 26H222a26 26 0 0 1-26-26z" fill="#2f4a52"/>
+  <path d="M196 250h60v232h-34a26 26 0 0 1-26-26z" fill="#ffffff" fill-opacity="0.10"/>
+  <path d="M196 250c0-40 26-62 104-62s104 22 104 62z" fill="#264047"/>
+  <rect x="188" y="238" width="224" height="24" rx="12" fill="#1b2f35"/>
+  <rect x="238" y="330" width="124" height="86" rx="8" fill="#1b2f35"/>
+  <rect x="238" y="330" width="124" height="14" rx="7" fill="#f0a631"/>
+  <path d="M256 250c0-56 12-88 44-88s44 32 44 88" fill="none" stroke="#1b2f35" stroke-width="10"/>
+  <circle cx="300" cy="444" r="12" fill="#f0a631"/>
+</svg>

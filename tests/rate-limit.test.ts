@@ -34,17 +34,26 @@ beforeEach(async () => {
 });
 
 describe("counting attempts", () => {
+  /*
+   * These pass an explicit instant rather than letting the calls read the
+   * clock. Windows are aligned to absolute time so separate processes agree
+   * without coordinating — which means four calls that straddle a second
+   * boundary land in two different windows and the count restarts. That made
+   * the first test fail roughly whenever the run happened to cross one.
+   */
+  const at = 1_700_000_000_000;
+
   it("allows up to the limit, then blocks", async () => {
     for (let i = 0; i < 3; i++) {
-      expect((await consumeRateLimit("key", 3, 1000)).allowed).toBe(true);
+      expect((await consumeRateLimit("key", 3, 1000, at)).allowed).toBe(true);
     }
-    expect((await consumeRateLimit("key", 3, 1000)).allowed).toBe(false);
+    expect((await consumeRateLimit("key", 3, 1000, at)).allowed).toBe(false);
   });
 
   it("counts each key separately, so one account cannot exhaust another", async () => {
-    await consumeRateLimit("a", 1, 1000);
-    expect((await consumeRateLimit("a", 1, 1000)).allowed).toBe(false);
-    expect((await consumeRateLimit("b", 1, 1000)).allowed).toBe(true);
+    await consumeRateLimit("a", 1, 1000, at);
+    expect((await consumeRateLimit("a", 1, 1000, at)).allowed).toBe(false);
+    expect((await consumeRateLimit("b", 1, 1000, at)).allowed).toBe(true);
   });
 
   it("resets in the next window", async () => {
@@ -69,9 +78,9 @@ describe("counting attempts", () => {
   });
 
   it("counts down what is left", async () => {
-    expect((await consumeRateLimit("key", 3, 1000)).remaining).toBe(2);
-    expect((await consumeRateLimit("key", 3, 1000)).remaining).toBe(1);
-    expect((await consumeRateLimit("key", 3, 1000)).remaining).toBe(0);
+    expect((await consumeRateLimit("key", 3, 1000, at)).remaining).toBe(2);
+    expect((await consumeRateLimit("key", 3, 1000, at)).remaining).toBe(1);
+    expect((await consumeRateLimit("key", 3, 1000, at)).remaining).toBe(0);
   });
 });
 
@@ -82,9 +91,10 @@ describe("sharing the count", () => {
    * makes it.
    */
   it("counts attempts from different callers against one limit", async () => {
-    expect((await consumeRateLimit("shared", 2, 60_000)).allowed).toBe(true);
-    expect((await consumeRateLimit("shared", 2, 60_000)).allowed).toBe(true);
-    expect((await consumeRateLimit("shared", 2, 60_000)).allowed).toBe(false);
+    const at = 1_700_000_000_000;
+    expect((await consumeRateLimit("shared", 2, 60_000, at)).allowed).toBe(true);
+    expect((await consumeRateLimit("shared", 2, 60_000, at)).allowed).toBe(true);
+    expect((await consumeRateLimit("shared", 2, 60_000, at)).allowed).toBe(false);
   });
 
   // Whether two genuinely concurrent attempts can both take the last slot is
@@ -116,7 +126,7 @@ describe("what is stored", () => {
 
   it("keeps one row per key and window rather than one per attempt", async () => {
     for (let i = 0; i < 5; i++) {
-      await consumeRateLimit("busy", 100, 60_000);
+      await consumeRateLimit("busy", 100, 60_000, 1_700_000_000_000);
     }
 
     const rows = await harness.db.select().from(rateLimitHits);

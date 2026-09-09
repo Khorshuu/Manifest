@@ -73,11 +73,14 @@ export async function seed(db: SeedDatabase) {
     .returning();
 
   console.log("Seeding category tree (3 levels)...");
-  const [snacks, electronics] = await db
+  const [snacks, electronics, homeKitchen, outdoors, personalCare] = await db
     .insert(categories)
     .values([
       { name: "Snacks & Groceries", slug: "snacks-groceries", sortOrder: 1 },
       { name: "Electronics", slug: "electronics", sortOrder: 2 },
+      { name: "Home & Kitchen", slug: "home-kitchen", sortOrder: 3 },
+      { name: "Outdoors & Travel", slug: "outdoors-travel", sortOrder: 4 },
+      { name: "Beauty & Care", slug: "beauty-care", sortOrder: 5 },
     ])
     .returning();
 
@@ -94,6 +97,30 @@ export async function seed(db: SeedDatabase) {
         name: "Audio",
         slug: "audio",
         parentId: electronics.id,
+        sortOrder: 1,
+      },
+    ])
+    .returning();
+
+  const [coffeeGear, packs, skincare] = await db
+    .insert(categories)
+    .values([
+      {
+        name: "Coffee & Tea Gear",
+        slug: "coffee-tea-gear",
+        parentId: homeKitchen.id,
+        sortOrder: 1,
+      },
+      {
+        name: "Packs & Bags",
+        slug: "packs-bags",
+        parentId: outdoors.id,
+        sortOrder: 1,
+      },
+      {
+        name: "Skincare",
+        slug: "skincare",
+        parentId: personalCare.id,
         sortOrder: 1,
       },
     ])
@@ -528,6 +555,206 @@ export async function seed(db: SeedDatabase) {
         ["Power", "AA or USB-C"],
       ],
     },
+    {
+      title: "Gooseneck Pour-Over Kettle",
+      brand: "Bellwether Kitchen",
+      categoryId: coffeeGear.id,
+      taka: 8900,
+      weight: 1200,
+      days: 5,
+      summary:
+        "A counterbalanced gooseneck kettle that holds a thin, steady stream, with a thermometer set into the lid rather than clipped on.",
+      bullets: [
+        "Counterbalanced handle, pours without wrist strain",
+        "Lid-mounted thermometer, 40 to 100 °C",
+        "Brushed stainless, no interior coating to flake",
+      ],
+      specs: [
+        ["Capacity", "1.0 L"],
+        ["Material", "304 stainless steel"],
+        ["Base", "Induction compatible"],
+      ],
+    },
+    {
+      title: "Hand Grinder, Conical Steel Burr",
+      brand: "Bellwether Kitchen",
+      categoryId: coffeeGear.id,
+      taka: 11400,
+      weight: 640,
+      days: 12,
+      summary:
+        "A hand grinder with a hardened conical burr and a numbered adjustment ring, so a setting can be written down and returned to.",
+      bullets: [
+        "Hardened conical steel burr",
+        "Numbered detents, espresso through French press",
+        "Folds flat enough for a carry-on",
+      ],
+      specs: [
+        ["Burr", "38 mm conical, hardened steel"],
+        ["Settings", "36 numbered detents"],
+        ["Hopper", "25 g"],
+      ],
+    },
+    {
+      title: "Pre-Seasoned Cast Iron Skillet",
+      brand: "Ridgeline Forge",
+      categoryId: homeKitchen.id,
+      taka: 6800,
+      weight: 3200,
+      days: 16,
+      summary:
+        "A 12-inch skillet milled smooth before seasoning, which is the difference between a pan that releases food and one that does not.",
+      bullets: [
+        "Cooking surface milled smooth, then seasoned",
+        "Two pour spouts and a helper handle",
+        "Oven, grill and open fire",
+      ],
+      specs: [
+        ["Diameter", "30 cm"],
+        ["Weight", "3.2 kg"],
+        ["Finish", "Milled, pre-seasoned"],
+      ],
+    },
+    {
+      title: "Vacuum Insulated Carafe",
+      brand: "Bellwether Kitchen",
+      categoryId: homeKitchen.id,
+      taka: 5200,
+      weight: 850,
+      days: 22,
+      summary:
+        "A carafe that holds coffee at temperature for most of a working day without the stewed taste a hotplate gives it.",
+      bullets: [
+        "Holds above 70 °C for eight hours",
+        "One-handed pour, lid stays on",
+        "Dismantles fully for cleaning",
+      ],
+      specs: [
+        ["Capacity", "1.2 L"],
+        ["Retention", "8 hours above 70 °C"],
+        ["Body", "Double-walled stainless"],
+      ],
+    },
+    {
+      title: "Weatherproof Daypack, 22 Litre",
+      brand: "Corvid Supply",
+      categoryId: packs.id,
+      taka: 9600,
+      weight: 980,
+      days: 7,
+      summary:
+        "A roll-top daypack in recycled sailcloth, with a laptop sleeve that sits off the floor and seams taped rather than merely coated.",
+      bullets: [
+        "Roll-top closure, taped seams",
+        "Suspended 16-inch laptop sleeve",
+        "Recycled sailcloth, 400D",
+      ],
+      specs: [
+        ["Volume", "22 L"],
+        ["Fabric", "400D recycled sailcloth"],
+        ["Laptop", "Up to 16 inches"],
+      ],
+    },
+    {
+      title: "Packable Down Jacket",
+      brand: "Corvid Supply",
+      categoryId: outdoors.id,
+      taka: 14200,
+      weight: 420,
+      days: 25,
+      summary:
+        "800-fill responsibly sourced down in a ripstop shell, which packs into its own chest pocket and comes out without creases.",
+      bullets: [
+        "800-fill responsibly sourced down",
+        "Packs into its own chest pocket",
+        "20D ripstop shell, DWR finish",
+      ],
+      specs: [
+        ["Fill power", "800"],
+        ["Shell", "20D ripstop nylon"],
+        ["Packed size", "18 × 14 cm"],
+      ],
+    },
+    {
+      title: "Titanium Camp Cookset",
+      brand: "Ridgeline Forge",
+      categoryId: outdoors.id,
+      taka: 7300,
+      weight: 245,
+      days: 11,
+      summary:
+        "A nesting titanium pot and cup that together weigh less than a full water bottle and will not hold the taste of last night's dinner.",
+      bullets: [
+        "Grade 1 titanium, no coating",
+        "Pot, cup and lid nest together",
+        "Folding handles lock in place",
+      ],
+      specs: [
+        ["Pot", "750 ml"],
+        ["Cup", "450 ml"],
+        ["Total weight", "245 g"],
+      ],
+    },
+    {
+      title: "Mineral Sunscreen SPF 50",
+      brand: "Pale Coast",
+      categoryId: skincare.id,
+      taka: 2650,
+      weight: 120,
+      days: 4,
+      summary:
+        "A non-nano zinc sunscreen formulated for humidity, which is the reason most imported sunscreens fail here rather than the SPF number.",
+      bullets: [
+        "Non-nano zinc oxide, 22%",
+        "Reef-safe formulation",
+        "No white cast on medium and deep skin",
+      ],
+      specs: [
+        ["SPF", "50, broad spectrum"],
+        ["Active", "22% non-nano zinc oxide"],
+        ["Volume", "100 ml"],
+      ],
+    },
+    {
+      title: "Ceramide Repair Cream",
+      brand: "Pale Coast",
+      categoryId: skincare.id,
+      taka: 4300,
+      weight: 95,
+      days: 18,
+      summary:
+        "A fragrance-free barrier cream with ceramides in the ratio skin actually uses, in a tube rather than a jar that gets contaminated.",
+      bullets: [
+        "Ceramides in a 3:1:1 ratio",
+        "Fragrance-free, no essential oils",
+        "Airless tube, no jar dipping",
+      ],
+      specs: [
+        ["Volume", "60 ml"],
+        ["Fragrance", "None"],
+        ["Suitable for", "Compromised barrier"],
+      ],
+    },
+    {
+      title: "Cold-Pressed Beard Oil",
+      brand: "Pale Coast",
+      categoryId: personalCare.id,
+      taka: 2100,
+      weight: 80,
+      days: 29,
+      summary:
+        "Jojoba and argan pressed without heat, lightly scented with cedar, in an amber bottle because the oils degrade in clear glass.",
+      bullets: [
+        "Cold-pressed jojoba and argan",
+        "Cedar and black pepper, lightly scented",
+        "Amber glass with a glass dropper",
+      ],
+      specs: [
+        ["Volume", "30 ml"],
+        ["Base oils", "Jojoba, argan"],
+        ["Scent", "Cedar, black pepper"],
+      ],
+    },
   ];
 
   const extraProducts = await db
@@ -608,7 +835,7 @@ export async function seed(db: SeedDatabase) {
       "",
       "Seed complete:",
       `  users              3 (${superAdmin.email} / ${staffAdmin.email} / ${customer.email}, password: password123)`,
-      "  categories         6 (3 levels deep)",
+      "  categories         13 (3 levels deep)",
       "  attributes         2 with 4 values",
       `  products           ${2 + catalogue.length}, all preorder_open`,
       `  variants           ${candyVariants.length + headphoneVariants.length} (one is deliberately at full capacity, to exercise the waitlist path)`,
@@ -618,7 +845,7 @@ export async function seed(db: SeedDatabase) {
 
   return {
     users: 3,
-    categories: 6,
+    categories: 13,
     products: 2,
     variants: candyVariants.length + headphoneVariants.length,
   };

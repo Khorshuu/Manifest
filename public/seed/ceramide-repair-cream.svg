@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f9fc"/>
+      <stop offset="100%" stop-color="#eef1ee"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.92" r="0.55">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <ellipse cx="300" cy="512" rx="190" ry="26" fill="url(#pool)"/>
+
+  <path d="M244 250h112v212a24 24 0 0 1-24 24h-64a24 24 0 0 1-24-24z" fill="#e9eef0"/>
+  <path d="M244 250h34v236h-10a24 24 0 0 1-24-24z" fill="#12233f" fill-opacity="0.05"/>
+  <path d="M262 250l14-42h48l14 42z" fill="#dfe6e9"/>
+  <rect x="276" y="176" width="48" height="34" rx="6" fill="#1e7a50"/>
+  <rect x="268" y="300" width="64" height="64" rx="32" fill="none" stroke="#1e7a50" stroke-width="6"/>
+  <path d="M282 332h36M300 314v36" stroke="#1e7a50" stroke-width="6" stroke-linecap="round"/>
+  <text x="300" y="410" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" letter-spacing="2" fill="#12233f" fill-opacity="0.65">CERAMIDE 3:1:1</text>
+  <text x="300" y="440" text-anchor="middle" font-family="Georgia, serif" font-size="22" fill="#12233f">60 ml</text>
+</svg>

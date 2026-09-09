@@ -21,6 +21,13 @@ export type CardAggregate = {
   fromPriceBdt: number | null;
   fulfillmentMode: string | null;
   remainingCapacity: number | null;
+  /**
+   * Every slot in the batch, taken or not. Null when nothing is capped.
+   *
+   * The card needs both numbers, not just the remainder: "7 left" says nothing
+   * about urgency until you know whether the batch holds 8 or 800.
+   */
+  totalCapacity: number | null;
   closesAt: Date | null;
   /** The preorder window shuts within three days. Decided in SQL. */
   closingSoon: boolean;
@@ -36,6 +43,7 @@ const EMPTY: CardAggregate = {
   fromPriceBdt: null,
   fulfillmentMode: null,
   remainingCapacity: null,
+  totalCapacity: null,
   closesAt: null,
   closingSoon: false,
   arrivesFrom: null,
@@ -78,6 +86,7 @@ export async function loadCardAggregates(
       remaining: sql<number | null>`sum(
         greatest(0, ${productVariants.preorderCapacity} - ${productVariants.preorderReserved})
       )::int`,
+      capacity: sql<number | null>`sum(${productVariants.preorderCapacity})::int`,
       closesAt: sql<Date | null>`max(${productVariants.preorderClosesAt})`,
       /* Whether the window shuts within three days, decided by the database so
          there is one clock for the whole system — the same reason
@@ -107,6 +116,8 @@ export async function loadCardAggregates(
     entry.fulfillmentMode = variant.anyPreorder ? "preorder" : "in_stock";
     entry.remainingCapacity =
       variant.remaining === null ? null : Number(variant.remaining);
+    entry.totalCapacity =
+      variant.capacity === null ? null : Number(variant.capacity);
     entry.closesAt = variant.closesAt ? new Date(variant.closesAt) : null;
     entry.closingSoon = Boolean(variant.closingSoon);
     entry.arrivesFrom = variant.arrivesFrom

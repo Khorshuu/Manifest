@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f9fc"/>
+      <stop offset="100%" stop-color="#e4e8ea"/>
+    </linearGradient>
+    <radialGradient id="pool" cx="0.5" cy="0.92" r="0.55">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="600" fill="url(#bg)"/>
+  <ellipse cx="300" cy="512" rx="190" ry="26" fill="url(#pool)"/>
+
+  <ellipse cx="300" cy="452" rx="120" ry="34" fill="#8d979d"/>
+  <path d="M180 336h240v116a120 34 0 0 1-240 0z" fill="#9aa5ab"/>
+  <ellipse cx="300" cy="336" rx="120" ry="34" fill="#c3ccd1"/>
+  <ellipse cx="300" cy="336" rx="90" ry="24" fill="#8d979d"/>
+  <path d="M180 366c-34 0-46-16-46-34" fill="none" stroke="#6f797f" stroke-width="12" stroke-linecap="round"/>
+  <path d="M420 366c34 0 46-16 46-34" fill="none" stroke="#6f797f" stroke-width="12" stroke-linecap="round"/>
+  <ellipse cx="300" cy="252" rx="76" ry="22" fill="#c3ccd1"/>
+  <path d="M224 252h152v34a76 22 0 0 1-152 0z" fill="#9aa5ab"/>
+  <text x="300" y="428" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" letter-spacing="3" fill="#3c464c" fill-opacity="0.75">TITANIUM</text>
+</svg>

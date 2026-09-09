@@ -16,7 +16,7 @@ const HELP = [
 
 export function SiteFooter() {
   return (
-    <footer className="mt-16 border-t border-ink/15 bg-paper">
+    <footer className="surface-paper mt-16 border-t border-ink/15">
       <div className="mx-auto grid w-full max-w-[1280px] gap-10 px-4 py-12 md:grid-cols-[1.5fr_1fr_1fr] md:px-6">
         <div>
           <p className="font-display text-h3 text-ink">Manifest</p>

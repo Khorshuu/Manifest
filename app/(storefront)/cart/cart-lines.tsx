@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { ProductArt } from "@/components/product-art";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import { formatBdt } from "@/lib/money";
@@ -30,6 +32,7 @@ export function CartLines({
   dueNowBdt: number;
   hasProblems: boolean;
 }) {
+  const reduce = useReducedMotion();
   const router = useRouter();
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,22 +62,43 @@ export function CartLines({
     <div className="grid items-start gap-10 lg:grid-cols-[1fr_360px]">
       <div className="min-w-0">
         <ul className="border-t border-blue-300">
+          <AnimatePresence initial={false}>
           {lines.map((line) => (
-            <li
+            <motion.li
               key={line.itemId}
-              className="flex flex-wrap gap-4 border-b border-blue-300 py-5"
+              layout={reduce ? false : "position"}
+              initial={reduce ? false : { opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={
+                reduce
+                  ? { opacity: 0 }
+                  : { opacity: 0, x: -24, height: 0, marginBottom: 0 }
+              }
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+              className="flex flex-wrap gap-4 overflow-hidden border-b border-blue-300 py-5"
             >
-              <div className="size-24 shrink-0 overflow-hidden rounded-card border border-blue-300 bg-blue-50">
+              <Link
+                href={`/products/${line.productSlug}`}
+                className="media-zoom surface-studio size-24 shrink-0 overflow-hidden rounded-card border border-blue-300"
+                tabIndex={-1}
+                aria-hidden="true"
+              >
                 {line.imageUrl ? (
                   /* Placeholder media until the storage integration lands. */
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={line.imageUrl}
-                    alt={line.imageAlt}
+                    alt=""
                     className="size-full object-cover"
                   />
-                ) : null}
-              </div>
+                ) : (
+                  <ProductArt
+                    title={line.productTitle}
+                    seed={line.productSlug}
+                    className="size-full"
+                  />
+                )}
+              </Link>
 
               <div className="flex min-w-[200px] flex-1 flex-col gap-1">
                 <Link
@@ -128,8 +152,9 @@ export function CartLines({
                   </button>
                 </div>
               </div>
-            </li>
+            </motion.li>
           ))}
+          </AnimatePresence>
         </ul>
 
         <div aria-live="polite">
@@ -139,7 +164,7 @@ export function CartLines({
         </div>
       </div>
 
-      <aside className="h-fit border border-blue-300 p-5">
+      <aside className="h-fit rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] lg:sticky lg:top-24">
         <h2 className="font-display text-h2 text-ink">Summary</h2>
 
         <dl className="mt-4 flex flex-col gap-2 text-body">

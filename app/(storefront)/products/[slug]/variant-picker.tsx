@@ -31,7 +31,14 @@ export type PickerVariant = {
  * Everything a shopper is committing to is stated on this panel — what they
  * are buying, how much is due now, and when it should arrive.
  */
-export function VariantPicker({ variants }: { variants: PickerVariant[] }) {
+export function VariantPicker({
+  variants,
+  serverNow,
+}: {
+  variants: PickerVariant[];
+  /** The instant the server rendered at — see Countdown. */
+  serverNow: number;
+}) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState(variants[0]?.id ?? "");
   const [quantity, setQuantity] = useState(1);
@@ -194,7 +201,7 @@ export function VariantPicker({ variants }: { variants: PickerVariant[] }) {
           about, so it is shown ticking rather than as a date to work out. */}
       {selected.closesAtIso && !closed ? (
         <div className="border-y border-blue-300 py-4">
-          <Countdown closesAt={selected.closesAtIso} />
+          <Countdown closesAt={selected.closesAtIso} serverNow={serverNow} />
         </div>
       ) : null}
 

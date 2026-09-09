@@ -1,13 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { CategoryBento } from "@/components/category-bento";
+import { ClosingRail } from "@/components/closing-rail";
 import { HeroCarousel } from "@/components/hero-carousel";
-import { ProductArt } from "@/components/product-art";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
+import { ProcessBand } from "@/components/process-band";
 import { ProductCard } from "@/components/product-card";
+import { Ticker } from "@/components/ticker";
 import {
+  collectSubtreeIds,
+  countPublicProductsByCategory,
   getCategoryTree,
+  pickCategoryImages,
   listClosingSoon,
   listProductCards,
 } from "@/lib/catalog";
+import { serverInstant } from "@/lib/clock";
 import { formatBdt } from "@/lib/money";
 
 export const metadata: Metadata = {
@@ -19,11 +27,15 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [closingSoon, newest, tree] = await Promise.all([
-    listClosingSoon(4),
-    listProductCards({ sort: "newest", limit: 8 }),
-    getCategoryTree(),
-  ]);
+  const [closingSoon, newest, tree, categoryCounts, serverNow, categoryImages] =
+    await Promise.all([
+      listClosingSoon(8),
+      listProductCards({ sort: "newest", limit: 20 }),
+      getCategoryTree(),
+      countPublicProductsByCategory(),
+      serverInstant(),
+      pickCategoryImages(),
+    ]);
 
   // The featured rotation: whatever is closing soonest, then the newest, up
   // to four. Real products only — an empty slot would be an advertisement for
@@ -40,7 +52,20 @@ export default async function HomePage() {
     ...featured.map((product) => product.slug),
     ...closingSoon.map((product) => product.slug),
   ]);
-  const arrivals = newest.filter((product) => !shownSlugs.has(product.slug));
+  // Two full rows at the widest breakpoint. A trailing row with one card in it
+  // makes a stocked catalogue look like it ran out.
+  const arrivals = newest
+    .filter((product) => !shownSlugs.has(product.slug))
+    .slice(0, 8);
+
+  /*
+   * `serverNow` above is handed to every countdown on the page. Each of them
+   * would otherwise read its own clock on the client and disagree with the
+   * number already in the HTML, which React reports as a hydration error and
+   * repairs by throwing the server markup away.
+   */
+  const priceLabel = (value: number | null) =>
+    value === null ? "Price to be confirmed" : formatBdt(value);
 
   const slides = featured.map((product) => ({
     slug: product.slug,
@@ -48,133 +73,156 @@ export default async function HomePage() {
     brand: product.brand,
     imageUrl: product.imageUrl,
     imageAlt: product.imageAlt,
-    priceLabel:
-      product.fromPriceBdt === null
-        ? "Price to be confirmed"
-        : formatBdt(product.fromPriceBdt),
+    priceLabel: priceLabel(product.fromPriceBdt),
     closesAt: product.closesAt ? product.closesAt.toISOString() : null,
     remaining: product.remainingCapacity,
+    total: product.totalCapacity,
   }));
-  const topCategories = tree.slice(0, 6);
+
+  const railItems = closingSoon.map((product) => ({
+    id: product.id,
+    slug: product.slug,
+    title: product.title,
+    brand: product.brand,
+    imageUrl: product.imageUrl,
+    imageAlt: product.imageAlt,
+    priceLabel: priceLabel(product.fromPriceBdt),
+    closesAt: product.closesAt ? product.closesAt.toISOString() : null,
+    remaining: product.remainingCapacity,
+    total: product.totalCapacity,
+  }));
+
+  /*
+   * A top-level shelf holds nothing directly — the products are filed in its
+   * children — so both the count and the photograph are rolled up from the
+   * whole subtree rather than read off the parent row.
+   */
+  const bentoCategories = tree.slice(0, 5).map((category) => {
+    const subtree = collectSubtreeIds(category);
+    const image = subtree.map((id) => categoryImages.get(id)).find(Boolean);
+
+    return {
+      id: category.id,
+      name: category.name,
+      slug: category.slug,
+      children: category.children.map((child) => ({
+        id: child.id,
+        name: child.name,
+      })),
+      productCount: subtree.reduce(
+        (total, id) => total + (categoryCounts.get(id) ?? 0),
+        0,
+      ),
+      imageUrl: image?.url ?? null,
+      imageAlt: image?.altText ?? "",
+    };
+  });
+
+  /*
+   * The strip under the hero. Every line is a fact about this shop: the lane
+   * the goods travel, what the price already covers, and the batches that are
+   * genuinely open right now. Nothing on it is a slogan.
+   */
+  const openTitles = closingSoon.slice(0, 5).map((product) => product.title);
+  const tickerItems = [
+    "New York → Dhaka",
+    "Duty and freight inside the price",
+    "Nothing to settle at the door",
+    ...(openTitles.length > 0 ? ["Open now"] : []),
+    ...openTitles,
+  ];
 
   return (
     <>
-      <HeroCarousel slides={slides} />
+      <HeroCarousel slides={slides} serverNow={serverNow} />
+      <Ticker items={tickerItems} />
 
-      <section className="border-b border-ink/15 bg-paper-raised">
-        <div className="mx-auto w-full max-w-[1280px] px-4 py-12 md:px-6">
-          <div className="max-w-[52ch]">
-            <h2 className="font-display text-h2 text-ink">
-              Buying before it exists here
-            </h2>
-            <p className="mt-2 text-body text-ink/75">
-              These goods are not in Bangladesh yet. You order while the window
-              is open, we buy the whole batch in the United States, and it comes
-              in together.
-            </p>
-          </div>
+      <ClosingRail items={railItems} serverNow={serverNow} />
 
-          <ol className="mt-8 grid gap-px bg-ink/15 md:grid-cols-3">
-            {[
-              {
-                title: "Order while the window is open",
-                body: "Each listing shows exactly how long is left and how many places remain in the batch.",
-              },
-              {
-                title: "We buy and fly it in",
-                body: "When the window shuts we place the order in the US. Nothing is bought before that.",
-              },
-              {
-                title: "It clears customs and arrives",
-                body: "Duty is already inside the price you paid, so there is nothing to settle at the door.",
-              },
-            ].map((step, index) => (
-              <li key={step.title} className="bg-paper-raised p-6">
-                <div className="flex items-baseline gap-3">
-                  <span
-                    aria-hidden="true"
-                    className="font-display text-h2 tabular-nums text-brass-text"
-                  >
-                    {index + 1}
-                  </span>
-                  <h3 className="font-display text-h3 text-ink">{step.title}</h3>
-                </div>
-                <p className="mt-2 max-w-[38ch] text-meta text-ink/70">
-                  {step.body}
-                </p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
+      <ProcessBand />
 
-      {topCategories.length > 0 ? (
-        <section className="mx-auto w-full max-w-[1280px] px-4 py-12 md:px-6">
-          <h2 className="font-display text-h2 text-ink">Browse</h2>
-          <ul className="mt-6 grid gap-px bg-ink/15 sm:grid-cols-2 lg:grid-cols-3">
-            {topCategories.map((category) => (
-              <li key={category.id}>
-                <Link
-                  href={`/categories/${category.slug}`}
-                  className="media-zoom group flex items-center gap-5 bg-paper p-5 transition-colors hover:bg-paper-raised"
-                >
-                  <span className="size-20 shrink-0 overflow-hidden">
-                    <ProductArt
-                      title={category.name}
-                      seed={category.slug}
-                      className="size-full"
-                    />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block font-display text-h3 text-ink">
-                      {category.name}
-                    </span>
-                    <span className="mt-1 block text-meta text-ink/70">
-                      {category.children.length > 0
-                        ? category.children.map((child) => child.name).join(", ")
-                        : "Open preorders"}
-                    </span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <div className="surface-paper border-b border-ink/10 py-14">
+        <CategoryBento categories={bentoCategories} />
+      </div>
 
-      {closingSoon.length > 0 ? (
-        <section className="mx-auto w-full max-w-[1280px] px-4 pb-12 md:px-6">
-          <div className="flex items-baseline justify-between gap-4">
-            <h2 className="font-display text-h2 text-ink">Closing soon</h2>
+      <section className="mx-auto w-full max-w-[1280px] px-4 py-14 md:px-6">
+        <Reveal>
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
+                <span aria-hidden="true" className="h-px w-8 bg-brass" />
+                Just listed
+              </p>
+              <h2 className="mt-2 font-display text-h1 text-ink">
+                New arrivals
+              </h2>
+            </div>
             <Link
-              href="/search?preorder=1"
-              className="text-meta text-blue-600 hover:underline"
+              href="/search?sort=newest"
+              className="text-meta text-blue-600 underline-offset-4 hover:underline"
             >
-              All open preorders
+              Everything, newest first
             </Link>
           </div>
-          <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {closingSoon.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
-        </section>
-      ) : null}
+        </Reveal>
 
-      <section className="mx-auto w-full max-w-[1280px] px-4 pb-16 md:px-6">
-        <h2 className="font-display text-h2 text-ink">New arrivals</h2>
-        {newest.length === 0 ? (
-          <p className="mt-4 text-body text-ink/70">
-            Nothing listed yet. Check back shortly.
+        {arrivals.length === 0 ? (
+          <p className="mt-6 text-body text-ink/70">
+            Nothing new since the batches above. Check back shortly.
           </p>
         ) : (
-          <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <Stagger className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {arrivals.map((product) => (
-              <ProductCard key={product.id} product={product} />
+              <StaggerItem key={product.id} className="h-full">
+                <ProductCard product={product} />
+              </StaggerItem>
             ))}
-          </div>
+          </Stagger>
         )}
       </section>
+
+      <Assurances />
     </>
+  );
+}
+
+/**
+ * What the price covers, stated plainly at the foot of the page.
+ *
+ * This is the objection a first-time shopper actually has — that a cheap
+ * headline price becomes an expensive one at the door — so it is answered
+ * where they will have finished browsing, not buried in a policy page.
+ */
+function Assurances() {
+  const points = [
+    {
+      title: "One landed price",
+      body: "Shipping from the United States and Bangladeshi customs duty are inside the figure on the listing. The courier asks you for nothing.",
+    },
+    {
+      title: "Nothing bought before the window shuts",
+      body: "That is why the price holds. If a batch never fills, you are refunded rather than charged for a shipment that did not happen.",
+    },
+    {
+      title: "A stated arrival window",
+      body: "Every listing carries the dates we expect it to land, and the order page keeps showing them as it moves through each stage.",
+    },
+  ];
+
+  return (
+    <section className="border-t border-ink/10 bg-paper-raised">
+      <div className="mx-auto w-full max-w-[1280px] px-4 py-14 md:px-6">
+        <Stagger className="grid gap-px bg-ink/15 md:grid-cols-3">
+          {points.map((point) => (
+            <StaggerItem key={point.title} className="bg-paper-raised p-6">
+              <h2 className="font-display text-h3 text-ink">{point.title}</h2>
+              <p className="mt-2 max-w-[40ch] text-meta text-ink/70">
+                {point.body}
+              </p>
+            </StaggerItem>
+          ))}
+        </Stagger>
+      </div>
+    </section>
   );
 }
