@@ -16,9 +16,21 @@ test("the filter panel narrows the listing and the count agrees", async ({
   const heading = page.getByRole("heading", { level: 1 });
   await expect(heading).toBeVisible();
 
-  const before = Number(
-    (await page.getByText(/\d+ products?$/).first().innerText()).match(/\d+/)![0],
-  );
+  /*
+   * The count is read from the filter panel's own "N matches" rather than from
+   * the prose under the heading. The panel's figure is the one that has to
+   * agree with the listing — it comes from `countProducts`, which the panel and
+   * the grid both build from `buildProductWhere` — and it does not move when
+   * the heading copy is rewritten, which is exactly what broke this test once.
+   */
+  const matches = async () =>
+    Number(
+      (await page.getByText(/^\d+ matches?$/).first().innerText()).match(
+        /\d+/,
+      )![0],
+    );
+
+  const before = await matches();
   expect(before).toBeGreaterThan(0);
 
   // A price ceiling nothing can meet empties the listing, and the count on the
@@ -28,11 +40,11 @@ test("the filter panel narrows the listing and the count agrees", async ({
   await page.waitForURL(/max=1/);
 
   await expect(page.getByText("Nothing matches those filters.")).toBeVisible();
-  await expect(page.getByText(/^0 products$/)).toBeVisible();
+  expect(await matches()).toBe(0);
 
   // Clearing brings them all back.
   await page.getByRole("link", { name: "Clear" }).click();
-  await expect(page.getByText(new RegExp(`^${before} products?$`))).toBeVisible();
+  await expect(page.getByText(new RegExp(`^${before} matches?$`))).toBeVisible();
 });
 
 test("filtering by an attribute value", async ({ page }) => {

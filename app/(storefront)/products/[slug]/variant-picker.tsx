@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/button";
+import { CapacityMeter } from "@/components/capacity-meter";
 import { Countdown } from "@/components/countdown";
 import { StatusBadge } from "@/components/status-badge";
 import { formatBdt } from "@/lib/money";
@@ -13,6 +14,8 @@ export type PickerVariant = {
   priceBdt: number;
   fulfillmentMode: string;
   remaining: number | null;
+  /** Every place in the batch, taken or not. Null when nothing is capped. */
+  capacity: number | null;
   /**
    * Decided on the server. A client clock can be wrong or deliberately set
    * back, and reading it during render is impure besides.
@@ -192,10 +195,24 @@ export function VariantPicker({
 
         {selected.remaining !== null && selected.remaining > 0 ? (
           <span className="text-meta text-ink/70">
-            {selected.remaining} slot{selected.remaining === 1 ? "" : "s"} left
+            {selected.remaining} place{selected.remaining === 1 ? "" : "s"} left
           </span>
         ) : null}
       </div>
+
+      {/*
+        The same meter the cards carry, so a shopper who chose this listing off
+        a grid sees the same figure presented the same way rather than having to
+        re-read it in a different form. "Places", not "slots": one word for one
+        thing, everywhere.
+      */}
+      {selected.fulfillmentMode === "preorder" ? (
+        <CapacityMeter
+          remaining={selected.remaining}
+          total={selected.capacity}
+          showLabel={false}
+        />
+      ) : null}
 
       {/* The window is the thing a preorder shopper is actually deciding
           about, so it is shown ticking rather than as a date to work out. */}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { FilterPanel } from "@/components/filter-panel";
+import { PageHeading } from "@/components/page-heading";
 import { ProductGrid } from "@/components/product-grid";
 import { SortSelect } from "@/components/sort-select";
 import {
@@ -54,15 +55,22 @@ export default async function SearchPage({
 
   return (
     <div className="mx-auto w-full max-w-[1280px] px-4 py-8 md:px-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-h1 text-ink">{heading}</h1>
-          <p className="mt-2 text-meta text-ink/70">
-            {products.length} shown{query ? ` · ${total} match in total` : ""}
-          </p>
-        </div>
-        <SortSelect current={sort} />
-      </div>
+      <PageHeading
+        eyebrow={
+          preorderOnly ? "Windows open now" : query ? "Search" : "The catalogue"
+        }
+        title={heading}
+        summary={
+          <>
+            {products.length} shown
+            {query && total !== products.length
+              ? ` of ${total} that match`
+              : ""}
+            . Every price already carries shipping and customs duty.
+          </>
+        }
+        aside={<SortSelect current={sort} />}
+      />
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[260px_minmax(0,1fr)]">
         <FilterPanel

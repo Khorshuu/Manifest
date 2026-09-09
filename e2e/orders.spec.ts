@@ -133,6 +133,12 @@ test("an anonymous visitor cannot reach the account area", async ({ page }) => {
 });
 
 test("staff move an order through the pipeline", async ({ page }) => {
+  // Places a whole order, signs in again as staff, then walks the pipeline.
+  // It passes comfortably on its own and timed out only under the load of the
+  // full suite — a budget problem, not a defect, and the same reason the
+  // checkout-walking tests in reviews.spec.ts and shipping.spec.ts are marked.
+  test.slow();
+
   const orderNumber = await placeOrderAsCustomer(page);
 
   await signIn(page, "staff@example.com");

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FilterPanel } from "@/components/filter-panel";
+import { PageHeading } from "@/components/page-heading";
 import { ProductGrid } from "@/components/product-grid";
 import { SortSelect } from "@/components/sort-select";
 import {
@@ -102,14 +103,19 @@ export default async function CategoryPage({
         </ol>
       </nav>
 
-      <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-h1 text-ink">{category.name}</h1>
-          <p className="mt-2 text-meta text-ink/70">
-            {total} product{total === 1 ? "" : "s"}
-          </p>
-        </div>
-        <SortSelect current={sort} />
+      <div className="mt-6">
+        <PageHeading
+          eyebrow="The shelf"
+          title={category.name}
+          summary={
+            <>
+              {total} listing{total === 1 ? "" : "s"} filed here and in
+              everything beneath it. Every price already carries shipping and
+              customs duty.
+            </>
+          }
+          aside={<SortSelect current={sort} />}
+        />
       </div>
 
       {node && node.children.length > 0 ? (

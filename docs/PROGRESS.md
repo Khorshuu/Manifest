@@ -881,3 +881,36 @@ Not done: no email is actually delivered, because no email or SMS provider is
 connected. The message lands in the outbox and is visible at
 `/admin/notifications`, which says on the page that nothing was sent. That is
 the same state every other notification in this system is in.
+
+## Storefront consistency pass (added after Phase 15)
+
+The home page rebuild left the category, search and product pages looking like
+a different site: a bare `h1` where the home page has a brass rule and a tracked
+label, and two different words for the same thing.
+
+- `components/page-heading.tsx` holds the heading treatment once, so the listing
+  pages and the home page cannot drift apart again.
+- The product page carries the same batch meter the cards do, so a shopper who
+  picked a listing off a grid sees the same figure in the same form.
+- "Slots" became "places" everywhere a shopper reads it. One word for one thing.
+
+| Gate | Result |
+| --- | --- |
+| `npm run typecheck` | `[x]` passes |
+| `npm run lint` | `[x]` passes |
+| `npm test` | `[x]` passes — 533 passed, 2 skipped, 34 files |
+| `npm run test:e2e` | `[x]` passes — 382 passed, 4 skipped, mobile and desktop |
+| UI inspected | `[x]` category, search and product pages viewed at 1440px against the real catalogue |
+
+Two tests needed fixing, and the reasons are worth keeping:
+
+- The filter test read the listing count out of the prose under the heading, so
+  rewriting that sentence broke it. It now reads the filter panel's own "N
+  matches", which is the figure that actually has to agree with the grid —
+  both come from `buildProductWhere` — and which does not move when copy does.
+- `staff move an order through the pipeline` timed out only under the load of
+  the full suite; it passes comfortably alone. Marked `test.slow()`, the same
+  as the other tests that walk a whole checkout before their assertion.
+
+Still carried forward: the cart, checkout and account screens have not had this
+treatment.

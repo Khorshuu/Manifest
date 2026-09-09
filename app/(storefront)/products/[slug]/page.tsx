@@ -95,6 +95,8 @@ export default async function ProductPage({
       variant.fulfillmentMode === "preorder"
         ? remainingCapacity(variant)
         : variant.stockQuantity,
+    capacity:
+      variant.fulfillmentMode === "preorder" ? variant.preorderCapacity : null,
     isClosed: Boolean(variant.isClosed),
     closesAtLabel: variant.preorderClosesAt
       ? formatDate(variant.preorderClosesAt)
