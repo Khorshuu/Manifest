@@ -4,9 +4,43 @@ Architecture decision log. One entry per meaningful choice, newest first. Each e
 
 ---
 
+## D-021: The hero carries no words, and the row beneath it is curated
+
+**Decision:** The hero is a photograph and nothing else — no headline, no
+paragraph, no eyebrow, no price panel, no button. The four products directly
+beneath it are chosen and ordered by staff at `/admin/homepage`, or added from
+a product's own admin page, and stored as a list of slugs under
+`home.showcase`. Staff choices lead the row and the catalogue fills whatever is
+left, so the row is always four.
+
+**Alternatives considered:** keeping an optional headline that staff could
+clear; a `featured` boolean on the product row; padding a short curated row with
+nothing.
+
+**Why:** The owner asked for the image to be unobstructed — "remove that
+american goods landed in bd, Preorder, and the rest blocking the big image" —
+and an optional headline is a control that mostly wants to be empty, plus a
+scrim over the photograph to keep it readable. Taking the words off entirely
+also removes the scrim, which is why the picture now looks like a picture.
+
+A boolean on the product cannot carry order, and order is most of what a
+curated row is. It would also spread the homepage's composition across every
+product row rather than keeping it in one place a person can read.
+
+The row is padded from the catalogue rather than left short because a front page
+with one card and three holes is worse than one where staff have expressed a
+partial preference — and because that is what happens the moment somebody
+removes a product from the row and does not immediately replace it.
+
+**What it costs:** the first screen no longer states the landed-price promise.
+That sentence now sits directly under the row, which is the first thing below
+the photograph, and again at the foot of the page. The page's `h1` is
+visually hidden — a page still needs one, and it should say what the shop is
+rather than what today's first product is.
+
 ## D-020: The homepage hero is one image, chosen by staff, stored in `site_settings`
 
-**Decision:** The rotating five-slide hero is gone. There is one hero image, one set of hero words, one featured batch, and all of it is a single row in `site_settings` under the key `home.hero`, edited at `/admin/homepage`. Writing needs a staff session; the storefront reads it with no session at all. The photograph goes through the existing media provider, so it lands wherever product photography lands.
+**Decision:** The rotating five-slide hero is gone. There is one hero image, and it is a single row in `site_settings` under the key `home.hero`, edited at `/admin/homepage`. (It carried words and a featured batch when this was written; D-021 took those off the image.) Writing needs a staff session; the storefront reads it with no session at all. The photograph goes through the existing media provider, so it lands wherever product photography lands.
 
 **Alternatives considered:** a new `homepage_hero` table; hero fields on the product record; keeping the hero in source and letting a developer change it.
 

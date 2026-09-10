@@ -21,11 +21,9 @@ const PRODUCT = "/products/seasonal-candy-variety-box";
 test("the hero holds still", async ({ page }) => {
   await page.goto("/");
 
-  const hero = page.getByRole("region", { name: "Featured batch" });
+  const hero = page.getByRole("region", { name: "Featured photograph" });
   await expect(hero).toBeVisible();
 
-  const headline = page.getByRole("heading", { level: 1 });
-  await expect(headline).toBeVisible();
   const first = await hero.innerText();
 
   // Longer than the old rotation interval, and then some.

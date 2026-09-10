@@ -93,33 +93,26 @@ describe("reading", () => {
   it("falls back to the defaults rather than throwing on a corrupt row", async () => {
     await harness.db
       .insert(siteSettings)
-      .values({ key: HERO_SETTING_KEY, valueJson: { value: { headline: 42 } } });
+      .values({ key: HERO_SETTING_KEY, valueJson: { value: { focalX: "half" } } });
 
     expect(await getHeroSettings()).toEqual(HERO_DEFAULTS);
   });
 });
 
 describe("writing", () => {
-  it("persists what staff typed", async () => {
-    await updateHeroSettings(staff, {
-      headline: "Landed in Dhaka",
-      eyebrow: "",
-      contrast: "dark",
-      focalX: 20,
-    });
+  it("persists the focal point and the contrast mode", async () => {
+    await updateHeroSettings(staff, { contrast: "dark", focalX: 20 });
 
     const hero = await getHeroSettings();
-    expect(hero.headline).toBe("Landed in Dhaka");
-    expect(hero.eyebrow).toBe("");
     expect(hero.contrast).toBe("dark");
     expect(hero.focalX).toBe(20);
     // Untouched fields survive a partial save.
-    expect(hero.support).toBe(HERO_DEFAULTS.support);
+    expect(hero.focalY).toBe(HERO_DEFAULTS.focalY);
   });
 
   it("writes an audit entry carrying the value it replaced", async () => {
-    await updateHeroSettings(staff, { headline: "First" });
-    await updateHeroSettings(staff, { headline: "Second" });
+    await updateHeroSettings(staff, { focalX: 10 });
+    await updateHeroSettings(staff, { focalX: 90 });
 
     const entries = await harness.db
       .select()
@@ -127,12 +120,21 @@ describe("writing", () => {
       .where(eq(auditLog.entityId, HERO_SETTING_KEY));
 
     expect(entries).toHaveLength(2);
-    expect(JSON.stringify(entries[1].beforeJson)).toContain("First");
-    expect(JSON.stringify(entries[1].afterJson)).toContain("Second");
+    expect(JSON.stringify(entries[1].beforeJson)).toContain('"focalX":10');
+    expect(JSON.stringify(entries[1].afterJson)).toContain('"focalX":90');
+  });
+
+  it("refuses a value outside the frame", async () => {
+    await expect(updateHeroSettings(staff, { focalX: 140 })).rejects.toThrow();
+    await expect(
+      updateHeroSettings(staff, { contrast: "rainbow" }),
+    ).rejects.toThrow();
+
+    expect(await getHeroSettings()).toEqual(HERO_DEFAULTS);
   });
 
   it("refuses a customer", async () => {
-    await expect(updateHeroSettings(customer, { headline: "Mine" })).rejects.toThrow();
+    await expect(updateHeroSettings(customer, { focalX: 10 })).rejects.toThrow();
     await expect(replaceHeroImage(customer, {
       data: PNG,
       originalName: "x.png",
@@ -144,28 +146,7 @@ describe("writing", () => {
   });
 
   it("refuses an anonymous visitor", async () => {
-    await expect(updateHeroSettings(null, { headline: "Mine" })).rejects.toThrow();
-  });
-
-  /**
-   * The call to action is a link an administrator types. A field that becomes
-   * an href is how an open redirect gets built by accident.
-   */
-  it("refuses a call to action that leaves the site", async () => {
-    for (const ctaHref of [
-      "https://example.com/phish",
-      "//example.com/phish",
-      "javascript:alert(1)",
-    ]) {
-      await expect(updateHeroSettings(staff, { ctaHref })).rejects.toThrow();
-    }
-
-    expect((await getHeroSettings()).ctaHref).toBe(HERO_DEFAULTS.ctaHref);
-  });
-
-  it("accepts an empty destination, meaning the featured product", async () => {
-    await updateHeroSettings(staff, { ctaHref: "" });
-    expect((await getHeroSettings()).ctaHref).toBe("");
+    await expect(updateHeroSettings(null, { focalX: 10 })).rejects.toThrow();
   });
 });
 

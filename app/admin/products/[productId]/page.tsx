@@ -5,9 +5,11 @@ import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { getCategoryTree, getProductForAdmin, type CategoryNode } from "@/lib/catalog";
 import { StatusBadge } from "@/components/status-badge";
+import { getShowcaseSettings } from "@/lib/homepage";
 import { ArchiveControls } from "./archive-controls";
 import { EditProductForm } from "./edit-form";
 import { ImageManager } from "./image-manager";
+import { ShowcaseToggle } from "./showcase-toggle";
 
 /** Flattens the tree into indented options, so nesting is visible in a select. */
 function flatten(nodes: CategoryNode[]): { id: string; label: string }[] {
@@ -33,6 +35,7 @@ export default async function AdminProductPage({
     ? (product.bulletFeatures as string[])
     : [];
   const categories = flatten(await getCategoryTree());
+  const showcase = await getShowcaseSettings();
 
   return (
     <div className="flex flex-col gap-6">
@@ -90,6 +93,34 @@ export default async function AdminProductPage({
                 | null) ?? null,
               tags: (product.tags as string[] | null) ?? null,
             }}
+          />
+        </div>
+      </section>
+
+      <section>
+        <h2 className="font-display text-h2 text-ink">Homepage</h2>
+        <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
+          The row of four under the hero. The card takes this
+          product&rsquo;s main photograph, so changing what it shows is done in
+          Photography below with <strong>Make main</strong>. The order of the
+          row is set on the{" "}
+          <Link
+            href="/admin/homepage"
+            className="text-blue-600 underline underline-offset-4"
+          >
+            homepage page
+          </Link>
+          .
+        </p>
+        <div className="mt-4">
+          <ShowcaseToggle
+            slug={product.slug}
+            isFeatured={showcase.slugs.includes(product.slug)}
+            isPublic={
+              !product.archivedAt &&
+              product.status !== "draft" &&
+              product.status !== "archived"
+            }
           />
         </div>
       </section>

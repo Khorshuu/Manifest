@@ -18,18 +18,12 @@ import {
   listProductCards,
 } from "@/lib/catalog";
 import { serverInstant } from "@/lib/clock";
-import { formatArrivalWindow } from "@/lib/format";
-import { getHeroSettings } from "@/lib/homepage";
+import {
+  getHeroSettings,
+  getShowcaseSettings,
+  SHOWCASE_TARGET,
+} from "@/lib/homepage";
 import { formatBdt } from "@/lib/money";
-
-/** The catalogue's own words for a product's state, as the cards show them. */
-const AVAILABILITY: Record<string, string> = {
-  in_stock: "In stock",
-  preorder_open: "Preorder open",
-  preorder_closed: "Preorder closed",
-  coming_soon: "Coming soon",
-  discontinued: "Discontinued",
-};
 
 export const metadata: Metadata = {
   title: "Preorder American goods, delivered in Bangladesh",
@@ -42,6 +36,7 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const [
     hero,
+    showcase,
     closingSoon,
     newest,
     tree,
@@ -50,6 +45,7 @@ export default async function HomePage() {
     categoryImages,
   ] = await Promise.all([
     getHeroSettings(),
+    getShowcaseSettings(),
     listClosingSoon(8),
     listProductCards({ sort: "newest", limit: 20 }),
     getCategoryTree(),
@@ -58,31 +54,31 @@ export default async function HomePage() {
     pickCategoryImages(),
   ]);
 
-  // The showcase: whatever is closing soonest, then the newest. Real products
-  // only — an empty slot would be an advertisement for nothing.
-  //
-  // Six rather than four. Four fill a wide screen and the rest are reached by
-  // scrolling the row, which is what proves it is a curated selection rather
-  // than a fixed set of slots.
-  const featured = [...closingSoon, ...newest]
+  /*
+   * The showcase, in the order staff put it in at /admin/homepage.
+   *
+   * Each slug is looked up through the public predicate, so a product that has
+   * since been unpublished drops out of the row rather than breaking it. When
+   * staff have chosen nothing — a new shop, or a row cleared — the catalogue
+   * decides: whatever closes soonest, then the newest. Four either way.
+   */
+  const curated = (
+    await Promise.all(showcase.slugs.map((slug) => getProductCardBySlug(slug)))
+  ).filter((card): card is NonNullable<typeof card> => card !== null);
+
+  /*
+   * Staff choices come first and the catalogue fills the rest of the row.
+   *
+   * That matters: choosing one product should not leave three holes on the
+   * front page, and it means the row is always four whether staff have curated
+   * nothing, some of it, or all of it.
+   */
+  const featured = [...curated, ...closingSoon, ...newest]
     .filter(
       (product, index, all) =>
         all.findIndex((other) => other.slug === product.slug) === index,
     )
-    .slice(0, 6);
-
-  /*
-   * The batch the hero prices.
-   *
-   * Staff may name one; if they have not, or if the one they named has since
-   * been unpublished, it is whatever closes soonest. The hero never advertises
-   * a product that is not there — that is why the fallback is a live query
-   * rather than a stored copy of a product.
-   */
-  const chosen = hero.featuredSlug
-    ? await getProductCardBySlug(hero.featuredSlug)
-    : null;
-  const heroProduct = chosen ?? featured[0] ?? null;
+    .slice(0, SHOWCASE_TARGET);
 
   // What is already shown above does not appear again below.
   const shownSlugs = new Set([
@@ -104,41 +100,17 @@ export default async function HomePage() {
   const priceLabel = (value: number | null) =>
     value === null ? "Price to be confirmed" : formatBdt(value);
 
-  const heroFeature = heroProduct
+  /*
+   * What the hero shows when no photograph has been uploaded: the first
+   * product of the row, drawn as artwork rather than stated as a price panel.
+   */
+  const heroFallback = featured[0]
     ? {
-        slug: heroProduct.slug,
-        title: heroProduct.title,
-        brand: heroProduct.brand,
-        imageUrl: heroProduct.imageUrl,
-        imageAlt: heroProduct.imageAlt,
-        priceLabel: priceLabel(heroProduct.fromPriceBdt),
-        availability: AVAILABILITY[heroProduct.status] ?? heroProduct.status,
-        arrival: formatArrivalWindow(
-          heroProduct.arrivesFrom,
-          heroProduct.arrivesTo,
-        ),
-        closesAt: heroProduct.closesAt
-          ? heroProduct.closesAt.toISOString()
-          : null,
-        remaining: heroProduct.remainingCapacity,
-        total: heroProduct.totalCapacity,
-        closingSoon: heroProduct.closingSoon,
+        slug: featured[0].slug,
+        title: featured[0].title,
+        imageUrl: featured[0].imageUrl,
       }
     : null;
-
-  /*
-   * The eyebrow states the batch's real position when staff have not written
-   * one of their own: a window that is about to shut, or one that is full,
-   * says more than any slogan and is checked against the catalogue.
-   */
-  const eyebrow =
-    hero.eyebrow ||
-    (heroProduct?.closingSoon
-      ? "This batch closes shortly"
-      : heroProduct?.remainingCapacity !== null &&
-          (heroProduct?.remainingCapacity ?? 1) <= 0
-        ? "This batch is full"
-        : "Ordering is open for this batch");
 
   /*
    * The closing rail carries what the showcase did not.
@@ -204,26 +176,31 @@ export default async function HomePage() {
 
   return (
     <>
+      {/*
+       * The page's heading, for a crawler and a screen reader.
+       *
+       * It is no longer drawn over the photograph — the owner asked for the
+       * image to carry nothing — but a page still needs one h1, and it should
+       * say what the shop is rather than what today's first product is.
+       */}
+      <h1 className="sr-only">
+        Manifest — American goods, delivered in Bangladesh
+      </h1>
+
       <Hero
         content={{
           imageUrl: hero.imageUrl,
           focalX: hero.focalX,
           focalY: hero.focalY,
           contrast: hero.contrast,
-          eyebrow,
-          headline: hero.headline,
-          support: hero.support,
-          ctaLabel: hero.ctaLabel,
-          ctaHref: hero.ctaHref,
         }}
-        feature={heroFeature}
-        serverNow={serverNow}
+        fallback={heroFallback}
       />
 
       <FeaturedShowcase
         products={featured}
         title="This batch"
-        summary="Open windows and the newest listings, priced with shipping and customs duty already inside."
+        summary="One fixed price with shipping and customs duty already inside it. Every listing says when the window closes and when it arrives."
       />
 
       <Ticker items={tickerItems} />

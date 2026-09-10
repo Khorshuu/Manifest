@@ -56,3 +56,6 @@ next-env.d.ts
 # Vendored design skills (~4.5MB of third-party data), installed per machine
 # with `uipro init --ai claude` and `npx @21st-dev/cli install-skill`.
 /.claude/skills
+
+# Local dev server log
+dev.local.log

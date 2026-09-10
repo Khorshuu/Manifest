@@ -214,8 +214,13 @@ test("the home page renders its heading without waiting on JavaScript", async ({
   const page = await context.newPage();
 
   await page.goto("/");
+  // The heading is server-rendered but visually hidden — the photograph
+  // carries nothing — so this asserts the markup rather than the pixels.
   await expect(
-    page.getByRole("heading", { name: /American goods, landed in Bangladesh/ }),
+    page.getByRole("heading", { level: 1, includeHidden: true }),
+  ).toHaveText(/Manifest/);
+  await expect(
+    page.getByRole("region", { name: "Featured products" }),
   ).toBeVisible();
 
   await context.close();

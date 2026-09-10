@@ -1,35 +1,55 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import Link from "next/link";
+import { useState } from "react";
 import { Button } from "@/components/button";
 import type { HeroSettings } from "@/lib/homepage";
 
-type FeaturableProduct = { slug: string; title: string; brand: string | null };
+export type ShowcaseCandidate = {
+  slug: string;
+  title: string;
+  brand: string | null;
+  imageUrl: string | null;
+  priceLabel: string;
+};
 
 /**
- * The hero editor.
+ * The homepage, as staff edit it.
  *
- * Three things it deliberately does. It saves each section on its own, so a
- * rejected headline cannot discard an unrelated edit. It previews the
- * photograph at the shape the storefront actually draws it, including the
- * focal point, because a focal point chosen against a square thumbnail is
- * chosen blind. And it never keeps its own copy of the hero: every save
- * returns the stored record and that is what the form then shows.
+ * Two things live here, and both are real: the photograph that fills the first
+ * screen, and the four products directly beneath it. Every control writes
+ * through `/api/admin/homepage/*` to `site_settings` and shows on the
+ * storefront on the next request — there is no preview-only mode and no
+ * setting on this page that does nothing.
+ *
+ * There are no words to edit any more. The hero used to carry a headline, a
+ * paragraph, a price panel and a button; the owner asked for the image to be
+ * unobstructed, so those controls were removed rather than left on a page
+ * where they would change nothing.
  */
-export function HeroEditor({
-  hero: initial,
+export function HomepageEditor({
+  hero: initialHero,
+  showcase: initialShowcase,
   products,
 }: {
   hero: HeroSettings;
-  products: FeaturableProduct[];
+  /** The chosen row, in order, already resolved to real products. */
+  showcase: ShowcaseCandidate[];
+  /** Everything public, for the "add" control. */
+  products: ShowcaseCandidate[];
 }) {
   const router = useRouter();
-  const [hero, setHero] = useState(initial);
+  const [hero, setHero] = useState(initialHero);
+  /*
+   * The row is not local state. Every change to it goes to the server and the
+   * server component re-resolves the slugs to products, so keeping a second
+   * copy here would only create something to disagree with.
+   */
+  const showcase = initialShowcase;
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   async function send(
     section: string,
@@ -51,18 +71,27 @@ export function HeroEditor({
     const body = await response.json();
     if (body.hero) setHero(body.hero as HeroSettings);
     setSaved(section);
-    // The storefront is a separate route; refreshing keeps this page's own
-    // server data (the product list) in step too.
+    // The row comes back as slugs; the server component re-resolves them to
+    // products, which is why this refreshes rather than patching local state.
     router.refresh();
     return true;
   }
 
-  const patch = (section: string, values: Partial<HeroSettings>) =>
+  const patchHero = (section: string, values: Partial<HeroSettings>) =>
     send(section, () =>
       fetch("/api/admin/homepage/hero", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(values),
+      }),
+    );
+
+  const patchShowcase = (section: string, body: Record<string, unknown>) =>
+    send(section, () =>
+      fetch("/api/admin/homepage/showcase", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
       }),
     );
 
@@ -78,6 +107,9 @@ export function HeroEditor({
     if (ok) form.reset();
   }
 
+  const inShowcase = new Set(showcase.map((entry) => entry.slug));
+  const addable = products.filter((product) => !inShowcase.has(product.slug));
+
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <p aria-live="polite" className="text-meta">
@@ -92,12 +124,12 @@ export function HeroEditor({
 
       <section className="flex flex-col gap-4 rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
         <div>
-          <h2 className="font-display text-h2 text-ink">Photograph</h2>
+          <h2 className="font-display text-h2 text-ink">Hero photograph</h2>
           <p className="mt-1 max-w-[70ch] text-meta text-ink/70">
-            One image, shown edge to edge across the first screen. JPEG, PNG,
-            WebP or AVIF, up to 5MB. A wide, evenly lit photograph works best —
-            the header sits on top of it. With no photograph, the hero falls
-            back to the featured product&rsquo;s own artwork.
+            One image, shown edge to edge across the first screen with nothing
+            written on top of it. JPEG, PNG, WebP or AVIF, up to 5MB. A wide,
+            evenly lit photograph works best — only the header sits over it.
+            With no photograph, the first product of the row below stands in.
           </p>
         </div>
 
@@ -117,8 +149,8 @@ export function HeroEditor({
             />
           ) : (
             <p className="flex size-full items-center justify-center px-4 text-center text-meta text-paper/80">
-              No photograph yet — the featured product&rsquo;s artwork is
-              standing in.
+              No photograph yet — the first product of the row below is standing
+              in.
             </p>
           )}
         </div>
@@ -132,7 +164,6 @@ export function HeroEditor({
               {hero.imageUrl ? "Replace the photograph" : "Upload a photograph"}
             </label>
             <input
-              ref={fileRef}
               id="hero-image"
               name="file"
               type="file"
@@ -212,7 +243,7 @@ export function HeroEditor({
               variant="secondary"
               disabled={pending === "focal"}
               onClick={() =>
-                patch("focal", { focalX: hero.focalX, focalY: hero.focalY })
+                patchHero("focal", { focalX: hero.focalX, focalY: hero.focalY })
               }
             >
               {pending === "focal" ? "Saving…" : "Save focal point"}
@@ -245,7 +276,7 @@ export function HeroEditor({
               type="button"
               disabled={pending === "contrast"}
               aria-pressed={hero.contrast === mode.value}
-              onClick={() => patch("contrast", { contrast: mode.value })}
+              onClick={() => patchHero("contrast", { contrast: mode.value })}
               className={`min-h-11 rounded-control border px-4 text-meta font-semibold transition-colors ${
                 hero.contrast === mode.value
                   ? "border-blue-600 bg-blue-50 text-blue-600"
@@ -260,124 +291,149 @@ export function HeroEditor({
 
       <section className="flex flex-col gap-4 rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
         <div>
-          <h2 className="font-display text-h2 text-ink">Words and the batch</h2>
+          <h2 className="font-display text-h2 text-ink">
+            The four products under the hero
+          </h2>
           <p className="mt-1 max-w-[70ch] text-meta text-ink/70">
-            The price, availability, capacity and closing time under the
-            headline are read from the product itself — they are never typed
-            here, so the hero cannot state a price the listing disagrees with.
+            Chosen and ordered here; the first four are what a wide screen
+            shows. Each card takes the product&rsquo;s own main photograph, so
+            changing the picture is done on the product — use{" "}
+            <strong>Make main</strong> in its Photographs section. With nothing
+            chosen, the homepage shows whatever closes soonest.
           </p>
         </div>
 
+        {showcase.length === 0 ? (
+          <p className="rounded-control border border-blue-300 bg-blue-50 p-4 text-meta text-ink">
+            Nothing chosen. The homepage is picking the four batches closing
+            soonest, which is a reasonable default — add products below to take
+            it over.
+          </p>
+        ) : (
+          <ol className="flex flex-col gap-3">
+            {showcase.map((entry, index) => (
+              <li
+                key={entry.slug}
+                className="flex flex-wrap items-center gap-3 rounded-card border border-blue-300 p-3"
+              >
+                <span className="surface-studio flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-control">
+                  {entry.imageUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={entry.imageUrl}
+                      alt=""
+                      width={64}
+                      height={64}
+                      className="size-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-meta text-ink/70">No photo</span>
+                  )}
+                </span>
+
+                <span className="min-w-0 flex-1">
+                  <span className="block text-meta text-ink/70">
+                    {index + 1}
+                    {entry.brand ? ` · ${entry.brand}` : ""}
+                  </span>
+                  <Link
+                    href={`/admin/products?q=${encodeURIComponent(entry.title)}`}
+                    className="block truncate font-display text-h3 text-ink hover:text-blue-600"
+                  >
+                    {entry.title}
+                  </Link>
+                  <span className="block text-meta tabular-nums text-ink/70">
+                    {entry.priceLabel}
+                  </span>
+                </span>
+
+                <span className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={pending !== null || index === 0}
+                    onClick={() =>
+                      patchShowcase("row", {
+                        action: "move",
+                        slug: entry.slug,
+                        direction: "up",
+                      })
+                    }
+                    className="min-h-11 rounded-control border border-blue-300 px-3 text-meta text-blue-600 disabled:opacity-40"
+                  >
+                    Move up
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending !== null || index === showcase.length - 1}
+                    onClick={() =>
+                      patchShowcase("row", {
+                        action: "move",
+                        slug: entry.slug,
+                        direction: "down",
+                      })
+                    }
+                    className="min-h-11 rounded-control border border-blue-300 px-3 text-meta text-blue-600 disabled:opacity-40"
+                  >
+                    Move down
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending !== null}
+                    onClick={() =>
+                      patchShowcase("row", {
+                        action: "remove",
+                        slug: entry.slug,
+                      })
+                    }
+                    className="min-h-11 rounded-control border border-blue-300 px-3 text-meta text-stamp-red-text disabled:opacity-40"
+                  >
+                    Remove
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+
         <form
-          className="flex flex-col gap-4"
+          className="flex flex-wrap items-end gap-3 border-t border-blue-300 pt-4"
           onSubmit={(event) => {
             event.preventDefault();
-            const data = new FormData(event.currentTarget);
-            patch("words", {
-              eyebrow: String(data.get("eyebrow") ?? ""),
-              headline: String(data.get("headline") ?? ""),
-              support: String(data.get("support") ?? ""),
-              ctaLabel: String(data.get("ctaLabel") ?? ""),
-              ctaHref: String(data.get("ctaHref") ?? ""),
-              featuredSlug: String(data.get("featuredSlug") ?? "") || null,
-            });
+            const slug = String(
+              new FormData(event.currentTarget).get("slug") ?? "",
+            );
+            if (slug) patchShowcase("row", { action: "add", slug });
           }}
         >
-          <label className="flex flex-col gap-1 text-meta text-ink">
-            <span className="font-semibold">Eyebrow</span>
-            <input
-              name="eyebrow"
-              defaultValue={hero.eyebrow}
-              maxLength={80}
-              className="min-h-11 w-full rounded-control border border-blue-300 bg-paper px-3 text-body"
-            />
-            <span className="text-ink/70">
-              Leave empty and the hero states the batch&rsquo;s real position —
-              closing shortly, full, or open.
-            </span>
-          </label>
-
-          <label className="flex flex-col gap-1 text-meta text-ink">
-            <span className="font-semibold">Headline</span>
-            <input
-              name="headline"
-              required
-              defaultValue={hero.headline}
-              maxLength={120}
-              className="min-h-11 w-full rounded-control border border-blue-300 bg-paper px-3 text-body"
-            />
-            <span className="text-ink/70">
-              The page&rsquo;s only h1. Short lines read best — it is set very
-              large.
-            </span>
-          </label>
-
-          <label className="flex flex-col gap-1 text-meta text-ink">
-            <span className="font-semibold">Supporting sentence</span>
-            <textarea
-              name="support"
-              rows={3}
-              defaultValue={hero.support}
-              maxLength={280}
-              className="w-full rounded-control border border-blue-300 bg-paper p-3 text-body"
-            />
-          </label>
-
-          <div className="flex flex-wrap gap-4">
-            <label className="flex min-w-[14rem] flex-1 flex-col gap-1 text-meta text-ink">
-              <span className="font-semibold">Button</span>
-              <input
-                name="ctaLabel"
-                required
-                defaultValue={hero.ctaLabel}
-                maxLength={40}
-                className="min-h-11 w-full rounded-control border border-blue-300 bg-paper px-3 text-body"
-              />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <label htmlFor="add-slug" className="text-meta font-semibold text-ink">
+              Add a product
             </label>
-
-            <label className="flex min-w-[14rem] flex-1 flex-col gap-1 text-meta text-ink">
-              <span className="font-semibold">Button goes to</span>
-              <input
-                name="ctaHref"
-                defaultValue={hero.ctaHref}
-                maxLength={200}
-                placeholder="/search?preorder=1"
-                className="min-h-11 w-full rounded-control border border-blue-300 bg-paper px-3 text-body"
-              />
-              <span className="text-ink/70">
-                A path on this site. Empty means the featured
-                product&rsquo;s own page.
-              </span>
-            </label>
-          </div>
-
-          <label className="flex flex-col gap-1 text-meta text-ink">
-            <span className="font-semibold">Featured product</span>
             <select
-              name="featuredSlug"
-              defaultValue={hero.featuredSlug ?? ""}
+              id="add-slug"
+              name="slug"
+              required
               className="min-h-11 w-full max-w-md rounded-control border border-blue-300 bg-paper px-3 text-body"
             >
-              <option value="">Whichever batch closes soonest</option>
-              {products.map((product) => (
+              <option value="">Choose a product…</option>
+              {addable.map((product) => (
                 <option key={product.slug} value={product.slug}>
                   {product.brand ? `${product.brand} — ` : ""}
                   {product.title}
                 </option>
               ))}
             </select>
-            <span className="text-ink/70">
-              If the product you choose is later unpublished, the hero falls
-              back to the soonest-closing batch rather than showing nothing.
-            </span>
-          </label>
-
-          <div>
-            <Button type="submit" disabled={pending === "words"}>
-              {pending === "words" ? "Saving…" : "Save"}
-            </Button>
           </div>
+
+          <Button type="submit" variant="secondary" disabled={pending !== null}>
+            Add to the row
+          </Button>
         </form>
+
+        <p className="text-meta text-ink/70">
+          A product can also be added from its own page in the admin, which is
+          usually where you are when you decide.
+        </p>
       </section>
     </div>
   );

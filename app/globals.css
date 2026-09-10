@@ -848,76 +848,37 @@ input[type="radio"] {
  * in. It is directional on purpose — a flat scrim over the whole image darkens
  * the product, which is the one thing on the screen worth looking at.
  */
-.hero-stage[data-tone="dark"] .hero-scrim {
-  background:
-    linear-gradient(
-      to top,
-      rgb(7 16 30 / 0.94) 0%,
-      rgb(7 16 30 / 0.72) 30%,
-      rgb(7 16 30 / 0.24) 60%,
-      transparent 86%
-    ),
-    linear-gradient(
-      to right,
-      rgb(7 16 30 / 0.8) 0%,
-      rgb(7 16 30 / 0.34) 44%,
-      transparent 70%
-    );
-}
-
-.hero-stage[data-tone="light"] .hero-scrim {
-  background:
-    linear-gradient(
-      to top,
-      rgb(255 255 255 / 0.95) 0%,
-      rgb(255 255 255 / 0.78) 30%,
-      rgb(255 255 255 / 0.26) 60%,
-      transparent 86%
-    ),
-    linear-gradient(
-      to right,
-      rgb(255 255 255 / 0.82) 0%,
-      rgb(255 255 255 / 0.36) 44%,
-      transparent 70%
-    ),
-    /* A vignette, which is what a bright wash needs to stop reading as a blank
-       page with words on it: the light stays in the middle and the corners
-       fall away. */
-      radial-gradient(
-        128% 108% at 46% 34%,
-        transparent 42%,
-        rgb(18 35 63 / 0.1) 78%,
-        rgb(18 35 63 / 0.2) 100%
-      );
-}
-
 /*
- * Below `lg` the copy runs the full width of the page, so it is over the
- * picture rather than beside it and the directional wash above is not enough on
- * its own. The scrim becomes a full vertical one at those widths — still
- * lightest at the top, where the photograph is doing the work, and heaviest
- * under the words.
+ * The veil, and what is left of it.
+ *
+ * There used to be a scrim across the whole photograph — a heavy wash up from
+ * the bottom and in from the left — because the hero carried a headline, a
+ * paragraph, a price and a button over the image. All of that has been taken
+ * off the picture at the owner's request, so the only thing still drawn on top
+ * of it is the header, and the only place that needs help is the strip the
+ * header occupies. The rest of the photograph is now untouched.
  */
-@media (max-width: 1023px) {
-  .hero-stage[data-tone="dark"] .hero-scrim {
-    background: linear-gradient(
-      to top,
-      rgb(7 16 30 / 0.96) 0%,
-      rgb(7 16 30 / 0.88) 44%,
-      rgb(7 16 30 / 0.6) 72%,
-      rgb(7 16 30 / 0.3) 100%
-    );
-  }
+.hero-veil {
+  pointer-events: none;
+  height: calc(var(--header-h) + 2.5rem);
+}
 
-  .hero-stage[data-tone="light"] .hero-scrim {
-    background: linear-gradient(
-      to top,
-      rgb(255 255 255 / 0.96) 0%,
-      rgb(255 255 255 / 0.9) 44%,
-      rgb(255 255 255 / 0.64) 72%,
-      rgb(255 255 255 / 0.34) 100%
-    );
-  }
+.hero-stage[data-tone="dark"] .hero-veil {
+  background: linear-gradient(
+    to bottom,
+    rgb(7 16 30 / 0.62) 0%,
+    rgb(7 16 30 / 0.32) 46%,
+    transparent 100%
+  );
+}
+
+.hero-stage[data-tone="light"] .hero-veil {
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.7) 0%,
+    rgb(255 255 255 / 0.38) 46%,
+    transparent 100%
+  );
 }
 
 /*

@@ -59,12 +59,6 @@ export default async function LoginPage({
           className="relative flex items-baseline gap-2 font-display tracking-tight"
         >
           <span className="text-h2">Manifest</span>
-          <span
-            aria-hidden="true"
-            className="text-meta uppercase tracking-[0.2em] text-paper/70"
-          >
-            BD
-          </span>
         </Link>
 
         <div className="relative max-w-[38ch]">

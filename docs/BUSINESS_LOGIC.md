@@ -86,13 +86,15 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - Search matches everything a listing says about itself (title, brand, description with markup stripped, bullet points, spec table, tags, meta description) plus its category's name and its variants' attribute values. Ranking prefers a title match to a mention in a paragraph, because that is what shoppers mean. See DECISIONS.md D-018.
 - A recommendation is scored against what the catalogue records — a relationship staff stated, the shelf, a shared tag, the brand, a comparable price — and anything scoring zero is not a recommendation. A short row is topped up with the best-rated products, never with a random draw. See D-019.
 
-## The homepage hero
+## The homepage
 
-- The photograph, the words, the button and its destination are staff-owned settings, not source (DECISIONS.md D-020). Staff may write them; the storefront reads them with no session.
-- The price, availability, capacity and closing time under the headline are read from the featured product itself and are never typed into the hero. The hero cannot state a price the listing disagrees with.
-- If staff name a featured product that is later unpublished, the hero falls back to the batch closing soonest rather than showing a product that is not for sale.
-- The call-to-action destination must be a path on this site. It is a text field that becomes an `href`, which is how an open redirect gets built by accident.
+- The hero is a photograph and nothing else. No headline, no paragraph, no price panel and no button are drawn over it (DECISIONS.md D-021), so the only thing a shopper reads on the first screen is the header.
+- The photograph, its focal point and the header's contrast mode are staff-owned settings, not source. Staff may write them; the storefront reads them with no session.
 - The hero image is set by uploading a file, never by posting a URL, so the front page cannot be pointed at an address off this site.
+- The four products beneath it are a list of slugs staff choose and order. Each is resolved through the public predicate at render time, so a product unpublished after being chosen drops out of the row rather than breaking it.
+- Staff choices lead the row and the catalogue fills the rest — whatever closes soonest, then the newest — so the row is always four and never has holes in it.
+- A card shows the product's own main photograph. Changing what a card shows is done on the product, with "Make main" in its Photographs section; the homepage never holds a second copy of an image.
+- The page's `h1` is visually hidden. A page needs one heading, and with the words off the photograph it belongs in the markup rather than on the picture.
 
 ## Variation engine (Phase 5)
 

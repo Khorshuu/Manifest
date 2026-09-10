@@ -129,7 +129,7 @@ function Waybill() {
       <div className="flex items-center justify-between gap-4 border-b border-paper/15 pb-4">
         <p className="font-display text-h3 text-paper">Waybill</p>
         <p className="text-meta uppercase tracking-[0.2em] text-paper/50">
-          Manifest BD
+          Manifest
         </p>
       </div>
 

@@ -38,25 +38,6 @@ export const HERO_SETTING_KEY = "home.hero";
 export const HEADER_CONTRAST_MODES = ["auto", "light", "dark"] as const;
 export type HeaderContrastMode = (typeof HEADER_CONTRAST_MODES)[number];
 
-/**
- * An internal destination only.
- *
- * The call to action is a link an administrator types, and a text field that
- * becomes an `href` is how an open redirect gets built by accident. Only a
- * path on this site is accepted — never a scheme, a host, or a protocol
- * relative `//elsewhere`.
- */
-const internalPath = z
-  .string()
-  .trim()
-  .max(200)
-  .refine(
-    // Empty means "the featured product's own page", which is the right
-    // destination often enough to be the default.
-    (value) => value === "" || (value.startsWith("/") && !value.startsWith("//")),
-    "The link must be a path on this site, starting with /.",
-  );
-
 export const heroSettingsSchema = z.object({
   /** Where the photograph is served from. Null falls back to catalogue art. */
   imageUrl: z.string().trim().max(500).nullable(),
@@ -66,26 +47,17 @@ export const heroSettingsSchema = z.object({
   focalX: z.number().min(0).max(100),
   focalY: z.number().min(0).max(100),
   contrast: z.enum(HEADER_CONTRAST_MODES),
-  eyebrow: z.string().trim().max(80),
-  headline: z.string().trim().min(1).max(120),
-  support: z.string().trim().max(280),
-  ctaLabel: z.string().trim().min(1).max(40),
-  ctaHref: internalPath,
-  /**
-   * The product the hero prices. Null means "whichever batch closes soonest",
-   * which is the honest default: it never advertises a product that has gone.
-   */
-  featuredSlug: z.string().trim().max(160).nullable(),
 });
 
 export type HeroSettings = z.infer<typeof heroSettingsSchema>;
 
 /**
- * What the homepage says before anyone has changed anything.
+ * What the hero is before anyone has uploaded anything.
  *
- * These are the words the hero shipped with, kept here rather than in the
- * component so that "reset to default" and "never configured" are the same
- * code path.
+ * There are no words here any more. The owner asked for the photograph to be
+ * unobstructed — no headline, no paragraph, no price panel, no button over the
+ * top of it — so the hero is the image and the floating header, and everything
+ * the page has to say is said by the four products directly beneath it.
  */
 export const HERO_DEFAULTS: HeroSettings = {
   imageUrl: null,
@@ -93,14 +65,6 @@ export const HERO_DEFAULTS: HeroSettings = {
   focalX: 50,
   focalY: 50,
   contrast: "auto",
-  eyebrow: "Ordering is open for this batch",
-  headline: "American goods, landed in Bangladesh",
-  support:
-    "One fixed price with shipping and customs duty already inside it. Every listing says when the window closes and when it arrives.",
-  ctaLabel: "Preorder this",
-  /** Empty: the featured product's own page. */
-  ctaHref: "",
-  featuredSlug: null,
 };
 
 /**
@@ -174,8 +138,8 @@ async function writeHero(
 }
 
 /**
- * Updates the words, the focal point and the contrast mode. The photograph has
- * its own function below, because it arrives as bytes rather than as JSON.
+ * Updates the focal point and the contrast mode. The photograph has its own
+ * function below, because it arrives as bytes rather than as JSON.
  */
 export async function updateHeroSettings(
   actor: SessionUser | null,

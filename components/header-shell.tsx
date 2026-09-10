@@ -1,12 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { CatalogMenu, type CatalogSection } from "./catalog-menu";
 import { useHeaderTheme } from "./header-theme";
-
-export type HeaderCategory = { id: string; name: string; slug: string };
 
 /**
  * The chrome around the header.
@@ -22,12 +19,16 @@ export type HeaderCategory = { id: string; name: string; slug: string };
  * a plain white bar with a brand-blue wordmark. The solid blue rectangle it
  * used to be is gone at the owner's request.
  *
- * The two older behaviours are unchanged: the bar tightens once the page is
- * scrolled, and the category list moves behind a button on a phone where five
- * links across the top would either wrap into three rows or shrink below a
- * usable tap size. The links themselves are rendered on the server and handed
- * in, so the category names are in the HTML a crawler sees whether or not the
- * menu is open.
+ * The row itself is what the owner asked for and nothing more: the three-line
+ * catalogue mark at the top left, the wordmark beside it, nothing at all until
+ * the search field, then the account and cart. The shelf links that used to sit
+ * between the wordmark and the search — and the collapsible row of them under
+ * the bar on a phone — are gone; every category now lives in the panel behind
+ * that one mark, at every width. Those links are still rendered on the server
+ * and hidden rather than mounted on open, so the category names are in the HTML
+ * a crawler reads whether or not anyone opens the panel.
+ *
+ * The older behaviour that stays: the bar tightens once the page is scrolled.
  */
 export function HeaderShell({
   sections,
@@ -39,26 +40,8 @@ export function HeaderShell({
   search: ReactNode;
   actions: ReactNode;
 }) {
-  // The shelves themselves still read as links beside the wordmark on a wide
-  // screen; the panel is where their contents are.
-  const categories: HeaderCategory[] = sections.slice(0, 5).map((section) => ({
-    id: section.id,
-    name: section.name,
-    slug: section.slug,
-  }));
-
   const [scrolled, setScrolled] = useState(false);
-  const pathname = usePathname();
   const { floating, tone } = useHeaderTheme();
-  /**
-   * The route the menu was opened on, rather than a plain boolean.
-   *
-   * A menu left open across a navigation would cover the page someone just
-   * asked for, and deriving it from the current route closes it on arrival
-   * without an effect that fires a second render every time.
-   */
-  const [openedAt, setOpenedAt] = useState<string | null>(null);
-  const menuOpen = openedAt === pathname;
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -134,24 +117,10 @@ export function HeaderShell({
           tight ? "py-2" : "py-3.5 md:py-5"
         }`}
       >
-        <button
-          type="button"
-          onClick={() =>
-            setOpenedAt((current) => (current === pathname ? null : pathname))
-          }
-          aria-expanded={menuOpen}
-          aria-controls="header-categories"
-          className="-ml-2 inline-flex size-11 shrink-0 items-center justify-center rounded-control transition-colors hover:bg-[color:var(--head-ghost)] lg:hidden"
-        >
-          <span aria-hidden="true" className="flex flex-col gap-1">
-            <span className="block h-px w-5 bg-current" />
-            <span className="block h-px w-5 bg-current" />
-            <span className="block h-px w-5 bg-current" />
-          </span>
-          <span className="sr-only">
-            {menuOpen ? "Hide categories" : "Show categories"}
-          </span>
-        </button>
+        {/* The catalogue: one mark at the top left, at every width, opening a
+            panel that holds every shelf and sub-shelf from the tree staff
+            maintain. */}
+        <CatalogMenu sections={sections} />
 
         <Link
           href="/"
@@ -164,49 +133,7 @@ export function HeaderShell({
           >
             Manifest
           </span>
-          <span
-            aria-hidden="true"
-            className="hidden text-meta tracking-[0.28em] text-[color:var(--head-muted)] sm:inline"
-          >
-            BD
-          </span>
         </Link>
-
-        {/*
-         * The categories sit beside the wordmark from `lg` up, which is what
-         * makes the floating header read as one line of navigation rather than
-         * a bar with a second bar under it. Below that width they stay in the
-         * collapsible row further down, where there is room for a tap target.
-         */}
-        {/* The catalogue panel: every shelf and sub-shelf, from the tree staff
-            maintain. Beside it, the top shelves as plain links, because a
-            shopper who knows where they are going should not have to open a
-            panel to get there. */}
-        <CatalogMenu sections={sections} />
-
-        <nav
-          aria-label="Categories"
-          className="hidden min-w-0 shrink lg:block"
-        >
-          {/* No wrapping. The catalogue button beside these holds every shelf,
-              so a link that will not fit on one line is hidden rather than
-              pushed onto a second row of navigation. */}
-          <ul className="flex items-center gap-x-6">
-            {categories.map((category, position) => (
-              <li
-                key={category.id}
-                className={position >= 3 ? "hidden 2xl:block" : ""}
-              >
-                <Link
-                  href={`/categories/${category.slug}`}
-                  className="link-draw whitespace-nowrap text-meta text-[color:var(--head-muted)] transition-colors hover:text-[color:var(--head-fg)]"
-                >
-                  {category.name}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
 
         {/*
          * Both are direct children of the wrapping row, so on a phone the
@@ -221,63 +148,6 @@ export function HeaderShell({
         </div>
       </div>
 
-      {/*
-       * The category row, for every width below `lg`. On a phone it opens under
-       * the bar from the button above; on a tablet it is simply the row, and it
-       * collapses on scroll to give a long listing the screen back.
-       */}
-      <nav
-        id="header-categories"
-        aria-label="Categories"
-        /*
-         * `invisible` as well as zero height, and that matters: a row that is
-         * merely clipped is still in the accessibility tree and still
-         * focusable, so a keyboard reached a closed menu's links and a screen
-         * reader read them out. Visibility takes it out of both, and it still
-         * animates. `md:visible` puts it back where the row is the navigation
-         * rather than a menu.
-         */
-        className={`overflow-hidden transition-[max-height,opacity,visibility] duration-300 ease-[var(--ease-out-quint)] lg:hidden ${
-          menuOpen ? "max-h-[32rem] opacity-100" : "max-h-0 opacity-0 invisible md:visible"
-        } ${tight ? "md:max-h-0 md:opacity-0 md:invisible" : "md:max-h-16 md:opacity-100"}`}
-      >
-        <ul className="mx-auto flex w-full max-w-[1360px] flex-col gap-0 border-t border-[color:var(--head-line)] px-4 pb-2 pt-1 md:flex-row md:flex-wrap md:gap-x-7 md:border-t-0 md:px-8">
-          {sections.slice(0, 6).map((section) => (
-            <li key={section.id} className="md:shrink-0">
-              <Link
-                href={`/categories/${section.slug}`}
-                className="flex min-h-11 items-center gap-2 text-meta font-semibold text-[color:var(--head-muted)] underline-offset-4 transition-colors hover:text-[color:var(--head-fg)] hover:underline md:min-h-9"
-              >
-                {section.name}
-                <span className="tabular-nums opacity-60">
-                  {section.productCount}
-                </span>
-              </Link>
-
-              {/*
-               * The sub-shelves, on a phone only. On a tablet this row is the
-               * navigation itself and a second level in it would wrap into
-               * four lines; below `md` the row is a menu someone opened on
-               * purpose, and the whole catalogue is what they opened it for.
-               */}
-              {section.children.length > 0 ? (
-                <ul className="mb-1 flex flex-wrap gap-x-4 gap-y-0 pl-3 md:hidden">
-                  {section.children.map((child) => (
-                    <li key={child.id}>
-                      <Link
-                        href={`/categories/${child.slug}`}
-                        className="flex min-h-9 items-center text-meta text-[color:var(--head-muted)] opacity-80 underline-offset-4 hover:underline"
-                      >
-                        {child.name}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      </nav>
     </header>
   );
 }

@@ -1,19 +1,20 @@
 import type { Metadata } from "next";
 import { getCurrentUser } from "@/lib/auth";
 import { requireStaff } from "@/lib/auth/authorize";
-import { listProductCards } from "@/lib/catalog";
-import { getHeroSettings } from "@/lib/homepage";
-import { HeroEditor } from "./hero-editor";
+import { getProductCardBySlug, listProductCards } from "@/lib/catalog";
+import { getHeroSettings, getShowcaseSettings } from "@/lib/homepage";
+import { formatBdt } from "@/lib/money";
+import { HomepageEditor, type ShowcaseCandidate } from "./homepage-editor";
 
 export const metadata: Metadata = { title: "Homepage" };
 export const dynamic = "force-dynamic";
 
 /**
- * The homepage hero, edited by staff.
+ * The homepage, edited by staff.
  *
- * Everything on this page writes to `site_settings` through
- * `lib/homepage/hero.ts` and shows on the live storefront on the next request.
- * There is no preview-only mode and no setting here that does nothing.
+ * Everything on this page writes to `site_settings` through `lib/homepage` and
+ * shows on the live storefront on the next request. There is no preview-only
+ * mode and no setting here that does nothing.
  */
 export default async function AdminHomepagePage() {
   const user = await getCurrentUser();
@@ -21,12 +22,42 @@ export default async function AdminHomepagePage() {
   // that would still refuse if the layout were bypassed.
   requireStaff(user);
 
-  const [hero, products] = await Promise.all([
+  const [hero, showcase, products] = await Promise.all([
     getHeroSettings(),
-    // What staff may feature: public listings only, newest first. A hero
+    getShowcaseSettings(),
+    // What staff may feature: public listings only, newest first. The homepage
     // cannot be pointed at a draft, because a draft is not offered here.
-    listProductCards({ sort: "newest", limit: 60 }),
+    listProductCards({ sort: "newest", limit: 100 }),
   ]);
+
+  const toCandidate = (product: {
+    slug: string;
+    title: string;
+    brand: string | null;
+    imageUrl: string | null;
+    fromPriceBdt: number | null;
+  }): ShowcaseCandidate => ({
+    slug: product.slug,
+    title: product.title,
+    brand: product.brand,
+    imageUrl: product.imageUrl,
+    priceLabel:
+      product.fromPriceBdt === null
+        ? "Price to be confirmed"
+        : formatBdt(product.fromPriceBdt),
+  });
+
+  /*
+   * Resolved in the stored order, and only what is still public. A slug whose
+   * product has been unpublished disappears from this list exactly as it
+   * disappears from the storefront, rather than showing here as a row staff
+   * cannot explain.
+   */
+  const chosen = (
+    await Promise.all(showcase.slugs.map((slug) => getProductCardBySlug(slug)))
+  )
+    .filter((card): card is NonNullable<typeof card> => card !== null)
+    .map(toCandidate);
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -35,21 +66,18 @@ export default async function AdminHomepagePage() {
           <span aria-hidden="true" className="h-px w-8 bg-brass" />
           Storefront
         </p>
-        <h1 className="mt-2 font-display text-h1 text-ink">Homepage hero</h1>
+        <h1 className="mt-2 font-display text-h1 text-ink">Homepage</h1>
         <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
-          The photograph, the words and the batch on the first screen of the
-          shop. Changes are live as soon as they save, and every one is written
-          to the audit log with the value it replaced.
+          The photograph on the first screen, and the four products underneath
+          it. Changes are live as soon as they save, and every one is written to
+          the audit log with the value it replaced.
         </p>
       </div>
 
-      <HeroEditor
+      <HomepageEditor
         hero={hero}
-        products={products.map((product) => ({
-          slug: product.slug,
-          title: product.title,
-          brand: product.brand,
-        }))}
+        showcase={chosen}
+        products={products.map(toCandidate)}
       />
     </div>
   );

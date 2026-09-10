@@ -102,6 +102,20 @@ customer cannot write any of it, and that the call-to-action link refuses an
 absolute URL — a text field that becomes an `href` is how an open redirect gets
 built by accident.
 
+`tests/homepage-showcase.test.ts` does the same for the row of four: the order
+staff chose is kept, a duplicate is dropped rather than refused, the ceiling
+holds, every change is audited with the row it replaced, and no customer can
+write any of it.
+
 `e2e/homepage-admin.spec.ts` is the one that stops the admin page being a fake
-settings panel. It types into the real form, saves, loads the storefront with
-no session, asserts the words are on the page, and puts the hero back.
+settings panel. It picks a product from the real control, saves, loads the
+storefront with no session, asserts that product is in the row and that the row
+is four cards, then puts it back. It takes the product from the control's own
+options rather than naming one: this database accumulates products as the suite
+runs, so a hard-coded title eventually falls off the end of the list, and what
+is under test is that choosing *a* product works.
+
+A second test in that file asserts the hero image is bare — no link, no button,
+no heading, and no text at all inside the region. That is a rule the owner
+stated, and it is the kind of thing that creeps back one helpful caption at a
+time.

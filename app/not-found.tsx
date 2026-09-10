@@ -23,12 +23,6 @@ export default function NotFound() {
           <Link href="/" className="text-h2">
             Manifest
           </Link>
-          <span
-            aria-hidden="true"
-            className="text-meta uppercase tracking-[0.2em] text-paper/70"
-          >
-            BD
-          </span>
         </div>
       </div>
 

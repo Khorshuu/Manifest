@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { IconChevronDown } from "./icons";
 
 export type CatalogSection = {
   id: string;
@@ -24,6 +23,12 @@ export type CatalogSection = {
  * It is a button and a panel, not a hover menu: a panel that opens on hover is
  * unusable with a touch screen and hostile with a trackpad. Escape closes it,
  * a click outside closes it, and arriving on a new page closes it.
+ *
+ * The trigger is the three-line mark at the top left of the header, at every
+ * width. The owner asked for that: one symbol for the catalogue, the wordmark
+ * beside it, and nothing else until the search field. So this is the only way
+ * into the categories from the header, which is why the panel holds the whole
+ * tree rather than a shortened list.
  */
 export function CatalogMenu({ sections }: { sections: CatalogSection[] }) {
   const pathname = usePathname();
@@ -63,20 +68,37 @@ export function CatalogMenu({ sections }: { sections: CatalogSection[] }) {
   if (sections.length === 0) return null;
 
   return (
-    <div ref={containerRef} className="relative hidden lg:block">
+    <div ref={containerRef} className="relative shrink-0">
       <button
         ref={buttonRef}
         type="button"
         aria-expanded={open}
         aria-controls="catalog-panel"
         onClick={() => setOpenedAt((current) => (current === pathname ? null : pathname))}
-        className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2.5 text-meta font-semibold text-[color:var(--head-fg)] transition-colors hover:bg-[color:var(--head-ghost)]"
+        className="-ml-2 inline-flex size-11 items-center justify-center rounded-control text-[color:var(--head-fg)] transition-colors hover:bg-[color:var(--head-ghost)]"
       >
-        Catalogue
-        <IconChevronDown
-          size={16}
-          className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-        />
+        {/* Three lines that become a cross while the panel is open, so the
+            control says what pressing it again will do. */}
+        <span aria-hidden="true" className="relative block size-5">
+          <span
+            className={`absolute left-0 block h-0.5 w-5 rounded-full bg-current transition-transform duration-200 ease-[var(--ease-out-quint)] ${
+              open ? "top-1/2 -translate-y-1/2 rotate-45" : "top-1"
+            }`}
+          />
+          <span
+            className={`absolute left-0 top-1/2 block h-0.5 w-5 -translate-y-1/2 rounded-full bg-current transition-opacity duration-200 ${
+              open ? "opacity-0" : "opacity-100"
+            }`}
+          />
+          <span
+            className={`absolute left-0 block h-0.5 w-5 rounded-full bg-current transition-transform duration-200 ease-[var(--ease-out-quint)] ${
+              open ? "top-1/2 -translate-y-1/2 -rotate-45" : "bottom-1"
+            }`}
+          />
+        </span>
+        <span className="sr-only">
+          {open ? "Hide categories" : "Show categories"}
+        </span>
       </button>
 
       {/*
@@ -87,7 +109,10 @@ export function CatalogMenu({ sections }: { sections: CatalogSection[] }) {
       <div
         id="catalog-panel"
         hidden={!open}
-        className="animate-rise absolute left-0 top-[calc(100%+0.5rem)] z-40 w-[min(60rem,calc(100vw-4rem))] overflow-hidden rounded-card border border-blue-300 bg-paper p-6 text-ink shadow-[var(--shadow-float)]"
+        /* Anchored to the mark it opens from, and never wider than the screen
+           it is on: on a phone that is the width of the page minus its
+           margins, and the shelves stack into one column. */
+        className="animate-rise absolute left-0 top-[calc(100%+0.75rem)] z-40 max-h-[min(34rem,70svh)] w-[min(60rem,calc(100vw-2rem))] overflow-y-auto rounded-card border border-blue-300 bg-paper p-5 text-ink shadow-[var(--shadow-float)] md:p-6"
       >
         <div className="grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
           {sections.map((section) => (

@@ -1575,3 +1575,51 @@ session), and no real photography exists in the repository — the hero currentl
 shows the sample image the owner supplied earlier, which carries another brand's
 copyright notice and must be replaced before the shop is public. Removing it is
 one press of **Remove** on `/admin/homepage`.
+
+## The photograph left bare, and a curated row (added after Phase 15)
+
+The owner looked at the redesigned homepage and asked for three things: take
+the headline, the batch panel and the button off the image; make the row under
+it four products; and give staff a way to choose those four — "or maybe a
+direct link from the products where i can just add it to the product
+showcase". They also settled the name: **Manifest**, with no "BD" after it.
+
+`[x]` **The hero carries nothing.** No eyebrow, no headline, no supporting
+sentence, no brand, no price, no capacity meter, no countdown, no call to
+action. The full-image scrim went with them — it existed to keep words legible
+over a photograph, and with no words there is nothing to keep legible, so the
+picture is now untouched below the header. What remains is a veil the height of
+the header itself, which is the only part of the image anything is drawn on.
+
+`[x]` **The words that mattered moved rather than vanished.** The landed-price
+promise now sits directly under the product row, which is the first thing below
+the photograph, and again at the foot of the page. The page's `h1` is visually
+hidden: a page needs one heading, and with nothing on the image it belongs in
+the markup.
+
+`[x]` **Four products, chosen by staff.** `home.showcase` holds a list of slugs
+in order. Staff arrange it at `/admin/homepage` — add, remove, move up, move
+down, each with the product's own photograph beside it — and a product can also
+be put on the homepage from its own admin page, which is usually where someone
+is standing when they decide. Choices lead the row and the catalogue fills the
+rest, so it is always four and never has holes in it.
+
+`[x]` **Changing a card's picture is changing the product's picture.** The row
+holds no second copy of an image; a card shows the product's main photograph,
+and "Make main" in the product's Photographs section is what changes it. The
+admin page says so where the decision is made.
+
+`[x]` **The name is Manifest.** The "BD" that sat beside the wordmark is gone
+from the header, the footer, the sign-in page and the not-found page.
+
+### What this cost, and what replaced it
+
+The hero settings shrank to the photograph, its focal point and the header
+contrast mode. The headline, supporting sentence, call-to-action label,
+destination and featured-product fields were removed from the schema and from
+the admin page rather than left as controls that would change nothing — a
+settings panel whose switches do nothing is the specific thing CLAUDE.md §11
+rules out. Their tests went with them, replaced by tests for what the settings
+now are, and by a new suite for the curated row: order kept, duplicates
+dropped, ceiling enforced, every change audited, and no customer able to write
+any of it.

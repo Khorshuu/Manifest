@@ -3,10 +3,18 @@ import { expect, test } from "@playwright/test";
 test("the storefront home page renders", async ({ page }) => {
   await page.goto("/");
 
+  /*
+   * The page's h1 is deliberately not drawn on the photograph any more — the
+   * owner asked for the image to carry nothing — so it is asserted as markup a
+   * crawler and a screen reader receive, not as pixels.
+   */
   await expect(
-    page.getByRole("heading", { name: /American goods, landed in Bangladesh/i }),
-  ).toBeVisible();
+    page.getByRole("heading", { level: 1, includeHidden: true }),
+  ).toHaveText(/Manifest/);
   await expect(page.getByRole("link", { name: "Manifest" }).first()).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Featured products" }),
+  ).toBeVisible();
 });
 
 test("the page states the landed-price promise", async ({ page }) => {
@@ -14,8 +22,9 @@ test("the page states the landed-price promise", async ({ page }) => {
 
   // The core promise of the business, and the thing shoppers most need to
   // trust: no surprise charge on delivery. Asserted twice because it is made
-  // twice on purpose — once in the hero, where a first-time visitor lands, and
-  // again at the foot of the page, where the objection actually surfaces.
+  // twice on purpose — once under the product row, which is the first thing
+  // below the photograph, and again at the foot of the page where the
+  // objection actually surfaces.
   await expect(
     page.getByText(/shipping and customs duty already inside it/i),
   ).toBeVisible();

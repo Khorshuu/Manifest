@@ -34,12 +34,6 @@ export function SiteFooter() {
         <div>
           <p className="flex items-baseline gap-2 font-display text-h2 tracking-tight text-ink">
             Manifest
-            <span
-              aria-hidden="true"
-              className="text-meta uppercase tracking-[0.2em] text-ink/60"
-            >
-              BD
-            </span>
           </p>
           <p className="mt-4 max-w-[46ch] text-meta text-ink/70">
             American products sourced to order and delivered in Bangladesh.
