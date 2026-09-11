@@ -6,10 +6,24 @@
  * than none at all.
  */
 
-/** The site's public origin, without a trailing slash. */
+/**
+ * The site's public origin, without a trailing slash.
+ *
+ * A blank value means "not configured", not "an empty origin": a host that
+ * lists the variable names it found hands every one of them through as "".
+ * When SITE_URL is absent, the deployment's own host is the next best answer,
+ * so a first deploy still has a valid origin before the variable is set.
+ */
 export function siteUrl(): string {
-  const configured = process.env.SITE_URL ?? "http://localhost:3000";
-  return configured.replace(/\/$/, "");
+  const configured = process.env.SITE_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+
+  const deployed =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim() ||
+    process.env.VERCEL_URL?.trim();
+  if (deployed) return `https://${deployed.replace(/\/$/, "")}`;
+
+  return "http://localhost:3000";
 }
 
 export function absoluteUrl(path: string): string {
