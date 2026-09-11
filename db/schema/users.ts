@@ -11,11 +11,20 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Three fixed roles, held in a single column rather than a permissions table —
- * see docs/DATABASE.md. staff_admin exclusions are enforced in lib/auth at the
- * point of use, not modeled as rows.
+ * Fixed roles, held in a single column rather than a permissions table — see
+ * docs/DATABASE.md. What each staff role may do is the table in
+ * lib/auth/authorize.ts (DECISIONS.md D-034), checked at the point of use.
  */
-export const USER_ROLES = ["super_admin", "staff_admin", "customer"] as const;
+export const USER_ROLES = [
+  "super_admin",
+  "staff_admin",
+  "product_manager",
+  "order_manager",
+  "support",
+  "marketing",
+  "finance",
+  "customer",
+] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 export const users = pgTable(
@@ -25,7 +34,12 @@ export const users = pgTable(
     email: text("email").notNull().unique(),
     phone: text("phone").unique(),
     passwordHash: text("password_hash").notNull(),
+    /** What the header greets a signed-in shopper by. Optional: older accounts have none. */
+    firstName: text("first_name"),
+    lastName: text("last_name"),
     role: text("role").notNull().default("customer"),
+    /** Staff only: when this account last read the admin inbox. */
+    adminInboxSeenAt: timestamp("admin_inbox_seen_at", { withTimezone: true }),
     emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
     /** Base32 TOTP secret. Present while enrolling, live once confirmed. */
     totpSecret: text("totp_secret"),
@@ -42,7 +56,7 @@ export const users = pgTable(
   (table) => [
     check(
       "users_role_check",
-      sql`${table.role} in ('super_admin', 'staff_admin', 'customer')`,
+      sql`${table.role} in ('super_admin', 'staff_admin', 'product_manager', 'order_manager', 'support', 'marketing', 'finance', 'customer')`,
     ),
   ],
 );
@@ -100,6 +114,21 @@ export const addresses = pgTable(
   },
   (table) => [index("addresses_user_id_idx").on(table.userId)],
 );
+
+/**
+ * Newsletter consent, one row per address. Unsubscribing stamps
+ * `unsubscribedAt` rather than deleting, so the record of consent survives.
+ */
+export const newsletterSubscribers = pgTable("newsletter_subscribers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  userId: uuid("user_id").references(() => users.id),
+  source: text("source").notNull().default("footer"),
+  subscribedAt: timestamp("subscribed_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  unsubscribedAt: timestamp("unsubscribed_at", { withTimezone: true }),
+});
 
 /**
  * Single-use recovery codes, so losing a phone is not losing the account.

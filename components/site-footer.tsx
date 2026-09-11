@@ -6,6 +6,7 @@ import {
   IconTruck,
   IconUser,
 } from "./icons";
+import { NewsletterForm } from "./newsletter-form";
 
 /**
  * The footer, laid out as the foot of a form: the promise on the left, the
@@ -19,6 +20,7 @@ const HELP = [
   { href: "/orders/lookup", label: "Track an order", icon: IconTruck },
   { href: "/search?available=1", label: "What can be bought now", icon: IconPlane },
   { href: "/account", label: "Your account", icon: IconUser },
+  { href: "/help", label: "Help, shipping and refunds", icon: IconSeal },
 ];
 
 const HOW = [
@@ -48,6 +50,8 @@ export function SiteFooter() {
             See every open window
             <IconArrowRight size={16} />
           </Link>
+
+          <NewsletterForm />
         </div>
 
         <div>

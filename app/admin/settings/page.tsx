@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import { listSettings } from "@/lib/admin";
-import { getCurrentUser, isSuperAdmin } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/auth";
 import { SettingRow } from "./setting-row";
+import { requireAdminPage } from "@/lib/auth/admin-page";
 
 export const metadata: Metadata = { title: "Settings" };
 export const dynamic = "force-dynamic";
 
 export default async function AdminSettingsPage() {
-  const user = await getCurrentUser();
+  const user = await requireAdminPage("settings.manage");
   const settings = await listSettings(user);
   const canEdit = isSuperAdmin(user);
 

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { LinkButton } from "@/components/button";
 import { EmptyState } from "@/components/empty-state";
 import { IconArrowRight, IconManifest, IconStar } from "@/components/icons";
+import { AccountNav } from "@/components/account-nav";
 import { PageHeading } from "@/components/page-heading";
 import { Panel } from "@/components/panel";
 import { StatusBadge } from "@/components/status-badge";
@@ -68,6 +69,8 @@ export default async function AccountPage() {
       />
 
       <p className="mt-3 text-meta text-ink/70">Signed in as {user.email}</p>
+
+      <AccountNav current="/account" />
 
       {orders.length === 0 ? (
         <EmptyState

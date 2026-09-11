@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { IconArrowLeft } from "@/components/icons";
-import { LandedBreakdown } from "@/components/landed-breakdown";
 import { OrderProgress } from "@/components/order-progress";
 import { Panel } from "@/components/panel";
 import { getCurrentUser } from "@/lib/auth";
@@ -95,29 +94,43 @@ export default async function AccountOrderPage({
                       {item.optionSummarySnapshot
                         ? `${item.optionSummarySnapshot} · `
                         : ""}
-                      Quantity {item.quantity}
+                      {item.quantity > 1
+                        ? `${item.quantity} × ${formatBdt(item.unitPriceBdt)}`
+                        : "Quantity 1"}
                     </p>
                   </div>
-                  <p className="tabular-nums text-ink">
+                  <p className="tabular-nums font-medium text-ink">
                     {formatBdt(item.unitPriceBdt * item.quantity)}
                   </p>
                 </li>
               ))}
             </ul>
 
-            <dl className="flex flex-col gap-2 border-t border-blue-300 bg-paper-raised px-5 py-4 text-body">
-              <LandedBreakdown
-                goodsBdt={order.subtotalBdt}
-                shippingBdt={order.shippingFeeBdt}
-                dutyBdt={order.dutyBdt}
-                totalBdt={order.totalBdt}
-              />
+            {/*
+             * The customer sees the price of each item and the total — the
+             * figures they agreed to. How the landed price divides into goods,
+             * freight and duty is the shop's bookkeeping and stays in the
+             * admin; here it is one plain line that nothing more is owed.
+             */}
+            <dl className="flex flex-col gap-1.5 border-t border-blue-300 bg-paper-raised px-5 py-4 text-body">
               <div className="flex justify-between gap-4">
-                <dt className="text-ink/70">Paid</dt>
-                <dd className="tabular-nums text-ink">
-                  {formatBdt(order.amountDueNowBdt)}
+                <dt className="font-medium text-ink">Total</dt>
+                <dd className="tabular-nums font-semibold text-ink">
+                  {formatBdt(order.totalBdt)}
                 </dd>
               </div>
+              {order.amountDueNowBdt !== order.totalBdt ? (
+                <div className="flex justify-between gap-4 text-meta">
+                  <dt className="text-ink/70">Paid so far</dt>
+                  <dd className="tabular-nums text-ink">
+                    {formatBdt(order.amountDueNowBdt)}
+                  </dd>
+                </div>
+              ) : null}
+              <p className="text-meta text-ink/70">
+                Shipping and customs duty are included. Nothing more to pay on
+                delivery.
+              </p>
             </dl>
           </Panel>
         </section>

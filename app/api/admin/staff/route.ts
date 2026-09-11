@@ -1,21 +1,30 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, STAFF_ROLES } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import { changeRole, createStaffAccount } from "@/lib/admin";
+import { STAFF_PASSWORD_MIN } from "@/lib/admin/staff";
 
 const createSchema = z
   .object({
     email: z.string().trim().toLowerCase().email("Enter a valid email address."),
-    password: z.string().min(10, "Use at least 10 characters.").max(200),
-    role: z.enum(["staff_admin", "super_admin"]),
+    password: z
+      .string()
+      .min(STAFF_PASSWORD_MIN, `Use at least ${STAFF_PASSWORD_MIN} characters.`)
+      .max(200),
+    firstName: z.string().trim().max(60).optional(),
+    role: z.enum(STAFF_ROLES),
   })
   .strict();
 
+/**
+ * A role is changed to another staff role, or "customer" to take staff
+ * access away. Either way it goes through `changeRole`, which is owner-only.
+ */
 const roleSchema = z
   .object({
     userId: z.string().uuid(),
-    role: z.enum(["super_admin", "staff_admin", "customer"]),
+    role: z.enum([...STAFF_ROLES, "customer"]),
   })
   .strict();
 

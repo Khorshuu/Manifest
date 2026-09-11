@@ -8,6 +8,13 @@ export type AuditAction =
   | "user.deactivated"
   | "product.created"
   | "product.updated"
+  | "product.deleted"
+  | "product.duplicated"
+  | "variant.deleted"
+  | "variant.archived"
+  | "variant.restored"
+  | "seo_pulse.researched"
+  | "seo_pulse.applied"
   | "product.archived"
   | "product.price_changed"
   | "variant.created"
@@ -22,7 +29,15 @@ export type AuditAction =
   | "review.moderated"
   | "user.two_factor_enabled"
   | "user.two_factor_disabled"
-  | "site_settings.updated";
+  | "site_settings.updated"
+  | "sku.reserved"
+  | "sku.released"
+  | "sku.finalized"
+  /** Search synonyms and index maintenance — docs/BUSINESS_LOGIC.md, search. */
+  | "search.synonym_created"
+  | "search.synonym_updated"
+  | "search.synonym_deleted"
+  | "search.reindexed";
 
 export type AuditEntry = {
   actorUserId: string;

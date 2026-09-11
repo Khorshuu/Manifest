@@ -1,4 +1,4 @@
-type Tone = "preorder" | "positive" | "negative" | "neutral";
+type Tone = "preorder" | "positive" | "negative" | "warning" | "neutral";
 
 /**
  * Square-cornered, outlined badges — not solid pills. Every badge carries a
@@ -8,6 +8,8 @@ const tones: Record<Tone, string> = {
   preorder: "border-brass text-brass-text",
   positive: "border-transit-green text-transit-green-text",
   negative: "border-stamp-red text-stamp-red-text",
+  /** Something a shopper should notice but that is not a refusal — low stock. */
+  warning: "border-brass bg-brass/10 text-brass-text",
   neutral: "border-blue-300 text-blue-600",
 };
 

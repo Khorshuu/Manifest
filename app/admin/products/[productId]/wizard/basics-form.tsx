@@ -51,18 +51,14 @@ export function BasicsForm({
     const response = await fetch(`/api/admin/products/${product.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
+      // Only this step's own fields: the API applies a partial update, so
+      // anything not sent keeps the value already stored. Null clears.
       body: JSON.stringify({
         title: String(form.get("title") ?? ""),
         categoryId: form.get("categoryId"),
-        brand: text("brand"),
-        descriptionHtml: text("descriptionHtml"),
-        bulletFeatures: bullets.length > 0 ? bullets : undefined,
-        // Fields this step does not edit, sent back so they survive the write.
-        seoMetaTitle: product.seoMetaTitle ?? undefined,
-        seoMetaDescription: product.seoMetaDescription ?? undefined,
-        specTable: product.specTable ?? undefined,
-        tags: product.tags ?? undefined,
-        status: product.status,
+        brand: text("brand") ?? null,
+        descriptionHtml: text("descriptionHtml") ?? null,
+        bulletFeatures: bullets,
       }),
     });
 

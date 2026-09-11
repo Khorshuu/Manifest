@@ -5,6 +5,9 @@ import { toErrorResponse } from "@/lib/api-error";
 import { deleteExpiredSessions } from "@/lib/auth/session";
 import { deliverQueuedNotifications } from "@/lib/notifications";
 import { pruneRateLimits } from "@/lib/rate-limit";
+import { processSearchQueue } from "@/lib/search/maintenance";
+import { pruneSearchLogs } from "@/lib/search/analytics";
+import { releaseExpiredSkuReservations } from "@/lib/catalog/sku";
 
 /**
  * The scheduled sweep: deliver what is waiting, then tidy up.
@@ -54,9 +57,20 @@ async function run() {
     const prunedRateLimits = await pruneRateLimits();
     await deleteExpiredSessions();
 
+    // Search index rows whose rebuild failed at commit, and analytics past
+    // their six months.
+    const searchIndex = await processSearchQueue();
+    const prunedSearchLogs = await pruneSearchLogs();
+
+    // SKUs held by Add Product forms nobody saved go back into use.
+    const releasedSkuHolds = await releaseExpiredSkuReservations();
+
     return NextResponse.json({
       delivery,
       prunedRateLimits,
+      searchIndex,
+      prunedSearchLogs,
+      releasedSkuHolds,
     });
   } catch (error) {
     return toErrorResponse(error);

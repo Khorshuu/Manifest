@@ -247,10 +247,19 @@ describe("autosuggest", () => {
     expect(searches.map((suggestion) => suggestion.label)).toContain("seasonal");
   });
 
-  it("never carries a price", async () => {
+  /*
+   * This used to assert no price at all. The search brief asks for the price
+   * beside a suggested product, and it is the same figure every card on the
+   * site shows publicly — so the rule is now: the shopper's price, nothing
+   * behind it (DECISIONS.md D-028).
+   */
+  it("carries only the price a shopper would see", async () => {
     await seed({ title: "Mechanical Keyboard", priceBdt: 12_345_00 });
 
-    const suggestions = await suggestSearch("mech");
-    expect(JSON.stringify(suggestions)).not.toContain("12345");
+    const product = (await suggestSearch("mech")).find(
+      (suggestion) => suggestion.kind === "product",
+    );
+    expect(product?.priceBdt).toBe(12_345_00);
+    expect(JSON.stringify(product)).not.toMatch(/cost/i);
   });
 });

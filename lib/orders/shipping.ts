@@ -8,7 +8,7 @@ import {
   productVariants,
 } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
-import { requireStaff } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { getShippingProvider } from "@/lib/providers/shipping";
 
@@ -33,7 +33,7 @@ export async function bookShipment(
   actor: SessionUser | null,
   orderId: string,
 ) {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "orders.manage");
 
   const [order] = await db
     .select({
@@ -132,7 +132,7 @@ export async function setTrackingReference(
   orderId: string,
   trackingReference: string,
 ) {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "orders.manage");
 
   const trimmed = trackingReference.trim();
   if (trimmed.length === 0) {
@@ -196,7 +196,7 @@ export async function addInternalNote(
   orderId: string,
   note: string,
 ) {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "orders.manage");
 
   const trimmed = note.trim();
   if (trimmed.length === 0) throw new ShipmentError("Enter a note.");

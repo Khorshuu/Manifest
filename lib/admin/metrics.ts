@@ -7,7 +7,7 @@ import {
   products,
   users,
 } from "@/db/schema";
-import { requireStaff, requireSuperAdmin } from "@/lib/auth/authorize";
+import { requireStaff, requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
 /**
@@ -25,7 +25,7 @@ export async function getRevenue(
   since?: Date,
 ): Promise<{ collectedBdt: number; orderCount: number }> {
   // Financial reporting is super-admin only (docs/BUSINESS_LOGIC.md).
-  requireSuperAdmin(actor);
+  requirePermission(actor, "finance.view");
 
   const filters = [
     sql`${orders.status} not in ('placed', 'cancelled', 'refunded')`,
@@ -143,7 +143,7 @@ export async function getTopProducts(
 
 /** Most recent orders, for the dashboard's activity list. */
 export async function getRecentOrders(actor: SessionUser | null, limit = 5) {
-  requireStaff(actor);
+  requirePermission(actor, "orders.view");
 
   return db
     .select({

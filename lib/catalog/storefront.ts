@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   attributeValues,
@@ -8,11 +8,30 @@ import {
   productVariants,
   products,
   reviews,
+  siteSettings,
   variantOptionValues,
 } from "@/db/schema";
+import {
+  relevanceAdjustment,
+  relevanceTier,
+  textArray,
+  type SearchPlan,
+} from "@/lib/search/sql";
+import { effectivePriceExpression, effectivePriceSql } from "./price";
 import { loadCardAggregates } from "./card-data";
-import { searchCondition, searchRank, toTsQuery } from "./search";
-import { buildProductWhere, publicProductWhere, type ProductFilters } from "./facets";
+import {
+  buyableNowSql,
+  discountSql,
+  prepareFilters,
+  productSearchJoin,
+  publicProductWhere,
+  ratingAverageSql,
+  salesUnitsSql,
+  whereFor,
+  type ProductFilters,
+} from "./facets";
+
+export { suggestSearch, type Suggestion } from "@/lib/search/suggest";
 
 /**
  * Queries that serve shoppers.
@@ -41,6 +60,11 @@ export type ProductCard = {
   imageAlt: string;
   /** Lowest price across purchasable variants, in BDT paisa. */
   fromPriceBdt: number | null;
+  /** The regular price that sale is a saving against; null with no sale. */
+  listPriceBdt: number | null;
+  discountPercent: number | null;
+  /** In-stock goods only, and none left. */
+  outOfStock: boolean;
   fulfillmentMode: string | null;
   /** Null when uncapped, 0 when full. */
   remainingCapacity: number | null;
@@ -126,6 +150,9 @@ async function toCards(rows: ProductRow[]): Promise<ProductCard[]> {
       imageUrl: aggregate?.imageUrl ?? null,
       imageAlt: aggregate?.imageAlt ?? row.title,
       fromPriceBdt: aggregate?.fromPriceBdt ?? null,
+      listPriceBdt: aggregate?.listPriceBdt ?? null,
+      discountPercent: aggregate?.discountPercent ?? null,
+      outOfStock: aggregate?.outOfStock ?? false,
       fulfillmentMode: aggregate?.fulfillmentMode ?? null,
       remainingCapacity: aggregate?.remainingCapacity ?? null,
       totalCapacity: aggregate?.totalCapacity ?? null,
@@ -139,49 +166,120 @@ async function toCards(rows: ProductRow[]): Promise<ProductCard[]> {
   });
 }
 
-export type ProductSort =
-  | "relevance"
-  | "price_asc"
-  | "price_desc"
-  | "rating"
-  | "newest";
+export const PRODUCT_SORTS = [
+  "relevance",
+  "featured",
+  "price_asc",
+  "price_desc",
+  "rating",
+  "newest",
+  "best_selling",
+  "discount",
+] as const;
+
+export type ProductSort = (typeof PRODUCT_SORTS)[number];
+
+/** A sort from the URL, or the fallback when it is missing or unknown. */
+export function parseSort(value: unknown, fallback: ProductSort): ProductSort {
+  return typeof value === "string" &&
+    (PRODUCT_SORTS as readonly string[]).includes(value)
+    ? (value as ProductSort)
+    : fallback;
+}
 
 /**
- * Sorting by a per-product aggregate needs it in the same query, so these use
- * a lateral join rather than a bare subquery — the join keeps the outer table
- * in scope, which is exactly what the correlated subqueries lacked.
+ * Secondary signals within a relevance tier: what sells, what is rated well,
+ * what can be bought today, and what is new. Bounded — together they can move
+ * a product about fifty points, which is less than one tier is worth once the
+ * text adjustments are counted, and ordering is by tier first anyway.
  */
-function sortedProductIds(sort: ProductSort, query?: string) {
-  /*
-   * "Relevance" means something now. With a search behind it, the best answer
-   * first; with no search — a category page, the full catalogue — there is
-   * nothing to be relevant to, so it stays newest first.
-   */
-  if (sort === "relevance" && query?.trim()) {
-    return desc(searchRank(query));
-  }
+const popularitySql = sql`(
+  least(15.0, 6 * ln(1 + ${salesUnitsSql}))
+  + coalesce((${ratingAverageSql} - 3) * 3, 0)
+  + case when ${buyableNowSql} then 6 else -6 end
+  + case when ${products.createdAt} > now() - interval '30 days' then 4 else 0 end
+)`;
+
+/** The cheapest purchasable variant, as charged. */
+const fromPriceSql = sql`(
+  select min(${sql.raw(effectivePriceExpression())}) from product_variants v
+  where v.product_id = ${products.id}
+    and v.is_enabled = true and v.archived_at is null
+)`;
+
+/**
+ * The products staff put on the homepage, in their order — what "Featured"
+ * means in this shop. Read here rather than through lib/homepage so the
+ * catalogue does not depend on the homepage module.
+ */
+async function showcaseSlugs(): Promise<string[]> {
+  const [row] = await db
+    .select({ valueJson: siteSettings.valueJson })
+    .from(siteSettings)
+    .where(eq(siteSettings.key, "home.showcase"))
+    .limit(1);
+
+  const slugs = (row?.valueJson as { value?: { slugs?: unknown } } | undefined)
+    ?.value?.slugs;
+
+  return Array.isArray(slugs)
+    ? slugs.filter((slug): slug is string => typeof slug === "string").slice(0, 20)
+    : [];
+}
+
+/**
+ * The ORDER BY for a sort.
+ *
+ * With a search behind it, "relevance" is the tiered ranking in
+ * lib/search/sql.ts — tier first, then the text, the staff boost and the
+ * popularity signals within the tier. Every other sort keeps the relevance
+ * order as its tie-break, so two products at the same price still come back
+ * best answer first. With no search there is nothing to be relevant to, so
+ * relevance falls back to newest first.
+ */
+async function orderFor(
+  sort: ProductSort,
+  plan: SearchPlan | null,
+): Promise<SQL[]> {
+  const relevance = plan
+    ? [
+        sql`${relevanceTier(plan)} desc`,
+        sql`(${relevanceAdjustment(plan)} + ${popularitySql}) desc`,
+      ]
+    : [];
+  const newest = [desc(products.createdAt), asc(products.id)];
 
   switch (sort) {
-    case "price_asc":
-    case "price_desc": {
-      const price = sql`(
-        select min(v.price_bdt) from product_variants v
-        where v.product_id = ${products.id}
-          and v.is_enabled = true and v.archived_at is null
-      )`;
-      return sort === "price_asc"
-        ? asc(sql`coalesce(${price}, 2147483647)`)
-        : desc(sql`coalesce(${price}, 0)`);
+    case "featured": {
+      const slugs = await showcaseSlugs();
+      return [
+        sql`array_position(${textArray(slugs)}, ${products.slug}) asc nulls last`,
+        desc(products.searchBoost),
+        ...relevance,
+        ...newest,
+      ];
     }
+    case "price_asc":
+      return [asc(sql`coalesce(${fromPriceSql}, 2147483647)`), ...relevance, ...newest];
+    case "price_desc":
+      return [desc(sql`coalesce(${fromPriceSql}, 0)`), ...relevance, ...newest];
     case "rating":
-      return desc(sql`(
-        select coalesce(avg(r.rating), 0) from reviews r
-        where r.product_id = ${products.id} and r.status = 'approved'
-      )`);
+      return [
+        sql`${ratingAverageSql} desc nulls last`,
+        desc(sql`(select count(*) from reviews rv
+          where rv.product_id = ${products.id} and rv.status = 'approved')`),
+        ...relevance,
+        ...newest,
+      ];
+    case "best_selling":
+      return [desc(salesUnitsSql), ...relevance, ...newest];
+    case "discount":
+      return [sql`${discountSql} desc nulls last`, ...relevance, ...newest];
     case "newest":
+      return newest;
     case "relevance":
     default:
-      return desc(products.createdAt);
+      return plan ? [...relevance, ...newest] : newest;
   }
 }
 
@@ -194,11 +292,15 @@ export type ListProductsOptions = ProductFilters & {
 export async function listProductCards(
   options: ListProductsOptions = {},
 ): Promise<ProductCard[]> {
+  const prepared = await prepareFilters(options);
+  const sort = options.sort ?? (prepared.plan ? "relevance" : "newest");
+
   const rows = await db
     .select(productColumns)
     .from(products)
-    .where(await buildProductWhere(options))
-    .orderBy(sortedProductIds(options.sort ?? "relevance", options.query))
+    .leftJoin(productSearchJoin.table, productSearchJoin.on)
+    .where(whereFor(prepared))
+    .orderBy(...(await orderFor(sort, prepared.plan)))
     .limit(options.limit ?? 24)
     .offset(options.offset ?? 0);
 
@@ -207,18 +309,21 @@ export async function listProductCards(
 
 /**
  * Counts exactly what `listProductCards` would return for the same filters.
- * Both go through `buildProductWhere` so the two cannot drift — they did once,
- * and a filtered listing reported more pages than it had.
+ * Both go through `whereFor` so the two cannot drift — they did once, and a
+ * filtered listing reported more pages than it had.
  */
 export async function countProducts(
   filters: ProductFilters = {},
 ): Promise<number> {
+  const prepared = await prepareFilters(filters);
+
   const [row] = await db
     .select({ value: sql<number>`count(*)::int` })
     .from(products)
-    .where(await buildProductWhere(filters));
+    .leftJoin(productSearchJoin.table, productSearchJoin.on)
+    .where(whereFor(prepared));
 
-  return row.value;
+  return Number(row.value);
 }
 
 /** Distinct brands within a result set, for the brand facet. */
@@ -263,9 +368,16 @@ export async function getPublicVariants(productId: string) {
     .select({
       id: productVariants.id,
       sku: productVariants.sku,
-      priceBdt: productVariants.priceBdt,
+      /* The price as charged: a live sale price, otherwise the regular one.
+         `listPriceBdt` is kept beside it so the page can show what a sale is
+         a saving against, rather than asserting a discount it cannot show. */
+      priceBdt: effectivePriceSql,
+      listPriceBdt: productVariants.priceBdt,
+      salePriceBdt: productVariants.salePriceBdt,
+      saleEndsAt: productVariants.saleEndsAt,
       fulfillmentMode: productVariants.fulfillmentMode,
       stockQuantity: productVariants.stockQuantity,
+      lowStockThreshold: productVariants.lowStockThreshold,
       preorderCapacity: productVariants.preorderCapacity,
       preorderReserved: productVariants.preorderReserved,
       preorderClosesAt: productVariants.preorderClosesAt,
@@ -279,6 +391,11 @@ export async function getPublicVariants(productId: string) {
        */
       isClosed: sql<boolean>`(${productVariants.preorderClosesAt} is not null
         and ${productVariants.preorderClosesAt} <= now())`,
+      /* The variant's own photograph, if staff chose one. The id is named in
+         full: a bare "id" inside the subquery would be the image's own. */
+      imageUrl: sql<string | null>`(select vi.url from variant_images vi
+        where vi.variant_id = ${sql.raw(`"product_variants"."id"`)}
+        order by vi.sort_order limit 1)`,
     })
     .from(productVariants)
     .where(
@@ -288,7 +405,7 @@ export async function getPublicVariants(productId: string) {
         isNull(productVariants.archivedAt),
       ),
     )
-    .orderBy(asc(productVariants.priceBdt));
+    .orderBy(asc(effectivePriceSql));
 
   if (variants.length === 0) return [];
 
@@ -387,6 +504,29 @@ export async function getProductCardBySlug(
   return card ?? null;
 }
 
+/**
+ * Cards for a list of product ids, in the order given.
+ *
+ * Used for "recently viewed", where the ids come from a cookie the browser
+ * holds. They go through the public predicate like every other shopper query,
+ * so an id for a draft, an archived product or something invented simply
+ * yields nothing.
+ */
+export async function listProductCardsByIds(
+  ids: string[],
+): Promise<ProductCard[]> {
+  if (ids.length === 0) return [];
+
+  const rows = await db
+    .select(productColumns)
+    .from(products)
+    .where(and(publicProductWhere, inArray(products.id, ids)));
+
+  const cards = await toCards(rows);
+  const byId = new Map(cards.map((card) => [card.id, card]));
+  return ids.flatMap((id) => byId.get(id) ?? []);
+}
+
 /** Kept for the review aggregate used on the product page. */
 export async function getProductRating(productId: string) {
   const [row] = await db
@@ -403,129 +543,6 @@ export async function getProductRating(productId: string) {
     average: row.average === null ? null : Number(row.average),
     count: Number(row.count),
   };
-}
-
-export type Suggestion = {
-  kind: "product" | "brand" | "category" | "search";
-  label: string;
-  href: string;
-  /** Products carry their photograph; nothing else does. */
-  thumbnailUrl?: string | null;
-  /** A second line — a product's brand, a category's parent. */
-  hint?: string | null;
-};
-
-/**
- * Autosuggest for the header search.
- *
- * Four kinds of answer, in the order a shopper wants them: the products
- * themselves, the categories that hold them, the brands, and searches worth
- * running that the shopper has not typed. A product matches on everything the
- * listing says about itself, not only its title — the same rule the search
- * page follows, so the dropdown never suggests less than the page would find.
- *
- * Nothing here can return a draft or an archived product; it goes through the
- * same public predicate as every other shopper query. It returns labels,
- * links and a photograph — never a price or a stock level, so this endpoint
- * cannot be used to enumerate the catalogue faster than browsing it.
- */
-export async function suggestSearch(
-  term: string,
-  limit = 8,
-): Promise<Suggestion[]> {
-  const trimmed = term.trim();
-  if (trimmed.length < 2) return [];
-
-  const anywhere = `%${trimmed}%`;
-  const matches = searchCondition(trimmed);
-
-  const [productRows, brandRows, categoryRows, tagRows] = await Promise.all([
-    db
-      .select({ id: products.id, title: products.title, slug: products.slug, brand: products.brand })
-      .from(products)
-      .where(matches ? and(publicProductWhere, matches) : publicProductWhere)
-      // Best answer first, then alphabetically, so equal ranks come back in a
-      // stable order rather than whatever the planner happens to return.
-      .orderBy(desc(searchRank(trimmed)), asc(products.title))
-      .limit(5),
-
-    db
-      .selectDistinct({ brand: products.brand })
-      .from(products)
-      .where(and(publicProductWhere, ilike(products.brand, anywhere)))
-      .orderBy(asc(products.brand))
-      .limit(3),
-
-    db
-      .select({ name: categories.name, slug: categories.slug })
-      .from(categories)
-      .where(ilike(categories.name, anywhere))
-      .orderBy(asc(categories.name))
-      .limit(3),
-
-    /*
-     * Searches worth running.
-     *
-     * These are the listing's own tags — words staff filed the product under —
-     * so a suggested search always leads somewhere. Inventing phrases would
-     * make the dropdown look clever and take shoppers to empty pages.
-     */
-    toTsQuery(trimmed)
-      ? db
-          .select({ tag: sql<string>`lower(tag.value)` })
-          .from(products)
-          .innerJoin(
-            sql`jsonb_array_elements_text(${products.tags}) as tag(value)`,
-            sql`true`,
-          )
-          .where(
-            and(
-              publicProductWhere,
-              sql`jsonb_typeof(${products.tags}) = 'array'`,
-              sql`tag.value ilike ${anywhere}`,
-            ),
-          )
-          .groupBy(sql`lower(tag.value)`)
-          .orderBy(asc(sql`lower(tag.value)`))
-          .limit(3)
-      : Promise.resolve([] as { tag: string }[]),
-  ]);
-
-  const photographs = await loadCardAggregates(
-    productRows.map((row) => row.id),
-  );
-
-  const suggestions: Suggestion[] = [
-    ...productRows.map((row) => ({
-      kind: "product" as const,
-      label: row.title,
-      href: `/products/${row.slug}`,
-      thumbnailUrl: photographs.get(row.id)?.imageUrl ?? null,
-      hint: row.brand,
-    })),
-    ...categoryRows.map((row) => ({
-      kind: "category" as const,
-      label: row.name,
-      href: `/categories/${row.slug}`,
-    })),
-    ...brandRows
-      .filter((row): row is { brand: string } => Boolean(row.brand))
-      .map((row) => ({
-        kind: "brand" as const,
-        label: row.brand,
-        href: `/search?q=${encodeURIComponent(row.brand)}`,
-      })),
-    ...tagRows
-      // A tag that is simply the word already typed suggests nothing.
-      .filter((row) => row.tag && row.tag !== trimmed.toLowerCase())
-      .map((row) => ({
-        kind: "search" as const,
-        label: row.tag,
-        href: `/search?q=${encodeURIComponent(row.tag)}`,
-      })),
-  ];
-
-  return suggestions.slice(0, limit);
 }
 
 /**

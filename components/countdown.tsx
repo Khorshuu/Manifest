@@ -160,6 +160,8 @@ export function Countdown({
         <IconClock size={14} className="shrink-0" />
         Closes in{" "}
         <span
+          role="timer"
+          aria-label={`Preorder closes in ${countdownLabel(parts)}`}
           className={`font-medium tabular-nums ${
             tone === "dark" ? "text-paper" : "text-ink"
           }`}

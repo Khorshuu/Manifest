@@ -83,7 +83,8 @@ test("a staff member adds a product and it appears in the list", async ({
   await page.getByRole("button", { name: "Save product" }).click();
 
   // Creating drops straight into the setup wizard.
-  await page.waitForURL((url) => url.pathname.includes("/wizard"));
+  // Creating opens the product editor.
+  await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
 
   await page.goto("/admin/products");
   await expect(page.getByRole("link", { name: title })).toBeVisible();

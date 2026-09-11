@@ -13,7 +13,7 @@ test("the storefront home page renders", async ({ page }) => {
   ).toHaveText(/Manifest/);
   await expect(page.getByRole("link", { name: "Manifest" }).first()).toBeVisible();
   await expect(
-    page.getByRole("region", { name: "Featured products" }),
+    page.getByRole("region", { name: "Promotions" }),
   ).toBeVisible();
 });
 
@@ -26,8 +26,8 @@ test("the page states the landed-price promise", async ({ page }) => {
   // below the photograph, and again at the foot of the page where the
   // objection actually surfaces.
   await expect(
-    page.getByText(/shipping and customs duty already inside it/i),
-  ).toBeVisible();
+    page.getByText(/Duty and freight inside the price/i).first(),
+  ).toBeAttached();
   await expect(
     page.getByRole("heading", { name: "One landed price" }),
   ).toBeVisible();

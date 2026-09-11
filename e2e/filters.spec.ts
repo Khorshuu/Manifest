@@ -46,7 +46,7 @@ async function openFilters(page: Page) {
     if (!(await page.locator("#filter-drawer").isChecked())) {
       await trigger.click();
     }
-    await expect(page.getByRole("button", { name: "Apply" })).toBeVisible({
+    await expect(page.getByText(/^Show [\d,]+ results?$/)).toBeVisible({
       timeout: 2000,
     });
   }).toPass({ timeout: 15_000 });
@@ -68,12 +68,12 @@ test("the filter panel narrows the listing and the count agrees", async ({
    * the heading copy is rewritten, which is exactly what broke this test once.
    */
   const matches = async () => {
-    // The sheet closes on every navigation, so the count is read with it open.
-    await openFilters(page);
+    await page.waitForLoadState("networkidle");
     return Number(
-      (await page.getByText(/^\d+ matches?$/).first().innerText()).match(
-        /\d+/,
-      )![0],
+      await page
+        .locator("[data-result-count]")
+        .first()
+        .getAttribute("data-result-count"),
     );
   };
 
@@ -82,8 +82,9 @@ test("the filter panel narrows the listing and the count agrees", async ({
 
   // A price ceiling nothing can meet empties the listing, and the count on the
   // page has to agree with what is actually shown.
-  await page.getByLabel("To (BDT)").fill("1");
-  await page.getByRole("button", { name: "Apply" }).click();
+  // Filters apply as they are chosen; the price waits for typing to pause.
+  await openFilters(page);
+  await page.getByLabel("Highest price (BDT)").fill("1");
   await page.waitForURL(/max=1/);
 
   await expect(page.getByText("Nothing matches those filters")).toBeVisible();
@@ -92,7 +93,13 @@ test("the filter panel narrows the listing and the count agrees", async ({
   // Clearing brings them all back. Exact, because the chips above the listing
   // carry their own "Clear all" — the panel's own control is the one under
   // test here.
-  await page.getByRole("link", { name: "Clear", exact: true }).click();
+  // The panel's own "Clear all" is an ordinary link; followed directly so the
+  // phone's open sheet cannot get in the way of the click.
+  const clear = await page
+    .getByRole("link", { name: "Clear all", exact: true })
+    .first()
+    .getAttribute("href");
+  await page.goto(clear!);
   await page.waitForURL((url) => !url.search.includes("max=1"));
   expect(await matches()).toBe(before);
 });
@@ -108,9 +115,10 @@ test("filtering by an attribute value", async ({ page }) => {
   const firstValue = flavor.getByRole("checkbox").first();
   const label = await flavor.locator("label").first().innerText();
 
+  // No Apply button: ticking a value applies it.
   await firstValue.check();
-  await page.getByRole("button", { name: "Apply" }).click();
-  await page.waitForURL(/value=/);
+  // Attribute filters travel under the attribute's own name.
+  await page.waitForURL(/flavor=/);
 
   // The choice survives the round trip, so the panel is not lying about state.
   await openFilters(page);
@@ -132,7 +140,7 @@ test("filters survive pagination and sorting", async ({ page }) => {
   await page.goto("/categories/snacks-groceries?max=100000&sort=price_asc");
   await openFilters(page);
 
-  await expect(page.getByLabel("To (BDT)")).toHaveValue("100000");
+  await expect(page.getByLabel("Highest price (BDT)")).toHaveValue("100000");
 
   // Sorting keeps the filter in the URL rather than dropping it.
   await page.getByLabel("Sort").selectOption("price_desc");
@@ -146,7 +154,7 @@ test("a filtered listing can be linked", async ({ page }) => {
   await openFilters(page);
 
   await expect(
-    page.getByRole("checkbox", { name: "Only what can be bought now" }),
+    page.getByRole("checkbox", { name: "Can be bought now" }),
   ).toBeChecked();
   await expect(page.getByRole("radio", { name: "Preorder only" })).toBeChecked();
 });
@@ -158,11 +166,13 @@ test("autosuggest offers products as you type", async ({ page }) => {
 
   const listbox = page.getByRole("listbox", { name: "Search suggestions" });
   await expect(listbox).toBeVisible();
-  await expect(
-    listbox.getByRole("option", { name: /Studio Reference Headphones/ }),
-  ).toBeVisible();
-
-  await listbox.getByRole("option").first().click();
+  // The name appears twice — as a completed search and as the product — so
+  // the product is found in its own group. Choosing it opens the product.
+  const product = listbox
+    .getByRole("group", { name: "Products" })
+    .getByRole("option", { name: /Studio Reference Headphones/ });
+  await expect(product).toBeVisible();
+  await product.click();
   await page.waitForURL(/\/products\//);
 });
 
@@ -213,7 +223,8 @@ test("autosuggest never leaks a draft product", async ({ page }) => {
   await page.goto("/admin/products/new");
   await page.getByLabel("Title").fill(title);
   await page.getByRole("button", { name: "Save product" }).click();
-  await page.waitForURL((url) => url.pathname.includes("/wizard"));
+  // Creating opens the product editor.
+  await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
 
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 

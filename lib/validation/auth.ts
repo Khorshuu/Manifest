@@ -16,6 +16,17 @@ export type LoginInput = z.infer<typeof loginSchema>;
 
 export const registerSchema = z
   .object({
+    firstName: z
+      .string()
+      .trim()
+      .min(1, "Enter your first name.")
+      .max(60, "Use fewer than 60 characters."),
+    lastName: z
+      .string()
+      .trim()
+      .max(60, "Use fewer than 60 characters.")
+      .optional()
+      .transform((value) => (value ? value : undefined)),
     email: z.string().trim().toLowerCase().email("Enter a valid email address."),
     phone: z
       .string()

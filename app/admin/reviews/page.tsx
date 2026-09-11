@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getCurrentUser } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { listReviewsForModeration } from "@/lib/reviews";
 import { StatusBadge } from "@/components/status-badge";
 import { ModerationControls } from "./moderation-controls";
+import { requireAdminPage } from "@/lib/auth/admin-page";
 
 export const metadata: Metadata = { title: "Reviews" };
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export default async function AdminReviewsPage({
       ? params.status
       : "pending";
 
-  const user = await getCurrentUser();
+  const user = await requireAdminPage("reviews.moderate");
   const rows = await listReviewsForModeration(user, { status });
 
   return (

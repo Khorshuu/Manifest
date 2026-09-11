@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { addresses } from "@/db/schema";
 import { CheckoutSteps } from "@/components/checkout-steps";
@@ -33,6 +33,8 @@ export default async function CheckoutPage() {
         .select()
         .from(addresses)
         .where(eq(addresses.userId, user.id))
+        // The default first, so the checkout's saved-address choice opens on it.
+        .orderBy(desc(addresses.isDefault), asc(addresses.createdAt))
     : [];
 
   return (

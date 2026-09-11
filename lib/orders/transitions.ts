@@ -1,14 +1,15 @@
-import { eq, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, isNotNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   orderItems,
   orderStatusHistory,
   orders,
   payments,
+  users,
   type OrderStatus,
 } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
-import { requireStaff } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import {
   deliverQueuedNotificationsInBackground,
@@ -82,7 +83,7 @@ export async function advanceOrder(
   to: OrderStatus,
   note?: string,
 ) {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "orders.manage");
 
   const moved = await db.transaction(async (tx) => {
     const [order] = await tx
@@ -234,7 +235,7 @@ export async function refundOrder(
   reason: string,
   options: { amountBdt?: number; reference?: string } = {},
 ) {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "orders.manage");
 
   const [order] = await db
     .select({ id: orders.id, status: orders.status })
@@ -505,7 +506,7 @@ export async function resolveCancellationRequest(
   decision: "approve" | "decline",
   note?: string,
 ) {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "orders.manage");
 
   const [order] = await db
     .select({
@@ -581,7 +582,7 @@ export async function resolveCancellationRequest(
 
 /** Orders whose shoppers have asked to cancel, oldest request first. */
 export async function listCancellationRequests(actor: SessionUser | null) {
-  requireStaff(actor);
+  requirePermission(actor, "orders.view");
 
   return db
     .select({
@@ -603,7 +604,7 @@ export async function listOrdersForStaff(
   actor: SessionUser | null,
   filter: { status?: OrderStatus } = {},
 ) {
-  requireStaff(actor);
+  requirePermission(actor, "orders.view");
 
   const query = db
     .select({
@@ -624,4 +625,117 @@ export async function listOrdersForStaff(
     : await query;
 
   return rows;
+}
+
+export type StaffOrderQuery = {
+  /** Order number, customer email, phone or name. */
+  q?: string;
+  status?: OrderStatus;
+  /** Inclusive start and exclusive end of the placement date. */
+  from?: Date;
+  to?: Date;
+  sort?: "newest" | "oldest" | "total_desc" | "total_asc";
+  limit?: number;
+  offset?: number;
+};
+
+/**
+ * The admin order list: searchable, filterable by status and date, sortable,
+ * and carrying what a person scanning the list needs — who ordered, how many
+ * items and the first of them — so most questions are answered without
+ * opening the order.
+ */
+export async function searchOrdersForStaff(
+  actor: SessionUser | null,
+  query: StaffOrderQuery = {},
+) {
+  requirePermission(actor, "orders.view");
+
+  const term = query.q?.trim();
+  const pattern = term ? `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+
+  const where = and(
+    query.status ? eq(orders.status, query.status) : undefined,
+    query.from ? gte(orders.placedAt, query.from) : undefined,
+    query.to ? lt(orders.placedAt, query.to) : undefined,
+    pattern
+      ? or(
+          ilike(orders.orderNumber, pattern),
+          ilike(orders.guestEmail, pattern),
+          ilike(orders.guestPhone, pattern),
+          ilike(users.email, pattern),
+          ilike(users.phone, pattern),
+          ilike(users.firstName, pattern),
+          ilike(users.lastName, pattern),
+        )
+      : undefined,
+  );
+
+  const order =
+    query.sort === "oldest"
+      ? asc(orders.placedAt)
+      : query.sort === "total_desc"
+        ? desc(orders.totalBdt)
+        : query.sort === "total_asc"
+          ? asc(orders.totalBdt)
+          : desc(orders.placedAt);
+
+  const items = db
+    .select({
+      orderId: orderItems.orderId,
+      itemCount: sql<number>`sum(${orderItems.quantity})::int`.as("item_count"),
+      firstTitle: sql<string>`min(${orderItems.titleSnapshot})`.as("first_title"),
+      lines: sql<number>`count(*)::int`.as("lines"),
+      preorder: sql<boolean>`bool_or(${orderItems.fulfillmentModeSnapshot} = 'preorder')`.as("has_preorder"),
+    })
+    .from(orderItems)
+    .groupBy(orderItems.orderId)
+    .as("items");
+
+  const [rows, [total]] = await Promise.all([
+    db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        status: orders.status,
+        totalBdt: orders.totalBdt,
+        amountDueNowBdt: orders.amountDueNowBdt,
+        placedAt: orders.placedAt,
+        cancellationRequestedAt: orders.cancellationRequestedAt,
+        guestEmail: orders.guestEmail,
+        userId: orders.userId,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        itemCount: items.itemCount,
+        lines: items.lines,
+        firstTitle: items.firstTitle,
+        hasPreorder: items.preorder,
+      })
+      .from(orders)
+      .leftJoin(users, eq(orders.userId, users.id))
+      .leftJoin(items, eq(items.orderId, orders.id))
+      .where(where)
+      .orderBy(order)
+      .limit(query.limit ?? 50)
+      .offset(query.offset ?? 0),
+    db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(orders)
+      .leftJoin(users, eq(orders.userId, users.id))
+      .where(where),
+  ]);
+
+  return {
+    orders: rows.map((row) => ({
+      ...row,
+      itemCount: Number(row.itemCount ?? 0),
+      lines: Number(row.lines ?? 0),
+      customerName:
+        [row.firstName, row.lastName].filter(Boolean).join(" ") || null,
+      customerEmail: row.email ?? row.guestEmail ?? null,
+      isGuest: row.userId === null,
+    })),
+    total: Number(total?.value ?? 0),
+  };
 }

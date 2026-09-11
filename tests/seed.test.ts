@@ -5,6 +5,7 @@
  * at-capacity variant to exercise the waitlist path).
  */
 import { PGlite } from "@electric-sql/pglite";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -16,7 +17,8 @@ let client: PGlite;
 let db: ReturnType<typeof drizzle>;
 
 beforeAll(async () => {
-  client = new PGlite();
+  // pg_trgm backs the search vocabulary (migration 0014).
+  client = new PGlite({ extensions: { pg_trgm } });
   db = drizzle(client, { schema });
 
   /**

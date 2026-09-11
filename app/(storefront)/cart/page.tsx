@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { countWishlist } from "@/lib/account";
+import { getCurrentUser } from "@/lib/auth";
 import { EmptyState } from "@/components/empty-state";
 import { IconCart } from "@/components/icons";
 import { PageHeading } from "@/components/page-heading";
@@ -18,6 +21,8 @@ export const metadata: Metadata = {
 export default async function CartPage() {
   const cartId = await findCartId();
   const cart = cartId ? await getCartView(cartId) : null;
+  const user = await getCurrentUser();
+  const savedCount = user ? await countWishlist(user.id) : 0;
 
   /*
    * Something to go with what is already in the basket, scored against the
@@ -82,9 +87,20 @@ export default async function CartPage() {
             subtotalBdt={cart.subtotalBdt}
             dueNowBdt={cart.dueNowBdt}
             hasProblems={cart.hasProblems}
+            signedIn={Boolean(user)}
           />
         </div>
       )}
+
+      {savedCount > 0 ? (
+        <p className="mt-6 text-meta text-ink/70">
+          {savedCount} item{savedCount === 1 ? "" : "s"} saved for later —{" "}
+          <Link href="/account/wishlist" className="text-blue-600 underline-offset-4 hover:underline">
+            see your wishlist
+          </Link>
+          .
+        </p>
+      ) : null}
 
       <RecommendationSection
         eyebrow="Goes with this"

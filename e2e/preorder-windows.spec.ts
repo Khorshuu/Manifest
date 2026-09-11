@@ -29,18 +29,19 @@ async function productWithVariant(page: Page): Promise<string> {
   await page.getByLabel("Title").fill(title);
   await page.getByRole("button", { name: "Save product" }).click();
 
-  await page.waitForURL((url) => url.pathname.includes("/wizard"));
-  const productUrl = page.url().replace(/\/wizard.*$/, "");
+  // Creating opens the product editor.
+  await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
+  const productUrl = page.url().split("?")[0];
 
   // A product with no attributes still gets one plain variant, so there is
   // something to put a window on.
   await page.goto(`${productUrl}/variants`);
-  await page.getByLabel("Starting price (৳)").fill("2000");
+  await page.getByLabel("Price (৳)").first().fill("2000");
   const generated = page.waitForResponse(
     (r) =>
       r.url().includes("/api/admin/variants") && r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Generate variants" }).click();
+  await page.getByRole("button", { name: "Set price" }).click();
   await generated;
 
   await page.goto(`${productUrl}/windows`);

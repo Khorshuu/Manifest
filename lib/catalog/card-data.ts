@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { productImages, productVariants, reviews } from "@/db/schema";
+import { effectivePriceSql } from "./price";
 
 /**
  * Per-product aggregates for a product card, fetched for a whole page of
@@ -19,6 +20,15 @@ export type CardAggregate = {
   imageUrl: string | null;
   imageAlt: string | null;
   fromPriceBdt: number | null;
+  /**
+   * The regular price of the variant that sets `fromPriceBdt`, when a sale has
+   * brought it lower — the figure the card strikes through. Null with no sale.
+   */
+  listPriceBdt: number | null;
+  /** Whole percent off that variant, when a sale is running. */
+  discountPercent: number | null;
+  /** Everything purchasable is in-stock stock, and none of it is left. */
+  outOfStock: boolean;
   fulfillmentMode: string | null;
   remainingCapacity: number | null;
   /**
@@ -41,6 +51,9 @@ const EMPTY: CardAggregate = {
   imageUrl: null,
   imageAlt: null,
   fromPriceBdt: null,
+  listPriceBdt: null,
+  discountPercent: null,
+  outOfStock: false,
   fulfillmentMode: null,
   remainingCapacity: null,
   totalCapacity: null,
@@ -82,7 +95,17 @@ export async function loadCardAggregates(
   const variants = await db
     .select({
       productId: productVariants.productId,
-      minPrice: sql<number>`min(${productVariants.priceBdt})::int`,
+      /* The price as charged, so a card and the product page it opens cannot
+         quote different figures for the same variant. */
+      minPrice: sql<number>`min(${effectivePriceSql})::int`,
+      /* The regular price of whichever variant is cheapest right now, so the
+         saving shown is against that variant and not against a dearer one. */
+      listPrice: sql<number>`(array_agg(${productVariants.priceBdt} order by ${effectivePriceSql} asc))[1]::int`,
+      outOfStock: sql<boolean>`bool_and(
+        ${productVariants.fulfillmentMode} = 'in_stock'
+        and ${productVariants.stockQuantity} is not null
+        and ${productVariants.stockQuantity} <= 0
+      )`,
       remaining: sql<number | null>`sum(
         greatest(0, ${productVariants.preorderCapacity} - ${productVariants.preorderReserved})
       )::int`,
@@ -113,6 +136,13 @@ export async function loadCardAggregates(
     const entry = result.get(variant.productId);
     if (!entry) continue;
     entry.fromPriceBdt = Number(variant.minPrice);
+    const listPrice = Number(variant.listPrice);
+    if (Number.isFinite(listPrice) && listPrice > entry.fromPriceBdt) {
+      entry.listPriceBdt = listPrice;
+      const off = Math.round(((listPrice - entry.fromPriceBdt) / listPrice) * 100);
+      entry.discountPercent = off > 0 ? off : null;
+    }
+    entry.outOfStock = Boolean(variant.outOfStock);
     entry.fulfillmentMode = variant.anyPreorder ? "preorder" : "in_stock";
     entry.remainingCapacity =
       variant.remaining === null ? null : Number(variant.remaining);

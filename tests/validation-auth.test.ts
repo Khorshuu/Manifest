@@ -40,10 +40,20 @@ describe("register schema", () => {
 
   it("accepts a Bangladeshi phone number", () => {
     const parsed = registerSchema.parse({
+      firstName: "Nadia",
       email: "new@example.com",
       phone: "+8801700000000",
       password: "a-long-enough-password",
     });
     expect(parsed.phone).toBe("+8801700000000");
+    expect(parsed.firstName).toBe("Nadia");
+  });
+
+  it("requires a first name, which the header greets the shopper by", () => {
+    const result = registerSchema.safeParse({
+      email: "new@example.com",
+      password: "a-long-enough-password",
+    });
+    expect(result.success).toBe(false);
   });
 });

@@ -30,7 +30,7 @@ test("the dashboard reports live figures, not placeholders", async ({
   await signIn(page, "admin@example.com");
   await page.goto("/admin");
 
-  await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
   // The seed creates two products and one customer; both come from a query.
   const products = page.locator("div", {
@@ -38,15 +38,16 @@ test("the dashboard reports live figures, not placeholders", async ({
   });
   await expect(products.last().locator("dd")).toHaveText(/^\d+$/);
 
-  await expect(page.getByText("Collected to date")).toBeVisible();
+  // Money is shown to the owner, as a real figure.
+  await expect(page.locator("dt", { hasText: /^Sales$/ })).toBeVisible();
 });
 
 test("a staff admin sees the dashboard but no money", async ({ page }) => {
   await signIn(page, "staff@example.com");
   await page.goto("/admin");
 
-  await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
-  await expect(page.getByText("Collected to date")).toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.locator("dt", { hasText: /^Sales$/ })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Margin (CSV)" })).toHaveCount(0);
 });
 
@@ -55,7 +56,7 @@ test("a staff admin is redirected away from the staff page", async ({
 }) => {
   await signIn(page, "staff@example.com");
   await page.goto("/admin/staff");
-  await expect(page).toHaveURL(/\/admin$/);
+  await expect(page).toHaveURL(/\/admin(\?denied=1)?$/);
 });
 
 test("a super admin manages staff roles", async ({ page }) => {
@@ -69,9 +70,11 @@ test("a super admin manages staff roles", async ({ page }) => {
     page.getByRole("main").getByText("admin@example.com").first(),
   ).toBeVisible();
 
-  // Changing your own role is refused, and the UI says so rather than
-  // offering a button that would fail.
-  await expect(page.getByText("Ask another super admin")).toBeVisible();
+  // Your own row carries no role control: changing your own role is refused
+  // server-side too. The old "Change to" buttons are gone.
+  await expect(page.getByText("(you)")).toBeVisible();
+  await expect(page.getByText("Change to")).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: /Role for/ }).first()).toBeVisible();
 });
 
 test("a super admin creates a staff account", async ({ page }) => {
@@ -101,7 +104,8 @@ test("the audit log shows who made each change", async ({ page }) => {
   const title = `Audited ${crypto.randomUUID().slice(0, 8)}`;
   await page.getByLabel("Title").fill(title);
   await page.getByRole("button", { name: "Save product" }).click();
-  await page.waitForURL((url) => url.pathname.includes("/wizard"));
+  // Creating opens the product editor.
+  await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
 
   await page.goto("/admin/audit");
   await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { IconCheck } from "@/components/icons";
 import {
   findCategoryPath,
   getCategoryTree,
@@ -11,10 +10,33 @@ import {
   listRelatedProducts,
 } from "@/lib/catalog";
 import { remainingCapacity } from "@/lib/catalog/variants";
+import {
+  discountPercent,
+  formatAttributeValue,
+  getAttributeDefinitionsByIds,
+  stockState,
+} from "@/lib/catalog";
+import type {
+  ProductCompliance,
+  ProductDetails,
+  ProductWarranty,
+} from "@/db/schema";
+import {
+  BoxContents,
+  Compliance,
+  Highlights,
+  LifestyleBand,
+  Section,
+  SpecTable,
+  Warranty,
+  type SpecRow,
+} from "./detail-sections";
 import { formatArrivalWindow, formatDate } from "@/lib/format";
 import { breadcrumbJsonLd, productJsonLd } from "@/lib/seo";
 import { getProductRating } from "@/lib/catalog";
 import { getCurrentUser } from "@/lib/auth";
+import { can } from "@/lib/auth/authorize";
+import { PUBLIC_STATUSES } from "@/lib/catalog";
 import {
   findEligibleOrderItem,
   getRatingBreakdown,
@@ -26,31 +48,68 @@ import { Journey } from "@/components/journey";
 import { RecommendationSection } from "@/components/recommendation-section";
 import { ReviewsSection } from "./reviews-section";
 import { VariantPicker, type PickerVariant } from "./variant-picker";
+import { cookies } from "next/headers";
+import { RecentlyViewedTracker } from "@/components/recently-viewed-tracker";
+import { listSavedVariantIds } from "@/lib/account";
+import {
+  parseRecentlyViewed,
+  RECENTLY_VIEWED_COOKIE,
+} from "@/lib/account/recently-viewed";
+import { listProductCardsByIds } from "@/lib/catalog/storefront";
 import { serverInstant } from "@/lib/clock";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Staff preview: `?preview=1` lets someone with catalogue access see a draft
+ * exactly as it will look. Anyone else asking for it gets the public page (or
+ * "not found"), so the flag cannot expose an unpublished listing.
+ */
+async function canPreview(
+  searchParams: Promise<Record<string, string | string[] | undefined>>,
+): Promise<boolean> {
+  const query = await searchParams;
+  if (query.preview !== "1") return false;
+  return can(await getCurrentUser(), "catalog.manage");
+}
+
 export async function generateMetadata({
   params,
+  searchParams,
 }: PageProps<"/products/[slug]">): Promise<Metadata> {
   const { slug } = await params;
-  const product = await getPublicProductBySlug(slug);
+  const preview = await canPreview(searchParams);
+  const product = await getPublicProductBySlug(slug, { includeUnpublished: preview });
 
   if (!product) return { title: "Product not found" };
+
+  if (preview) {
+    return { title: `Preview: ${product.title}`, robots: { index: false, follow: false } };
+  }
 
   return {
     title: product.seoMetaTitle ?? product.title,
     description: product.seoMetaDescription ?? undefined,
-    alternates: { canonical: `/products/${product.slug}` },
+    // A custom canonical wins where staff set one; otherwise the product own
+    // address, which is right for all but syndicated listings.
+    alternates: {
+      canonical: product.canonicalUrl ?? `/products/${product.slug}`,
+    },
+    // Staff can keep a listing out of search without unpublishing it.
+    robots: product.seoNoIndex ? { index: false, follow: true } : undefined,
   };
 }
 
 export default async function ProductPage({
   params,
+  searchParams,
 }: PageProps<"/products/[slug]">) {
   const { slug } = await params;
-  const product = await getPublicProductBySlug(slug);
+  const preview = await canPreview(searchParams);
+  const product = await getPublicProductBySlug(slug, { includeUnpublished: preview });
   if (!product) notFound();
+  const isLive =
+    (PUBLIC_STATUSES as readonly string[]).includes(product.status);
 
   const [
     variants,
@@ -102,6 +161,24 @@ export default async function ProductPage({
       ])
     : [null, false];
 
+  const [savedVariantIds, recentlyViewed] = await Promise.all([
+    user
+      ? listSavedVariantIds(
+          user.id,
+          variants.map((variant) => variant.id),
+        )
+      : Promise.resolve([]),
+    // The cookie holds ids only; each is resolved through the public
+    // predicate, and this product itself is left out.
+    cookies().then((store) =>
+      listProductCardsByIds(
+        parseRecentlyViewed(store.get(RECENTLY_VIEWED_COOKIE)?.value)
+          .filter((id) => id !== product.id)
+          .slice(0, 4),
+      ),
+    ),
+  ]);
+
   const breadcrumb = findCategoryPath(tree, product.categoryId);
 
   // Availability and dates are settled before render — the window state comes
@@ -109,7 +186,29 @@ export default async function ProductPage({
   const pickerVariants: PickerVariant[] = variants.map((variant) => ({
     id: variant.id,
     label: variant.label,
+    imageUrl: variant.imageUrl,
+    // Already the charged price: getPublicVariants resolves the sale window
+    // in SQL, so the page cannot disagree with the cart about it.
     priceBdt: variant.priceBdt,
+    listPriceBdt: variant.listPriceBdt,
+    discountPercent: discountPercent(
+      {
+        priceBdt: variant.listPriceBdt,
+        salePriceBdt: variant.salePriceBdt,
+        saleStartsAt: null,
+        saleEndsAt: variant.saleEndsAt,
+      },
+      new Date(serverNow),
+    ),
+    saleEndsLabel: variant.saleEndsAt ? formatDate(variant.saleEndsAt) : null,
+    stockState: stockState({
+      fulfillmentMode: variant.fulfillmentMode,
+      stockQuantity: variant.stockQuantity,
+      lowStockThreshold: variant.lowStockThreshold,
+      preorderCapacity: variant.preorderCapacity,
+      preorderReserved: variant.preorderReserved,
+      isClosed: Boolean(variant.isClosed),
+    }),
     fulfillmentMode: variant.fulfillmentMode,
     remaining:
       variant.fulfillmentMode === "preorder"
@@ -135,9 +234,83 @@ export default async function ProductPage({
   const bullets = Array.isArray(product.bulletFeatures)
     ? (product.bulletFeatures as string[])
     : [];
-  const specs = Array.isArray(product.specTable)
-    ? (product.specTable as { label: string; value: string }[])
+  const boxContents = Array.isArray(product.boxContents)
+    ? (product.boxContents as string[])
     : [];
+  const warranty = (product.warranty as ProductWarranty | null) ?? null;
+  const compliance = (product.compliance as ProductCompliance | null) ?? null;
+  const details = (product.details as ProductDetails | null) ?? null;
+
+  /*
+   * The specifications table, assembled from four sources in the order a
+   * shopper reads them: the facts every listing has, then what the category
+   * asks of its products, then the advanced block, then anything typed by
+   * hand. Every row here has a value — a blank is dropped rather than shown
+   * as a dash, which is what keeps the table honest on a thin listing.
+   */
+  const storedAttributes =
+    (product.attributeValues as Record<string, string | string[]> | null) ?? {};
+  const attributeDefinitions = await getAttributeDefinitionsByIds(
+    Object.keys(storedAttributes),
+  );
+
+  const DETAIL_LABELS: [keyof ProductDetails, string][] = [
+    ["manufacturer", "Manufacturer"],
+    ["modelName", "Model"],
+    ["modelNumber", "Model number"],
+    ["manufacturerPartNumber", "Part number"],
+    ["material", "Material"],
+    ["color", "Colour"],
+    ["size", "Size"],
+    ["dimensions", "Dimensions"],
+    ["itemWeight", "Item weight"],
+    ["unitCount", "Unit count"],
+    ["unitType", "Unit type"],
+    ["packageDimensions", "Package dimensions"],
+    ["packageWeight", "Package weight"],
+    ["compatibility", "Compatibility"],
+    ["specialFeatures", "Special features"],
+    ["intendedUse", "Intended use"],
+    ["careInstructions", "Care instructions"],
+    ["releaseDate", "Released"],
+  ];
+
+  const specs: SpecRow[] = [
+    ...(product.brand ? [{ label: "Brand", value: product.brand }] : []),
+    ...attributeDefinitions
+      .map((definition) => {
+        const value = storedAttributes[definition.id];
+        return value === undefined
+          ? null
+          : {
+              label: definition.name,
+              value: formatAttributeValue(definition, value),
+            };
+      })
+      .filter((row): row is SpecRow => row !== null),
+    ...(details
+      ? DETAIL_LABELS.map(([key, label]) => {
+          const value = details[key];
+          return value ? { label, value: String(value) } : null;
+        }).filter((row): row is SpecRow => row !== null)
+      : []),
+    ...(Array.isArray(product.specTable)
+      ? (product.specTable as SpecRow[]).filter(
+          (row) => row.label?.trim() && row.value?.trim(),
+        )
+      : []),
+    ...(compliance?.countryOfOrigin
+      ? [{ label: "Country of origin", value: compliance.countryOfOrigin }]
+      : []),
+    ...(product.identifierValue && product.identifierType
+      ? [
+          {
+            label: product.identifierType.toUpperCase(),
+            value: product.identifierValue,
+          },
+        ]
+      : []),
+  ];
 
   // Built from the values rendered below, so the two cannot drift apart.
   const cheapest = pickerVariants.reduce<(typeof pickerVariants)[number] | null>(
@@ -184,6 +357,17 @@ export default async function ProductPage({
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbData) }}
       />
 
+      {preview && !isLive ? (
+        <p
+          role="status"
+          className="mb-6 rounded-card border border-brass bg-brass/10 px-4 py-3 text-meta text-ink"
+        >
+          <strong>Preview — not visible to customers.</strong> This product is{" "}
+          {product.status === "archived" ? "archived" : "a draft"}. Publish it from the admin to
+          put it on sale.
+        </p>
+      ) : null}
+
       <nav aria-label="Breadcrumb">
         <ol className="flex flex-wrap items-center gap-2 text-meta text-ink/70">
           <li>
@@ -205,10 +389,11 @@ export default async function ProductPage({
         </ol>
       </nav>
 
-      <div className="mt-6 grid gap-10 lg:grid-cols-2">
+      <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-10">
         <Gallery
           title={product.title}
           slug={product.slug}
+          videoUrl={product.videoUrl}
           images={product.images.map((image) => ({
             id: image.id,
             url: image.url,
@@ -216,95 +401,102 @@ export default async function ProductPage({
           }))}
         />
 
-        <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:self-start">
+        <div className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
           <div>
             {product.brand ? (
-              <p className="text-meta text-ink/70">{product.brand}</p>
+              <p className="text-[0.75rem] font-semibold uppercase tracking-[0.1em] text-ink/70">
+                {product.brand}
+              </p>
             ) : null}
-            <h1 className="mt-1 font-display text-h1 text-ink">
+            <h1 className="mt-1 text-[1.375rem] font-bold leading-tight tracking-[-0.015em] text-ink md:text-[1.625rem]">
               {product.title}
             </h1>
+            {rating.count > 0 ? (
+              <a href="#reviews" className="mt-1 inline-block text-meta text-blue-600 hover:underline">
+                {rating.average} out of 5 · {rating.count} review{rating.count === 1 ? "" : "s"}
+              </a>
+            ) : null}
           </div>
 
-          <VariantPicker variants={pickerVariants} serverNow={serverNow} />
+          <VariantPicker
+            variants={pickerVariants}
+            serverNow={serverNow}
+            signedIn={Boolean(user)}
+            savedVariantIds={savedVariantIds}
+            returnTo={`/products/${product.slug}`}
+          />
+          <RecentlyViewedTracker productId={product.id} />
+
+          {/* The three or four claims that decide a purchase, beside the buy
+              button rather than below the fold. The full list, if it is
+              longer, is still under Key features further down. */}
+          {bullets.length > 0 ? (
+            <div className="rounded-card border border-blue-300 bg-blue-50/60 p-3.5">
+              <h2 className="text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-ink/70">
+                At a glance
+              </h2>
+              <div className="mt-2 text-meta">
+                <Highlights items={bullets.slice(0, 4)} />
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      <Journey
-        closesAt={variants[0]?.preorderClosesAt ?? null}
-        arrivesFrom={variants[0]?.estimatedArrivalFrom ?? null}
-        arrivesTo={variants[0]?.estimatedArrivalTo ?? null}
-      />
-
       {/*
-       * Two columns, each with its own contents — not three sections dropped
-       * into a two-column grid, which is what this was. In that arrangement
-       * the description landed in the narrow right column and the
-       * specifications wrapped to a second row, leaving most of the right-hand
-       * side of the page blank.
+       * Two columns, each with its own contents — not sections dropped into a
+       * grid, which is what this was. In that arrangement the description
+       * landed in the narrow right column and the specifications wrapped to a
+       * second row, leaving most of the right-hand side of the page blank.
+       *
+       * Every section below renders nothing at all when it has nothing to
+       * say, so a thin listing reads as short rather than as unfinished.
        */}
-      <div className="mt-12 grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start">
-        <div className="flex min-w-0 flex-col gap-10">
-          {bullets.length > 0 ? (
-            <section className="max-w-[62ch]">
-              <h2 className="font-display text-h2 text-ink">What you get</h2>
-              <ul className="mt-4 flex flex-col gap-3">
-                {bullets.map((bullet) => (
-                  <li
-                    key={bullet}
-                    className="flex items-start gap-3 text-body text-ink/80"
-                  >
-                    <IconCheck
-                      size={18}
-                      className="mt-1 shrink-0 text-transit-green-text"
-                    />
-                    {bullet}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
+      <div className="mt-8 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-8">
           {product.descriptionHtml ? (
-            <section className="max-w-[62ch]">
-              <h2 className="font-display text-h2 text-ink">Description</h2>
+            <Section title="Description">
               <div
-                className="mt-4 text-body text-ink/80"
+                className="max-w-[62ch] text-body text-ink/80"
                 /* Authored by staff only — customers cannot create listings. */
                 dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
               />
-            </section>
+            </Section>
           ) : null}
+
+          {bullets.length > 0 ? (
+            <Section title="Key features">
+              <div className="max-w-[62ch]">
+                <Highlights items={bullets} />
+              </div>
+            </Section>
+          ) : null}
+
+          <BoxContents items={boxContents} />
+
+          <Warranty warranty={warranty} />
+
+          <Compliance compliance={compliance} />
         </div>
 
         {specs.length > 0 ? (
-          <section className="min-w-0 lg:sticky lg:top-28">
-            <h2 className="font-display text-h2 text-ink">Specifications</h2>
-            {/* The manifest table, reused from the admin side */}
-            <div className="mt-4 overflow-hidden rounded-card border border-ink/15 shadow-[var(--shadow-raise)]">
-              <table className="w-full border-collapse text-body">
-                <tbody>
-                  {specs.map((spec, index) => (
-                    <tr
-                      key={spec.label}
-                      className={index % 2 === 1 ? "bg-blue-200/40" : undefined}
-                    >
-                      <th
-                        scope="row"
-                        className="border-b border-blue-300 px-4 py-3 text-left text-meta font-medium text-ink/70 last:border-b-0"
-                      >
-                        {spec.label}
-                      </th>
-                      <td className="border-b border-blue-300 px-4 py-3 text-ink last:border-b-0">
-                        {spec.value}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <Section id="specifications" title="Specifications">
+            <div className="lg:sticky lg:top-28">
+              <SpecTable rows={specs} />
             </div>
-          </section>
+          </Section>
         ) : null}
+      </div>
+
+      <div className="mt-12">
+        <LifestyleBand
+          title={product.title}
+          images={product.lifestyleImages.map((image) => ({
+            id: image.id,
+            url: image.url,
+            altText: image.altText,
+          }))}
+        />
       </div>
 
       <ReviewsSection
@@ -337,6 +529,21 @@ export default async function ProductPage({
               }
             : undefined
         }
+      />
+
+      <RecommendationSection
+        eyebrow="Your history"
+        title="Recently viewed"
+        products={recentlyViewed}
+      />
+
+      {/* The route a batch travels, at the very foot of the page: it explains
+          the shop rather than this product, so it comes after everything a
+          shopper needs to decide. */}
+      <Journey
+        closesAt={variants[0]?.preorderClosesAt ?? null}
+        arrivesFrom={variants[0]?.estimatedArrivalFrom ?? null}
+        arrivesTo={variants[0]?.estimatedArrivalTo ?? null}
       />
     </div>
   );

@@ -53,11 +53,14 @@ export function CartLines({
   subtotalBdt,
   dueNowBdt,
   hasProblems,
+  signedIn = false,
 }: {
   lines: CartLineView[];
   subtotalBdt: number;
   dueNowBdt: number;
   hasProblems: boolean;
+  /** Save for later keeps the item on the account's wishlist. */
+  signedIn?: boolean;
 }) {
   const reduce = useReducedMotion();
   const router = useRouter();
@@ -72,6 +75,27 @@ export function CartLines({
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ itemId, quantity }),
+    });
+
+    setPending(null);
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      setError(body.error ?? "Something went wrong. Try again.");
+      return;
+    }
+
+    router.refresh();
+  }
+
+  async function saveForLater(itemId: string) {
+    setPending(itemId);
+    setError(null);
+
+    const response = await fetch("/api/cart/save-for-later", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ itemId }),
     });
 
     setPending(null);
@@ -272,6 +296,18 @@ export function CartLines({
                         <IconClose size={14} />
                         Remove
                       </button>
+
+                      {signedIn ? (
+                        <button
+                          type="button"
+                          onClick={() => saveForLater(line.itemId)}
+                          disabled={busy}
+                          className="inline-flex min-h-9 items-center gap-1.5 rounded-control px-2 text-meta text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-60"
+                        >
+                          Save for later
+                          <span className="sr-only"> {line.productTitle}</span>
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </motion.li>

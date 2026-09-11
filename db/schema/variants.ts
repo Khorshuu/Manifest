@@ -26,8 +26,17 @@ export const attributes = pgTable(
   "attributes",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    name: text("name").notNull().unique(),
+    /**
+     * Unique per product (and among the few shared legacy options) — enforced
+     * by partial indexes in migration 0020, not by a column constraint.
+     */
+    name: text("name").notNull(),
     inputType: text("input_type").notNull().default("select"),
+    /**
+     * The product this option belongs to (D-040). Null only for a legacy
+     * shared option; the editor never creates one.
+     */
+    productId: uuid("product_id").references(() => products.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -90,6 +99,17 @@ export const productVariants = pgTable(
     /** BDT paisa. A full price, or a delta on the product base when priceIsDelta. */
     priceBdt: integer("price_bdt").notNull(),
     priceIsDelta: boolean("price_is_delta").notNull().default(false),
+    /**
+     * BDT paisa. A sale is a second price plus a window, never an edit to the
+     * first: the regular price has to survive so it can be shown struck
+     * through and restored when the window closes. Both dates are optional —
+     * a sale with neither is simply on until it is taken off.
+     */
+    salePriceBdt: integer("sale_price_bdt"),
+    saleStartsAt: timestamp("sale_starts_at", { withTimezone: true }),
+    saleEndsAt: timestamp("sale_ends_at", { withTimezone: true }),
+    /** At or below this many in stock, the listing says "Low stock". */
+    lowStockThreshold: integer("low_stock_threshold"),
     /** USD cents. Sourcing cost — never exposed to a customer session. */
     costPriceUsd: integer("cost_price_usd"),
     weightGrams: integer("weight_grams"),
@@ -145,6 +165,15 @@ export const productVariants = pgTable(
     check(
       "product_variants_reserved_non_negative_check",
       sql`${table.preorderReserved} >= 0`,
+    ),
+    /** A "sale" above the regular price is a mistake, not an offer. */
+    check(
+      "product_variants_sale_price_check",
+      sql`${table.salePriceBdt} is null or (${table.salePriceBdt} >= 0 and ${table.salePriceBdt} <= ${table.priceBdt})`,
+    ),
+    check(
+      "product_variants_sale_window_check",
+      sql`${table.saleStartsAt} is null or ${table.saleEndsAt} is null or ${table.saleEndsAt} > ${table.saleStartsAt}`,
     ),
     index("product_variants_product_id_idx").on(table.productId),
     index("product_variants_preorder_window_idx").on(

@@ -1,40 +1,40 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ActiveFilters } from "@/components/active-filters";
-import { FilterPanel } from "@/components/filter-panel";
+import { DiscoveryResults } from "@/components/discovery-results";
+import type { CategoryFacetView } from "@/components/filter-panel";
 import { PageHeading } from "@/components/page-heading";
-import { ProductGrid } from "@/components/product-grid";
-import { SortSelect } from "@/components/sort-select";
 import {
-  activeFilterChips,
   collectSubtreeIds,
-  countProducts,
+  discover,
   findCategoryPath,
   getCategoryBySlug,
   getCategoryTree,
-  hasActiveFilters,
-  listFacets,
-  listProductCards,
-  parseFilterParams,
-  type ProductSort,
+  listingHref,
+  subtreeCount,
 } from "@/lib/catalog";
 
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 24;
-
 export async function generateMetadata({
   params,
+  searchParams,
 }: PageProps<"/categories/[slug]">): Promise<Metadata> {
   const { slug } = await params;
   const category = await getCategoryBySlug(slug);
   if (!category) return { title: "Category not found" };
 
+  // A category is a landing page; the same category filtered, sorted or on
+  // page nine is not a second one. Those variants stay out of the index and
+  // point at the plain shelf.
+  const query = await searchParams;
+  const varied = Object.keys(query).length > 0;
+
   return {
     title: category.name,
     description: `Preorder ${category.name.toLowerCase()} from the US, delivered in Bangladesh at a fixed landed price.`,
     alternates: { canonical: `/categories/${category.slug}` },
+    ...(varied ? { robots: { index: false, follow: true } } : {}),
   };
 }
 
@@ -54,47 +54,34 @@ export default async function CategoryPage({
   // A category page includes everything beneath it, not only direct children.
   const categoryIds = node ? collectSubtreeIds(node) : [category.id];
 
-  const sort = (typeof query.sort === "string" ? query.sort : "relevance") as ProductSort;
-  const page = Math.max(1, Number(query.page) || 1);
+  // A category page is a listing with its shelf fixed. It takes no search
+  // words — the search box goes to /search — so a stray `q` is ignored.
+  const { q: _ignored, ...listingParams } = query;
+  void _ignored;
 
-  // The same filters drive the listing, the count, and the facet counts, so
-  // the number on the page always describes the page.
-  const filters = { ...parseFilterParams(query), categoryIds };
+  const result = await discover({ params: listingParams, categoryIds });
 
-  const [products, total, facets] = await Promise.all([
-    listProductCards({
-      ...filters,
-      sort,
-      limit: PAGE_SIZE,
-      offset: (page - 1) * PAGE_SIZE,
-    }),
-    countProducts(filters),
-    listFacets(filters),
-  ]);
-
-  // Attribute values arrive in the URL as ids; the chips need their names,
-  // and the facets this page already loaded carry them.
-  const valueLabels = new Map(
-    facets.attributes.flatMap((attribute) =>
-      attribute.values.map((value) => [value.id, value.label] as const),
-    ),
-  );
-
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const pageHref = (target: number) => {
-    const next = new URLSearchParams();
-    for (const [key, value] of Object.entries(query)) {
-      for (const entry of Array.isArray(value) ? value : value ? [value] : []) {
-        next.append(key, entry);
-      }
-    }
-    next.set("sort", sort);
-    next.set("page", String(target));
-    return `?${next.toString()}`;
-  };
+  const counts = result.facets.categoryCounts;
+  const parent = path.length > 1 ? path.at(-2) : undefined;
+  const categoryFacet: CategoryFacetView | null =
+    node && node.children.length > 0
+      ? {
+          heading: "Subcategory",
+          up: parent
+            ? { label: `‹ ${parent.name}`, href: `/categories/${parent.slug}` }
+            : null,
+          items: node.children
+            .map((child) => ({
+              label: child.name,
+              href: listingHref(`/categories/${child.slug}`, listingParams),
+              count: subtreeCount(child, counts),
+            }))
+            .filter((item) => item.count > 0),
+        }
+      : null;
 
   return (
-    <div className="mx-auto w-full max-w-[1280px] px-4 py-8 md:px-6">
+    <div className="mx-auto w-full max-w-[1280px] px-4 py-6 md:px-6 md:py-8">
       <nav aria-label="Breadcrumb">
         <ol className="flex flex-wrap items-center gap-2 text-meta text-ink/70">
           <li>
@@ -119,12 +106,13 @@ export default async function CategoryPage({
           title={category.name}
           summary={
             <>
-              {total} listing{total === 1 ? "" : "s"} filed here and in
-              everything beneath it. Every price already carries shipping and
-              customs duty.
+              <span className="font-semibold tabular-nums text-ink">
+                {result.total.toLocaleString("en-GB")}
+              </span>{" "}
+              listing{result.total === 1 ? "" : "s"} filed here and in everything
+              beneath it. Every price already carries shipping and customs duty.
             </>
           }
-          aside={<SortSelect current={sort} />}
         />
       </div>
 
@@ -134,7 +122,7 @@ export default async function CategoryPage({
             <li key={child.id}>
               <Link
                 href={`/categories/${child.slug}`}
-                className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-3 text-meta border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-blue-300 bg-paper px-3 text-meta font-medium text-blue-600 transition-[background-color,border-color,box-shadow] duration-150 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
               >
                 {child.name}
               </Link>
@@ -143,79 +131,14 @@ export default async function CategoryPage({
         </ul>
       ) : null}
 
-      <div className="mt-6">
-        <ActiveFilters
-          chips={activeFilterChips({
-            params: query,
-            path: `/categories/${category.slug}`,
-            valueLabels,
-          })}
-          clearHref={`/categories/${category.slug}`}
-          total={total}
-        />
-      </div>
-
-      <div className="mt-6 grid gap-8 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <FilterPanel
-          facets={facets}
-          action={`/categories/${category.slug}`}
-          total={total}
-          hasFilters={hasActiveFilters(filters)}
-          selected={{
-            minTaka:
-              filters.minPriceBdt === undefined
-                ? ""
-                : String(filters.minPriceBdt / 100),
-            maxTaka:
-              filters.maxPriceBdt === undefined
-                ? ""
-                : String(filters.maxPriceBdt / 100),
-            fulfillment: filters.fulfillment ?? "",
-            availableOnly: Boolean(filters.availableOnly),
-            sort,
-          }}
-        />
-
-        <div className="min-w-0">
-          <ProductGrid
-            products={products}
-            emptyTitle={
-              hasActiveFilters(filters)
-                ? "Nothing matches those filters"
-                : "Nothing in this category yet"
-            }
-            emptyBody={
-              hasActiveFilters(filters)
-                ? "Widen the price range or clear a filter to see more."
-                : "We are still sourcing for this section. Browse another category, or check back shortly."
-            }
-          />
-        </div>
-      </div>
-
-      {pageCount > 1 ? (
-        <nav aria-label="Pagination" className="mt-10 flex gap-3">
-          {page > 1 ? (
-            <Link
-              href={pageHref(page - 1)}
-              className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
-            >
-              Previous
-            </Link>
-          ) : null}
-          <span className="inline-flex min-h-11 items-center text-meta text-ink/70">
-            Page {page} of {pageCount}
-          </span>
-          {page < pageCount ? (
-            <Link
-              href={pageHref(page + 1)}
-              className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
-            >
-              Next
-            </Link>
-          ) : null}
-        </nav>
-      ) : null}
+      <DiscoveryResults
+        result={result}
+        path={`/categories/${category.slug}`}
+        params={listingParams}
+        categories={categoryFacet}
+        emptyTitle="Nothing in this category yet"
+        emptyBody="We are still sourcing for this section. Browse another category, or check back shortly."
+      />
     </div>
   );
 }

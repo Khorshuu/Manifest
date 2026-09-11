@@ -35,6 +35,10 @@ One happy-path spec per major flow, run against a seeded database:
 - The scheduled sweep refuses every request without its shared secret — including one from a signed-in super admin — and delivers the outbox when given it.
 - An account turns on two-factor authentication, signs out, and cannot get back in on the password alone; a wrong code is refused, a recovery code works once, and turning it off needs a current code.
 - A delivered customer writes a review, staff approve it, and it appears on the product page for a signed-out visitor.
+- A shopper clicks a gallery thumbnail and the main image follows it; the main image opens a full-screen viewer that steps with the arrow keys and closes on escape; the page carries no sideways overflow at 360px.
+- A listing with a warranty, certifications, box contents and category-defined specifications shows each of those sections, with one row per fact; a listing without them shows none of those headings at all.
+- A variant on offer shows the sale price, the regular price it replaces, and the saving.
+- Admin: saving one panel of the product editor leaves the others untouched — the property the whole split form depends on — and a SKU another product already carries is refused with the clash named.
 
 ## What does not need a test
 
@@ -115,7 +119,74 @@ options rather than naming one: this database accumulates products as the suite
 runs, so a hard-coded title eventually falls off the end of the list, and what
 is under test is that choosing *a* product works.
 
+## Search and discovery
+
+- `tests/search-engine.test.ts` — ranking tiers (exact name over accessory over
+  mention; brand first; boost reorders only equals), codes (SKU with and
+  without punctuation, variant SKU, barcode, model number), typo tolerance
+  (prefix and stem need nothing; "samsng" → "Samsung"; a correction is never
+  towards a draft's word; `spell=0` searches as typed), synonyms both ways and
+  one way, hidden-from-search, and suggestions.
+- `tests/search-index.test.ts` — changes the catalogue only through the
+  application and then searches, so a trigger that stops firing fails: new
+  product, rename, unpublish, archive, option added and disabled, option
+  renamed, category renamed, specification answered/renamed/unsearchable/
+  removed, and a capacity change that must *not* reindex. A queued row left
+  behind (trigger disabled to simulate a failed rebuild) is retried by the
+  sweep.
+- `tests/discovery.test.ts` — RAM offered over laptops and never over shoes,
+  one colour filter across variation and specification, facet counts against
+  other filters, unknown URL keys dropped, per-variant price ranges, sale
+  filter and discount sort, sort options offered only with data behind them.
+- `tests/search-analytics.test.ts` — the three-visitor threshold, no
+  email/phone searches stored, daily-rotating visitor hash, report is staff
+  only, pruning, and history per account removed on anonymisation.
+- `e2e/search.spec.ts` — header box keyboard and Escape behaviour, recent
+  searches, results page state in the URL, correction notice, empty page with
+  related searches, chips, `noindex`, axe with filters on, staff hiding a
+  product and adding a synonym, and the phone full-screen search.
+
+One PGlite trap found writing these: `updateProduct` derives a new slug
+through the base connection while its transaction is open. On a real server
+that is another pooled connection; on single-connection PGlite it waits for
+itself forever. The tests pass an explicit slug when renaming.
+
 A second test in that file asserts the hero image is bare — no link, no button,
 no heading, and no text at all inside the region. That is a rule the owner
 stated, and it is the kind of thing that creeps back one helpful caption at a
 time.
+
+## Account features
+
+`tests/account.test.ts` (PGlite) covers the wishlist and save-for-later
+ownership rules, live pricing of saved items, the copy-on-write address rule
+against a real placed order, newsletter idempotency, and recently-viewed cookie
+parsing. The browser flows were driven by hand against the dev server; no e2e
+spec was added for them yet.
+
+## Added this session
+
+- `tests/customer-spend.test.ts` — spend is zero with no orders, counts paid
+  statuses only, accumulates, never crosses customers; permission gate.
+- `tests/homepage-campaigns.test.ts` — five slots, legacy conversion, only
+  live slides reach the storefront, image/slide rules, destination
+  validation, `homepage.manage` gate.
+- `tests/authorize.test.ts` — the role/permission table.
+- `tests/seo-pulse.test.ts` (33) — keyword normalisation and deduplication,
+  slugs, text limits, both scores, the rules generator (no invented
+  misspellings, photographs flagged for review), AI-output validation
+  (missing fields rejected, foreign image ids dropped, unsafe HTML stripped),
+  panel status; against PGlite: versioned runs, reuse of unchanged research,
+  request-key idempotency, one run at a time, external provider failure,
+  external data stored with its source, AI failure falling back to rules, site
+  search as first-party research, permissions per role, apply filling empty
+  fields, refusing silent overwrites (text, lists, alt text), slug conflicts,
+  synonyms never edited, and JSON/CSV export contents. External providers are
+  replaced with test doubles through `setSeoDataProviderForTesting` /
+  `setIntelligenceProviderForTesting`.
+- `e2e/homepage-admin.spec.ts` rewritten for campaigns; `filters.spec.ts`
+  updated for instant filters (reads `[data-result-count]`).
+- The e2e suite can run beside a running dev server only against the production
+  build (Next 16 refuses a second `next dev` in one folder): `next build`, then
+  `PORT=3100 E2E_PRODUCTION=1
+  E2E_BASE_URL=http://localhost:3100 npx playwright test …`.

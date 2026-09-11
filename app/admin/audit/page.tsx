@@ -5,8 +5,8 @@ import {
   listAuditActions,
   listAuditEntries,
 } from "@/lib/admin";
-import { getCurrentUser } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
+import { requireAdminPage } from "@/lib/auth/admin-page";
 
 export const metadata: Metadata = { title: "Audit log" };
 export const dynamic = "force-dynamic";
@@ -34,7 +34,7 @@ export default async function AdminAuditPage({
   const action = typeof params.action === "string" ? params.action : undefined;
   const page = Math.max(1, Number(params.page) || 1);
 
-  const user = await getCurrentUser();
+  const user = await requireAdminPage("audit.view");
 
   const [entries, actions, total] = await Promise.all([
     listAuditEntries(user, {

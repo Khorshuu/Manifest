@@ -2,7 +2,7 @@ import { asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { categories, products } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
-import { requireStaff } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
 export type Category = {
@@ -98,6 +98,33 @@ export function collectSubtreeIds(node: CategoryNode): string[] {
   return [node.id, ...node.children.flatMap(collectSubtreeIds)];
 }
 
+/** Root-to-node path for a slug, or an empty path when nothing has it. */
+export function findCategoryPathBySlug(
+  tree: CategoryNode[],
+  slug: string,
+): CategoryNode[] {
+  for (const node of tree) {
+    if (node.slug === slug) return [node];
+    const nested = findCategoryPathBySlug(node.children, slug);
+    if (nested.length > 0) return [node, ...nested];
+  }
+  return [];
+}
+
+/**
+ * A category's own count plus everything beneath it, from per-category
+ * counts. A shelf holds its children's products, so its number is theirs.
+ */
+export function subtreeCount(
+  node: CategoryNode,
+  counts: Record<string, number>,
+): number {
+  return collectSubtreeIds(node).reduce(
+    (total, id) => total + (counts[id] ?? 0),
+    0,
+  );
+}
+
 async function assertNoCycle(categoryId: string, parentId: string | null) {
   if (!parentId) return;
   if (parentId === categoryId) throw new CycleError();
@@ -123,7 +150,7 @@ export async function createCategory(
   actor: SessionUser | null,
   input: CategoryInput,
 ): Promise<Category> {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "catalog.manage");
   await assertNoCycle("", input.parentId ?? null);
 
   return db.transaction(async (tx) => {
@@ -163,7 +190,7 @@ export async function updateCategory(
   categoryId: string,
   input: CategoryInput,
 ): Promise<Category> {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "catalog.manage");
   await assertNoCycle(categoryId, input.parentId ?? null);
 
   return db.transaction(async (tx) => {
@@ -217,7 +244,7 @@ export async function deleteCategory(
   actor: SessionUser | null,
   categoryId: string,
 ): Promise<void> {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "catalog.manage");
 
   const [{ childCount }] = await db
     .select({ childCount: sql<number>`count(*)::int` })

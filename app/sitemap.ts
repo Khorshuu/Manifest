@@ -30,6 +30,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   return [
     { url: `${base}/`, changeFrequency: "daily", priority: 1 },
+    { url: `${base}/help`, changeFrequency: "monthly", priority: 0.3 },
     ...categoryRows.map((row) => ({
       url: `${base}/categories/${row.slug}`,
       lastModified: row.updatedAt,

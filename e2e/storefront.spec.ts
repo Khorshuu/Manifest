@@ -54,7 +54,7 @@ test("the product page states price, arrival, and what is included", async ({
 
   // The closing time, both as words on the page and as one announcement for a
   // screen reader — four separately ticking numbers read aloud would be noise.
-  await expect(page.getByText("Ordering closes in")).toBeVisible();
+  await expect(page.getByText(/Closes in/).filter({ visible: true }).first()).toBeVisible();
   await expect(
     page.getByRole("timer", { name: /Preorder closes in/ }),
   ).toBeVisible();

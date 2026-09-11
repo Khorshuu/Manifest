@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, users } from "@/db/schema";
-import { requireStaff } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
 /**
@@ -23,7 +23,7 @@ export async function listAuditEntries(
   actor: SessionUser | null,
   filter: AuditFilter = {},
 ) {
-  requireStaff(actor);
+  requirePermission(actor, "audit.view");
 
   const conditions = [];
   if (filter.action) conditions.push(eq(auditLog.action, filter.action));
@@ -52,7 +52,7 @@ export async function listAuditEntries(
 
 /** Distinct actions recorded so far, for the filter control. */
 export async function listAuditActions(actor: SessionUser | null) {
-  requireStaff(actor);
+  requirePermission(actor, "audit.view");
 
   const rows = await db
     .selectDistinct({ action: auditLog.action })
@@ -66,7 +66,7 @@ export async function countAuditEntries(
   actor: SessionUser | null,
   filter: AuditFilter = {},
 ): Promise<number> {
-  requireStaff(actor);
+  requirePermission(actor, "audit.view");
 
   const conditions = [];
   if (filter.action) conditions.push(eq(auditLog.action, filter.action));

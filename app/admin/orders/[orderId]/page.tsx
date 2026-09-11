@@ -11,6 +11,8 @@ import {
 } from "@/lib/orders";
 import { formatBdt } from "@/lib/money";
 import { formatDate } from "@/lib/format";
+import { can } from "@/lib/auth";
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import { BalancePanel } from "./balance-panel";
 import { OrderActions } from "./order-actions";
 import { ShippingPanel } from "./shipping-panel";
@@ -21,12 +23,16 @@ export const dynamic = "force-dynamic";
 export default async function AdminOrderPage({
   params,
 }: PageProps<"/admin/orders/[orderId]">) {
+  const user = await requireAdminPage("orders.view");
+  // Support and finance read orders; only roles that manage them see the
+  // controls. The lib functions behind those controls refuse them regardless.
+  const canManage = can(user, "orders.manage");
   const { orderId } = await params;
   const order = await getOrderForStaff(orderId);
 
   if (!order) notFound();
 
-  const allowed = allowedTransitions(order.status);
+  const allowed = canManage ? allowedTransitions(order.status) : [];
   const canRefund = allowed.includes("refunded");
   // Computed from the payment rows, so it is right whatever the order column
   // said at placement time.
@@ -166,7 +172,11 @@ export default async function AdminOrderPage({
           <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
             <h2 className="font-display text-h3 text-ink">Move this order on</h2>
             <div className="mt-4">
-              {allowed.length === 0 ? (
+              {!canManage ? (
+                <p className="text-meta text-ink/70">
+                  Your role can read this order but not change it.
+                </p>
+              ) : allowed.length === 0 ? (
                 <p className="text-meta text-ink/70">
                   This order has reached a final state.
                 </p>
@@ -182,7 +192,7 @@ export default async function AdminOrderPage({
             </div>
           </section>
 
-          {balance ? (
+          {balance && canManage ? (
             <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
               <h2 className="font-display text-h3 text-ink">Payment</h2>
               <div className="mt-4">
@@ -198,17 +208,26 @@ export default async function AdminOrderPage({
             </section>
           ) : null}
 
-          <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
-            <h2 className="font-display text-h3 text-ink">Shipping</h2>
-            <div className="mt-4">
-              <ShippingPanel
-                key={order.trackingReference ?? "unbooked"}
-                orderId={order.id}
-                trackingReference={order.trackingReference}
-                internalNotes={order.internalNotes}
-              />
-            </div>
-          </section>
+          {canManage ? (
+            <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
+              <h2 className="font-display text-h3 text-ink">Shipping</h2>
+              <div className="mt-4">
+                <ShippingPanel
+                  key={order.trackingReference ?? "unbooked"}
+                  orderId={order.id}
+                  trackingReference={order.trackingReference}
+                  internalNotes={order.internalNotes}
+                />
+              </div>
+            </section>
+          ) : order.trackingReference ? (
+            <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
+              <h2 className="font-display text-h3 text-ink">Shipping</h2>
+              <p className="mt-3 font-mono text-meta text-ink">
+                {order.trackingReference}
+              </p>
+            </section>
+          ) : null}
 
           <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)]">
             <h2 className="font-display text-h3 text-ink">Delivery</h2>

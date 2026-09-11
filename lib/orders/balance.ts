@@ -2,7 +2,7 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { orderStatusHistory, orders, payments, users } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
-import { requireStaff } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import {
   deliverQueuedNotificationsInBackground,
@@ -126,7 +126,7 @@ export async function takeBalancePayment(
   actor: SessionUser | null,
   orderId: string,
 ): Promise<BalanceResult> {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "orders.manage");
 
   const [order] = await db
     .select({

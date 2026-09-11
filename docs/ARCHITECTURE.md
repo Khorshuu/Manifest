@@ -25,10 +25,38 @@ components/             presentational UI, no direct data access
 
 lib/
   auth/                 session creation/validation, password hashing, role checks
-  catalog/              category tree, attribute/variant combination logic, search
-    search.ts             the full-text document, the tsquery builder, the rank
+  search/               the search engine (DECISIONS.md D-026 to D-030)
+    normalize.ts          pure: cleaning, words, codes, tsquery slots
+    plan.ts               a search planned: synonyms applied, typo correction
+    sql.ts                the match condition and the relevance tiers
+    suggest.ts            header autocomplete
+    synonyms.ts, history.ts, analytics.ts, maintenance.ts
+  catalog/              category tree, attribute/variant combination logic
+    discovery.ts          one listing end to end — search page and category
+                          pages both call it
+    facets.ts             filters, facet counts, sort signals
+    filter-params.ts      the URL as state, chips
     recommendations.ts    scored "more like this", never a random draw
-  homepage/             the hero staff edit: read for the storefront, write for staff
+    price.ts              the sale-window expression every price query uses, and
+                          the one vocabulary for availability
+    category-attributes.ts  specifications a category asks its products for,
+                          inherited down the tree and validated on every save
+    media.ts              product photography: upload, order, promote, describe,
+                          and the gallery/lifestyle split
+  homepage/             promotional campaigns (campaigns.ts, D-035): five slides of
+                          hero + four tiles, read for the storefront, written by
+                          `homepage.manage`; hero.ts/showcase.ts are the older
+                          keys, now only read to convert them
+  admin/                dashboard queries (insights.ts), the live inbox (inbox.ts),
+                          customers, staff, exports
+  seo-pulse/            SEO Pulse (D-038): research, recommendations, apply
+    service.ts            load the product, run, version, reuse, apply
+    providers/data.ts     SeoDataProvider — DataForSEO, or none
+    providers/intelligence.ts  SeoIntelligenceProvider — Claude, or rules
+    rules.ts              recommendations from the product's own data
+    sanitize.ts           AI output cleaned and schema-checked before storage
+    facts.ts, scores.ts   gaps, identifiers, schema readiness, both scores
+    export.ts             JSON, CSV, HTML report
   preorder/             capacity check, reservation, waitlist — the transactional core
   orders/               order creation, status transitions, idempotency
   notifications/        transactional outbox: compose, queue, deliver
@@ -43,6 +71,14 @@ db/
   schema/               Drizzle table definitions, one file per domain area
   migrations/           checked-in SQL migrations, never edited after merge
 ```
+
+The admin product editor is a set of independent panels
+(`app/admin/products/[productId]/sections/`), each posting only the fields it
+owns to a partial `PATCH`. They share their save behaviour, their controls and
+their message treatment through `editor-parts.tsx`, and `product-editor.tsx`
+switches between them — a tab strip on a wide screen, a select on a narrow one,
+with every panel rendered once and kept mounted so switching never discards an
+edit.
 
 Route handlers and server components are thin: validate input against a schema in `lib/validation`, call one function in `lib/`, shape the response. All business rules live in `lib/`, so they are unit-testable without an HTTP layer and are not duplicated between a page and an API route that both need the same rule.
 
@@ -63,11 +99,13 @@ This is the one flow in the system where correctness is non-negotiable (MASTER_P
 
 ## Authorization
 
-Every route under `/admin` and every mutation checks the session's role server-side before doing anything, regardless of what the UI shows or hides. `staff_admin` and `super_admin` differ only in a short list of gated actions (managing other admins, financial/site-wide settings) checked explicitly at the point of use, not by a separate route tree. See [SECURITY.md](SECURITY.md).
+Every route under `/admin` and every mutation checks permissions server-side before doing anything, regardless of what the UI shows or hides. Seven staff roles map to named permissions in `lib/auth/authorize.ts` (D-034): `lib/` functions call `requirePermission`, admin pages call `requireAdminPage(permission)` from `lib/auth/admin-page.ts`, and the admin layout filters its navigation from the same table. See [SECURITY.md](SECURITY.md).
 
 ## Provider abstraction
 
 `lib/providers/payment`, `lib/providers/shipping`, and `lib/providers/notification` are interfaces. Each has a mock implementation that simulates success/failure without a network call, selected by an environment variable. This lets every flow — including checkout and order-status progression — run and be tested before SSLCommerz, a courier API, and an SMS/email provider have real credentials, per MASTER_PRODUCT_SPEC.md §7.
+
+SEO Pulse follows the same pattern with two interfaces in `lib/seo-pulse/providers/`: `SeoDataProvider` (external keyword and search-results data; DataForSEO, or none) and `SeoIntelligenceProvider` (writes recommendations; Claude through the Anthropic SDK, or the free rules generator). They are chosen by `SEO_PULSE_DATA_PROVIDER` and `SEO_PULSE_AI_PROVIDER`, read in `lib/seo-pulse/config.ts`. The default — rules, no external data — needs no credentials and costs nothing.
 
 ## Rendering strategy
 

@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   AuthenticationError,
   AuthorizationError,
+  can,
+  PERMISSIONS,
+  requirePermission,
+  STAFF_ROLES,
   isStaff,
   isSuperAdmin,
   requireOwnerOrStaff,
@@ -69,6 +73,58 @@ describe("requireSuperAdmin", () => {
 
   it("allows a super admin", () => {
     expect(requireSuperAdmin(superAdmin)).toBe(superAdmin);
+  });
+});
+
+describe("staff roles and permissions", () => {
+  const as = (role: SessionUser["role"]): SessionUser => ({ id: role, email: `${role}@example.com`, role });
+
+  it("gives the owner every permission", () => {
+    for (const permission of PERMISSIONS) expect(can(superAdmin, permission)).toBe(true);
+  });
+
+  it("keeps the operations manager's original reach: no money, staff, settings or customers", () => {
+    expect(can(staffAdmin, "catalog.manage")).toBe(true);
+    expect(can(staffAdmin, "orders.manage")).toBe(true);
+    expect(can(staffAdmin, "finance.view")).toBe(false);
+    expect(can(staffAdmin, "staff.manage")).toBe(false);
+    expect(can(staffAdmin, "settings.manage")).toBe(false);
+    expect(can(staffAdmin, "customers.view")).toBe(false);
+  });
+
+  it("confines each role to its own work", () => {
+    expect(can(as("product_manager"), "catalog.manage")).toBe(true);
+    expect(can(as("product_manager"), "orders.view")).toBe(false);
+    expect(can(as("order_manager"), "orders.manage")).toBe(true);
+    expect(can(as("order_manager"), "catalog.manage")).toBe(false);
+    expect(can(as("support"), "orders.view")).toBe(true);
+    expect(can(as("support"), "orders.manage")).toBe(false);
+    expect(can(as("marketing"), "homepage.manage")).toBe(true);
+    expect(can(as("marketing"), "finance.view")).toBe(false);
+    expect(can(as("finance"), "finance.view")).toBe(true);
+    expect(can(as("finance"), "homepage.manage")).toBe(false);
+  });
+
+  it("gives a customer nothing, and only the owner staff management", () => {
+    for (const permission of PERMISSIONS) expect(can(customer, permission)).toBe(false);
+    for (const role of STAFF_ROLES) {
+      expect(can(as(role), "staff.manage")).toBe(role === "super_admin");
+    }
+  });
+
+  it("treats every staff role as staff for the admin shell", () => {
+    for (const role of STAFF_ROLES) expect(isStaff(as(role))).toBe(true);
+  });
+
+  it("refuses with the permission's own wording", () => {
+    expect(() => requirePermission(as("support"), "orders.manage")).toThrow(/read orders but not change/);
+    expect(() => requirePermission(customer, "catalog.manage")).toThrow(AuthorizationError);
+    expect(() => requirePermission(null, "catalog.manage")).toThrow(AuthenticationError);
+  });
+
+  it("lets only order-reading roles see another person's order", () => {
+    expect(() => requireOwnerOrStaff(as("product_manager"), "someone-else")).toThrow(AuthorizationError);
+    expect(requireOwnerOrStaff(as("support"), "someone-else").role).toBe("support");
   });
 });
 

@@ -992,3 +992,259 @@ input[type="radio"] {
     display: none;
   }
 }
+
+/*
+ * The admin's own density.
+ *
+ * The admin shares the storefront's typeface and colours but not its scale: it
+ * is a place for scanning tables, and the storefront's display sizes made
+ * every figure a headline. These few classes are the admin's cards, headings,
+ * tables and figures, used on every admin screen so they cannot drift apart.
+ */
+@layer components {
+  .admin-card {
+    border-radius: var(--radius-card);
+    border: 1px solid color-mix(in srgb, var(--color-blue-300) 80%, transparent);
+    background: var(--color-paper);
+    padding: 1rem;
+    box-shadow: 0 1px 2px rgb(18 35 63 / 0.04);
+  }
+
+  .admin-h1 {
+    font-size: 1.375rem;
+    line-height: 1.25;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    color: var(--color-ink);
+  }
+
+  .admin-h2 {
+    font-size: 0.9375rem;
+    line-height: 1.35;
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  .admin-kpi-label {
+    font-size: 0.75rem;
+    line-height: 1.3;
+    font-weight: 500;
+    color: color-mix(in srgb, var(--color-ink) 65%, transparent);
+  }
+
+  .admin-kpi-value {
+    font-size: 1.375rem;
+    line-height: 1.2;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    color: var(--color-ink);
+  }
+
+  .admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
+  .admin-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--color-blue-50);
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: color-mix(in srgb, var(--color-ink) 75%, transparent);
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--color-blue-200);
+    white-space: nowrap;
+  }
+
+  .admin-table td,
+  .admin-table tbody th {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--color-blue-200);
+    vertical-align: middle;
+    text-align: inherit;
+    font-weight: inherit;
+  }
+
+  .admin-table tbody tr:last-child td,
+  .admin-table tbody tr:last-child th {
+    border-bottom: 0;
+  }
+
+  .admin-table tbody tr:hover {
+    background: color-mix(in srgb, var(--color-blue-50) 70%, transparent);
+  }
+
+  .admin-input {
+    min-height: 2.25rem;
+    border-radius: var(--radius-control);
+    border: 1px solid var(--color-blue-300);
+    background: var(--color-paper);
+    padding-inline: 0.625rem;
+    font-size: 0.8125rem;
+    color: var(--color-ink);
+  }
+
+  .admin-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: 1.75rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-blue-300);
+    padding-inline: 0.625rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: color-mix(in srgb, var(--color-ink) 80%, transparent);
+    background: var(--color-paper);
+    transition: background-color 150ms ease-out, border-color 150ms ease-out;
+  }
+
+  .admin-chip:hover {
+    border-color: var(--color-blue-500);
+  }
+
+  .admin-chip[aria-current="true"],
+  .admin-chip[aria-pressed="true"] {
+    border-color: var(--color-blue-600);
+    background: var(--color-blue-600);
+    color: var(--color-paper);
+  }
+}
+
+/*
+ * The promotional slider's words.
+ *
+ * A soft shade under the headline only, not a veil over the whole photograph:
+ * it keeps a title legible on a busy image while leaving the picture alone.
+ * The button takes the opposite of the lettering, so it reads on either tone.
+ */
+.campaign .hero-stage[data-tone="dark"] {
+  --campaign-cta-fg: var(--color-ink);
+}
+
+.campaign .hero-stage[data-tone="light"] {
+  --campaign-cta-fg: #ffffff;
+}
+
+.campaign-scrim {
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    rgb(10 21 38 / 0.32) 0%,
+    rgb(10 21 38 / 0.1) 50%,
+    transparent 100%
+  );
+}
+
+.hero-stage[data-tone="light"] .campaign-scrim {
+  background: linear-gradient(
+    to top,
+    rgb(255 255 255 / 0.4) 0%,
+    rgb(255 255 255 / 0.12) 50%,
+    transparent 100%
+  );
+}
+
+/*
+ * The product grid, one definition for every listing.
+ *
+ * Denser than it was: two across on a phone, three on a tablet, four on a
+ * laptop and five on a wide screen, so a shopper sees more of the catalogue
+ * at once. Cards set their own compact type scale (components/product-card).
+ */
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+
+@media (min-width: 640px) {
+  .product-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.875rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .product-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .product-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+/* Inside a listing with the filter column beside it, one fewer across. */
+@media (min-width: 1280px) {
+  .product-grid[data-with-filters="true"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Beside the filter column: three across on a laptop, four on a wide screen. */
+@media (min-width: 1024px) {
+  .product-grid--filtered {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1180px) {
+  .product-grid--filtered {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/*
+ * While the category dropdown is open the header sits above everything on the
+ * page — the filter column, the phone's filter sheet and its backdrop — so the
+ * dropdown can never open underneath them. Only for as long as it is open:
+ * the rest of the time the filter sheet must be free to cover the header.
+ */
+html[data-catalog-open] .site-header {
+  z-index: 70;
+}
+
+/*
+ * The homepage canvas and the showcase cards.
+ *
+ * The page around the promotional slider is a very light gray-white rather
+ * than pure white, so the white showcase cards read as objects on it. The
+ * card's image sits in a softer gray well, whole and centred.
+ */
+.home-canvas {
+  background: #f5f6f8;
+}
+
+.showcase-card {
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgb(18 35 63 / 0.04),
+    0 10px 30px -8px rgb(18 35 63 / 0.14);
+}
+
+.showcase-card:hover {
+  box-shadow:
+    0 1px 2px rgb(18 35 63 / 0.05),
+    0 18px 40px -10px rgb(18 35 63 / 0.2);
+}
+
+.showcase-well {
+  background: linear-gradient(180deg, #f3f4f6 0%, #eceef1 100%);
+}
+
+/* A soft lift under hero words only; the photograph itself is not dimmed. */
+.hero-stage[data-tone="dark"] .campaign-title {
+  text-shadow: 0 1px 18px rgb(10 21 38 / 0.35);
+}
+.hero-stage[data-tone="light"] .campaign-title {
+  text-shadow: 0 1px 16px rgb(255 255 255 / 0.45);
+}

@@ -1,15 +1,22 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
+  getCategoryPerformance,
+  getCustomerInsights,
+  getDailySeries,
   getFunnel,
   getPreorderCommitment,
-  getRevenueByDay,
-  getSignupsByDay,
+  getSalesSummary,
   getStatusBreakdown,
+  getTopProductsInRange,
   lastDays,
+  type DateRange,
 } from "@/lib/admin";
-import { getCurrentUser, isSuperAdmin } from "@/lib/auth";
+import { can } from "@/lib/auth";
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import { formatBdt } from "@/lib/money";
+import { BarChart, Delta, ShareBar, shortDay } from "../charts";
+import { ORDER_STATUS_LABELS } from "../order-status";
 
 export const metadata: Metadata = { title: "Analytics" };
 export const dynamic = "force-dynamic";
@@ -20,242 +27,260 @@ function percent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
-/**
- * A horizontal bar, drawn with a plain div rather than a charting library.
- * One dependency fewer is worth more here than a rendered axis.
- *
- * The fill sits in a track rather than floating on the page: without one, a
- * short bar and a missing bar look the same, and the row loses the sense of
- * how much of the whole it represents. The figure itself is printed in the
- * row heading above, so it is not repeated at the end of the bar.
- */
-function Bar({ share }: { share: number }) {
-  const width = Math.max(1.5, Math.round(share * 100));
-
-  return (
-    <div
-      className="h-2.5 w-full overflow-hidden rounded-card bg-blue-200"
-      role="presentation"
-    >
-      <div
-        className="h-full rounded-card bg-blue-600"
-        style={{ width: `${width}%` }}
-      />
-    </div>
-  );
+function parseDay(value: unknown): Date | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
+/**
+ * What the business is doing, from what the database records.
+ *
+ * Money appears only for a role with `finance.view`; everything else is
+ * counts. Nothing is estimated: where a figure is not recorded (product
+ * views, for one) the page says so instead of inventing it.
+ */
 export default async function AdminAnalyticsPage({
   searchParams,
 }: PageProps<"/admin/analytics">) {
+  const user = await requireAdminPage("analytics.view");
   const params = await searchParams;
+
+  const customFrom = parseDay(params.from);
+  const customTo = parseDay(params.to);
+  const custom = Boolean(customFrom && customTo && customFrom <= customTo);
   const days = PERIODS.includes(Number(params.days) as (typeof PERIODS)[number])
     ? Number(params.days)
     : 30;
+  const range: DateRange = custom
+    ? { from: customFrom!, to: new Date(customTo!.getTime() + 24 * 60 * 60 * 1000) }
+    : lastDays(days);
 
-  const range = lastDays(days);
-  const user = await getCurrentUser();
-  const showFinancials = isSuperAdmin(user);
+  const money = can(user, "finance.view");
 
-  const [funnel, commitment, signups, breakdown, revenue] = await Promise.all([
-    getFunnel(user, range),
-    getPreorderCommitment(user),
-    getSignupsByDay(user, range),
-    getStatusBreakdown(user),
-    showFinancials ? getRevenueByDay(user, range) : Promise.resolve(null),
-  ]);
+  const [summary, series, top, categories, customers, funnel, commitment, breakdown] =
+    await Promise.all([
+      getSalesSummary(user, range),
+      getDailySeries(user, range),
+      getTopProductsInRange(user, range, 8),
+      getCategoryPerformance(user, range),
+      getCustomerInsights(user, range),
+      getFunnel(user, range),
+      getPreorderCommitment(user),
+      getStatusBreakdown(user),
+    ]);
 
-  const funnelTop = funnel.steps[0]?.value ?? 0;
-  const revenueTotal =
-    revenue?.reduce((sum, point) => sum + point.collectedBdt, 0) ?? 0;
-  const revenuePeak = Math.max(
-    1,
-    ...(revenue?.map((point) => point.collectedBdt) ?? [1]),
-  );
+  const { current, previous } = summary;
+  const topUnits = Math.max(1, ...top.map((product) => product.units));
+  const categoryUnits = Math.max(1, ...categories.map((row) => row.units));
   const breakdownTotal = breakdown.reduce((sum, row) => sum + row.count, 0);
+  const funnelTop = funnel.steps[0]?.value ?? 0;
+  const periodLabel = custom
+    ? `${params.from} to ${params.to}`
+    : `the last ${days} days`;
+
+  const kpis = [
+    ...(money
+      ? [{ label: "Sales", value: formatBdt(current.salesBdt ?? 0), current: current.salesBdt ?? 0, previous: previous.salesBdt ?? 0 }]
+      : []),
+    { label: "Paid orders", value: String(current.paidOrders), current: current.paidOrders, previous: previous.paidOrders },
+    ...(money
+      ? [{
+          label: "Average order",
+          value: current.averageOrderBdt === null ? "—" : formatBdt(current.averageOrderBdt),
+          current: current.averageOrderBdt ?? 0,
+          previous: previous.averageOrderBdt ?? 0,
+        }]
+      : []),
+    { label: "Orders placed", value: String(current.placedOrders), current: current.placedOrders, previous: previous.placedOrders },
+    { label: "New customers", value: String(current.newCustomers), current: current.newCustomers, previous: previous.newCustomers },
+    {
+      label: "Repeat buyers",
+      value: customers.buyers === 0 ? "—" : percent(customers.repeatBuyers / customers.buyers),
+    },
+  ];
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
-          <span aria-hidden="true" className="h-px w-8 bg-brass" />
-          Operations
-        </p>
-        <h1 className="mt-2 font-display text-h1 text-ink">Analytics</h1>
-      </div>
-
-      {/* One control rather than three loose buttons: the choices are
-          mutually exclusive, so they read better as segments of one thing. */}
-      <nav aria-label="Reporting period">
-        <ul className="inline-flex flex-wrap gap-1 rounded-control border border-blue-300 bg-paper-raised p-1">
-          {PERIODS.map((period) => (
-            <li key={period}>
-              <Link
-                href={`/admin/analytics?days=${period}`}
-                aria-current={days === period ? "page" : undefined}
-                className={`inline-flex min-h-9 items-center rounded-control px-3 text-meta transition-colors ${
-                  days === period
-                    ? "bg-paper font-medium text-ink shadow-[var(--shadow-raise)]"
-                    : "text-ink/70 hover:bg-paper/70 hover:text-ink"
-                }`}
-              >
-                Last {period} days
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </nav>
-
-      <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] sm:p-6">
-        <h2 className="font-display text-h2 text-ink">Funnel</h2>
-
-        <ul className="mt-4 flex flex-col gap-4">
-          {funnel.steps.map((step) => (
-            <li key={step.label} className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-baseline justify-between gap-3">
-                <span className="text-body text-ink">{step.label}</span>
-                <span className="text-meta tabular-nums text-ink/70">
-                  {step.value}
-                  {step.conversionFromPrevious !== null
-                    ? ` · ${percent(step.conversionFromPrevious)} of the step above`
-                    : ""}
-                </span>
-              </div>
-              <Bar share={funnelTop === 0 ? 0 : step.value / funnelTop} />
-            </li>
-          ))}
-        </ul>
-
-        {/* Saying what is missing is part of the report. */}
-        {funnel.missing.length > 0 ? (
-          <div className="surface-paper mt-6 rounded-card border border-blue-300 p-4">
-            <p className="text-meta font-medium text-ink">
-              Not measured yet
-            </p>
-            <ul className="mt-2 flex flex-col gap-1">
-              {funnel.missing.map((item) => (
-                <li key={item} className="text-meta text-ink/70">
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </section>
-
-      {revenue ? (
-        <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] sm:p-6">
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 className="font-display text-h2 text-ink">Revenue</h2>
-            <p className="text-body tabular-nums text-ink">
-              {formatBdt(revenueTotal)} collected
-            </p>
-          </div>
-
-          {revenue.length === 0 ? (
-            <p className="mt-4 text-body text-ink/70">
-              Nothing was collected in this period.
-            </p>
-          ) : (
-            <ul className="mt-4 flex flex-col gap-2">
-              {revenue.map((point) => (
-                <li key={point.day} className="flex flex-col gap-1">
-                  <div className="flex flex-wrap items-baseline justify-between gap-3">
-                    <span className="text-meta tabular-nums text-ink/70">
-                      {point.day}
-                    </span>
-                    <span className="text-meta tabular-nums text-ink">
-                      {formatBdt(point.collectedBdt)} · {point.orderCount} order
-                      {point.orderCount === 1 ? "" : "s"}
-                    </span>
-                  </div>
-                  <Bar share={point.collectedBdt / revenuePeak} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      ) : null}
-
-      <div className="grid gap-5 lg:grid-cols-2">
-        <section className="min-w-0 rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] sm:p-6">
-          <h2 className="font-display text-h2 text-ink">Preorder commitment</h2>
-          <dl className="mt-4 flex flex-col gap-2 text-body">
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink/70">Capacity offered</dt>
-              <dd className="tabular-nums text-ink">
-                {commitment.totalCapacity}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink/70">Slots taken</dt>
-              <dd className="tabular-nums text-ink">
-                {commitment.totalReserved}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink/70">Utilisation</dt>
-              <dd className="tabular-nums text-ink">
-                {percent(commitment.utilisation)}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink/70">Variants now full</dt>
-              <dd className="tabular-nums text-ink">
-                {commitment.fullVariants}
-              </dd>
-            </div>
-          </dl>
-        </section>
-
-        <section className="min-w-0 rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] sm:p-6">
-          <h2 className="font-display text-h2 text-ink">Orders by stage</h2>
-          {breakdown.length === 0 ? (
-            <p className="mt-4 text-body text-ink/70">No orders yet.</p>
-          ) : (
-            <ul className="mt-4 flex flex-col gap-3">
-              {breakdown.map((row) => (
-                <li key={row.status} className="flex flex-col gap-1">
-                  <div className="flex justify-between gap-3">
-                    <span className="text-meta text-ink">
-                      {row.status.replace(/_/g, " ")}
-                    </span>
-                    <span className="text-meta tabular-nums text-ink/70">
-                      {row.count}
-                    </span>
-                  </div>
-                  <Bar share={breakdownTotal === 0 ? 0 : row.count / breakdownTotal} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
-
-      <section className="rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] sm:p-6">
-        <h2 className="font-display text-h2 text-ink">New customers</h2>
-        {signups.length === 0 ? (
-          <p className="mt-4 text-body text-ink/70">
-            No one registered in this period.
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="admin-h1">Analytics</h1>
+          <p className="mt-0.5 text-meta text-ink/70">
+            {periodLabel}, compared with the same length of time before.
           </p>
-        ) : (
-          <ul className="mt-4 flex flex-col gap-2">
-            {signups.map((point) => (
-              <li
-                key={point.day}
-                className="flex justify-between gap-3 border-b border-blue-300 py-2"
-              >
-                <span className="text-meta tabular-nums text-ink/70">
-                  {point.day}
-                </span>
-                <span className="text-meta tabular-nums text-ink">
-                  {point.count}
-                </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {PERIODS.map((period) => (
+            <Link
+              key={period}
+              href={`/admin/analytics?days=${period}`}
+              aria-current={!custom && days === period ? "true" : undefined}
+              className="admin-chip"
+            >
+              {period} days
+            </Link>
+          ))}
+          <form method="get" className="flex items-center gap-1.5">
+            <label className="sr-only" htmlFor="range-from">From</label>
+            <input id="range-from" type="date" name="from" defaultValue={custom ? String(params.from) : ""} className="admin-input h-7 min-h-7 text-[0.75rem]" />
+            <span className="text-[0.75rem] text-ink/70">to</span>
+            <label className="sr-only" htmlFor="range-to">To</label>
+            <input id="range-to" type="date" name="to" defaultValue={custom ? String(params.to) : ""} className="admin-input h-7 min-h-7 text-[0.75rem]" />
+            <button type="submit" aria-pressed={custom} className="admin-chip">Custom</button>
+          </form>
+        </div>
+      </div>
+
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        {kpis.map((kpi) => (
+          <div key={kpi.label} className="admin-card flex flex-col gap-1 p-3">
+            <dt className="admin-kpi-label">{kpi.label}</dt>
+            <dd className="admin-kpi-value">{kpi.value}</dd>
+            {"current" in kpi && kpi.current !== undefined ? (
+              <dd><Delta current={kpi.current} previous={kpi.previous!} /></dd>
+            ) : null}
+          </div>
+        ))}
+      </dl>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {money ? (
+          <section className="admin-card">
+            <h2 className="admin-h2">Sales per day</h2>
+            <p className="text-[0.75rem] text-ink/70">Paid order value, by the day it was placed.</p>
+            <div className="mt-3">
+              <BarChart
+                title="Sales per day"
+                points={series.map((point) => ({ label: shortDay(point.day), value: point.salesBdt ?? 0, display: formatBdt(point.salesBdt ?? 0) }))}
+              />
+            </div>
+          </section>
+        ) : null}
+        <section className="admin-card">
+          <h2 className="admin-h2">Orders per day</h2>
+          <p className="text-[0.75rem] text-ink/70">Every order placed, paid or not.</p>
+          <div className="mt-3">
+            <BarChart
+              title="Orders per day"
+              points={series.map((point) => ({ label: shortDay(point.day), value: point.orders, display: `${point.orders} order${point.orders === 1 ? "" : "s"}` }))}
+            />
+          </div>
+        </section>
+        <section className="admin-card">
+          <h2 className="admin-h2">New customers per day</h2>
+          <p className="text-[0.75rem] text-ink/70">
+            {customers.totalCustomers} accounts in all · {customers.buyers} have bought · {customers.repeatBuyers} more than once
+          </p>
+          <div className="mt-3">
+            <BarChart
+              title="New customers per day"
+              points={series.map((point) => ({ label: shortDay(point.day), value: point.signups, display: `${point.signups} sign-up${point.signups === 1 ? "" : "s"}` }))}
+              emptyText="No one registered in this period."
+            />
+          </div>
+        </section>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <section className="admin-card">
+          <h2 className="admin-h2">Top products</h2>
+          {top.length === 0 ? (
+            <p className="mt-2 text-meta text-ink/70">Nothing sold in this period.</p>
+          ) : (
+            <ol className="mt-2 flex flex-col gap-2.5">
+              {top.map((product) => (
+                <li key={product.productId ?? product.title} className="flex flex-col gap-1">
+                  <div className="flex items-baseline justify-between gap-3 text-meta">
+                    <span className="min-w-0 truncate text-ink">{product.title}</span>
+                    <span className="shrink-0 tabular-nums text-ink/70">
+                      {product.units} units · {product.orders} order{product.orders === 1 ? "" : "s"}
+                      {product.revenueBdt !== null ? ` · ${formatBdt(product.revenueBdt)}` : ""}
+                    </span>
+                  </div>
+                  <ShareBar share={product.units / topUnits} />
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+
+        <section className="admin-card">
+          <h2 className="admin-h2">By category</h2>
+          {categories.length === 0 ? (
+            <p className="mt-2 text-meta text-ink/70">Nothing sold in this period.</p>
+          ) : (
+            <ol className="mt-2 flex flex-col gap-2.5">
+              {categories.map((row) => (
+                <li key={row.categoryId ?? row.name} className="flex flex-col gap-1">
+                  <div className="flex items-baseline justify-between gap-3 text-meta">
+                    <span className="text-ink">{row.name}</span>
+                    <span className="tabular-nums text-ink/70">
+                      {row.units} units{row.revenueBdt !== null ? ` · ${formatBdt(row.revenueBdt)}` : ""}
+                    </span>
+                  </div>
+                  <ShareBar share={row.units / categoryUnits} />
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <section className="admin-card">
+          <h2 className="admin-h2">Purchase funnel</h2>
+          <ul className="mt-2 flex flex-col gap-2.5">
+            {funnel.steps.map((step) => (
+              <li key={step.label} className="flex flex-col gap-1">
+                <div className="flex justify-between gap-3 text-meta">
+                  <span className="text-ink">{step.label}</span>
+                  <span className="tabular-nums text-ink/70">
+                    {step.value}
+                    {step.conversionFromPrevious !== null ? ` · ${percent(step.conversionFromPrevious)}` : ""}
+                  </span>
+                </div>
+                <ShareBar share={funnelTop === 0 ? 0 : step.value / funnelTop} />
               </li>
             ))}
           </ul>
-        )}
-      </section>
+          <p className="mt-3 text-[0.75rem] text-ink/70">Not recorded yet: {funnel.missing.map((item) => item.split(" — ")[0]).join(", ")}.</p>
+        </section>
+
+        <section className="admin-card">
+          <h2 className="admin-h2">Preorder performance</h2>
+          <dl className="mt-2 flex flex-col gap-1.5 text-meta">
+            <div className="flex justify-between gap-3"><dt className="text-ink/70">Places offered</dt><dd className="tabular-nums">{commitment.totalCapacity}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-ink/70">Places taken</dt><dd className="tabular-nums">{commitment.totalReserved}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-ink/70">Utilisation</dt><dd className="tabular-nums">{percent(commitment.utilisation)}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-ink/70">Batches full</dt><dd className="tabular-nums">{commitment.fullVariants}</dd></div>
+          </dl>
+          <div className="mt-3"><ShareBar share={commitment.utilisation} /></div>
+        </section>
+
+        <section className="admin-card">
+          <h2 className="admin-h2">Orders by stage, now</h2>
+          {breakdown.length === 0 ? (
+            <p className="mt-2 text-meta text-ink/70">No orders yet.</p>
+          ) : (
+            <ul className="mt-2 flex flex-col gap-2">
+              {breakdown.map((row) => (
+                <li key={row.status} className="flex flex-col gap-1">
+                  <div className="flex justify-between gap-3 text-meta">
+                    <span className="text-ink">{ORDER_STATUS_LABELS[row.status] ?? row.status}</span>
+                    <span className="tabular-nums text-ink/70">{row.count}</span>
+                  </div>
+                  <ShareBar share={breakdownTotal === 0 ? 0 : row.count / breakdownTotal} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {customers.accountOrderShare !== null ? (
+            <p className="mt-3 text-[0.75rem] text-ink/70">
+              {percent(customers.accountOrderShare)} of paid orders in this period came from signed-in accounts.
+            </p>
+          ) : null}
+        </section>
+      </div>
     </div>
   );
 }

@@ -31,6 +31,9 @@ Any account may turn it on at `/account/security`; the page recommends it in as 
 ## Input handling
 
 - Every external input (form submission, route handler body, webhook payload) is validated against a schema in `lib/validation` before touching any business logic. Unknown fields are rejected, not silently dropped-and-ignored, so a client sending an unexpected `price` or `role` field fails loudly instead of being quietly ignored in a way that could mask a bug later.
+- Search input is cleaned (control characters removed, 100 characters, 8 words) and reduced to letters and digits before it reaches a tsquery, so no tsquery operator can arrive from a search box; every value is a bound parameter. Filter parameters are validated and bounded (12 attribute keys, 20 values each, prices capped, page capped at 100), and an attribute key is only used if it names a real attribute. The suggest and click endpoints have a per-visitor in-memory throttle.
+- Search analytics store no account id and no address: a daily-rotating HMAC of connection and browser keyed with `SESSION_SECRET`. Email- or phone-shaped searches are never stored. A query is shown to other shoppers only after three distinct visitors ran it (DECISIONS.md D-029). A customer's search history is readable and clearable only by them and is deleted on anonymisation.
+- Synonyms, search visibility, search priority and index rebuilds are staff-only in `lib/`, audited, and rejected for customers at the API.
 - Price, total, discount, capacity, and role are never read from client input for any computation — they are always re-derived server-side from the database, per [BUSINESS_LOGIC.md](BUSINESS_LOGIC.md).
 - File uploads (product images) are validated by content-type sniffing (not filename extension alone) and size limit, filenames are regenerated (never trusting the client's filename), and no executable or script-bearing file type is accepted. Uploaded images are re-encoded to a fixed set of output sizes rather than served as-uploaded.
 
@@ -71,3 +74,74 @@ Keys are stored as a SHA-256 hash, never the email or address itself: a table re
 
 The limiter fails open if the database will not answer. Signing in needs the database anyway, so a database that cannot count attempts cannot check a password either — refusing there would turn an outage into a lockout while protecting nothing.
 - Self-registration always creates a `customer`. The route's schema rejects unknown fields, so a client-supplied `role` fails the request rather than being ignored.
+
+## Account features (gap audit pass)
+
+- Wishlist, save-for-later and address routes take identifiers only and act on
+  the signed-in account's own rows; every query is scoped by `user_id` (or by
+  the cart id the server resolved), so an id from another account matches
+  nothing. Another account's address answers 404, not 403, so ids cannot be
+  probed.
+- The newsletter endpoint is public: rate limited per IP (20 an hour) in the
+  shared store, and answers identically whether or not an address was already
+  subscribed, so it cannot be used to test which emails exist.
+- The recently-viewed cookie holds product ids only; ids are validated as
+  UUIDs and resolved through the public predicate, so a tampered cookie can
+  show nothing that is not already public.
+- `/admin/customers` and `listCustomersWithOrders` are super-admin only: the
+  page redirects anyone else and the query refuses them independently.
+
+## Staff roles and permissions (D-034)
+
+- Seven staff roles map to named permissions in `lib/auth/authorize.ts`.
+  `requirePermission` is called at the top of every gated `lib/` function, so a
+  route or page that forgets its own check still cannot act. Admin pages also
+  call `requireAdminPage(permission)` and redirect a role that lacks it.
+- `requireOwnerOrStaff` now admits staff only with `orders.view`; a product
+  manager cannot read another customer's order.
+- Financial figures are not computed for roles without `finance.view` — they
+  are absent from the response, not hidden in the UI.
+- Staff temporary password minimum is 8 (argon2id, login rate limiting and the
+  staff second-factor prompt unchanged).
+
+## Homepage campaign links (D-035)
+
+- Every staff-entered destination is normalised server-side: a site path
+  (`/…`, not `//…`) or an absolute `http(s)` URL. `javascript:`, `data:` and
+  protocol-relative values are refused before storage. Off-site links render
+  with `rel="noopener"` (and `noreferrer` with a new tab).
+- Campaign images are uploads validated by the media provider from their
+  bytes; no URL can be supplied.
+
+## SKU reservations (D-037)
+
+- Generation and reservation are server-only (`lib/catalog/sku.ts`); the
+  browser holds just a reservation id and cannot claim a named SKU.
+- `catalog.manage` is required to reserve, release or finalize; renewing or
+  releasing a hold also requires being the admin who holds it.
+- Audit log: `sku.reserved`, `sku.released`, `sku.finalized`.
+
+## SEO Pulse (D-038)
+
+- Every `lib/seo-pulse` entry point calls `requirePermission(…,
+  "catalog.manage")` itself: running research, reading a run or history,
+  exporting, and applying. Creating a site-wide synonym also needs
+  `search.manage`. The routes (`/api/admin/products/[id]/seo-pulse`,
+  `…/apply`, `/api/admin/seo-pulse/runs/[id]`, `…/export`) add nothing to
+  that — a customer, an anonymous caller or a role without catalogue access is
+  refused in `lib/`.
+- Provider credentials (`ANTHROPIC_API_KEY`, `DATAFORSEO_LOGIN`,
+  `DATAFORSEO_PASSWORD`) are read only on the server. The admin screens show
+  whether a provider is configured, never the value. Provider responses are
+  stored on the run and only served to `catalog.manage`.
+- AI output is untrusted input: cleaned, cut to length, stripped of image ids
+  that belong to other products, and parsed against a strict schema before it
+  is stored; suggested description HTML is reduced to a short allow-list of
+  text tags before it is stored and again before it is applied.
+- Applying cannot overwrite a non-empty field unless the request names it,
+  cannot change price, stock, status, category or publication, and only
+  writes photographs that belong to the product.
+- CSV export neutralises cells starting with `=`, `+`, `-` or `@`
+  (spreadsheet formula injection). Exports are `no-store`.
+- Audit log: `seo_pulse.researched`, `seo_pulse.applied`, plus the usual
+  `product.updated` from the save itself.

@@ -67,8 +67,8 @@ export function HeaderShell({
     "--head-fg": "#ffffff",
     "--head-muted": "rgb(255 255 255 / 0.78)",
     "--head-ghost": "rgb(255 255 255 / 0.14)",
-    "--head-line": "rgb(255 255 255 / 0.28)",
-    "--head-field": "rgb(255 255 255 / 0.12)",
+    "--head-line": "rgb(255 255 255 / 0.55)",
+    "--head-field": "rgb(255 255 255 / 0.08)",
     "--veil-dark": "1",
     "--veil-light": "0",
   } as CSSProperties;
@@ -77,8 +77,8 @@ export function HeaderShell({
     "--head-fg": "var(--color-ink)",
     "--head-muted": "rgb(18 35 63 / 0.74)",
     "--head-ghost": "rgb(18 35 63 / 0.07)",
-    "--head-line": "rgb(18 35 63 / 0.22)",
-    "--head-field": "rgb(255 255 255 / 0.55)",
+    "--head-line": "rgb(18 35 63 / 0.3)",
+    "--head-field": "rgb(255 255 255 / 0.28)",
     "--veil-dark": "0",
     "--veil-light": "1",
   } as CSSProperties;

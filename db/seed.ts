@@ -16,10 +16,12 @@ const {
   attributes,
   attributeValues,
   categories,
+  categoryAttributes,
   productAttributes,
   productImages,
   products,
   productVariants,
+  searchSynonyms,
   siteSettings,
   users,
   variantOptionValues,
@@ -39,7 +41,8 @@ export async function seed(db: SeedDatabase) {
       variant_option_values, variant_images, waitlist_entries,
       inventory_adjustments, product_attributes, product_variants,
       product_images, product_related, product_categories, products,
-      categories, attribute_values, attributes, site_settings, users
+      categories, attribute_values, attributes, site_settings, users,
+      search_synonyms, search_queries
     restart identity cascade
   `);
 
@@ -50,6 +53,7 @@ export async function seed(db: SeedDatabase) {
     .values([
       {
         email: "admin@example.com",
+        firstName: "Owner",
         phone: "+8801700000001",
         passwordHash,
         role: "super_admin",
@@ -64,6 +68,8 @@ export async function seed(db: SeedDatabase) {
       },
       {
         email: "customer@example.com",
+        firstName: "Nadia",
+        lastName: "Rahman",
         phone: "+8801700000003",
         passwordHash,
         role: "customer",
@@ -212,11 +218,46 @@ export async function seed(db: SeedDatabase) {
           "Fixed landed price — shipping and duty already included",
         ],
         specTable: [
-          { label: "Impedance", value: "250 ohm" },
           { label: "Weight", value: "295 g" },
           { label: "Origin", value: "United States" },
         ],
         tags: ["audio", "preorder"],
+        sku: "NL-STUDIO",
+        identifierType: "upc",
+        identifierValue: "0812345678901",
+        boxContents: [
+          "1 x Studio Reference Headphones",
+          "1 x 3 m coiled cable",
+          "1 x 6.35 mm adapter",
+          "1 x hard carrying case",
+        ],
+        warranty: {
+          hasWarranty: true,
+          durationMonths: 24,
+          type: "Manufacturer",
+          provider: "Northline Audio",
+          description:
+            "Covers manufacturing defects in the drivers, headband and cable.",
+          terms:
+            "Claims are handled through us. Return the headphones with the order number; wear to the earpads is not covered.",
+        },
+        compliance: {
+          certifications: [{ name: "CE", number: "CE-2291-A" }, { name: "RoHS" }],
+          safety:
+            "Sustained listening above 85 dB can damage hearing. Take a break every hour.",
+          countryOfOrigin: "United States",
+        },
+        details: {
+          manufacturer: "Northline Audio",
+          modelName: "Studio Reference",
+          modelNumber: "NL-SR250",
+          material: "Aluminium and velour",
+          itemWeight: "295 g",
+          packageWeight: "1.1 kg",
+          intendedUse: "Mixing and critical listening",
+          careInstructions: "Wipe the earpads with a dry cloth.",
+        },
+        searchKeywords: ["open back", "monitoring", "250 ohm"],
         seoMetaTitle: "Studio Reference Headphones — preorder from the US",
         seoMetaDescription:
           "Preorder open-back studio reference headphones from the US, delivered in Bangladesh.",
@@ -238,7 +279,55 @@ export async function seed(db: SeedDatabase) {
       altText: "Open-back studio reference headphones, three-quarter view",
       sortOrder: 0,
     },
+    {
+      productId: headphoneProduct.id,
+      url: "/seed/portable-dac-and-amplifier.svg",
+      altText: "The headphones beside a portable amplifier",
+      sortOrder: 1,
+    },
+    {
+      productId: headphoneProduct.id,
+      url: "/seed/desktop-studio-monitors-pair.svg",
+      altText: "The headphones on a desk between a pair of studio monitors",
+      sortOrder: 0,
+      kind: "lifestyle",
+    },
   ]);
+
+  /*
+   * Specifications defined on a category rather than on the product — the
+   * arrangement that lets a new shelf describe itself without a migration.
+   * Defined on the parent, answered by a product two levels down.
+   */
+  const [impedance, backing] = await db
+    .insert(categoryAttributes)
+    .values([
+      {
+        categoryId: electronics.id,
+        name: "Impedance",
+        dataType: "number",
+        unit: "ohm",
+        sortOrder: 0,
+      },
+      {
+        categoryId: overEar.id,
+        name: "Earcup backing",
+        dataType: "select",
+        options: ["Open", "Closed", "Semi-open"],
+        sortOrder: 0,
+      },
+    ])
+    .returning();
+
+  await db
+    .update(products)
+    .set({
+      attributeValues: {
+        [impedance.id]: "250",
+        [backing.id]: "Open",
+      },
+    })
+    .where(sql`${products.id} = ${headphoneProduct.id}`);
 
   await db.insert(productAttributes).values([
     { productId: candyProduct.id, attributeId: flavor.id, sortOrder: 0 },
@@ -276,6 +365,11 @@ export async function seed(db: SeedDatabase) {
         productId: headphoneProduct.id,
         sku: `NL-STUDIO-${i + 1}`,
         priceBdt: taka(31500),
+        // The first colourway is on offer, so the sale price, the struck
+        // through regular price and the discount badge all have something
+        // real behind them.
+        salePriceBdt: i === 0 ? taka(28900) : null,
+        saleEndsAt: i === 0 ? closesAt : null,
         costPriceUsd: 21000,
         weightGrams: 295,
         fulfillmentMode: "preorder" as const,
@@ -302,6 +396,10 @@ export async function seed(db: SeedDatabase) {
       attributeValueId: colorValues[i].id,
     })),
   ]);
+
+  // Options belong to the product they describe (migration 0020, D-040):
+  // the shared Flavor and Color above become each product's own.
+  await db.execute("select scope_product_attributes()");
 
   /**
    * A wider catalogue.
@@ -815,6 +913,25 @@ export async function seed(db: SeedDatabase) {
       };
     }),
   );
+
+  /*
+   * A handful of synonyms for this catalogue's own vocabulary — the words a
+   * Bangladeshi shopper uses for goods the American listings name
+   * differently. Configuration, not data: staff edit or remove them at
+   * /admin/search, and none maps one kind of product onto another.
+   */
+  console.log("Seeding search synonyms...");
+  await db
+    .insert(searchSynonyms)
+    .values([
+      { term: "sweets", synonyms: ["candy"], bidirectional: true, createdBy: staffAdmin.id },
+      { term: "earbuds", synonyms: ["earphones"], bidirectional: true, createdBy: staffAdmin.id },
+      { term: "flask", synonyms: ["carafe", "thermos"], bidirectional: false, createdBy: staffAdmin.id },
+      { term: "rucksack", synonyms: ["daypack", "backpack"], bidirectional: false, createdBy: staffAdmin.id },
+      { term: "frying pan", synonyms: ["skillet"], bidirectional: false, createdBy: staffAdmin.id },
+      { term: "sunblock", synonyms: ["sunscreen"], bidirectional: true, createdBy: staffAdmin.id },
+    ])
+    .onConflictDoNothing();
 
   console.log("Seeding site settings...");
   await db.insert(siteSettings).values([

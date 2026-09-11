@@ -1,223 +1,279 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { StatusBadge } from "@/components/status-badge";
-import { getCurrentUser } from "@/lib/auth";
-import { listCancellationRequests, listOrdersForStaff } from "@/lib/orders";
+import { requireAdminPage } from "@/lib/auth/admin-page";
+import { listCancellationRequests, searchOrdersForStaff } from "@/lib/orders";
 import { formatBdt } from "@/lib/money";
 import { formatShortDate } from "@/lib/format";
-import type { OrderStatus } from "@/db/schema";
+import { ORDER_STATUSES, type OrderStatus } from "@/db/schema";
+import { ORDER_STATUS_LABELS, orderStatusTone, paymentLabel } from "../order-status";
 
 export const metadata: Metadata = { title: "Orders" };
 export const dynamic = "force-dynamic";
 
-/*
- * "Cancellation requested" is not an order status — the order carries on in
- * whatever stage it was in while somebody decides. It is a queue of orders
- * whose shoppers have asked to stop, which is a different question from where
- * an order has got to, and it sits first because it is the only filter here
- * that is waiting on a person.
+const PAGE_SIZE = 50;
+
+const SORTS = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "total_desc", label: "Highest total" },
+  { value: "total_asc", label: "Lowest total" },
+] as const;
+
+type Sort = (typeof SORTS)[number]["value"];
+
+function parseDay(value: unknown): Date | undefined {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+/**
+ * Every order, searchable and filterable.
+ *
+ * The state lives in the address, so a filtered list can be bookmarked or
+ * sent to a colleague. "Cancellation requested" is not a status — the order
+ * carries on while somebody decides — so it is its own view, first, because
+ * it is the only one waiting on a person.
  */
-type Filter = OrderStatus | "all" | "cancellation_requested";
-
-const FILTERS: { value: Filter; label: string }[] = [
-  { value: "cancellation_requested", label: "Cancellation requested" },
-  { value: "all", label: "All" },
-  { value: "placed", label: "Awaiting payment" },
-  { value: "payment_confirmed", label: "Paid" },
-  { value: "sourcing", label: "Sourcing" },
-  { value: "shipped_from_us", label: "Shipped from US" },
-  { value: "in_bd_customs", label: "In customs" },
-  { value: "out_for_delivery", label: "Out for delivery" },
-  { value: "delivered", label: "Delivered" },
-  { value: "cancelled", label: "Cancelled" },
-  { value: "refunded", label: "Refunded" },
-];
-
-const LABELS: Record<string, string> = Object.fromEntries(
-  FILTERS.map((filter) => [filter.value, filter.label]),
-);
-
 export default async function AdminOrdersPage({
   searchParams,
 }: PageProps<"/admin/orders">) {
+  const user = await requireAdminPage("orders.view");
   const params = await searchParams;
+
   const status = typeof params.status === "string" ? params.status : "all";
+  const q = typeof params.q === "string" ? params.q.slice(0, 80) : "";
+  const sort: Sort = SORTS.some((option) => option.value === params.sort)
+    ? (params.sort as Sort)
+    : "newest";
+  const fromDay = typeof params.from === "string" ? params.from : "";
+  const toDay = typeof params.to === "string" ? params.to : "";
+  const from = parseDay(fromDay);
+  const toStart = parseDay(toDay);
+  const to = toStart ? new Date(toStart.getTime() + 24 * 60 * 60 * 1000) : undefined;
+  const page = Math.max(1, Number(params.page) || 1);
 
-  const user = await getCurrentUser();
   const showingRequests = status === "cancellation_requested";
+  const validStatus = (ORDER_STATUSES as readonly string[]).includes(status)
+    ? (status as OrderStatus)
+    : undefined;
 
-  const requests = showingRequests
-    ? await listCancellationRequests(user)
-    : [];
-  const orders = showingRequests
-    ? []
-    : await listOrdersForStaff(
-        user,
-        status === "all" ? {} : { status: status as OrderStatus },
-      );
+  const [requests, result] = await Promise.all([
+    listCancellationRequests(user),
+    showingRequests
+      ? null
+      : searchOrdersForStaff(user, {
+          q,
+          status: validStatus,
+          from,
+          to,
+          sort,
+          limit: PAGE_SIZE,
+          offset: (page - 1) * PAGE_SIZE,
+        }),
+  ]);
 
-  // The count sits on the tab whether or not it is the one being viewed, so a
-  // waiting customer is visible from any of them.
-  const waitingCount = (await listCancellationRequests(user)).length;
+  const keep = (overrides: Record<string, string | null>) => {
+    const next = new URLSearchParams();
+    const base: Record<string, string> = { status, q, sort, from: fromDay, to: toDay };
+    for (const [key, value] of Object.entries({ ...base, ...overrides })) {
+      if (value && !(key === "status" && value === "all") && !(key === "sort" && value === "newest")) {
+        next.set(key, value);
+      }
+    }
+    const query = next.toString();
+    return query ? `/admin/orders?${query}` : "/admin/orders";
+  };
+
+  const pages = result ? Math.max(1, Math.ceil(result.total / PAGE_SIZE)) : 1;
+  const filtered = Boolean(q || validStatus || from || to);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
-          <span aria-hidden="true" className="h-px w-8 bg-brass" />
-          Operations
-        </p>
-        <h1 className="mt-2 font-display text-h1 text-ink">Orders</h1>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="admin-h1">Orders</h1>
+          <p className="mt-0.5 text-meta text-ink/70">
+            {showingRequests
+              ? `${requests.length} waiting on a decision`
+              : `${result?.total ?? 0} order${result?.total === 1 ? "" : "s"}${filtered ? " match" : ""}`}
+          </p>
+        </div>
       </div>
 
-      <nav aria-label="Filter by status">
-        <ul className="flex flex-wrap gap-2">
-          {FILTERS.map((filter) => (
+      <nav aria-label="Filter by status" className="-mx-1 overflow-x-auto px-1">
+        <ul className="flex gap-1.5 whitespace-nowrap">
+          <li>
+            <Link
+              href={keep({ status: "cancellation_requested", page: null })}
+              aria-current={showingRequests ? "true" : undefined}
+              className="admin-chip"
+            >
+              Cancellation requested
+              {requests.length > 0 ? (
+                <span className="ml-1 inline-flex min-w-5 justify-center rounded-full bg-stamp-red-text px-1 text-[0.6875rem] font-bold text-paper">
+                  {requests.length}
+                </span>
+              ) : null}
+            </Link>
+          </li>
+          {[{ value: "all", label: "All" }, ...ORDER_STATUSES.map((value) => ({ value, label: ORDER_STATUS_LABELS[value] ?? value }))].map((filter) => (
             <li key={filter.value}>
               <Link
-                href={`/admin/orders?status=${filter.value}`}
-                aria-current={status === filter.value ? "page" : undefined}
-                className={`inline-flex min-h-11 items-center rounded-control border px-3 text-meta ${
-                  status === filter.value
-                    ? "border-blue-600 text-blue-600"
-                    : "border-blue-300 text-ink"
-                }`}
+                href={keep({ status: filter.value, page: null })}
+                aria-current={status === filter.value ? "true" : undefined}
+                className="admin-chip"
               >
                 {filter.label}
-                {filter.value === "cancellation_requested" &&
-                waitingCount > 0 ? (
-                  <span className="ml-2 inline-flex min-w-5 items-center justify-center rounded-card bg-stamp-red px-1 font-medium tabular-nums text-paper">
-                    {waitingCount}
-                  </span>
-                ) : null}
               </Link>
             </li>
           ))}
         </ul>
       </nav>
 
+      {!showingRequests ? (
+        <form method="get" className="admin-card flex flex-wrap items-end gap-3 p-3" role="search">
+          {validStatus ? <input type="hidden" name="status" value={validStatus} /> : null}
+          <label className="flex min-w-0 flex-1 basis-56 flex-col gap-1 text-[0.75rem] font-medium text-ink/70">
+            Search
+            <input name="q" defaultValue={q} placeholder="Order number, name, email or phone" className="admin-input" />
+          </label>
+          <label className="flex flex-col gap-1 text-[0.75rem] font-medium text-ink/70">
+            From
+            <input type="date" name="from" defaultValue={fromDay} className="admin-input" />
+          </label>
+          <label className="flex flex-col gap-1 text-[0.75rem] font-medium text-ink/70">
+            To
+            <input type="date" name="to" defaultValue={toDay} className="admin-input" />
+          </label>
+          <label className="flex flex-col gap-1 text-[0.75rem] font-medium text-ink/70">
+            Sort
+            <select name="sort" defaultValue={sort} className="admin-input">
+              {SORTS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="submit" className="min-h-9 rounded-control bg-blue-600 px-4 text-meta font-semibold text-paper hover:bg-blue-500">
+            Apply
+          </button>
+          {filtered ? (
+            <Link href="/admin/orders" className="min-h-9 content-center text-meta text-blue-600 hover:underline">
+              Clear
+            </Link>
+          ) : null}
+        </form>
+      ) : null}
+
       {showingRequests ? (
         requests.length === 0 ? (
-          <div className="surface-paper rounded-card border border-blue-300 p-8">
-            <p className="text-body text-ink">
-              Nobody is waiting on a cancellation.
-            </p>
+          <div className="admin-card">
+            <p className="text-meta text-ink">Nobody is waiting on a cancellation.</p>
           </div>
         ) : (
-          <ul className="flex flex-col gap-4">
+          <ul className="flex flex-col gap-3">
             {requests.map((request) => (
-              <li
-                key={request.id}
-                className="border border-blue-300 bg-paper p-4"
-              >
+              <li key={request.id} className="admin-card">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <Link
-                      href={`/admin/orders/${request.id}`}
-                      className="font-display text-h3 tabular-nums text-blue-600 hover:underline"
-                    >
+                    <Link href={`/admin/orders/${request.id}`} className="font-semibold tabular-nums text-blue-600 hover:underline">
                       {request.orderNumber}
                     </Link>
-                    <p className="mt-1 text-meta text-ink/70">
-                      Asked{" "}
-                      {request.requestedAt
-                        ? formatShortDate(request.requestedAt)
-                        : "—"}
-                      {" · currently "}
-                      {LABELS[request.status] ?? request.status}
+                    <p className="mt-0.5 text-meta text-ink/70">
+                      Asked {request.requestedAt ? formatShortDate(request.requestedAt) : "—"} · currently{" "}
+                      {ORDER_STATUS_LABELS[request.status] ?? request.status}
                     </p>
                   </div>
-                  <p className="tabular-nums text-ink">
-                    {formatBdt(request.totalBdt)}
-                  </p>
+                  <p className="font-semibold tabular-nums text-ink">{formatBdt(request.totalBdt)}</p>
                 </div>
-
-                {/* The customer's own words, which is usually what decides it. */}
-                <p className="mt-3 max-w-[70ch] border-l-2 border-brass pl-3 text-body text-ink/80">
-                  {request.reason?.trim()
-                    ? request.reason
-                    : "No reason given."}
-                </p>
-
-                <p className="mt-3 text-meta text-ink/70">
-                  Open the order to approve or decline this.
+                <p className="mt-2 max-w-[70ch] border-l-2 border-brass pl-3 text-meta text-ink/80">
+                  {request.reason?.trim() ? request.reason : "No reason given."}
                 </p>
               </li>
             ))}
           </ul>
         )
-      ) : orders.length === 0 ? (
-        <div className="surface-paper rounded-card border border-blue-300 p-8">
-          <p className="text-body text-ink">No orders with that status.</p>
+      ) : result && result.orders.length === 0 ? (
+        <div className="admin-card">
+          <p className="text-meta text-ink">{filtered ? "No orders match those filters." : "No orders yet."}</p>
         </div>
-      ) : (
-        <div className="overflow-x-auto rounded-card border border-blue-300 shadow-[var(--shadow-raise)]">
-          <table className="w-full min-w-[720px] border-collapse text-body">
+      ) : result ? (
+        <div className="admin-card relative overflow-x-auto p-0">
+          <table className="admin-table min-w-[900px]">
             <thead>
-              <tr className="bg-paper-raised text-left">
-                <th scope="col" className="px-4 py-3 text-meta font-medium">
-                  Order
-                </th>
-                <th scope="col" className="px-4 py-3 text-meta font-medium">
-                  Placed
-                </th>
-                <th scope="col" className="px-4 py-3 text-meta font-medium">
-                  Customer
-                </th>
-                <th scope="col" className="px-4 py-3 text-meta font-medium">
-                  Status
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-3 text-right text-meta font-medium"
-                >
-                  Total
-                </th>
+              <tr>
+                <th scope="col">Order</th>
+                <th scope="col">Customer</th>
+                <th scope="col">Items</th>
+                <th scope="col">Status</th>
+                <th scope="col">Payment</th>
+                <th scope="col" className="text-right">Total</th>
               </tr>
             </thead>
             <tbody>
-              {orders.map((order, index) => (
-                <tr
-                  key={order.id}
-                  className={index % 2 === 1 ? "bg-blue-200/40" : undefined}
-                >
-                  <td className="border-t border-blue-300 px-4 py-3">
-                    <Link
-                      href={`/admin/orders/${order.id}`}
-                      className="tabular-nums text-blue-600 hover:underline"
-                    >
+              {result.orders.map((order) => (
+                <tr key={order.id}>
+                  <td className="whitespace-nowrap">
+                    <Link href={`/admin/orders/${order.id}`} className="font-semibold tabular-nums text-blue-600 hover:underline">
                       {order.orderNumber}
                     </Link>
+                    <span className="block text-ink/70">{formatShortDate(order.placedAt)}</span>
                   </td>
-                  <td className="border-t border-blue-300 px-4 py-3 text-meta text-ink/70">
-                    {formatShortDate(order.placedAt)}
+                  <td className="max-w-[16rem]">
+                    <span className="block truncate text-ink">
+                      {order.customerName ?? order.customerEmail ?? "—"}
+                    </span>
+                    <span className="block truncate text-ink/70">
+                      {order.isGuest ? "Guest checkout" : order.customerName ? order.customerEmail : "Account"}
+                    </span>
                   </td>
-                  <td className="border-t border-blue-300 px-4 py-3 text-meta text-ink/70">
-                    {order.guestEmail ?? (order.userId ? "Account" : "—")}
+                  <td className="max-w-[18rem]">
+                    <span className="block truncate text-ink">{order.firstTitle ?? "—"}</span>
+                    <span className="block text-ink/70">
+                      {order.itemCount} item{order.itemCount === 1 ? "" : "s"}
+                      {order.lines > 1 ? ` · ${order.lines} products` : ""}
+                      {order.hasPreorder ? " · preorder" : ""}
+                    </span>
                   </td>
-                  <td className="border-t border-blue-300 px-4 py-3">
-                    <StatusBadge
-                      tone={
-                        order.status === "delivered"
-                          ? "positive"
-                          : order.status === "cancelled" ||
-                              order.status === "refunded"
-                            ? "negative"
-                            : "preorder"
-                      }
-                    >
-                      {LABELS[order.status] ?? order.status}
-                    </StatusBadge>
+                  <td>
+                    <div className="flex flex-col items-start gap-1">
+                      <StatusBadge tone={orderStatusTone(order.status)}>
+                        {ORDER_STATUS_LABELS[order.status] ?? order.status}
+                      </StatusBadge>
+                      {order.cancellationRequestedAt && order.status !== "cancelled" && order.status !== "refunded" ? (
+                        <span className="text-[0.6875rem] font-semibold text-stamp-red-text">Cancellation requested</span>
+                      ) : null}
+                    </div>
                   </td>
-                  <td className="border-t border-blue-300 px-4 py-3 text-right tabular-nums">
-                    {formatBdt(order.totalBdt)}
-                  </td>
+                  <td className="whitespace-nowrap text-ink/75">{paymentLabel(order)}</td>
+                  <td className="text-right font-semibold tabular-nums">{formatBdt(order.totalBdt)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      )}
+      ) : null}
+
+      {result && pages > 1 ? (
+        <nav aria-label="Pages" className="flex items-center gap-3 text-meta">
+          {page > 1 ? (
+            <Link href={keep({ page: String(page - 1) })} className="text-blue-600 hover:underline">
+              Previous
+            </Link>
+          ) : null}
+          <span className="text-ink/70">
+            Page {page} of {pages}
+          </span>
+          {page < pages ? (
+            <Link href={keep({ page: String(page + 1) })} className="text-blue-600 hover:underline">
+              Next
+            </Link>
+          ) : null}
+        </nav>
+      ) : null}
     </div>
   );
 }

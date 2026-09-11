@@ -26,30 +26,33 @@ async function signIn(page: Page, email: string) {
   await page.waitForURL((url) => !url.pathname.startsWith("/login"));
 }
 
-/** Creates a draft, which lands on the wizard, and returns its id. */
+/** Creates a draft, which lands on its editor, and returns its id. */
 async function startWizard(page: Page): Promise<{ id: string; title: string }> {
   const title = `Wizard ${crypto.randomUUID().slice(0, 8)}`;
 
   await page.goto("/admin/products/new");
   await page.getByLabel("Title").fill(title);
   await page.getByRole("button", { name: "Save product" }).click();
-  await page.waitForURL((url) => url.pathname.includes("/wizard"));
+  // Creating opens the product editor.
+  await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
 
   const id = new URL(page.url()).pathname.split("/")[3];
   return { id, title };
 }
 
-test("creating a product opens the wizard rather than a list", async ({
+test("creating a product opens its editor as a draft, with the wizard a link away", async ({
   page,
 }) => {
   await signIn(page, "staff@example.com");
-  const { title } = await startWizard(page);
+  const { id, title } = await startWizard(page);
 
-  await expect(
-    page.getByRole("heading", { name: "Set up this product", level: 1 }),
-  ).toBeVisible();
-  await expect(page.getByText(title)).toBeVisible();
-  await expect(page).toHaveURL(/step=images/);
+  await expect(page.getByRole("heading", { name: title, level: 1 })).toBeVisible();
+  await expect(page.getByText(/Draft created/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Publish now" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Guided setup" })).toHaveAttribute(
+    "href",
+    `/admin/products/${id}/wizard?step=basics`,
+  );
 });
 
 test("staff walk a product from draft to live", async ({ page }) => {
@@ -84,13 +87,14 @@ test("staff walk a product from draft to live", async ({ page }) => {
   await page.getByRole("link", { name: "Continue" }).click();
   await page.waitForURL(/step=variations/);
 
-  // Variations: no attributes selected still produces one variant to sell.
+  // Variations: no variant group still produces one variant to sell.
   const generated = page.waitForResponse(
     (r) =>
       r.url().includes("/api/admin/variants") &&
       r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: /Generate/ }).click();
+  await page.getByLabel("Price (৳)").first().fill("1850");
+  await page.getByRole("button", { name: "Set price" }).click();
   expect((await generated).status()).toBe(200);
 
   await page.goto(`/admin/products/${id}/wizard?step=pricing`);
@@ -158,7 +162,7 @@ test("an unfinished product cannot be published", async ({ page }) => {
   }, id);
 
   expect(result.status).toBe(409);
-  expect(result.body.error).toMatch(/not ready to publish/i);
+  expect(result.body.error).toMatch(/attention before publishing/i);
 });
 
 test("every step is reachable in any order", async ({ page }) => {

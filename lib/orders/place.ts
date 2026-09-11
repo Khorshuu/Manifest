@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { effectivePriceSql } from "@/lib/catalog/price";
 import {
   addresses,
   cartItems,
@@ -173,7 +174,9 @@ export async function placeOrder(
         variantId: cartItems.variantId,
         quantity: cartItems.quantity,
         title: products.title,
-        priceBdt: productVariants.priceBdt,
+        /* The charged price, read inside the transaction that places the
+           order — a sale that ended a second ago is not honoured. */
+        priceBdt: effectivePriceSql,
         fulfillmentMode: productVariants.fulfillmentMode,
         paymentMode: productVariants.paymentMode,
         depositPercent: productVariants.depositPercent,

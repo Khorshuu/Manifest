@@ -75,18 +75,20 @@ async function createDepositProduct(page: Page): Promise<string> {
   await page.getByLabel("Title").fill(title);
   await page.getByLabel("Status").selectOption("preorder_open");
   await page.getByRole("button", { name: "Save product" }).click();
-  await page.waitForURL((url) => url.pathname.includes("/wizard"));
-  const productUrl = page.url().replace(/\/wizard.*$/, "");
+  // Creating opens the product editor.
+  await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
+  const productUrl = page.url().split("?")[0];
 
   // One plain variant, priced, then put on a 40% deposit with real capacity.
   await page.goto(`${productUrl}/variants`);
-  await page.getByLabel("Starting price (৳)").fill("10000");
+  // No variant group: one plain variant, created with its price.
+  await page.getByLabel("Price (৳)").first().fill("10000");
   const generated = page.waitForResponse(
     (r) =>
       r.url().includes("/api/admin/variants") &&
       r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Generate variants" }).click();
+  await page.getByRole("button", { name: "Set price" }).click();
   await generated;
 
   // The id is read off the windows screen rather than out of the generate

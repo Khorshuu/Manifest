@@ -10,6 +10,8 @@ export type SessionUser = {
   id: string;
   email: string;
   role: UserRole;
+  /** For greeting only. Absent on accounts created before names were asked. */
+  firstName?: string | null;
 };
 
 export type Session = {
@@ -121,6 +123,7 @@ export async function validateSessionToken(
       userId: users.id,
       email: users.email,
       role: users.role,
+      firstName: users.firstName,
     })
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
@@ -147,6 +150,7 @@ export async function validateSessionToken(
       id: row.userId,
       email: row.email,
       role: row.role as UserRole,
+      firstName: row.firstName,
     },
   };
 }

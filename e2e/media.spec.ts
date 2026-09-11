@@ -27,6 +27,17 @@ async function signIn(page: Page, email: string) {
   await page.waitForURL((url) => !url.pathname.startsWith("/login"));
 }
 
+/**
+ * Opens one section of the product editor: the editor is one page of
+ * sections (D-040), and the jump bar at the top scrolls to any of them.
+ */
+async function openSection(page: Page, label: string) {
+  await page
+    .getByRole("navigation", { name: "Product sections" })
+    .getByRole("button", { name: new RegExp(label) })
+    .click();
+}
+
 /** Creates a product and returns its admin page URL. */
 async function createProduct(page: Page): Promise<string> {
   const title = `Photo Test ${crypto.randomUUID().slice(0, 8)}`;
@@ -35,8 +46,9 @@ async function createProduct(page: Page): Promise<string> {
   await page.getByRole("button", { name: "Save product" }).click();
 
   // Creating opens the setup wizard; these tests want the product page.
-  await page.waitForURL((url) => url.pathname.includes("/wizard"));
-  await page.goto(page.url().replace(/\/wizard.*$/, ""));
+  // Creating opens the product editor.
+  await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
+  await page.goto(page.url().split("?")[0]);
 
   return page.url();
 }
@@ -46,6 +58,9 @@ test("staff upload a photograph and it appears on the product", async ({
 }) => {
   await signIn(page, "staff@example.com");
   await createProduct(page);
+
+  // Photography lives in the editor's Media panel.
+  await openSection(page, "Media");
 
   await expect(page.getByText("No photography yet.")).toBeVisible();
 
@@ -186,8 +201,12 @@ test("an uploaded photograph reaches the storefront", async ({ page }) => {
   await page.getByLabel("Status").selectOption("preorder_open");
   await page.getByRole("button", { name: "Save product" }).click();
 
-  await page.waitForURL((url) => url.pathname.includes("/wizard"));
-  await page.goto(page.url().replace(/\/wizard.*$/, ""));
+  // Creating opens the product editor.
+  await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
+  await page.goto(page.url().split("?")[0]);
+
+  // Photography lives in the editor's Media panel.
+  await openSection(page, "Media");
 
   await page.getByLabel("Photograph", { exact: true }).setInputFiles({
     name: "product.png",

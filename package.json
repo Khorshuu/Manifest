@@ -21,6 +21,7 @@
     "test:e2e:prod": "tsx e2e/prepare-db.ts && next build && cross-env E2E_PRODUCTION=1 playwright test"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
     "@node-rs/argon2": "^2.2.0",
     "drizzle-orm": "^0.45.2",
     "framer-motion": "^13.2.0",
@@ -58,5 +59,8 @@
     "esbuild@0.28.2": true,
     "unrs-resolver@1.12.2": true,
     "@embedded-postgres/windows-x64@18.4.0-beta.17": true
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

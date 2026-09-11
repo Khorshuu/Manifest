@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { addresses, orders, users } from "@/db/schema";
+import { addresses, orders, searchHistory, users } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { requireSuperAdmin } from "@/lib/auth/authorize";
 import { invalidateAllUserSessions } from "@/lib/auth/session";
@@ -74,6 +74,9 @@ export async function anonymiseCustomer(
         updatedAt: new Date(),
       })
       .where(eq(addresses.userId, userId));
+
+    // What they searched for is theirs, and has no financial reason to stay.
+    await tx.delete(searchHistory).where(eq(searchHistory.userId, userId));
 
     // Guest contact details recorded on the orders themselves.
     await tx

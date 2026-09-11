@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { siteSettings } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
-import { requireStaff, requireSuperAdmin } from "@/lib/auth/authorize";
+import { requireStaff, requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
 /**
@@ -159,7 +159,7 @@ export async function updateSetting(
   key: string,
   value: unknown,
 ) {
-  const admin = requireSuperAdmin(actor);
+  const admin = requirePermission(actor, "settings.manage");
 
   if (!SETTING_KEYS.includes(key as SettingKey)) {
     throw new SettingError("That is not a setting.");

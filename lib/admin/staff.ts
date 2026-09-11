@@ -1,8 +1,12 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { users, type UserRole } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
-import { requireSuperAdmin } from "@/lib/auth/authorize";
+import {
+  requirePermission,
+  STAFF_ROLES,
+  type StaffRole,
+} from "@/lib/auth/authorize";
 import { hashPassword } from "@/lib/auth/password";
 import { invalidateAllUserSessions } from "@/lib/auth/session";
 import type { SessionUser } from "@/lib/auth/session";
@@ -10,9 +14,18 @@ import type { SessionUser } from "@/lib/auth/session";
 /**
  * Staff and role management.
  *
- * Every function here is super-admin only: managing other admins is one of the
- * three gated actions listed in docs/BUSINESS_LOGIC.md.
+ * Every function here needs `staff.manage`, which only the owner holds:
+ * managing other admins is one of the gated actions listed in
+ * docs/BUSINESS_LOGIC.md.
  */
+
+/**
+ * The shortest temporary password a staff account may be given. Eight, at the
+ * owner's request (DECISIONS.md D-034); the other protections are unchanged —
+ * argon2id hashing, login rate limiting, and the second factor every staff
+ * account is asked to set up.
+ */
+export const STAFF_PASSWORD_MIN = 8;
 
 export class StaffError extends Error {
   readonly status = 409;
@@ -24,25 +37,29 @@ export class StaffError extends Error {
 }
 
 export async function listStaff(actor: SessionUser | null) {
-  requireSuperAdmin(actor);
+  requirePermission(actor, "staff.manage");
 
   return db
     .select({
       id: users.id,
       email: users.email,
+      firstName: users.firstName,
       role: users.role,
       createdAt: users.createdAt,
     })
     .from(users)
-    .where(sql`${users.role} in ('super_admin', 'staff_admin')`)
+    .where(inArray(users.role, [...STAFF_ROLES]))
     .orderBy(desc(users.createdAt));
 }
 
 export async function createStaffAccount(
   actor: SessionUser | null,
-  input: { email: string; password: string; role: "staff_admin" | "super_admin" },
+  input: { email: string; password: string; role: StaffRole; firstName?: string },
 ) {
-  const admin = requireSuperAdmin(actor);
+  if (input.password.length < STAFF_PASSWORD_MIN) {
+    throw new StaffError(`Use at least ${STAFF_PASSWORD_MIN} characters.`);
+  }
+  const admin = requirePermission(actor, "staff.manage");
 
   const existing = await db
     .select({ id: users.id })
@@ -61,6 +78,7 @@ export async function createStaffAccount(
       .insert(users)
       .values({
         email: input.email,
+        firstName: input.firstName?.trim() || null,
         passwordHash,
         role: input.role,
         emailVerifiedAt: new Date(),
@@ -94,7 +112,7 @@ export async function changeRole(
   userId: string,
   role: UserRole,
 ) {
-  const admin = requireSuperAdmin(actor);
+  const admin = requirePermission(actor, "staff.manage");
 
   if (userId === admin.id) {
     throw new StaffError(
@@ -155,7 +173,7 @@ export async function listCustomers(
   actor: SessionUser | null,
   options: { limit?: number } = {},
 ) {
-  requireSuperAdmin(actor);
+  requirePermission(actor, "customers.view");
 
   return db
     .select({

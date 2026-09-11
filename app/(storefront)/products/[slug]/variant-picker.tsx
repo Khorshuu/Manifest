@@ -13,12 +13,38 @@ import {
   IconSeal,
 } from "@/components/icons";
 import { StatusBadge } from "@/components/status-badge";
+import { WishlistButton } from "@/components/wishlist-button";
 import { formatBdt } from "@/lib/money";
+
+/**
+ * One word for one state, shared with the admin side through
+ * lib/catalog/price.ts — the buy box and the stock table must never describe
+ * the same variant differently.
+ */
+const STOCK_LABELS: Record<string, string> = {
+  in_stock: "In stock",
+  low_stock: "Low stock",
+  out_of_stock: "Out of stock",
+  preorder: "Preorder",
+  preorder_full: "Full",
+  closed: "Closed",
+};
 
 export type PickerVariant = {
   id: string;
   label: string;
+  /** The variant's own photograph, shown in the gallery when it is chosen. */
+  imageUrl: string | null;
+  /** What it costs today — a live sale price, or the regular one. */
   priceBdt: number;
+  /** The regular price, shown struck through only while a sale is live. */
+  listPriceBdt: number;
+  /** Whole percent off, or null when nothing is off. */
+  discountPercent: number | null;
+  /** When the sale ends, if it does. Already formatted. */
+  saleEndsLabel: string | null;
+  /** in_stock | low_stock | out_of_stock | preorder | preorder_full | closed */
+  stockState: string;
   fulfillmentMode: string;
   remaining: number | null;
   /** Every place in the batch, taken or not. Null when nothing is capped. */
@@ -44,10 +70,18 @@ export type PickerVariant = {
 export function VariantPicker({
   variants,
   serverNow,
+  signedIn = false,
+  savedVariantIds = [],
+  returnTo = "/",
 }: {
   variants: PickerVariant[];
   /** The instant the server rendered at — see Countdown. */
   serverNow: number;
+  signedIn?: boolean;
+  /** Which of these options the account already has on its wishlist. */
+  savedVariantIds?: string[];
+  /** Where sign-in brings a guest back to. */
+  returnTo?: string;
 }) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState(variants[0]?.id ?? "");
@@ -145,9 +179,9 @@ export function VariantPicker({
        * indistinguishable from the description further down the page. Giving
        * it a surface is what tells a shopper where the shop is on this page.
        */}
-      <div className="flex flex-col gap-6 rounded-card border border-blue-300 bg-paper p-5 shadow-[var(--shadow-raise)] sm:p-6">
+      <div className="flex flex-col gap-3.5 rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)]">
       {variants.length > 1 ? (
-        <fieldset className="flex flex-col gap-3">
+        <fieldset className="flex flex-col gap-2">
           <legend className="text-meta font-medium text-ink">Choose an option</legend>
           <div className="flex flex-wrap gap-2">
             {variants.map((variant) => {
@@ -161,7 +195,7 @@ export function VariantPicker({
                   /* The radio is visually hidden so the chip can be the
                      control, which means the chip has to carry the focus
                      ring itself. */
-                  className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-control border px-3 text-body transition-[border-color,background-color,box-shadow] duration-150 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brass ${
+                  className={`flex min-h-10 cursor-pointer items-center gap-1.5 rounded-control border px-3 text-meta transition-[border-color,background-color,box-shadow] duration-150 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brass ${
                     chosen
                       ? "border-blue-600 bg-blue-50 font-medium text-blue-600 shadow-[var(--shadow-raise)]"
                       : "border-blue-300 text-ink hover:border-blue-500 hover:bg-blue-50/60"
@@ -172,7 +206,13 @@ export function VariantPicker({
                     name="variant"
                     value={variant.id}
                     checked={chosen}
-                    onChange={() => setSelectedId(variant.id)}
+                    onChange={() => {
+                      setSelectedId(variant.id);
+                      // The gallery shows this variant's own photo, if it has one.
+                      window.dispatchEvent(
+                        new CustomEvent("product:variant-selected", { detail: { imageUrl: variant.imageUrl } }),
+                      );
+                    }}
                     className="sr-only"
                   />
                   {chosen ? (
@@ -189,38 +229,67 @@ export function VariantPicker({
         </fieldset>
       ) : null}
 
-      <div className="flex flex-col gap-2">
-        <p className="font-display text-h1 font-semibold tabular-nums text-ink">
-          {formatBdt(selected.priceBdt)}
-        </p>
-        <p className="flex items-center gap-2 text-meta text-transit-green-text">
-          <IconSeal size={16} className="shrink-0" />
+      <div className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-baseline gap-2.5">
+          <p className="text-[1.625rem] font-extrabold leading-none tracking-[-0.02em] tabular-nums text-ink">
+            {formatBdt(selected.priceBdt)}
+          </p>
+          {selected.discountPercent !== null ? (
+            <>
+              {/* The regular price is stated as what it was, not implied by a
+                  struck-through number alone — a screen reader reads a
+                  line-through as nothing at all. */}
+              <p className="text-body tabular-nums text-ink/60 line-through">
+                <span className="sr-only">Regular price </span>
+                {formatBdt(selected.listPriceBdt)}
+              </p>
+              <StatusBadge tone="positive">
+                Save {selected.discountPercent}%
+              </StatusBadge>
+            </>
+          ) : null}
+        </div>
+        {selected.saleEndsLabel ? (
+          <p className="text-meta text-brass-text">
+            Sale price until {selected.saleEndsLabel}.
+          </p>
+        ) : null}
+        <p className="flex items-center gap-1.5 text-[0.75rem] text-transit-green-text">
+          <IconSeal size={14} className="shrink-0" />
           Shipping and customs duty included.
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2.5">
         <StatusBadge
           tone={
             unavailableReason
               ? "negative"
-              : selected.fulfillmentMode === "preorder"
-                ? "preorder"
-                : "positive"
+              : selected.stockState === "low_stock"
+                ? "warning"
+                : selected.fulfillmentMode === "preorder"
+                  ? "preorder"
+                  : "positive"
           }
         >
-          {unavailableReason
-            ? closed
-              ? "Closed"
-              : "Full"
-            : selected.fulfillmentMode === "preorder"
-              ? "Preorder"
-              : "In stock"}
+          {STOCK_LABELS[selected.stockState] ??
+            (selected.fulfillmentMode === "preorder" ? "Preorder" : "In stock")}
         </StatusBadge>
 
         {selected.remaining !== null && selected.remaining > 0 ? (
           <span className="text-meta text-ink/70">
             {selected.remaining} place{selected.remaining === 1 ? "" : "s"} left
+          </span>
+        ) : null}
+
+        {/* The window, ticking, in one line rather than four large tiles. */}
+        {selected.closesAtIso && !closed ? (
+          <span className="basis-full sm:ml-auto sm:basis-auto">
+            <Countdown
+              variant="inline"
+              closesAt={selected.closesAtIso}
+              serverNow={serverNow}
+            />
           </span>
         ) : null}
       </div>
@@ -239,15 +308,7 @@ export function VariantPicker({
         />
       ) : null}
 
-      {/* The window is the thing a preorder shopper is actually deciding
-          about, so it is shown ticking rather than as a date to work out. */}
-      {selected.closesAtIso && !closed ? (
-        <div className="border-y border-blue-300 py-4">
-          <Countdown closesAt={selected.closesAtIso} serverNow={serverNow} />
-        </div>
-      ) : null}
-
-      <dl className="flex flex-col gap-2 border-b border-blue-300 pb-4 text-meta">
+      <dl className="flex flex-col gap-1 text-meta empty:hidden">
         {arrival ? (
           <div className="flex justify-between gap-4">
             <dt className="text-ink/70">Expected arrival</dt>
@@ -264,10 +325,10 @@ export function VariantPicker({
         ) : null}
       </dl>
 
-      <div className="flex flex-wrap items-end gap-4">
-        <div className="flex flex-col gap-2">
-          <label htmlFor="quantity" className="text-meta font-medium text-ink">
-            Quantity
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <label htmlFor="quantity" className="text-meta font-medium text-ink/75">
+            Qty
           </label>
 
           {/* The same stepper the cart uses: two thumb-sized buttons around a
@@ -277,7 +338,7 @@ export function VariantPicker({
               type="button"
               onClick={() => setQuantity((current) => Math.max(1, current - 1))}
               disabled={quantity <= 1}
-              className="inline-flex size-11 items-center justify-center rounded-l-control text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent"
+              className="inline-flex size-10 items-center justify-center rounded-l-control text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent"
             >
               <IconMinus size={16} />
               <span className="sr-only">One fewer</span>
@@ -292,7 +353,7 @@ export function VariantPicker({
               onChange={(event) =>
                 setQuantity(Math.max(1, Number(event.target.value) || 1))
               }
-              className="h-11 w-14 border-x border-blue-300 bg-transparent text-center text-body tabular-nums [appearance:textfield] focus:shadow-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="h-10 w-12 border-x border-blue-300 bg-transparent text-center text-body tabular-nums [appearance:textfield] focus:shadow-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
 
             <button
@@ -303,7 +364,7 @@ export function VariantPicker({
                 )
               }
               disabled={quantity >= (selected.remaining ?? 99)}
-              className="inline-flex size-11 items-center justify-center rounded-r-control text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent"
+              className="inline-flex size-10 items-center justify-center rounded-r-control text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent"
             >
               <IconPlus size={16} />
               <span className="sr-only">One more</span>
@@ -316,7 +377,6 @@ export function VariantPicker({
         <div className="hidden flex-1 lg:block">
           <Button
             type="button"
-            size="lg"
             className="w-full"
             disabled={Boolean(unavailableReason) || pending}
             onClick={() => addToCart(selected.id)}
@@ -355,6 +415,16 @@ export function VariantPicker({
           </div>
         ) : null}
       </div>
+
+      {/* Keyed on the option, so switching options shows that option's own
+          saved state rather than carrying the last one's. */}
+      <WishlistButton
+        key={selected.id}
+        variantId={selected.id}
+        initiallySaved={savedVariantIds.includes(selected.id)}
+        signedIn={signedIn}
+        returnTo={returnTo}
+      />
       </div>
     </div>
   );

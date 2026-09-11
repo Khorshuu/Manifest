@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { siteSettings } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
-import { requireStaff } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { getMediaProvider, type UploadInput } from "@/lib/providers/media";
 
@@ -145,7 +145,7 @@ export async function updateHeroSettings(
   actor: SessionUser | null,
   patch: unknown,
 ): Promise<HeroSettings> {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "homepage.manage");
 
   const current = await getHeroSettings();
   // Only the fields an editor may type. The image pair is set by uploading or
@@ -175,7 +175,7 @@ export async function replaceHeroImage(
   actor: SessionUser | null,
   input: UploadInput,
 ): Promise<HeroSettings> {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "homepage.manage");
 
   const current = await getHeroSettings();
   const media = getMediaProvider();
@@ -200,7 +200,7 @@ export async function replaceHeroImage(
 export async function clearHeroImage(
   actor: SessionUser | null,
 ): Promise<HeroSettings> {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "homepage.manage");
 
   const current = await getHeroSettings();
   const next = await writeHero(staff, {

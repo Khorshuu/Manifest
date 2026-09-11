@@ -1,127 +1,114 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { getCurrentUser } from "@/lib/auth";
-import { listProductsForAdmin } from "@/lib/catalog";
-import { StatusBadge } from "@/components/status-badge";
+import { LinkButton } from "@/components/button";
+import { requireAdminPage } from "@/lib/auth/admin-page";
+import {
+  getCategoryTree,
+  listProductsForAdmin,
+  PUBLIC_STATUSES,
+  type AdminProductRow,
+  type CategoryNode,
+} from "@/lib/catalog";
+import {
+  DEFAULT_FILTERS,
+  SORTS,
+  STATUS_FILTERS,
+  STOCK_FILTERS,
+  type Filters,
+} from "./filters";
+import { ProductTable, type Inventory } from "./product-table";
 
 export const metadata: Metadata = { title: "Products" };
 export const dynamic = "force-dynamic";
 
-const statusTone = {
-  preorder_open: "preorder",
-  in_stock: "positive",
-  preorder_closed: "negative",
-  discontinued: "negative",
-  archived: "negative",
-} as const;
+function flatten(nodes: CategoryNode[]): { id: string; label: string }[] {
+  return nodes.flatMap((node) => [
+    { id: node.id, label: `${"— ".repeat(node.depth)}${node.name}` },
+    ...flatten(node.children),
+  ]);
+}
 
-const statusLabel: Record<string, string> = {
-  draft: "Draft",
-  scheduled: "Scheduled",
-  in_stock: "In stock",
-  preorder_open: "Preorder open",
-  preorder_closed: "Preorder closed",
-  coming_soon: "Coming soon",
-  discontinued: "Discontinued",
-  archived: "Archived",
-};
+/**
+ * Out of stock: it has variants, and none can be bought — no units on hand,
+ * no preorder places left, no uncapped preorder. Low: at least one variant is
+ * at or below its low-stock line (see listProductsForAdmin).
+ */
+function inventoryOf(row: AdminProductRow): Inventory {
+  if (row.variantCount === 0) return "none";
+  const sellable =
+    (row.stockOnHand ?? 0) > 0 || (row.preorderRemaining ?? 0) > 0 || row.uncappedPreorders > 0;
+  if (!sellable) return "out";
+  return row.lowStockVariants > 0 ? "low" : "in_stock";
+}
 
-export default async function AdminProductsPage() {
-  const user = await getCurrentUser();
-  const rows = await listProductsForAdmin(user, { includeArchived: true });
+function pick<T extends string>(value: string | string[] | undefined, allowed: readonly T[], fallback: T): T {
+  const text = Array.isArray(value) ? value[0] : value;
+  return (allowed as readonly string[]).includes(text ?? "") ? (text as T) : fallback;
+}
+
+/**
+ * Admin → Products: what exists, what is live, what is a draft, what has run
+ * out — and the next step for each, in plain sight.
+ */
+export default async function AdminProductsPage({ searchParams }: PageProps<"/admin/products">) {
+  const user = await requireAdminPage("catalog.manage");
+  const query = await searchParams;
+  const [rows, tree] = await Promise.all([
+    listProductsForAdmin(user, { includeArchived: true }),
+    getCategoryTree(),
+  ]);
+
+  const initial: Filters = {
+    q: typeof query.q === "string" ? query.q.slice(0, 100) : "",
+    status: pick(query.status, STATUS_FILTERS, DEFAULT_FILTERS.status),
+    stock: pick(query.stock, STOCK_FILTERS, DEFAULT_FILTERS.stock),
+    category: typeof query.category === "string" ? query.category : "",
+    sort: pick(query.sort, SORTS, DEFAULT_FILTERS.sort),
+  };
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="flex items-center gap-3 text-meta uppercase tracking-[0.18em] text-brass-text">
-          <span aria-hidden="true" className="h-px w-8 bg-brass" />
-          Catalog
-        </p>
-          <h1 className="mt-2 font-display text-h1 text-ink">Products</h1>
+          <h1 className="admin-h1">Products</h1>
+          <p className="mt-0.5 text-meta text-ink/65">
+            Manage your catalogue, inventory, pricing and what customers can see.
+          </p>
         </div>
-        <Link
-          href="/admin/products/new"
-          className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body surface-brass sheen text-ink shadow-[var(--shadow-raise)] hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04]"
-        >
-          Add product
-        </Link>
+        <LinkButton href="/admin/products/new" variant="primary">
+          <span aria-hidden="true">+</span> Add product
+        </LinkButton>
       </div>
 
-      {rows.length === 0 ? (
-        <div className="surface-paper rounded-card border border-blue-300 p-8 text-center">
-          <p className="text-body text-ink">No products yet.</p>
-          <p className="mt-2 text-meta text-ink/70">
-            Add your first listing to start taking preorders.
-          </p>
-          <Link
-            href="/admin/products/new"
-            className="mt-4 inline-flex min-h-11 items-center rounded-control border border-blue-300 px-4 text-body text-blue-600"
-          >
-            Add product
-          </Link>
-        </div>
-      ) : (
-        /* The manifest table: bordered ledger, zebra rows, numbers right-aligned */
-        <div className="overflow-x-auto rounded-card border border-blue-300 shadow-[var(--shadow-raise)]">
-          <table className="w-full min-w-[640px] border-collapse text-body">
-            <thead>
-              <tr className="bg-paper text-left">
-                <th scope="col" className="px-4 py-3 text-meta font-medium">
-                  Product
-                </th>
-                <th scope="col" className="px-4 py-3 text-meta font-medium">
-                  Category
-                </th>
-                <th scope="col" className="px-4 py-3 text-meta font-medium">
-                  Status
-                </th>
-                <th scope="col" className="px-4 py-3 text-right text-meta font-medium">
-                  Variants
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, index) => (
-                <tr
-                  key={row.id}
-                  className={index % 2 === 1 ? "bg-blue-200/40" : undefined}
-                >
-                  <td className="border-t border-blue-300 px-4 py-3">
-                    <Link
-                      href={`/admin/products/${row.id}`}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {row.title}
-                    </Link>
-                    {row.brand ? (
-                      <span className="block text-meta text-ink/70">
-                        {row.brand}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="border-t border-blue-300 px-4 py-3 text-ink/80">
-                    {row.categoryName ?? "—"}
-                  </td>
-                  <td className="border-t border-blue-300 px-4 py-3">
-                    <StatusBadge
-                      tone={
-                        statusTone[row.status as keyof typeof statusTone] ??
-                        "neutral"
-                      }
-                    >
-                      {statusLabel[row.status] ?? row.status}
-                    </StatusBadge>
-                  </td>
-                  <td className="border-t border-blue-300 px-4 py-3 text-right tabular-nums">
-                    {row.variantCount}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <ProductTable
+        initial={initial}
+        categories={flatten(tree)}
+        rows={rows.map((row) => {
+          const archived = row.archivedAt !== null || row.status === "archived";
+          return {
+            id: row.id,
+            title: row.title,
+            slug: row.slug,
+            brand: row.brand,
+            sku: row.sku,
+            status: archived ? "archived" : row.status,
+            archived,
+            live: !archived && (PUBLIC_STATUSES as readonly string[]).includes(row.status),
+            searchable: row.searchable,
+            categoryId: row.categoryId,
+            categoryName: row.categoryName,
+            variantCount: row.variantCount,
+            imageUrl: row.imageUrl,
+            minPriceBdt: row.minPriceBdt,
+            maxPriceBdt: row.maxPriceBdt,
+            stockOnHand: row.stockOnHand,
+            preorderRemaining: row.preorderRemaining,
+            uncappedPreorders: row.uncappedPreorders,
+            inventory: inventoryOf(row),
+            updatedAt: row.updatedAt.toISOString(),
+            createdAt: row.createdAt.toISOString(),
+          };
+        })}
+      />
     </div>
   );
 }

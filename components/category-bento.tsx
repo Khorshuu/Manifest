@@ -80,51 +80,55 @@ function BentoTile({
         ? "1 listing"
         : `${category.productCount} listings`;
 
+  /*
+   * Light, like every other card on the page: the photograph sits on the
+   * pale studio ground the product cards use, and the words sit below it in
+   * ink. The dark navy wash these tiles used to carry was the one heavy block
+   * on an otherwise airy page.
+   */
   return (
     <Link
       href={`/categories/${category.slug}`}
-      className={`media-zoom lift group relative flex flex-col justify-end overflow-hidden rounded-card border border-blue-300 bg-ink shadow-[var(--shadow-raise)] ${
-        lead ? "h-full min-h-[280px]" : "h-full min-h-[150px]"
-      }`}
+      className="media-zoom lift group flex h-full flex-col overflow-hidden rounded-card border border-blue-200 bg-paper shadow-[var(--shadow-raise)] transition-colors hover:border-blue-300"
     >
-      {category.imageUrl ? (
-        /* Local seed media; next/image once the storage integration lands. */
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={category.imageUrl}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          className="absolute inset-0 size-full object-cover"
-        />
-      ) : (
-        <span
-          aria-hidden="true"
-          className="grid-rule absolute inset-0 text-paper opacity-15"
-        />
-      )}
-
-      {/* A wash rather than a flat scrim: the goods stay visible at the top of
-          the tile and the words stay readable at the bottom. */}
       <span
-        aria-hidden="true"
-        className="absolute inset-0 bg-gradient-to-t from-ink from-[8%] via-ink/60 via-[48%] to-ink/5"
-      />
+        className={`surface-studio relative block w-full flex-1 overflow-hidden ${
+          lead ? "min-h-[220px] md:min-h-[300px]" : "min-h-[130px]"
+        }`}
+      >
+        {category.imageUrl ? (
+          /* Local seed media; next/image once the storage integration lands. */
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={category.imageUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="absolute inset-0 size-full object-contain p-4"
+          />
+        ) : (
+          <span
+            aria-hidden="true"
+            className="grid-rule absolute inset-0 text-blue-300 opacity-40"
+          />
+        )}
+      </span>
 
-      <span className="relative flex flex-col gap-1 p-4">
-        <span
-          className={`font-display text-paper ${lead ? "text-h1" : "text-h3"}`}
-        >
-          {category.name}
+      <span className="flex items-end justify-between gap-3 border-t border-blue-200 bg-paper-raised/60 px-4 py-3">
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span
+            className={`font-display text-ink ${lead ? "text-h2" : "text-body font-semibold"}`}
+          >
+            {category.name}
+          </span>
+          <span className="truncate text-meta text-ink/65">{subtitle}</span>
         </span>
-        <span className="text-meta text-paper/75">{subtitle}</span>
-
-        <span className="mt-2 inline-flex items-center gap-2 text-meta font-medium text-brass">
-          Open the shelf
+        <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-paper text-blue-600 transition-colors group-hover:border-blue-500 group-hover:bg-blue-50">
           <IconArrowRight
             size={16}
-            className="transition-transform duration-200 ease-[var(--ease-out-quint)] group-hover:translate-x-1"
+            className="transition-transform duration-200 ease-[var(--ease-out-quint)] group-hover:translate-x-0.5"
           />
+          <span className="sr-only">Open the shelf</span>
         </span>
       </span>
     </Link>

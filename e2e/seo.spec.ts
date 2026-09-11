@@ -220,7 +220,7 @@ test("the home page renders its heading without waiting on JavaScript", async ({
     page.getByRole("heading", { level: 1, includeHidden: true }),
   ).toHaveText(/Manifest/);
   await expect(
-    page.getByRole("region", { name: "Featured products" }),
+    page.getByRole("region", { name: "Promotions" }),
   ).toBeVisible();
 
   await context.close();

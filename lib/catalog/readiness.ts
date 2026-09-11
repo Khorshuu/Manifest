@@ -2,7 +2,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { productImages, productVariants, products } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
-import { requireStaff } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { PUBLIC_STATUSES } from "./products";
 
@@ -28,13 +28,16 @@ export type ReadinessCheck = {
 export class NotReadyError extends Error {
   readonly status = 409;
   readonly failures: string[];
+  /** The failing checks themselves, so a screen can point at each one. */
+  readonly checks: ReadinessCheck[];
 
-  constructor(failures: string[]) {
+  constructor(failures: string[], checks: ReadinessCheck[] = []) {
     super(
       `This product is not ready to publish: ${failures.join("; ")}.`,
     );
     this.name = "NotReadyError";
     this.failures = failures;
+    this.checks = checks;
   }
 }
 
@@ -42,7 +45,7 @@ export async function getReadiness(
   actor: SessionUser | null,
   productId: string,
 ): Promise<ReadinessCheck[]> {
-  requireStaff(actor);
+  requirePermission(actor, "catalog.manage");
 
   const [product] = await db
     .select({
@@ -192,18 +195,21 @@ export async function publishProduct(
   productId: string,
   status: string,
 ) {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "catalog.manage");
 
   if (!(PUBLIC_STATUSES as readonly string[]).includes(status)) {
     throw new NotReadyError([`${status} is not a status shoppers can see`]);
   }
 
   const checks = await getReadiness(actor, productId);
-  const failures = checks
-    .filter((check) => check.required && !check.passed)
-    .map((check) => check.label.toLowerCase());
+  const failing = checks.filter((check) => check.required && !check.passed);
 
-  if (failures.length > 0) throw new NotReadyError(failures);
+  if (failing.length > 0) {
+    throw new NotReadyError(
+      failing.map((check) => check.label.toLowerCase()),
+      failing,
+    );
+  }
 
   return db.transaction(async (tx) => {
     const [before] = await tx

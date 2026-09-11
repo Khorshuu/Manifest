@@ -167,6 +167,14 @@ export function IconUser(props: IconProps) {
   );
 }
 
+export function IconHeart(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 20.25s-7.75-4.6-7.75-10.1A4.4 4.4 0 0 1 8.6 5.75c1.45 0 2.65.7 3.4 1.85.75-1.15 1.95-1.85 3.4-1.85a4.4 4.4 0 0 1 4.35 4.4c0 5.5-7.75 10.1-7.75 10.1Z" />
+    </Icon>
+  );
+}
+
 export function IconCheck(props: IconProps) {
   return (
     <Icon {...props}>

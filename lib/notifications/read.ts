@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { notifications, orders } from "@/db/schema";
-import { requireStaff } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
 export type OutboxRow = {
@@ -25,7 +25,7 @@ export async function listOutbox(
   actor: SessionUser | null,
   limit = 100,
 ): Promise<OutboxRow[]> {
-  requireStaff(actor);
+  requirePermission(actor, "notifications.view");
 
   return db
     .select({
@@ -52,7 +52,7 @@ export type OutboxCounts = { queued: number; sent: number; failed: number };
 export async function countOutboxByStatus(
   actor: SessionUser | null,
 ): Promise<OutboxCounts> {
-  requireStaff(actor);
+  requirePermission(actor, "notifications.view");
 
   const rows = await db
     .select({ status: notifications.status })

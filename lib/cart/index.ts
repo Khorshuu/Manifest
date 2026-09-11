@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { effectivePriceSql } from "@/lib/catalog/price";
 import {
   attributeValues,
   attributes,
@@ -121,7 +122,8 @@ export async function getCartView(cartId: string): Promise<CartView> {
       productSlug: products.slug,
       productStatus: products.status,
       productArchivedAt: products.archivedAt,
-      unitPriceBdt: productVariants.priceBdt,
+      /* Priced by the server, from the sale window as the database sees it. */
+      unitPriceBdt: effectivePriceSql,
       fulfillmentMode: productVariants.fulfillmentMode,
       paymentMode: productVariants.paymentMode,
       depositPercent: productVariants.depositPercent,

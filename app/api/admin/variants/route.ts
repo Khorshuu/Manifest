@@ -26,6 +26,7 @@ export async function POST(request: Request) {
     const result = await generateVariants(user, parsed.data.productId, {
       priceBdt: parsed.data.priceBdt,
       fulfillmentMode: parsed.data.fulfillmentMode,
+      prune: parsed.data.prune,
     });
     return NextResponse.json({ result });
   } catch (error) {

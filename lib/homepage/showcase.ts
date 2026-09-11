@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { siteSettings } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
-import { requireStaff } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
 /**
@@ -123,7 +123,7 @@ export async function setShowcase(
   actor: SessionUser | null,
   slugs: unknown,
 ): Promise<ShowcaseSettings> {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "homepage.manage");
 
   /*
    * Validated as a list of slugs, then trimmed to the ceiling rather than
@@ -150,7 +150,7 @@ export async function addToShowcase(
   actor: SessionUser | null,
   slug: string,
 ): Promise<ShowcaseSettings> {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "homepage.manage");
   const current = await getShowcaseSettings();
 
   if (current.slugs.includes(slug)) return current;
@@ -167,7 +167,7 @@ export async function removeFromShowcase(
   actor: SessionUser | null,
   slug: string,
 ): Promise<ShowcaseSettings> {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "homepage.manage");
   const current = await getShowcaseSettings();
 
   return writeShowcase(staff, {
@@ -181,7 +181,7 @@ export async function moveInShowcase(
   slug: string,
   direction: "up" | "down",
 ): Promise<ShowcaseSettings> {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "homepage.manage");
   const current = await getShowcaseSettings();
 
   const index = current.slugs.indexOf(slug);

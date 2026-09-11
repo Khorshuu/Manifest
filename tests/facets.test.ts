@@ -277,10 +277,18 @@ describe("facet counts", () => {
       attributeValueId: colourValues.Red,
     });
 
+    // A second colour in the results, so the filter has something to choose
+    // between — an attribute with one value is not offered as a filter.
+    await seedProduct({
+      title: "Blue one",
+      priceBdt: 100_00,
+      values: [colourValues.Blue],
+    });
+
     const facets = await listFacets({});
     const red = facets.attributes
       .flatMap((attribute) => attribute.values)
-      .find((value) => value.id === colourValues.Red);
+      .find((value) => value.label === "Red");
 
     expect(red?.count).toBe(1);
   });
@@ -295,7 +303,7 @@ describe("facet counts", () => {
     const facets = await listFacets({ valueIds: [colourValues.Red] });
     const red = facets.attributes
       .flatMap((attribute) => attribute.values)
-      .find((value) => value.id === colourValues.Red);
+      .find((value) => value.label === "Red");
 
     expect(red?.selected).toBe(true);
   });
@@ -316,7 +324,7 @@ describe("facet counts", () => {
     const facets = await listFacets({ valueIds: [colourValues.Red] });
     const blue = facets.attributes
       .flatMap((attribute) => attribute.values)
-      .find((value) => value.id === colourValues.Blue);
+      .find((value) => value.label === "Blue");
 
     // Blue still shows what ticking it would add, rather than 0.
     expect(blue?.count).toBe(1);

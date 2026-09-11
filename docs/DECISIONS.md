@@ -4,6 +4,479 @@ Architecture decision log. One entry per meaningful choice, newest first. Each e
 
 ---
 
+## D-040: Product-owned variants, one-page editor, one-click SEO Pulse
+
+**Decision:**
+
+- **Variant options belong to a product.** `attributes.product_id` (migration
+  0020). "Color" on Sofa A is Sofa A's own option with its own values; a new
+  product starts with none; removing a value removes only that product's
+  variants that carry it (archived where they have order history) and never
+  warns about other products. Options are created from the editor
+  (`createProductOption`), not from a shop-wide list. Existing shared options
+  were converted per product by `scope_product_attributes()`, which the seed
+  also calls. Storefront filters and search group options by *name*, so two
+  products' "Color" still filter together.
+- **Variant photos** use the existing `variant_images` table: a variant points
+  at one of the product's photographs (or one uploaded from the variant row);
+  the storefront gallery shows it when that variant is chosen.
+- **One page, not tabs.** The editor is a single column of sections — Basic
+  information, Media, *Variants, pricing & inventory* (one compact manager:
+  groups as chips, one row per variant that opens into its editor, folded
+  after 8 rows / 6 chips), *Product information* (description and key
+  features, specifications, search & SEO together), and the optional
+  Warranty & safety and Visibility & schedule, folded. A narrow right column
+  holds two small boxes: SEO Pulse and "Before publishing". The sticky action
+  bar stays. "Fix →" jumps scroll to the section and focus the field.
+- **SEO Pulse is one button** ("✨ Fill with SEO Pulse", `fillWithSeoPulse`):
+  it saves unsaved edits, researches (reusing research on an unchanged
+  product), and writes into *empty* fields only — focus keyword, SEO title,
+  meta description, a factual starter description, key features (AI only),
+  and adds tags and search terms. It never replaces the admin's text, never
+  writes photo alt text (it cannot see photos), and lists the facts only the
+  admin can supply (dimensions, weight, material…). Scores, keyword analysis
+  and recommendations appear only in the downloadable report. The large
+  SEO Pulse tab was removed.
+- **Internal search terms** now include how people shorten names:
+  "3rd Generation" → "3", the model family ("AirPods Pro"), brand + family
+  ("Apple AirPods") and brand + category type ("Apple earbuds").
+
+**Required fields (marked *):** product name, category; at least one photo;
+per variant a price and SKU, plus stock (in stock) or places and a closing
+date (preorder). These are exactly what the publish check enforces.
+
+**Not added:** no new product fields. SEO Pulse fills existing ones.
+
+## D-039: Products admin — publish from the list and a sticky editor bar
+
+**Decision:** Publishing is no longer only the setup wizard's last step. Every
+draft row in Admin → Products carries a visible **Publish** button beside
+**Edit**, and every product editor has a sticky action bar: *Save draft ·
+Preview · Publish now* for a draft, *Preview · Update product* for a live
+product, *Restore as draft* for an archived one, with Duplicate, Unpublish,
+Archive and Delete under ⋮. Publishing always goes through the same server
+readiness check (`publishProduct`); a refusal now returns each failing check,
+and the bar lists them with a link to the section that fixes it.
+
+- **One notion of "published"**: not archived and in `PUBLIC_STATUSES`.
+  "Draft" in the list includes `scheduled`. When no status is chosen, a
+  product is published as `preorder_open` if it has a preorder variant, else
+  `in_stock` (`inferLiveStatus`); the Visibility tab changes how a live
+  product is offered, through the same check.
+- **The Basics status dropdown is gone.** It could set a live status without
+  the readiness check. Status now changes only through publish, unpublish,
+  archive and restore.
+- **New actions**: Unpublish (back to draft), Duplicate (new draft; photos,
+  categories, options and variants copied; SKU, trade identifier, stock and
+  reservations not), Delete (permanent, only when nothing ever depended on
+  the product — no orders, reviews, stock movements, waitlist or reserved
+  places; otherwise refused with "archive it instead"), staff Preview of an
+  unpublished product (`/products/<slug>?preview=1`, checked against
+  `catalog.manage`, noindex, with a "not visible to customers" banner).
+- **Inventory states in the list**: *Out of stock* — has variants and none can
+  be bought (no units, no places, no uncapped preorder); *Low stock* — a
+  variant at or below its low-stock line, **3 when none is set**, or a capped
+  preorder with 1–3 places; *No variants*.
+- **Editor sections** are numbered and ordered as the work is done: Basic
+  information, Description, Media, Variations, Pricing & inventory,
+  Specifications, Warranty & safety, SEO & search, SEO Pulse, Visibility.
+  Variations and pricing are now inside the editor (the separate variants
+  page and the wizard remain).
+- **Saving stays per section** (each panel saves only its own fields, D-037
+  era design). The action bar's Save/Update submits every unsaved section at
+  once and reports any that failed; it also warns before leaving with unsaved
+  edits (Stay / Leave without saving / Save changes).
+- **After Add Product** the admin lands in the editor, not the wizard.
+
+**Assumptions for the owner:** low-stock default of 3; bulk inventory editing
+is not offered (per-variant stock is edited on Pricing & inventory).
+
+## D-038: SEO Pulse — research and recommendations, applied only by staff
+
+**Decision:** SEO Pulse is an admin-only layer in `lib/seo-pulse/`. A run
+loads the product as saved, collects research, writes recommendations, and
+stores everything as one versioned row in `seo_research_runs`. Staff review
+and edit the recommendations in a new "SEO Pulse" tab of the product editor
+(and under the SEO step of the setup wizard), then apply the ones they choose.
+Nothing is written to a product until they do.
+
+- **Two provider interfaces.** `SeoDataProvider` (keyword volume, difficulty,
+  CPC, trend, Google results) and `SeoIntelligenceProvider` (writes the
+  recommendations). Implementations: DataForSEO for data, Claude via the
+  official Anthropic SDK for AI, and a rules generator that needs neither.
+  Both are selected by environment variables read in
+  `lib/seo-pulse/config.ts`; the default is rules + no external data, so
+  nothing costs money until someone opts in.
+- **Research and analysis are stored apart.** `research` holds only what a
+  source returned, each figure with its source and date; `analysis` holds only
+  recommendations, labelled with what generated them. With no data provider,
+  volume/difficulty/CPC are "Data unavailable" — never estimated.
+- **First-party research is always available.** The site's own search log
+  (`search_queries`, `search_clicks`) supplies real queries, zero-result
+  counts and typos the search corrected. Misspellings are only proposed from
+  that log (rules) or marked AI-suggested.
+- **Facts are not generated.** Content gaps, identifiers, structured-data
+  readiness and both scores are computed from the listing by fixed code, never
+  by the AI.
+- **Field mapping, reusing what exists:** primary keyword → new
+  `products.seo_focus_keyword`; SEO title → `seo_meta_title`; meta description
+  → `seo_meta_description`; slug → `slug`; H1 → `title` (the product page
+  heading is the product name, so there is no separate H1 field); description
+  → `description_html`; tags → `tags`; search aliases, misspellings, phrases
+  and brand variations → `search_keywords` (the existing internal-search
+  field); synonyms → a new site-wide `search_synonyms` entry (needs
+  `search.manage`, off by default, never edits an existing entry); image alt
+  text → `product_images.alt_text`. FAQs and content gaps are shown, not
+  stored — there is no FAQ field on the product page, and adding one would be
+  a product-page redesign.
+- **No silent overwrite, enforced on the server.** A field that already holds
+  a value is only replaced when the request names it in `overwrite`. A list
+  may grow without that flag but not shrink. Any conflict refuses the whole
+  apply. The product is saved through `updateProduct`, the same path as the
+  editor's Save.
+- **Cost control.** Research never runs on page load. Each click carries a
+  request key (unique in the table), so a retried request returns the same
+  run; unchanged products reuse research under 30 days old unless "Run fresh
+  research" is chosen; one run per product at a time; 30 runs per staff member
+  per hour (`SEO_PULSE_MAX_RUNS_PER_HOUR`); a paid run asks first. Provider
+  requests, tokens and reported cost are stored per run.
+
+**Alternatives considered:** separate tables for keywords, sources,
+recommendations and versions (the brief's list). One row per run with typed
+JSON is simpler, keeps a run immutable as a unit, and exports as-is; nothing
+queries individual keywords across runs yet. Revisit if cross-product keyword
+reporting is wanted.
+
+**Assumptions for the owner:** research counts as outdated after 30 days;
+"price in Bangladesh" is offered as a long-tail keyword because this shop
+sells in Bangladesh; the H1 recommendation renames the product only if Replace
+is chosen; the scores are completeness checks with the weights in
+`lib/seo-pulse/scores.ts`, not a ranking.
+
+**Unverified:** the DataForSEO and Anthropic providers were written against
+their documented APIs but never called — no credentials were available.
+Both fail safe: an error is recorded on the run and the rules generator is
+used.
+
+## D-037: Product SKUs are reserved on the server when Add Product opens
+
+**Decision:** Opening Admin → Add Product asks the server for a SKU, which is
+generated and held in `sku_reservations` (`reserved`) for that admin for two
+hours, renewed whenever the form is reopened. Saving the product turns the
+hold into `finalized` in the same transaction as the product insert; that row
+is permanent, so the SKU is never generated again — not after archiving, and
+not after the product's SKU is edited (the old one is recorded too).
+Cancelling releases it (`released`), as does expiry (swept before every
+generation and by the scheduled maintenance job). Generation takes a Postgres
+advisory transaction lock and picks the lowest free number, so concurrent
+admins never share a SKU and released SKUs come back into use; a partial
+unique index on held SKUs is the database's own backstop. Format
+`SKU-000123`, defined by a replaceable `SkuStrategy` in `lib/catalog/sku.ts`.
+
+**Why:** The product row is only created on save — there is no pre-save draft
+in the schema — so the hold itself is the draft's claim, and the browser keeps
+only its id (localStorage) to come back to the same SKU after a refresh or a
+closed tab. The browser can never name a SKU to claim. Staff may still type
+their own SKU; it is validated against products, variants, other admins' holds
+and every permanent SKU, and the unused hold is released. Variant SKUs keep
+their existing slug-based scheme and are checked against the same pool.
+
+**Assumptions for the owner:** two-hour hold; lowest-free-number reuse.
+
+## D-036: The admin inbox is read live from the records, with one "seen" timestamp per person
+
+**Decision:** Admin → Notifications gains an inbox (new orders, orders unpaid
+after a day, cancellation requests, failed customer messages, stock and
+batches running out, new customers, pending reviews). None of it is stored as
+a notification row: each item is queried from the record that proves it, and
+each source is included only for a role that could act on it. The only stored
+fact is `users.admin_inbox_seen_at`; an item newer than it is unread. "Mark
+all as read" moves it to now. Stock alerts are levels, not events, so they are
+never "unread". The existing outbox of customer email/SMS moved to a second
+tab, "Customer messages".
+
+**Why:** A separate notifications table would need writers in every code path
+that creates an event and could disagree with the data; reading live cannot.
+Per-item read state was judged not worth a table at this size — revisit with a
+`admin_inbox_reads(user_id, item_id)` table if staff ask to mark single items.
+
+## D-035: Homepage campaigns — one record per slide, hero and four tiles together
+
+**Decision:** The single hero (`home.hero`) and product-slug showcase
+(`home.showcase`) are replaced, as what the storefront reads, by one
+`site_settings` row `home.campaigns`: five slots, each a hero image, focal
+point, destination, optional headline/text/button, header contrast mode, a
+new-tab flag and four tiles (image, title, destination, on/off). The first
+read converts the old keys into slide 1 (borrowed product photographs carry no
+media key, so they are never deleted). Only a slot switched on *with* a hero
+image reaches the storefront; switching on an image-less slot or tile is
+refused; removing a hero switches its slot off. Destinations accept a path on
+this site or an absolute http(s) URL — anything else (`javascript:`, `//host`,
+`data:`) is refused server-side. Images are uploads only. Writes need
+`homepage.manage`. The slider does not auto-rotate.
+
+**Why:** The owner asked for hero and showcase to be one promotional unit that
+changes together; storing them as one record makes it impossible for them to
+drift apart. A dedicated table was considered; the homepage is still
+configuration read in one piece, and `site_settings` already carries the audit
+trail. Tile images are the tile's own, not a product's, because the owner
+wants promotional imagery independent of listings.
+
+**Assumptions for the owner:** no autoplay (accessibility); "open in a new
+tab" applies only to off-site links; with every slide off, the homepage builds
+a temporary slide from the catalogue rather than showing nothing.
+
+## D-034: Seven staff roles as named permission lists; staff password minimum 8
+
+**Decision:** Roles stay one column on `users`. The permission table in
+`lib/auth/authorize.ts` maps each role to capabilities (`catalog.manage`,
+`homepage.manage`, `search.manage`, `reviews.moderate`, `orders.view`,
+`orders.manage`, `customers.view`, `notifications.view`, `analytics.view`,
+`finance.view`, `audit.view`, `staff.manage`, `settings.manage`). Roles:
+Owner (`super_admin`, everything), Operations manager (`staff_admin`, exactly
+what it had before), Product manager, Order manager, Customer support,
+Marketing, Finance. Every gated `lib/` function asks for one permission;
+every admin page calls `requireAdminPage(permission)`; the nav is filtered by
+the same table. Money (sales, AOV, margin) is computed only for
+`finance.view`. Staff temporary passwords need 8 characters (customers still
+10). The "Change to" buttons are replaced by a role select and a separate
+"Remove access".
+
+**Why:** A permissions table in the database would let roles be edited at
+runtime, but nobody has asked for that and it adds a way to lock everyone out.
+Named lists in code are reviewable and testable. Analyst was folded into
+Finance and Content into Marketing — separate roles would have identical
+permissions.
+
+## D-033: Coupons and zone-based delivery charges are deferred, not built
+
+**Decision:** The gap audit found no coupon system and no Dhaka/outside-Dhaka
+delivery pricing. Neither was built.
+
+**Why:** Both change what a customer pays. The shop's founding promise is one
+landed price with nothing added at checkout (D-010), and the deposit, balance,
+refund and cancellation paths all assume the order total is the sum of the
+variant prices. A discount line or a delivery charge has to be threaded
+through every one of those, and whether to offer either is a commercial choice
+the owner has not made. Neither is in MASTER_PRODUCT_SPEC.md.
+
+**When revisited:** a coupon belongs in `placeOrder`, priced inside the
+placing transaction with a per-customer usage row locked the same way capacity
+is; the deposit is then a percentage of the discounted total, and a refund
+returns what was paid, never the undiscounted price.
+
+## D-032: An address an order used is never edited or deleted in place
+
+**Decision:** Orders reference `addresses.id` and do not copy the address. So
+editing a saved address that any order has used writes a new row and detaches
+the old one from the account (`user_id` null); removing one detaches it. Only
+an address no order has used is updated in place or deleted.
+
+**Why:** Editing in place would silently change where a past order says it was
+delivered, which is exactly the historical record staff and couriers rely on.
+Snapshotting the address onto `orders` would also work but needs a data
+migration of every existing order; copy-on-write needs none.
+
+## D-031: The wishlist is account-only, and "save for later" is the wishlist
+
+**Decision:** The wishlist uses the existing `wishlist_items` table (variant
+plus user, no price). Guests are asked to sign in. "Save for later" in the cart
+moves the line onto the same list, and "Move to cart" moves it back through the
+cart's normal availability check. "Recently viewed" is a cookie of product ids
+that the server resolves through the public predicate.
+
+**Why:** One saved list is simpler than two that differ only by which screen
+created them, and it keeps the cart a list of things to buy now. A guest
+wishlist would need its own token and merge rules for little gain. The cookie
+holds ids only, so tampering can at worst show nothing.
+
+## D-030: Filters travel under the attribute's own name, and one name is one filter
+
+**Decision:** Attribute filters use the attribute's name as the URL key
+(`/search?q=shirt&size=m&color=black`). A key matches a variation attribute
+*or* a category specification of the same name, so a shopper sees one
+"Colour" filter whichever system the value lives in. An attribute whose name
+collides with a reserved parameter travels as `attr-<name>`. Unknown keys are
+dropped after checking they name a real attribute. Old `?value=<uuid>` links
+still work.
+
+**Why:** The brief asks for shareable, readable URLs, and ids are neither.
+Two "Colour" filters because staff happened to model colour once as a
+variation and once as a specification would be an implementation detail
+leaking onto the page. Dropping unknown keys matters: a share-tracking
+parameter read as a filter would open every shared link on an empty page.
+
+**Cost:** a legacy `value=` filter still applies but gets no chip (its label
+is no longer in the facets); "Clear all" removes it.
+
+## D-029: Search analytics count people without knowing who they are
+
+**Decision:** A search is logged with a daily-rotating, server-keyed hash of
+connection and browser — no account id, no address. One row per visitor,
+query and half hour. Searches shaped like an email or a phone number are never
+stored. A query is shown to other shoppers (popular, trending, completions)
+only once three distinct visitors ran it and it found something. Rows older
+than 180 days are pruned by the scheduled sweep. A signed-in customer's own
+recent searches are a separate table they can clear, removed on anonymisation.
+
+**Why:** The brief asks for popular searches "only if there is enough real
+data", and three people is the smallest number that is a trend rather than
+one person's search shown to strangers. Conversion cannot be measured without
+tying a search to an account, so it is reported as not measured rather than
+approximated.
+
+## D-028: Suggested products carry their price
+
+**Decision:** Autocomplete product rows show the price a shopper would pay.
+This supersedes the earlier rule "autosuggest never returns a price".
+
+**Why:** The search brief asks for it by name, and the price is the same
+public figure on every card and results page — the old rule protected
+nothing a shopper could not already see 24 at a time. What stays excluded:
+stock levels and anything sourcing-related, which the query cannot return.
+
+## D-027: Relevance is a tier first, everything else second
+
+**Decision:** Results are ordered by a relevance tier — exact code, exact
+name, the brand, the phrase in the name, every word in the name, in the
+strong fields (brand, model, keywords, shelf), in highlights and
+specifications, anywhere — and only within a tier by the text fit, the staff
+boost (−2 to 2), sales, rating, availability and recency.
+
+**Why:** The brief's rule is that popularity must never overpower an exact
+match, and neither should a staff nudge. A blended score can only promise
+that by tuning weights; a tier makes it structural, and every reordering a
+signal can cause stays inside a group of equally relevant products. Within the
+name tiers, a name the search covers more of wins ("Apple iPhone 15" over
+"iPhone 15 Silicone Case" for "iphone 15"), and a name ending with the search
+is the thing rather than an accessory for it.
+
+## D-026: Search stays in Postgres, as a trigger-maintained index table
+
+**Decision:** No external search service. `product_search` holds one row per
+product: a weighted tsvector (A name, B brand/model/codes/keywords/shelf,
+C highlights/options/specifications, D description/spec table/tags) plus the
+normalised name and codes the ranking compares. `product_search_words` holds
+each listing's vocabulary with a pg_trgm index for typo correction.
+Triggers on every source table queue a product; a deferred constraint trigger
+rebuilds each queued product once, at commit. Visibility is never indexed —
+every query joins `products` with the public predicate.
+
+**Alternatives considered:** Meilisearch/Typesense/Algolia; keeping the single
+expression index on `products` (D-018); maintaining the index from
+application code.
+
+**Why:** The catalogue is hundreds to low thousands of products, which Postgres
+full-text and trigrams serve in milliseconds; a hosted service is a second
+system to deploy, pay for and keep in step. The old expression index could not
+see anything in another table — category names, option values, category
+specifications — so those were unindexed subqueries. Application-side
+reindexing depends on every current and future write path remembering to call
+it; triggers cannot be forgotten. The deferred trigger means a product edited
+fifty times in one transaction is rebuilt once, and the capacity columns a
+checkout touches are not ones the triggers watch, so checkout pays nothing. A
+rebuild that fails is logged, not raised — a broken index row is not a reason
+to refuse a product save — and the product stays queued for the sweep.
+
+**Typo tolerance** is correction, not fuzzy matching: a search is first run as
+typed (with prefixes and stemming, which already catch "iphon", "airpod",
+"headphons"); only if it finds nothing are the words that match nothing
+replaced by the closest word in the vocabulary of public listings (trigram
+similarity ≥ 0.35, same first letter), and the page says so with a link to
+search exactly what was typed.
+
+**Cost:** pg_trgm is required (available on Neon, embedded Postgres and PGlite).
+Accented letters are not folded. Supersedes D-018.
+
+## D-025: Category-defined specifications, stored as JSON on the product
+
+**Decision:** A category may define the specifications its products are asked
+for (`category_attributes`), and a product stores its answers in a single
+`products.attribute_values` JSON object keyed by definition id. Definitions are
+inherited down the category tree. This is a second, separate system from the
+`attributes` tables that drive variation.
+
+**Alternatives considered:** a hard-coded field per attribute on `products`; a
+`product_attribute_values` join table; reusing the existing variation EAV for
+specifications too.
+
+**Why:** A column per attribute means a migration every time the shop takes on
+a shelf, which is exactly what the brief rules out. A join table would be more
+normal, but every read of a listing needs all of its specifications at once and
+none of them is ever queried on individually, so the join buys nothing and
+costs a query on the busiest page in the shop. Reusing the variation EAV was
+rejected outright: adding a value there multiplies a product's SKUs, so
+"Processor: M4" would generate a variant per processor. The two systems answer
+different questions and must not share a table.
+
+**Cost, and how it is contained:** a JSON object cannot be constrained by the
+database. Every save is therefore validated on the server against the
+definitions the product's category actually asks for
+(`validateAttributeValues`), a value belonging to another category is refused
+rather than stored, blanks are dropped rather than kept, and deleting a
+definition removes the answers with it so nothing orphaned can ever render.
+
+## D-024: A sale is a second price with a window, resolved in SQL
+
+**Decision:** `product_variants` carries `sale_price_bdt`, `sale_starts_at` and
+`sale_ends_at` beside `price_bdt`. Every query that reads a price — the cart,
+order placement, the product page, the cards, sorting and the price facet —
+resolves the sale through the one expression in `lib/catalog/price.ts`.
+
+**Alternatives considered:** editing `price_bdt` when a sale starts and putting
+the old value back afterwards; a separate `promotions` table; deciding whether
+a sale is live in TypeScript at render time.
+
+**Why:** Overwriting the price loses the number the discount is a saving
+against, so the page cannot honestly show what a shopper is saving, and a
+missed restore leaves the shop selling at the sale price forever. A promotions
+table is the right shape for stacked, coded, cart-level offers, and none of
+those exist — §9 of CLAUDE.md says to take the simplest option that extends
+later, and a per-variant window does. Deciding in TypeScript would mean the
+cart, the order and the page each consult their own clock; the database is the
+one clock the whole system already shares, which is the same reason
+`is_closed` is computed in SQL.
+
+**Consequence:** the server is still the only thing that prices an order. The
+client sends an identifier and a quantity, and the sale window is evaluated
+inside the transaction that places the order — a sale that ended a second
+earlier is not honoured.
+
+## D-023: Lifestyle imagery is a kind of product image, not a second table
+
+**Decision:** `product_images.kind` distinguishes `gallery` from `lifestyle`.
+Each kind is ordered independently, and the product page uses them in different
+places: the gallery in the buy box, the lifestyle set in a band below the
+description.
+
+**Alternatives considered:** a `product_lifestyle_images` table; a boolean
+column; keeping them in one gallery and letting staff order around it.
+
+**Why:** They are the same thing — a stored file, an alternative text, a
+position — and every operation on them (upload, reorder, promote, remove,
+delete the file behind the row) is identical. A second table would duplicate
+all of it. One gallery was rejected because the first image is the main one
+everywhere else on the site, and a lifestyle shot sorted to the front would
+silently become the product card's photograph.
+
+## D-022: The product editor is panels that each save only their own fields
+
+**Decision:** `PATCH /api/admin/products/[productId]` applies a partial update:
+a field that is absent keeps its stored value, and `null` clears it. The admin
+product page is a set of panels, each posting only the fields it owns.
+
+**Alternatives considered:** one long form posting the whole record; each panel
+echoing the untouched fields back with its own.
+
+**Why:** The arrangement this replaced did echo everything back, and that is a
+trap — a panel that forgot one field silently erased it, and the code carried
+comments pleading with the next author to remember. A listing now holds far
+more than one screen of fields, so the form had to be split; making the API
+partial is what makes splitting it safe. It also means the distinction between
+"not sent" and "cleared" has to be explicit, which is why every clearable field
+is `.nullable().optional()` and the forms send `null` rather than dropping a
+key.
+
 ## D-021: The hero carries no words, and the row beneath it is curated
 
 **Decision:** The hero is a photograph and nothing else — no headline, no

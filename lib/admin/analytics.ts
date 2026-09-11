@@ -1,7 +1,7 @@
 import { and, gte, lt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { carts, orders, productVariants, users } from "@/db/schema";
-import { requireStaff, requireSuperAdmin } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
 /**
@@ -47,7 +47,7 @@ export async function getFunnel(
   actor: SessionUser | null,
   range: DateRange,
 ): Promise<Funnel> {
-  requireStaff(actor);
+  requirePermission(actor, "analytics.view");
 
   const [cartsStarted] = await db
     .select({ value: sql<number>`count(*)::int` })
@@ -120,7 +120,7 @@ export async function getRevenueByDay(
   actor: SessionUser | null,
   range: DateRange,
 ): Promise<RevenuePoint[]> {
-  requireSuperAdmin(actor);
+  requirePermission(actor, "finance.view");
 
   const rows = await db
     .select({
@@ -158,7 +158,7 @@ export type PreorderCommitment = {
 export async function getPreorderCommitment(
   actor: SessionUser | null,
 ): Promise<PreorderCommitment> {
-  requireStaff(actor);
+  requirePermission(actor, "analytics.view");
 
   const [row] = await db
     .select({
@@ -190,7 +190,7 @@ export async function getSignupsByDay(
   actor: SessionUser | null,
   range: DateRange,
 ): Promise<{ day: string; count: number }[]> {
-  requireStaff(actor);
+  requirePermission(actor, "analytics.view");
 
   const rows = await db
     .select({
@@ -217,7 +217,7 @@ export type OrderStatusBreakdown = { status: string; count: number };
 export async function getStatusBreakdown(
   actor: SessionUser | null,
 ): Promise<OrderStatusBreakdown[]> {
-  requireStaff(actor);
+  requirePermission(actor, "analytics.view");
 
   const rows = await db
     .select({

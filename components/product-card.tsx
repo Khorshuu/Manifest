@@ -15,24 +15,21 @@ const statusLabels: Record<string, string> = {
 };
 
 /**
- * One fixed shape wherever a product appears. The whole card is a single link,
- * and nothing interactive nests inside it.
+ * One fixed shape wherever a product appears — a listing, a search, a
+ * recommendation row, the recently viewed strip. The whole card is a single
+ * link, and nothing interactive nests inside it.
  *
- * The redesign brief put the photograph in charge: a large rounded image, then
- * a bold name, a line of the listing's own description, and a heavy price. The
- * card carries the same four facts it always did — what it is, what it costs,
- * whether it can still be had, and when it lands — but it states them in that
- * order and stops there. The badges, meters and ribbons that used to sit on
- * every card now appear only when they are saying something true and urgent
- * about *this* product; a warning printed on every card is one nobody reads on
- * the card where it matters.
+ * A normal commerce card, sized so more of the catalogue is on screen at once:
+ * the photograph leads, then a two-line name, one line of description, and the
+ * price. The type is deliberately small — the words used to take as much room
+ * as the picture. Badges and meters appear only when they say something true
+ * and urgent about this product.
  */
 export function ProductCard({
   product,
-  /** A denser variant for grids inside a page rather than a showcase row. */
-  compact = false,
 }: {
   product: ProductCardData;
+  /** Kept for callers written before every card became compact. */
   compact?: boolean;
 }) {
   const arrival = formatArrivalWindow(product.arrivesFrom, product.arrivesTo);
@@ -43,11 +40,6 @@ export function ProductCard({
   // agrees and nothing is computed against a clock that differs per process.
   const closingSoon = !soldOut && product.closingSoon;
 
-  /*
-   * The meter earns its place only when a batch is genuinely going. Otherwise
-   * the availability is one line of type, which is what the reference layout
-   * asks for and what a catalogue reads like.
-   */
   const pressure =
     product.remainingCapacity !== null && product.totalCapacity
       ? 1 - product.remainingCapacity / product.totalCapacity
@@ -56,25 +48,25 @@ export function ProductCard({
 
   const availability = soldOut
     ? "Batch full"
-    : closingSoon
-      ? "Closing soon"
-      : (statusLabels[product.status] ?? product.status);
+    : product.outOfStock
+      ? "Out of stock"
+      : closingSoon
+        ? "Closing soon"
+        : (statusLabels[product.status] ?? product.status);
 
   return (
     <Link
       href={`/products/${product.slug}`}
-      className="media-zoom lift group flex h-full flex-col rounded-card bg-paper p-2 text-ink shadow-[var(--shadow-raise)] ring-1 ring-blue-300/70 transition-shadow hover:shadow-[var(--shadow-lift)]"
+      className="media-zoom lift group flex h-full flex-col rounded-card bg-paper p-1.5 text-ink shadow-[var(--shadow-raise)] ring-1 ring-blue-300/60 transition-shadow hover:shadow-[var(--shadow-lift)]"
     >
-      <div className="surface-studio relative aspect-square w-full overflow-hidden rounded-[var(--radius-media)]">
+      <div className="surface-studio relative aspect-square w-full overflow-hidden rounded-[calc(var(--radius-media)-8px)]">
         {product.imageUrl ? (
-          /* Seed and uploaded media are served from this origin; next/image
-             arrives with the object-storage integration. */
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={product.imageUrl}
             alt={product.imageAlt}
-            width={640}
-            height={640}
+            width={480}
+            height={480}
             loading="lazy"
             decoding="async"
             className="size-full object-cover"
@@ -87,11 +79,9 @@ export function ProductCard({
           />
         )}
 
-        {/* Only when the window really is close, or really is gone: urgency
-            invented is urgency nobody believes the second time. */}
         {soldOut || closingSoon ? (
           <span
-            className={`absolute left-3 top-3 rounded-control px-2.5 py-1 text-meta font-bold shadow-[var(--shadow-raise)] backdrop-blur-sm ${
+            className={`absolute left-2 top-2 rounded-[6px] px-1.5 py-0.5 text-[0.6875rem] font-bold shadow-[var(--shadow-raise)] backdrop-blur-sm ${
               soldOut
                 ? "bg-ink/85 text-paper"
                 : "bg-paper/95 text-stamp-red-text"
@@ -100,56 +90,66 @@ export function ProductCard({
             {soldOut ? "Batch full" : "Closing soon"}
           </span>
         ) : null}
+
+        {/* A saving only when a sale is actually running. */}
+        {product.discountPercent ? (
+          <span className="absolute right-2 top-2 rounded-[6px] bg-stamp-red-text px-1.5 py-0.5 text-[0.6875rem] font-bold tabular-nums text-paper shadow-[var(--shadow-raise)]">
+            −{product.discountPercent}%<span className="sr-only"> off</span>
+          </span>
+        ) : null}
       </div>
 
-      <div
-        className={`flex flex-1 flex-col gap-1.5 px-1.5 pb-1 pt-3.5 ${compact ? "" : "sm:px-2.5"}`}
-      >
+      <div className="flex flex-1 flex-col gap-0.5 px-1 pb-1 pt-2">
         {product.brand ? (
-          <span className="text-meta font-semibold uppercase tracking-[0.12em] text-ink/70 [overflow-wrap:anywhere]">
+          <span className="truncate text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-ink/70">
             {product.brand}
           </span>
         ) : null}
 
-        <h3
-          className={`font-display leading-snug text-ink [overflow-wrap:anywhere] ${
-            compact ? "text-[1rem] sm:text-h3" : "text-h3 sm:text-[1.3125rem]"
-          }`}
-        >
+        <h3 className="line-clamp-2 text-[0.875rem] font-semibold leading-[1.3] text-ink [overflow-wrap:anywhere] sm:text-[0.9375rem]">
           {product.title}
         </h3>
 
         {product.summary ? (
-          <p className="line-clamp-2 text-meta leading-relaxed text-ink/70">
+          <p className="line-clamp-1 text-[0.75rem] leading-snug text-ink/70">
             {product.summary}
           </p>
         ) : null}
 
         {product.reviewCount > 0 ? (
-          <p className="flex items-center gap-1.5 text-meta text-ink/70">
-            <IconStar size={14} className="shrink-0 fill-brass text-brass" />
+          <p className="mt-0.5 flex items-center gap-1 text-[0.75rem] text-ink/70">
+            <IconStar size={12} className="shrink-0 fill-brass text-brass" />
             <span className="font-semibold tabular-nums">
               {product.ratingAverage}
             </span>
-            <span aria-hidden="true">·</span>
-            {product.reviewCount} review{product.reviewCount === 1 ? "" : "s"}
+            <span className="tabular-nums">({product.reviewCount})</span>
+            <span className="sr-only">
+              {product.reviewCount === 1 ? "review" : "reviews"}
+            </span>
           </p>
         ) : null}
 
         {/* Pushes price and availability to the foot, so a row of cards with
             different title lengths still lines up along it. */}
-        <div className="mt-auto flex flex-col gap-2 pt-3">
-          <p className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <span
-              className={`font-display font-extrabold tabular-nums text-ink ${compact ? "text-price" : "text-[1.5rem] leading-none"}`}
-            >
+        <div className="mt-auto flex flex-col gap-1 pt-1.5">
+          <p className="flex flex-wrap items-baseline gap-x-1.5">
+            <span className="text-[1rem] font-extrabold tabular-nums leading-tight text-ink sm:text-[1.0625rem]">
               {product.fromPriceBdt === null
                 ? "Price to be confirmed"
                 : formatBdt(product.fromPriceBdt)}
             </span>
+            {product.listPriceBdt !== null && product.fromPriceBdt !== null ? (
+              <span className="text-[0.75rem] tabular-nums text-ink/70 line-through">
+                <span className="sr-only">Regular price </span>
+                {formatBdt(product.listPriceBdt)}
+              </span>
+            ) : null}
+          </p>
+
+          <p className="flex flex-wrap items-center justify-between gap-x-2 text-[0.6875rem] leading-snug">
             <span
-              className={`text-meta font-semibold ${
-                soldOut
+              className={`font-semibold ${
+                soldOut || product.outOfStock
                   ? "text-stamp-red-text"
                   : closingSoon
                     ? "text-brass-text"
@@ -158,6 +158,9 @@ export function ProductCard({
             >
               {availability}
             </span>
+            {!showMeter && arrival ? (
+              <span className="text-ink/70">Arrives {arrival}</span>
+            ) : null}
           </p>
 
           {showMeter ? (
@@ -165,8 +168,6 @@ export function ProductCard({
               remaining={product.remainingCapacity}
               total={product.totalCapacity}
             />
-          ) : arrival ? (
-            <p className="text-meta text-ink/70">Arrives {arrival}</p>
           ) : null}
         </div>
       </div>

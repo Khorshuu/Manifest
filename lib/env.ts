@@ -25,6 +25,7 @@ const schema = z.object({
   PAYMENT_PROVIDER: z.enum(["mock", "sslcommerz"]).default("mock"),
   SHIPPING_PROVIDER: z.enum(["mock", "courier"]).default("mock"),
   NOTIFICATION_PROVIDER: z.enum(["mock", "live"]).default("mock"),
+  // SEO Pulse reads its own variables in lib/seo-pulse/config.ts.
 });
 
 export type Env = z.infer<typeof schema>;

@@ -54,15 +54,33 @@ products
   title               text not null
   slug                text unique not null
   brand               text
+  sku                 text                  -- unique when set (partial unique index)
+  identifier_type     text check (identifier_type in
+                       ('gtin','upc','ean','isbn','asin','mpn','other'))
+  identifier_value    text
   description_html    text
-  bullet_features      jsonb                 -- string[]
-  spec_table          jsonb                 -- [{ label, value }]
+  bullet_features      jsonb                 -- string[], the key features
+  spec_table          jsonb                 -- [{ label, value }], typed by hand
+  box_contents        jsonb                 -- string[], what is in the box
+  warranty            jsonb                 -- { hasWarranty, durationMonths, type,
+                                            --   provider, description, terms }
+  compliance          jsonb                 -- { certifications: [{ name, number }],
+                                            --   compliance, safety, warnings,
+                                            --   countryOfOrigin, regulatory }
+  details             jsonb                 -- the advanced attribute block; see
+                                            --   ProductDetails in db/schema/catalog.ts
+  attribute_values    jsonb                 -- { [categoryAttributeId]: value }
+  video_url           text
+  search_keywords     jsonb                 -- string[], never shown to a shopper
   seo_meta_title       text
   seo_meta_description text
+  seo_no_index        boolean not null default false
+  canonical_url       text
   status              text not null check (status in
                        ('draft','scheduled','in_stock','preorder_open',
                         'preorder_closed','coming_soon','discontinued','archived'))
   publish_at          timestamptz           -- for 'scheduled'
+  unpublish_at        timestamptz           -- when the listing should come down
   archived_at         timestamptz
   created_at          timestamptz not null default now()
   updated_at          timestamptz not null default now()
@@ -76,13 +94,32 @@ product_images
   product_id          uuid not null references products(id)
   url                 text not null
   alt_text            text not null
+  sort_order          int not null default 0   -- ordered within its kind
+  kind                text not null default 'gallery'
+                       check (kind in ('gallery','lifestyle'))
+
+category_attributes                          -- specifications a category asks its products for
+  id                  uuid pk
+  category_id         uuid not null references categories(id)
+  name                text not null
+  data_type           text not null check (data_type in
+                       ('text','number','boolean','select','multiselect',
+                        'date','measurement','color','url'))
+  unit                text                     -- "Hz", "mm"; appended when shown
+  options             jsonb                    -- string[], for select and multiselect
+  is_required         boolean not null default false
   sort_order          int not null default 0
+  unique (category_id, name)
 
 product_related
   product_id          uuid not null references products(id)
   related_product_id  uuid not null references products(id)
   kind                text not null check (kind in ('related','frequently_bought_together'))
 ```
+
+Two attribute systems live in this schema and they are deliberately separate. `attributes` (below) is the **variation** system: adding a value there multiplies the SKUs a product has. `category_attributes` is the **specification** system: it describes one product and generates nothing. Conflating them would mean choosing a processor generated a variant per processor.
+
+A product answers its category attributes in `products.attribute_values`, keyed by definition id. Keeping the values on the product rather than in a join table means the whole listing is read in one row, and deleting a definition takes its answers with it (`lib/catalog/category-attributes.ts`).
 
 `categories.parent_id` self-references with no fixed depth limit, satisfying "at least 3 levels" without hardcoding exactly 3 — a category tree is walked recursively wherever it's rendered (breadcrumb, nav, admin picker).
 
@@ -122,6 +159,10 @@ product_variants
   stock_quantity      int                       -- in_stock only
   preorder_capacity   int                       -- preorder only
   preorder_reserved   int not null default 0    -- preorder only, updated only inside a capacity-check transaction
+  sale_price_bdt      int                       -- <= price_bdt; null means no sale
+  sale_starts_at      timestamptz               -- null means "already started"
+  sale_ends_at        timestamptz               -- null means "until removed"
+  low_stock_threshold int                       -- in_stock only; at or below, "Low stock"
   preorder_closes_at  timestamptz               -- preorder only
   payment_mode        text not null default 'full' check (payment_mode in ('full','deposit'))
   deposit_percent     int                       -- 1-99, required when payment_mode = 'deposit'
@@ -342,9 +383,100 @@ This is a transactional outbox (DECISIONS.md D-009). A row is written in the sam
 - `product_variants (product_id)`, `(fulfillment_mode, preorder_closes_at)` for the storefront's "open preorders closing soon" queries.
 - `orders (user_id, placed_at desc)` and `(status)` for account order history and the admin order pipeline view.
 - `categories (parent_id)` for tree traversal.
-- Full-text search index on `products (title, brand)` for v1 search; see MASTER_PRODUCT_SPEC.md §7 — fuzzy/semantic search is explicitly deferred.
+- Search: see "Search and discovery" below.
+- `order_items (variant_id)` for best-selling, `products (brand)`, and a
+  `jsonb_path_ops` GIN on `products.attribute_values` for specification filters.
+
+## Search and discovery (migration 0014)
+
+```
+products
+  searchable          boolean not null default true   -- off: hidden from search only
+  search_boost        smallint not null default 0     -- -2..2, reorders within a tier
+
+category_attributes
+  is_filterable       boolean not null default true   -- text/url/date start false
+  is_searchable       boolean not null default true
+
+product_search                                        -- one row per product
+  product_id          uuid pk references products on delete cascade
+  document            tsvector   -- A name, B brand/model/codes/keywords/shelf,
+                                 -- C highlights/options/specs, D the rest
+  title_norm, title_core, title_words, brand_norm, category_norm
+  codes               text[]     -- skus, identifiers, model/part numbers, unpunctuated
+  text_a..text_d      text       -- what the document was built from
+  indexed_at          timestamptz
+
+product_search_words (product_id, word) pk, display, weight   -- trigram GIN on word
+product_search_queue (product_id pk, queued_at, attempts)
+search_synonyms      (id, term unique, synonyms text[], bidirectional, created_by)
+search_queries       (query, query_norm, results_count, corrected_query,
+                      visitor_hash, window_start)  unique (visitor_hash, query_norm, window_start)
+search_clicks        (query_norm, product_id, position, visitor_hash, window_start)
+search_history       (user_id, query_norm) pk, query, searched_at
+```
+
+Nothing in the application writes `product_search`, `product_search_words` or
+the queue. Triggers on `products`, `product_variants` (sku, enabled, archived
+only — never capacity), `variant_option_values`, `attribute_values`,
+`categories` and `category_attributes` queue the affected products, and a
+deferred constraint trigger calls `refresh_product_search(ids)` once per
+product at commit. `search_normalize`, `search_code` and `search_slug` are the
+normalisation functions both the index and the queries use.
 
 ## Open schema questions
 
 - Exact deposit/balance flow: does a `payment_mode = 'deposit'` order automatically get a second `payments` row created when the batch ships, or does staff trigger that manually from the admin order screen? Affects whether `orders` needs a `balance_due_bdt` column now or later.
 - Whether `waitlist_entries` needs a `notified_at`-driven automatic re-offer when capacity frees up (a cancellation), or staff handle it manually for v1.
+
+## `newsletter_subscribers` (migration 0015)
+
+One row per email address (`email` unique, stored lowercase), an optional
+`user_id` when the signup came from a signed-in account, a `source`, and
+`subscribed_at` / `unsubscribed_at`. Unsubscribing stamps the date instead of
+deleting, so the consent record survives; signing up again clears it.
+
+Related rules added in the same pass, with no schema change:
+
+- `wishlist_items` now has a UI and API. It still stores no price.
+- `addresses` rows referenced by `orders.shipping_address_id` are never
+  updated or deleted. Editing one copies it and detaches the old row
+  (`user_id` null); see DECISIONS.md D-032.
+
+## Migrations 0016–0017 (UX and roles session)
+
+- `users.role` check constraint widened to the seven staff roles plus
+  `customer` (`super_admin`, `staff_admin`, `product_manager`,
+  `order_manager`, `support`, `marketing`, `finance`). D-034.
+- `users.first_name`, `users.last_name` — optional; the header greets by first
+  name. Collected at sign-up.
+- `users.admin_inbox_seen_at` — per staff member, where the admin inbox was
+  last read (D-036).
+- `site_settings` key `home.campaigns` — five homepage slides, each a hero and
+  four tiles, validated by `campaignsSchema` in `lib/homepage/campaigns.ts`
+  (D-035). `home.hero` and `home.showcase` remain but are only read to convert
+  them the first time.
+
+## Migration 0018 — `sku_reservations` (D-037)
+
+`id, sku, status (reserved|finalized|released), reserved_by → users,
+product_id → products (set when finalized), reserved_at, expires_at,
+finalized_at, released_at`. Partial unique index on `sku` where status is
+`reserved` or `finalized`: a SKU can be held or permanent only once. Index on
+`expires_at` for open holds, used by the expiry sweep. Finalized rows are the
+permanent SKU history and are never deleted.
+
+## Migration 0019 — SEO Pulse (D-038)
+
+`seo_research_runs`: `id, product_id → products, version (unique per
+product), status (running|completed|failed), request_key (unique — one row
+per click), initiated_by → users, input_snapshot jsonb, input_hash, research
+jsonb, analysis jsonb, seo_score, search_score, provider_usage jsonb,
+pulse_version, error, applied_fields jsonb, applied_at, applied_by → users,
+created_at, completed_at`. Indexed on `(product_id, created_at)` and
+`created_at`. Rows are never deleted or replaced; regenerating inserts the
+next version. The JSON shapes are `SeoPulseInput`, `SeoResearchData`,
+`SeoAnalysis` and `ProviderUsage` in `lib/seo-pulse/types.ts`.
+
+`products.seo_focus_keyword` (text, nullable): the phrase a listing is
+written to rank for. Never shown to shoppers.

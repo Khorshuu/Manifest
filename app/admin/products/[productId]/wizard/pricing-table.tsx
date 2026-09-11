@@ -9,8 +9,13 @@ export type PricingVariant = {
   sku: string;
   label: string;
   priceTaka: string;
+  /** Empty when nothing is on sale. Taka in the form, paisa in the database. */
+  salePriceTaka: string;
+  saleStartsAt: string;
+  saleEndsAt: string;
   fulfillmentMode: string;
   stockQuantity: number | null;
+  lowStockThreshold: number | null;
   preorderCapacity: number | null;
   preorderReserved: number;
   /** ISO date, yyyy-mm-dd, for the date inputs. */
@@ -40,7 +45,8 @@ export function PricingTable({
   nextHref,
 }: {
   variants: PricingVariant[];
-  nextHref: string;
+  /** The wizard's next step. Absent inside the product editor. */
+  nextHref?: string;
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<Record<string, RowState>>({});
@@ -73,9 +79,18 @@ export function PricingTable({
     const fulfillmentMode = text("fulfillmentMode");
     const paymentMode = text("paymentMode");
 
+    const saleTaka = text("salePriceTaka");
+
     return {
+      sku: text("sku"),
       // Taka in the form, paisa in the database — the one conversion point.
       priceBdt: Math.round(Number(text("priceTaka") || 0) * 100),
+      // An empty sale price clears the sale and restores the regular one.
+      salePriceBdt: saleTaka === "" ? null : Math.round(Number(saleTaka) * 100),
+      saleStartsAt: date("saleStartsAt"),
+      saleEndsAt: date("saleEndsAt"),
+      lowStockThreshold:
+        fulfillmentMode === "in_stock" ? number("lowStockThreshold") : null,
       fulfillmentMode: fulfillmentMode === "in_stock" ? "in_stock" : "preorder",
       stockQuantity: fulfillmentMode === "in_stock" ? number("stockQuantity") : null,
       preorderCapacity:
@@ -191,7 +206,15 @@ export function PricingTable({
                   <h3 className="font-display text-h3 text-ink">
                     {variant.label}
                   </h3>
-                  <p className="font-mono text-meta text-ink/70">{variant.sku}</p>
+                  <label className="flex min-w-0 flex-col gap-1 text-meta text-ink">
+                    SKU
+                    <input
+                      name="sku"
+                      required
+                      defaultValue={variant.sku}
+                      className="min-h-11 w-56 rounded-control border border-blue-300 bg-paper px-3 font-mono text-meta text-ink"
+                    />
+                  </label>
                 </div>
 
                 <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -204,6 +227,42 @@ export function PricingTable({
                       step="0.01"
                       required
                       defaultValue={variant.priceTaka}
+                      className="min-h-11 rounded-control border border-blue-300 bg-paper px-3 text-body text-ink"
+                    />
+                  </label>
+
+                  <label className="flex min-w-0 flex-col gap-1 text-meta text-ink">
+                    Sale price
+                    <input
+                      name="salePriceTaka"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      defaultValue={variant.salePriceTaka}
+                      className="min-h-11 rounded-control border border-blue-300 bg-paper px-3 text-body text-ink"
+                    />
+                    <span className="text-meta text-ink/70">
+                      In BDT. Leave empty for no sale, and never above the
+                      regular price.
+                    </span>
+                  </label>
+
+                  <label className="flex min-w-0 flex-col gap-1 text-meta text-ink">
+                    Sale starts
+                    <input
+                      name="saleStartsAt"
+                      type="date"
+                      defaultValue={variant.saleStartsAt}
+                      className="min-h-11 rounded-control border border-blue-300 bg-paper px-3 text-body text-ink"
+                    />
+                  </label>
+
+                  <label className="flex min-w-0 flex-col gap-1 text-meta text-ink">
+                    Sale ends
+                    <input
+                      name="saleEndsAt"
+                      type="date"
+                      defaultValue={variant.saleEndsAt}
                       className="min-h-11 rounded-control border border-blue-300 bg-paper px-3 text-body text-ink"
                     />
                   </label>
@@ -229,6 +288,20 @@ export function PricingTable({
                       defaultValue={variant.stockQuantity ?? ""}
                       className="min-h-11 rounded-control border border-blue-300 bg-paper px-3 text-body text-ink"
                     />
+                  </label>
+
+                  <label className="flex min-w-0 flex-col gap-1 text-meta text-ink">
+                    Low stock at
+                    <input
+                      name="lowStockThreshold"
+                      type="number"
+                      min={0}
+                      defaultValue={variant.lowStockThreshold ?? ""}
+                      className="min-h-11 rounded-control border border-blue-300 bg-paper px-3 text-body text-ink"
+                    />
+                    <span className="text-meta text-ink/70">
+                      At or below this, the listing says Low stock.
+                    </span>
                   </label>
 
                   <label className="flex min-w-0 flex-col gap-1 text-meta text-ink">
@@ -323,9 +396,9 @@ export function PricingTable({
         })}
       </ul>
 
-      <div>
+      <div hidden={!nextHref}>
         <a
-          href={nextHref}
+          href={nextHref ?? "#"}
           className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body surface-brass sheen text-ink shadow-[var(--shadow-raise)] hover:shadow-[var(--shadow-brass)] hover:brightness-[1.04]"
         >
           Continue

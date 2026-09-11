@@ -1,84 +1,44 @@
 import type { Metadata } from "next";
-import { getCurrentUser } from "@/lib/auth";
-import { requireStaff } from "@/lib/auth/authorize";
-import { getProductCardBySlug, listProductCards } from "@/lib/catalog";
-import { getHeroSettings, getShowcaseSettings } from "@/lib/homepage";
-import { formatBdt } from "@/lib/money";
-import { HomepageEditor, type ShowcaseCandidate } from "./homepage-editor";
+import { requireAdminPage } from "@/lib/auth/admin-page";
+import { getCampaignSettings } from "@/lib/homepage";
+import { HomepageEditor } from "./homepage-editor";
+import { listCategoryTreeForLinks } from "./link-options";
 
 export const metadata: Metadata = { title: "Homepage" };
 export const dynamic = "force-dynamic";
 
 /**
- * The homepage, edited by staff.
+ * Homepage settings: the promotional campaigns.
  *
- * Everything on this page writes to `site_settings` through `lib/homepage` and
- * shows on the live storefront on the next request. There is no preview-only
- * mode and no setting here that does nothing.
+ * Everything here writes to `site_settings` through `lib/homepage` and shows
+ * on the live storefront on the next request. There is no preview-only mode
+ * and no setting here that does nothing.
  */
 export default async function AdminHomepagePage() {
-  const user = await getCurrentUser();
-  // The layout already gated /admin; this is the second, real check — the one
-  // that would still refuse if the layout were bypassed.
-  requireStaff(user);
+  // The layout gated /admin; this is the page's own check, and every write
+  // behind it checks `homepage.manage` again.
+  await requireAdminPage("homepage.manage");
 
-  const [hero, showcase, products] = await Promise.all([
-    getHeroSettings(),
-    getShowcaseSettings(),
-    // What staff may feature: public listings only, newest first. The homepage
-    // cannot be pointed at a draft, because a draft is not offered here.
-    listProductCards({ sort: "newest", limit: 100 }),
+  const [settings, links] = await Promise.all([
+    getCampaignSettings(),
+    listCategoryTreeForLinks(),
   ]);
 
-  const toCandidate = (product: {
-    slug: string;
-    title: string;
-    brand: string | null;
-    imageUrl: string | null;
-    fromPriceBdt: number | null;
-  }): ShowcaseCandidate => ({
-    slug: product.slug,
-    title: product.title,
-    brand: product.brand,
-    imageUrl: product.imageUrl,
-    priceLabel:
-      product.fromPriceBdt === null
-        ? "Price to be confirmed"
-        : formatBdt(product.fromPriceBdt),
-  });
-
-  /*
-   * Resolved in the stored order, and only what is still public. A slug whose
-   * product has been unpublished disappears from this list exactly as it
-   * disappears from the storefront, rather than showing here as a row staff
-   * cannot explain.
-   */
-  const chosen = (
-    await Promise.all(showcase.slugs.map((slug) => getProductCardBySlug(slug)))
-  )
-    .filter((card): card is NonNullable<typeof card> => card !== null)
-    .map(toCandidate);
+  const live = settings.slides.filter((slide) => slide.active && slide.image).length;
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-5">
       <div>
-        <p className="flex items-center gap-3 text-meta font-semibold uppercase tracking-[0.18em] text-brass-text">
-          <span aria-hidden="true" className="h-px w-8 bg-brass" />
-          Storefront
-        </p>
-        <h1 className="mt-2 font-display text-h1 text-ink">Homepage</h1>
-        <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
-          The photograph on the first screen, and the four products underneath
-          it. Changes are live as soon as they save, and every one is written to
-          the audit log with the value it replaced.
+        <h1 className="admin-h1">Homepage</h1>
+        <p className="mt-1 max-w-[80ch] text-meta text-ink/70">
+          Up to five promotional slides. Each is one hero photograph and the
+          four tiles beneath it — they always change together. Only slides
+          switched on with a photograph appear on the site; {live} of 5{" "}
+          {live === 1 ? "is" : "are"} live now.
         </p>
       </div>
 
-      <HomepageEditor
-        hero={hero}
-        showcase={chosen}
-        products={products.map(toCandidate)}
-      />
+      <HomepageEditor initial={settings} linkOptions={links} />
     </div>
   );
 }

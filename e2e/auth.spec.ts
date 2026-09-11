@@ -71,13 +71,13 @@ test("a staff admin reaches the dashboard but not super-admin sections", async (
   await page.goto("/admin");
 
   await expect(
-    page.getByRole("heading", { name: "Today", level: 1 }),
+    page.getByRole("heading", { level: 1 }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Products" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Staff" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Settings" })).toHaveCount(0);
-  // Financial totals are super_admin only.
-  await expect(page.getByText("Collected to date")).toHaveCount(0);
+  // Financial totals need finance.view, which the operations manager lacks.
+  await expect(page.locator("dt", { hasText: /^Sales$/ })).toHaveCount(0);
 });
 
 test("a super admin sees the staff and settings sections and financials", async ({
@@ -88,7 +88,7 @@ test("a super admin sees the staff and settings sections and financials", async 
 
   await expect(page.getByRole("link", { name: "Staff" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Settings" })).toBeVisible();
-  await expect(page.getByText("Collected to date")).toBeVisible();
+  await expect(page.locator("dt", { hasText: /^Sales$/ })).toBeVisible();
 });
 
 test("signing out ends the session", async ({ page }) => {

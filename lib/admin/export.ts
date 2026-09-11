@@ -1,7 +1,7 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { orders, productVariants, products } from "@/db/schema";
-import { requireStaff, requireSuperAdmin } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
 /**
@@ -48,7 +48,7 @@ export function takaFromPaisa(paisa: number): string {
 export async function exportOrdersCsv(
   actor: SessionUser | null,
 ): Promise<string> {
-  requireStaff(actor);
+  requirePermission(actor, "orders.view");
 
   const rows = await db
     .select({
@@ -101,7 +101,7 @@ export async function exportOrdersCsv(
 export async function exportPreordersCsv(
   actor: SessionUser | null,
 ): Promise<string> {
-  requireStaff(actor);
+  requirePermission(actor, "orders.view");
 
   const rows = await db
     .select({
@@ -146,7 +146,7 @@ export async function exportPreordersCsv(
 export async function exportMarginCsv(
   actor: SessionUser | null,
 ): Promise<string> {
-  requireSuperAdmin(actor);
+  requirePermission(actor, "finance.view");
 
   const rows = await db
     .select({

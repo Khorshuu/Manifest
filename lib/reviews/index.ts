@@ -9,7 +9,7 @@ import {
   users,
 } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
-import { requireStaff } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
 /**
@@ -223,7 +223,7 @@ export async function listReviewsForModeration(
   actor: SessionUser | null,
   options: { status?: string; limit?: number } = {},
 ): Promise<ModerationRow[]> {
-  requireStaff(actor);
+  requirePermission(actor, "reviews.moderate");
 
   return db
     .select({
@@ -249,7 +249,7 @@ export async function listReviewsForModeration(
 export async function countPendingReviews(
   actor: SessionUser | null,
 ): Promise<number> {
-  requireStaff(actor);
+  requirePermission(actor, "reviews.moderate");
 
   const [row] = await db
     .select({ value: sql<number>`count(*)::int` })
@@ -268,7 +268,7 @@ export async function moderateReview(
   reviewId: string,
   decision: "approved" | "rejected",
 ) {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "reviews.moderate");
 
   return db.transaction(async (tx) => {
     const [before] = await tx

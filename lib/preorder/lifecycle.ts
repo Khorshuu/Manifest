@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { productVariants, waitlistEntries } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { queueWaitlistNotifications } from "@/lib/notifications/waitlist";
-import { requireStaff } from "@/lib/auth/authorize";
+import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 
 /**
@@ -28,7 +28,7 @@ export async function openPreorder(
   variantId: string,
   options: { capacity: number | null; closesAt: Date | null },
 ) {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "catalog.manage");
 
   return db.transaction(async (tx) => {
     const [before] = await tx
@@ -121,7 +121,7 @@ export async function closePreorder(
   actor: SessionUser | null,
   variantId: string,
 ) {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "catalog.manage");
 
   return db.transaction(async (tx) => {
     const now = new Date();
@@ -155,7 +155,7 @@ export async function extendPreorder(
   variantId: string,
   closesAt: Date,
 ) {
-  const staff = requireStaff(actor);
+  const staff = requirePermission(actor, "catalog.manage");
 
   if (closesAt.getTime() <= Date.now()) {
     throw new PreorderWindowError("The new closing date must be in the future.");
@@ -199,7 +199,7 @@ export async function listNearCapacity(
   actor: SessionUser | null,
   threshold = 0.8,
 ) {
-  requireStaff(actor);
+  requirePermission(actor, "catalog.manage");
 
   return db
     .select({
@@ -218,7 +218,7 @@ export async function listNearCapacity(
 
 /** Waitlist entries still waiting to hear about a variant. */
 export async function listWaitlist(actor: SessionUser | null, variantId: string) {
-  requireStaff(actor);
+  requirePermission(actor, "catalog.manage");
 
   return db
     .select({
@@ -245,7 +245,7 @@ export async function countWaitlistByProduct(
   actor: SessionUser | null,
   productId: string,
 ): Promise<Map<string, number>> {
-  requireStaff(actor);
+  requirePermission(actor, "catalog.manage");
 
   const rows = await db
     .select({

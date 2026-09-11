@@ -33,18 +33,10 @@ export function SeoForm({
     const response = await fetch(`/api/admin/products/${product.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
+      // This step owns two fields, and sends only those two.
       body: JSON.stringify({
-        title: product.title,
-        categoryId: product.categoryId,
-        brand: product.brand ?? undefined,
-        descriptionHtml: product.descriptionHtml ?? undefined,
-        bulletFeatures:
-          product.bulletFeatures.length > 0 ? product.bulletFeatures : undefined,
-        seoMetaTitle: title.trim() || undefined,
-        seoMetaDescription: description.trim() || undefined,
-        specTable: product.specTable ?? undefined,
-        tags: product.tags ?? undefined,
-        status: product.status,
+        seoMetaTitle: title.trim() || null,
+        seoMetaDescription: description.trim() || null,
       }),
     });
 

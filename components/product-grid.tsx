@@ -33,16 +33,12 @@ export function ProductGrid({
   }
 
   /*
-   * Two columns from the smallest screen up.
-   *
-   * A single column at 390px turned twenty-four listings into a page sixteen
-   * thousand pixels tall — nobody reaches the bottom of that, and it is the
-   * one place the site was measurably worse on a phone than on a desktop.
-   * Two columns halve it, which is what every shop a Bangladeshi shopper
-   * already uses does at this width.
+   * Two columns from the smallest screen up, four beside the filter column on
+   * a laptop — the shared dense grid in globals.css, so a listing, a search
+   * and a recommendation row all show the same number of cards per row.
    */
   return (
-    <Stagger className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4">
+    <Stagger className="product-grid product-grid--filtered">
       {products.map((product) => (
         <StaggerItem key={product.id} className="h-full">
           <ProductCard product={product} />

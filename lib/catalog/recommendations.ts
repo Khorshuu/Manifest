@@ -1,4 +1,5 @@
 import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { effectivePriceExpression } from "./price";
 import { db } from "@/db";
 import { products } from "@/db/schema";
 import { publicProductWhere } from "./facets";
@@ -49,13 +50,13 @@ export async function listRecommendations(
 
   /** The lowest purchasable price, for both the subject and each candidate. */
   const lowestPrice = sql`(
-    select min(v.price_bdt) from product_variants v
+    select min(${sql.raw(effectivePriceExpression())}) from product_variants v
     where v.product_id = ${products.id}
       and v.is_enabled = true and v.archived_at is null
   )`;
 
   const subjectPrice = sql`(
-    select min(v.price_bdt) from product_variants v
+    select min(${sql.raw(effectivePriceExpression())}) from product_variants v
     where v.product_id = ${productId}
       and v.is_enabled = true and v.archived_at is null
   )`;

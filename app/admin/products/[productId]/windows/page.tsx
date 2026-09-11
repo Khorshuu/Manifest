@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
 import { getProductForAdmin, listVariants } from "@/lib/catalog";
 import { serverInstant } from "@/lib/clock";
 import { countWaitlistByProduct } from "@/lib/preorder";
 import { WindowControls } from "./window-controls";
+import { requireAdminPage } from "@/lib/auth/admin-page";
 
 export const metadata: Metadata = { title: "Preorder windows" };
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export default async function PreorderWindowsPage({
   params,
 }: PageProps<"/admin/products/[productId]/windows">) {
   const { productId } = await params;
-  const user = await getCurrentUser();
+  const user = await requireAdminPage("catalog.manage");
 
   const product = await getProductForAdmin(user, productId);
   if (!product) notFound();

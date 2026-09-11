@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { IconArrowLeft } from "@/components/icons";
 import Link from "next/link";
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import { getCategoryTree, type CategoryNode } from "@/lib/catalog";
 import { ProductForm } from "./product-form";
 
@@ -16,6 +17,7 @@ function flatten(nodes: CategoryNode[]): { id: string; label: string }[] {
 }
 
 export default async function NewProductPage() {
+  await requireAdminPage("catalog.manage");
   const tree = await getCategoryTree();
   const categories = flatten(tree);
 

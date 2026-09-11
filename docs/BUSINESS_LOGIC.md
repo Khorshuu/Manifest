@@ -7,6 +7,10 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - Every price a customer sees is server-computed at render time from `product_variants.price_bdt` (resolved against the product base price if `price_is_delta`). No page, component, or API response ever accepts a price from the client and trusts it.
 - `cost_price_usd` and computed margin are never present in any response reachable by a `customer` session. Enforced by using separate query functions (`lib/catalog/getPublicVariant` vs `getAdminVariant`) rather than one function with a role check sprinkled inside — a missed conditional is a leak; a function that structurally cannot return the field is not.
 - A cart line displays live price, not a remembered one. If the live price differs from what was true when the item was added, the cart shows the change before checkout can proceed.
+- A sale is a second price with a window (`sale_price_bdt`, `sale_starts_at`, `sale_ends_at`), never an edit to `price_bdt`. Whether it is live is decided by the database's clock through the single expression in `lib/catalog/price.ts`, which every price-reading query uses: the cart, order placement, the product page, the cards, price sorting and the price facet. A query that reached for `price_bdt` directly would quietly charge the pre-sale price.
+- A sale price may never exceed the regular price, and a sale may not end before it starts. Both are check constraints on the table as well as checks in `updateVariant`, which compares against whichever regular price the save leaves in place — otherwise two separate saves could walk past a check that only fired when both fields arrived together.
+- The order is priced inside the transaction that places it, so a sale that ended a second earlier is not honoured and one that has just started is.
+- Availability has one vocabulary — in stock, low stock, out of stock, preorder, preorder full, closed — decided by `stockState` in `lib/catalog/price.ts` and used by both the buy box and the admin. An in-stock variant with no quantity recorded is unlimited, not empty.
 
 ## Preorder capacity
 
@@ -62,6 +66,16 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - Advisory, and never blocking: an arrival window, a description, and a meta description. Blocking on these would teach staff to work around the gate.
 - Publishing is not a way to set an arbitrary status. Only statuses shoppers can see are accepted, so `draft` and `archived` cannot be reached through it.
 - A product that varies by nothing still gets one plain variant, created idempotently. Without it a simple product would have nothing to price and could never be sold.
+- `publish_at` and `unpublish_at` record intent; the status is still what decides visibility, and anything acting on those dates goes through `publishProduct` and therefore through the same readiness checks. A date can never put an unfinished listing in front of a shopper.
+- `seo_no_index` keeps a published listing out of search results without unpublishing it. It is a robots directive on the page, not an access control — the listing is still public, and anyone with the link can buy from it.
+
+## The listing's own fields
+
+- A product save is partial: a field the caller did not send keeps its stored value, and an explicit `null` clears it. This is what lets the admin editor be independent panels; it also means every clearable field must be sent as `null` rather than omitted when staff empty it.
+- `products.sku` is unique across the catalogue when set, enforced by a partial unique index (many products may have none) and checked first in `assertSkuIsFree` so the admin gets a sentence naming the clash instead of a constraint violation. Variant SKUs are unique in the same way, through the column's own constraint and a check in `updateVariant`.
+- Specifications defined on a category are inherited by everything filed beneath it, and are validated on the server on every save: a value belonging to another category's definition is refused, a choice that is not on the list is refused, a required one must be answered, and a blank is dropped rather than stored. Deleting a definition removes the answers stored against it, so nothing orphaned can be rendered later.
+- The product page renders no section it has no content for. An empty warranty, an unfilled certification block, a listing with no lifestyle imagery and a specification with no value all produce nothing at all rather than a heading over a dash.
+- Only staff may create or edit product media and listings, enforced inside `lib/catalog` rather than at the route — including the newer media actions (reordering a whole gallery at once, correcting an image's description, uploading lifestyle imagery).
 
 ## Roles and permissions
 
@@ -81,20 +95,48 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - Price is filtered against variant prices, not a product-level field, because the price a shopper sees on a card is the lowest purchasable variant.
 - "Only what can be bought now" mirrors what the product page decides: stock remaining, or a preorder slot left with the window still open. A listing must not offer what the detail page then refuses.
 - Filters live in the URL and the panel is an ordinary GET form. A filtered listing can be linked and shared, and it works before any JavaScript has loaded.
-- Autosuggest returns labels, links and a product photograph — never price or stock — and goes through the same public predicate as every other shopper query, so it cannot surface a draft.
+- Autosuggest returns labels, links, a product photograph and the price a shopper would pay (D-028) — never stock or cost — and every source it draws on (products, their words, tags, categories, popular searches) goes through the public predicate, so it cannot surface a draft or a product hidden from search.
+
+## Search (D-026 to D-030)
+
+- What is searched: name, brand, SKU and trade identifiers, model and part numbers, variant SKUs, search keywords, the category and every shelf above it, highlights, live variant option values, searchable category specifications, material/colour/size/compatibility details, description, spec table, box contents, tags and meta description. Nothing internal: no cost, no notes, no supplier data.
+- Visibility is decided at query time, never by the index: a draft, archived, or hidden-from-search product cannot appear however stale its index row.
+- "Hidden from search" hides a listing from the search box and its suggestions only; its page, its category listings and the cart are unaffected. Category pages list it.
+- Every word must match (a second word narrows). A word matches as a prefix, through stemming, through a staff synonym, or inside a word of the name.
+- Ranking is a relevance tier first (D-027). The staff boost, sales, ratings, availability and recency only reorder within a tier.
+- A correction is only tried when the search as typed found nothing, only applied if it finds something, and always announced with a way to search exactly what was typed.
+- Synonyms are written by staff only; nothing is generated. One-way entries widen only the first term.
+- A search that finds nothing shows advice, a correction if confident, and what each of its words finds alone — never unrelated products.
+- Sort options are offered only when the data supports them: best selling needs a paid order, customer rating an approved review, biggest discount a live sale.
+- Attribute filters appear only when the current results carry at least two values of the attribute (or one is selected). Values of one attribute are OR-ed, different attributes AND-ed; a variation attribute and a specification with the same name are one filter (D-030).
+- A price filter needs one variant inside the whole range, not one variant above the minimum and another below the maximum.
+- Search result pages are `noindex, follow`; filtered, sorted or paged category pages are too, with the canonical on the plain category.
 - A chip removing a filter is an ordinary link back to the same listing with that parameter dropped, and it drops the page number with it: the results are about to change, so page three may no longer exist. Removing a filter never removes the search — someone clearing a brand did not ask to be sent back to the whole catalogue.
 - Search matches everything a listing says about itself (title, brand, description with markup stripped, bullet points, spec table, tags, meta description) plus its category's name and its variants' attribute values. Ranking prefers a title match to a mention in a paragraph, because that is what shoppers mean. See DECISIONS.md D-018.
 - A recommendation is scored against what the catalogue records — a relationship staff stated, the shelf, a shared tag, the brand, a comparable price — and anything scoring zero is not a recommendation. A short row is topped up with the best-rated products, never with a random draw. See D-019.
 
-## The homepage
+## The homepage (D-035)
 
-- The hero is a photograph and nothing else. No headline, no paragraph, no price panel and no button are drawn over it (DECISIONS.md D-021), so the only thing a shopper reads on the first screen is the header.
-- The photograph, its focal point and the header's contrast mode are staff-owned settings, not source. Staff may write them; the storefront reads them with no session.
-- The hero image is set by uploading a file, never by posting a URL, so the front page cannot be pointed at an address off this site.
-- The four products beneath it are a list of slugs staff choose and order. Each is resolved through the public predicate at render time, so a product unpublished after being chosen drops out of the row rather than breaking it.
-- Staff choices lead the row and the catalogue fills the rest — whatever closes soonest, then the newest — so the row is always four and never has holes in it.
-- A card shows the product's own main photograph. Changing what a card shows is done on the product, with "Make main" in its Photographs section; the homepage never holds a second copy of an image.
-- The page's `h1` is visually hidden. A page needs one heading, and with the words off the photograph it belongs in the markup rather than on the picture.
+- The first screen is a promotional slider of up to five campaigns. A campaign is one record: a hero photograph (about 87% of the viewport on desktop) and the four showcase tiles under it. Arrows, swipe, the arrow keys and the dots move the whole unit; the hero can never change without its tiles.
+- Only a slot switched on with a hero image is shown. Switching on a slot or tile without an image is refused, and removing a hero switches its slot off, so the storefront never shows a blank slide or an empty card.
+- A tile is an image and a custom title, nothing else — no price, stock or product data. Its image is its own upload, not a product photograph.
+- The hero, the button and each tile may link anywhere on this site (a path) or to an absolute http(s) address. Anything else is refused on save. "New tab" applies only to off-site links, always with `noopener`.
+- Images are uploads, never URLs. A replaced or removed file is deleted once nothing else in the campaigns points at it; a borrowed product photograph (carried over from the old showcase) is never deleted.
+- The header's treatment follows the slide in view: Automatic measures the photograph; staff can force light or dark lettering per slide.
+- With every slot switched off the page builds a temporary slide from the catalogue rather than showing nothing. It is never stored.
+- The page's `h1` is visually hidden; a slide's optional headline is an `h2`.
+
+## Customer spend
+
+- "Spent" on Admin → Customers is the sum of `total_bdt` over the customer's orders in a paid status (`payment_confirmed` through `delivered`). Unpaid (`placed`), cancelled and refunded orders count as orders but not as spend. The dashboard's sales figure uses the same statuses, so the two cannot disagree.
+- It is computed on read from `orders`, never stored, so a status change is reflected immediately and nothing can double count.
+
+## Staff roles (D-034)
+
+- Each staff role is a named list of permissions in `lib/auth/authorize.ts`. Every admin function asks for one permission; every admin page checks the same permission before rendering; the navigation shows only what the role holds. Hiding a link is never the control.
+- Money (sales, average order, revenue per day, margin export) is computed only for `finance.view`. Other roles see counts.
+- Only the owner (`super_admin`) manages staff and site settings. Nobody can change their own role, and the last owner cannot be demoted.
+- Staff temporary passwords need at least 8 characters; customer passwords 10.
 
 ## Variation engine (Phase 5)
 
@@ -105,3 +147,32 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - Taking a combination off sale is done by disabling it. The row stays, so an order that referenced it still resolves; only `isEnabled` variants are purchasable.
 - Preorder capacity can never be set below the number of slots already reserved. Those slots are sold, and lowering the ceiling underneath them would mean the site has taken more preorders than it can fulfil.
 - Price and capacity changes are recorded as their own audit actions (`product.price_changed`, `variant.capacity_changed`), because MASTER_PRODUCT_SPEC.md section 4 names them as the sensitive ones. A bulk edit writes one audit row per variant, not one for the batch.
+
+## Account: wishlist, addresses, newsletter (gap audit pass)
+
+- A wishlist row is a variant and an account, never a price. Its price and availability are read live, the same way the cart reads them.
+- "Save for later" moves a cart line onto the wishlist in one transaction. "Move to cart" adds one of the item through the cart's normal availability check and only then removes it from the list; if the cart refuses, it stays saved.
+- An address any order has used is never rewritten or deleted: an edit writes a new row and detaches the old one, a removal detaches it (DECISIONS.md D-032). An account keeps at most ten addresses and always has exactly one default while it has any.
+- Newsletter signup is idempotent by lowercase address; nothing is sent until an email provider is connected.
+- Coupons and zone-based delivery charges do not exist; the landed price is still the whole price (D-033).
+
+## Product SKUs (D-037)
+
+- A SKU is generated on the server when Add Product opens and held for that admin (two hours, renewed on reopening). Nobody else can be given it while held.
+- Saving the product makes the SKU permanent in the same transaction; a permanent SKU is never generated again, even if the product is archived or its SKU is later changed.
+- Cancelling the form, or letting the hold expire, releases the SKU; the lowest free number is generated next, so released SKUs are reused.
+- A typed SKU is checked against products, variants, other admins' holds and every permanent SKU. A failed save leaves the hold in place so a retry keeps the same SKU.
+- Only roles with `catalog.manage` can reserve or release, and only their own holds.
+
+## SEO Pulse (D-038)
+
+- Research runs only when staff press the button. It uses the product as saved; nothing has to be filled in first.
+- A run collects: this site's own search log (always), external keyword and search-results data (only if a provider is configured), then writes recommendations (rules by default, Claude if configured). A failed provider is recorded and the rest carry on.
+- Search volume, difficulty, competition, CPC, trends, rankings and competitor pages are shown only when a source returned them, with the source and date. Otherwise they read "Data unavailable". Nothing is estimated.
+- Recommendations are labelled with what wrote them: "AI-generated" or "Rule-based", and "external research unavailable" when no external data was collected.
+- Scores: the SEO Pulse Optimization Score and the Internal Search Score are weighted completeness checks of the listing as saved now (`lib/seo-pulse/scores.ts`). They are not Google scores and promise no ranking.
+- Every run is kept as a numbered version. "Run fresh research" adds a version; it never replaces one. An unchanged product reuses research under 30 days old unless fresh research is asked for. Research older than 30 days, or for a product that has changed since, is flagged "Needs refresh".
+- Applying: an empty field can be filled directly; a field with a value needs an explicit Replace, confirmed on screen and checked again on the server. Lists can be added to freely; removing an entry needs Replace. The address and the product name are never selected by default.
+- Applying never publishes, prices, stocks, re-files, archives or deletes anything. Photograph alt text written by SEO Pulse is marked "Needs manual review" because SEO Pulse cannot see the image.
+- Synonyms become a site-wide entry only when ticked, only for staff with `search.manage`, and an existing entry for the same term is never changed.
+- Downloads: JSON (everything), CSV (one row per finding, with `data_type` research/analysis) and a readable HTML report.

@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -13,7 +14,9 @@ const MIGRATIONS_DIR = join(process.cwd(), "db/migrations");
  * its actual queries rather than a stub.
  */
 export async function createTestDatabase() {
-  const client = new PGlite();
+  // pg_trgm backs the search vocabulary (migration 0014); PGlite ships it as
+  // an extension that has to be loaded before the migration can create it.
+  const client = new PGlite({ extensions: { pg_trgm } });
   const db = drizzle(client, { schema });
 
   const files = readdirSync(MIGRATIONS_DIR)
@@ -40,14 +43,16 @@ export async function createTestDatabase() {
     async reset() {
       await client.exec(`
         truncate table
-          recovery_codes, rate_limit_hits, notifications, audit_log, site_settings, reviews,
+          search_queries, search_clicks, search_history, search_synonyms,
+          product_search_words, product_search_queue, product_search,
+          seo_research_runs, sku_reservations, recovery_codes, rate_limit_hits, notifications, audit_log, site_settings, reviews,
           payments, order_status_history, order_items, orders,
           wishlist_items, cart_items, carts,
           waitlist_entries, inventory_adjustments,
           variant_option_values, variant_images, product_variants,
           product_attributes, attribute_values, attributes,
           product_related, product_categories, product_images, products,
-          categories, sessions, addresses, users
+          categories, sessions, addresses, newsletter_subscribers, users
         restart identity cascade
       `);
     },

@@ -79,7 +79,12 @@ export async function authenticate(input: LoginInput) {
  * created by a super_admin, never by this path — a client cannot ask for a
  * role here, and the schema rejects one if it somehow arrived.
  */
-export async function register(input: RegisterInput) {
+export async function register(
+  input: Omit<RegisterInput, "firstName" | "lastName"> & {
+    firstName?: string;
+    lastName?: string;
+  },
+) {
   const existing = await db
     .select({ id: users.id })
     .from(users)
@@ -95,6 +100,8 @@ export async function register(input: RegisterInput) {
     .values({
       email: input.email,
       phone: input.phone ?? null,
+      firstName: input.firstName ?? null,
+      lastName: input.lastName ?? null,
       passwordHash,
       role: "customer",
     })

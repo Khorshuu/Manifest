@@ -2,17 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { StatusBadge } from "@/components/status-badge";
-import { getCurrentUser } from "@/lib/auth";
 import {
   getCategoryTree,
-  getProductAttributes,
   getProductForAdmin,
   getReadinessSummary,
-  listAttributes,
   listVariants,
   type CategoryNode,
 } from "@/lib/catalog";
 import { ImageManager } from "../image-manager";
+import { SeoPulseBox } from "../seo-pulse-box";
+import { loadVariantManager } from "../variants/manager-props";
 import { VariantMatrix } from "../variants/variant-matrix";
 import { BasicsForm, type BasicsValues } from "./basics-form";
 import { PricingTable } from "./pricing-table";
@@ -27,6 +26,12 @@ import {
   WIZARD_STEPS,
   type WizardStep,
 } from "./steps";
+import { requireAdminPage } from "@/lib/auth/admin-page";
+import {
+  describeDataProvider,
+  describeIntelligenceProvider,
+  getSeoPulseOverview,
+} from "@/lib/seo-pulse";
 
 export const metadata: Metadata = { title: "Product setup" };
 export const dynamic = "force-dynamic";
@@ -52,7 +57,7 @@ export default async function ProductWizardPage({
 
   const step: WizardStep = isWizardStep(query.step) ? query.step : "basics";
 
-  const user = await getCurrentUser();
+  const user = await requireAdminPage("catalog.manage");
   const product = await getProductForAdmin(user, productId);
   if (!product) notFound();
 
@@ -147,31 +152,11 @@ export default async function ProductWizardPage({
         {step === "variations" ? (
           <div className="flex min-w-0 flex-col gap-6">
             <p className="max-w-[70ch] text-meta text-ink/70">
-              Pick the attributes this product varies by, then generate the
-              combinations. A product with no variations still needs one variant
-              — generate with nothing selected and you get exactly that.
+              Add a variant group (Color, Size…) if this product comes in
+              versions, then set each one&rsquo;s price and stock. A product
+              with no groups still has one variant — set its price here.
             </p>
-            <VariantMatrix
-              productId={productId}
-              attributes={(await listAttributes()).map((attribute) => ({
-                id: attribute.id,
-                name: attribute.name,
-                valueCount: attribute.values.length,
-              }))}
-              selectedAttributeIds={(
-                await getProductAttributes(productId)
-              ).map((row) => row.attributeId)}
-              variants={(await listVariants(user, productId)).map((variant) => ({
-                id: variant.id,
-                sku: variant.sku,
-                label: variant.label,
-                priceBdt: variant.priceBdt,
-                isEnabled: variant.isEnabled,
-                fulfillmentMode: variant.fulfillmentMode,
-                preorderCapacity: variant.preorderCapacity,
-                preorderReserved: variant.preorderReserved,
-              }))}
-            />
+            <VariantMatrix {...(await loadVariantManager(user, product))} />
             <div>
               <Link
                 href={nextHref}
@@ -194,8 +179,15 @@ export default async function ProductWizardPage({
                 label: variant.label,
                 // Taka in the form, paisa in the database.
                 priceTaka: (variant.priceBdt / 100).toFixed(2),
+                salePriceTaka:
+                  variant.salePriceBdt === null
+                    ? ""
+                    : (variant.salePriceBdt / 100).toFixed(2),
+                saleStartsAt: dateInputValue(variant.saleStartsAt),
+                saleEndsAt: dateInputValue(variant.saleEndsAt),
                 fulfillmentMode: variant.fulfillmentMode,
                 stockQuantity: variant.stockQuantity,
+                lowStockThreshold: variant.lowStockThreshold,
                 preorderCapacity: variant.preorderCapacity,
                 preorderReserved: variant.preorderReserved,
                 closesAt: dateInputValue(variant.preorderClosesAt),
@@ -208,11 +200,29 @@ export default async function ProductWizardPage({
         ) : null}
 
         {step === "seo" ? (
-          <SeoForm
-            key={product.updatedAt.toISOString()}
-            product={{ ...basics, slug: product.slug }}
-            nextHref={nextHref}
-          />
+          <div className="flex min-w-0 flex-col gap-8">
+            <SeoForm
+              key={product.updatedAt.toISOString()}
+              product={{ ...basics, slug: product.slug }}
+              nextHref={nextHref}
+            />
+            {await (async () => {
+              const pulse = await getSeoPulseOverview(user, productId);
+              if (!pulse) return null;
+              const last = pulse.latest;
+              return (
+                <div className="max-w-sm border-t border-blue-300 pt-6">
+                  <SeoPulseBox
+                    productId={product.id}
+                    lastRunId={last?.id ?? null}
+                    lastRunAt={last ? (last.completedAt ?? last.createdAt) : null}
+                    stale={pulse.stale || pulse.inputChanged}
+                    paid={describeDataProvider().paid || describeIntelligenceProvider().paid}
+                  />
+                </div>
+              );
+            })()}
+          </div>
         ) : null}
 
         {step === "publish" ? (
