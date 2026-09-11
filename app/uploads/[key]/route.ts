@@ -31,7 +31,7 @@ export async function GET(
 
   let data: Buffer;
   try {
-    data = await readFile(join(LOCAL_UPLOAD_DIR, key));
+    data = await readFile(join(/*turbopackIgnore: true*/ LOCAL_UPLOAD_DIR, key));
   } catch {
     return new Response("Not found", { status: 404 });
   }

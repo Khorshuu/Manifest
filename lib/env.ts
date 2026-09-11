@@ -35,7 +35,17 @@ let cached: Env | undefined;
 export function getEnv(): Env {
   if (cached) return cached;
 
-  const parsed = schema.safeParse(process.env);
+  /*
+   * A variable set to an empty string means "not set", not "invalid". A host
+   * that lists the names it found — Vercel does, from .env.example — hands
+   * every one of them through as "", which would otherwise fail the enums and
+   * the numbers before the defaults below could apply.
+   */
+  const supplied = Object.fromEntries(
+    Object.keys(schema.shape).map((key) => [key, process.env[key]?.trim() || undefined]),
+  );
+
+  const parsed = schema.safeParse(supplied);
   if (!parsed.success) {
     const missing = parsed.error.issues
       .map((issue) => `${issue.path.join(".")}: ${issue.message}`)

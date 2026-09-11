@@ -49,7 +49,8 @@ export class LocalMediaProvider implements MediaProvider {
     const key = `${randomUUID()}.${extension}`;
 
     await mkdir(this.directory, { recursive: true });
-    await writeFile(join(this.directory, key), input.data);
+    // turbopackIgnore: the directory is configuration, not a traced import.
+    await writeFile(join(/*turbopackIgnore: true*/ this.directory, key), input.data);
 
     return {
       url: `${this.publicPath}/${key}`,
@@ -66,6 +67,6 @@ export class LocalMediaProvider implements MediaProvider {
       throw new Error("That media key is not valid.");
     }
 
-    await unlink(join(this.directory, key)).catch(() => undefined);
+    await unlink(join(/*turbopackIgnore: true*/ this.directory, key)).catch(() => undefined);
   }
 }

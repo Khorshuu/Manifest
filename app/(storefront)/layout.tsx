@@ -2,6 +2,13 @@ import { HeaderThemeProvider } from "@/components/header-theme";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 
+/*
+ * Every storefront page is rendered per request: the header above reads the
+ * catalogue (its categories and their live counts) and the signed-in visitor,
+ * neither of which can be settled when the application is built.
+ */
+export const dynamic = "force-dynamic";
+
 export default function StorefrontLayout({
   children,
 }: LayoutProps<"/">) {
