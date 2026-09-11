@@ -706,3 +706,34 @@ The honesty of the message is part of the decision. "A place is available" reads
 **Decision:** Next.js App Router, TypeScript strict mode, Tailwind CSS driven by the DESIGN_GUIDELINES.md token set, deployed to Vercel with Neon for serverless Postgres, Cloudflare R2 for product imagery.
 
 **Why:** MASTER_PRODUCT_SPEC.md §6 requires SEO (metadata, structured data, sitemap) and a fast mobile-first storefront, which favors server-rendered pages over a client-only SPA. The same app serves the customer storefront and the internal admin dashboard, which keeps deployment and auth code in one place. Neon's branching model gives each phase of work an isolated database without standing up separate Postgres instances by hand. Cloudflare R2 is chosen over storing images in Postgres or in the app's own filesystem because Vercel's serverless runtime has no persistent disk, and R2's egress pricing suits an image-heavy storefront.
+
+## D-041 — Product photography is stored in Vercel Blob on a deployment
+
+**Context:** D-001 chose an object store for media and named Cloudflare R2, and
+until now only the local provider existed: it writes into `.uploads/` and a
+route handler serves the bytes. A serverless deployment has no persistent
+disk, so an upload there either fails outright or is lost on the next request.
+The shop is deployed on Vercel, which offers a first-party object store with no
+credentials to manage.
+
+**Decision:** `BlobMediaProvider` stores uploads in Vercel Blob, in a public
+store, under a generated key. `MEDIA_PROVIDER` selects the implementation; with
+nothing set, a runtime holding `BLOB_READ_WRITE_TOKEN` uses Blob and everything
+else writes to disk, so development keeps working untouched and a deployment
+cannot silently pick the implementation that cannot work there.
+
+The store is public because a product photograph is public — the storefront
+shows it to every visitor. The key is an unguessable identifier, so nothing is
+discoverable by trying URLs, and no private record is placed in it.
+
+The URL stored on the image row is absolute and points at the blob host rather
+than at this site, so `next.config.ts` names that host twice: in
+`Content-Security-Policy: img-src`, and in the image loader's remote patterns.
+Rows written before this change keep their `/uploads/...` path and are still
+served by the local route.
+
+**Alternatives considered:** proxying the bytes back through `/uploads/[key]`
+would have kept every stored URL same-origin and left the policy alone, at the
+cost of a second hop on every image and a provider interface that has to read
+as well as write. Cloudflare R2 remains the option if this ever leaves Vercel;
+the provider interface is unchanged, so that is one new file.

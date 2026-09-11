@@ -10,6 +10,9 @@ import type { NextConfig } from "next";
  */
 const isProduction = process.env.NODE_ENV === "production";
 
+/** Where Vercel Blob serves public files from (lib/providers/media/blob.ts). */
+const BLOB_HOST = "https://*.public.blob.vercel-storage.com";
+
 const scriptSrc = isProduction
   ? "'self' 'unsafe-inline'"
   : // The dev server evaluates modules for fast refresh.
@@ -19,7 +22,9 @@ const contentSecurityPolicy = [
   "default-src 'self'",
   `script-src ${scriptSrc}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  // Product photography is stored in Vercel Blob, so it is served from that
+  // host rather than from this origin.
+  `img-src 'self' data: blob: ${BLOB_HOST}`,
   "font-src 'self' data:",
   // Only our own origin: no third-party beacons.
   `connect-src 'self'${isProduction ? "" : " ws: wss:"}`,
@@ -65,6 +70,13 @@ const nextConfig: NextConfig = {
    * badge. Compile and runtime errors are still surfaced without it.
    */
   devIndicators: false,
+  images: {
+    // next/image refuses a host it was not told about, and product photography
+    // lives in Vercel Blob once MEDIA_PROVIDER is 'blob'.
+    remotePatterns: [
+      { protocol: "https", hostname: "*.public.blob.vercel-storage.com" },
+    ],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
