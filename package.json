@@ -18,7 +18,9 @@
     "db:setup": "tsx db/setup.ts",
     "db:server": "tsx db/dev-server.ts",
     "test:e2e:only": "playwright test",
-    "test:e2e:prod": "tsx e2e/prepare-db.ts && next build && cross-env E2E_PRODUCTION=1 playwright test"
+    "test:e2e:prod": "tsx e2e/prepare-db.ts && next build && cross-env E2E_PRODUCTION=1 playwright test",
+    "db:migrate:deploy": "tsx db/migrate.ts",
+    "vercel-build": "tsx db/migrate.ts && next build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

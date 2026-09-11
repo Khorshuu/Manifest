@@ -63,3 +63,7 @@ dev.local.log
 # Local logs and scratch files
 *.log
 *.tmp.*
+
+.vercel
+.env*
+!.env.example
