@@ -2,11 +2,28 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AuthShell, safeNext } from "@/components/auth-shell";
+import { AuthDivider, GoogleButton } from "@/components/google-button";
 import { getCurrentUser } from "@/lib/auth";
+import { isGoogleSignInEnabled } from "@/lib/auth/google";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
   title: "Sign in",
+};
+
+/**
+ * What went wrong on the way back from Google, in words a shopper can act on.
+ * The callback passes one of these keys and never a provider message, so
+ * nothing a third party wrote is rendered here.
+ */
+const GOOGLE_ERRORS: Record<string, string> = {
+  "google-cancelled": "Google sign-in was cancelled. Nothing was changed.",
+  "google-expired":
+    "That Google sign-in took too long. Start it again from this page.",
+  "google-state":
+    "That Google sign-in could not be verified. Start it again from this page.",
+  "google-failed":
+    "Google sign-in did not complete. Try again, or use your email and password.",
 };
 
 export default async function LoginPage({
@@ -54,7 +71,20 @@ export default async function LoginPage({
         </>
       }
     >
-      <LoginForm redirectTo={redirectTo} />
+      {isGoogleSignInEnabled() ? (
+        <div className="mb-6 flex flex-col gap-6">
+          <GoogleButton next={redirectTo} />
+          <AuthDivider />
+        </div>
+      ) : null}
+
+      <LoginForm
+        redirectTo={redirectTo}
+        /* Google proved the password's worth of identity, not the second
+           factor: the account still owes a code before it is signed in. */
+        startWithCode={params.code === "required"}
+        initialError={GOOGLE_ERRORS[String(params.error ?? "")] ?? null}
+      />
     </AuthShell>
   );
 }

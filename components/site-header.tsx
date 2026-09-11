@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { AccountMenu } from "@/components/account-menu";
+import { AuthDialog } from "@/components/auth-dialog";
 import { HeaderShell } from "@/components/header-shell";
-import { IconCart, IconHeart, IconUser } from "@/components/icons";
+import { IconCart, IconHeart } from "@/components/icons";
 import { SearchBox, SearchBoxFallback } from "@/components/search-box";
 import {
   collectSubtreeIds,
@@ -10,6 +11,7 @@ import {
   getCategoryTree,
 } from "@/lib/catalog";
 import { getCurrentUser, isStaff } from "@/lib/auth";
+import { isGoogleSignInEnabled } from "@/lib/auth/google";
 import { countCartItems } from "@/lib/cart";
 import { findCartId } from "@/lib/cart/session";
 
@@ -87,10 +89,16 @@ export async function SiteHeader() {
           {user ? (
             <AccountMenu label={accountLabel} isStaff={isStaff(user)} />
           ) : (
-            <Link href="/login" className={item}>
-              <IconUser size={18} className="shrink-0" />
-              <span className="max-w-[9ch] truncate sm:max-w-[12ch]">{accountLabel}</span>
-            </Link>
+            /*
+             * Signing in happens over the page rather than on a page of its
+             * own (D-042). /login and /register are untouched and still serve
+             * every server-side redirect.
+             */
+            <AuthDialog
+              googleEnabled={isGoogleSignInEnabled()}
+              label={accountLabel}
+              triggerClassName={item}
+            />
           )}
 
           <Link href={wishlistHref} className={item}>

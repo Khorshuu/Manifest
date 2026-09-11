@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { oauthAccounts, users } from "@/db/schema";
 import { hashPassword, verifyPassword } from "./password";
 import { createSession } from "./session";
 import { requiresTwoFactor } from "./two-factor";
@@ -49,6 +49,16 @@ export async function authenticate(input: LoginInput) {
   const user = rows[0];
 
   if (!user) {
+    await verifyPassword(DUMMY_HASH, input.password);
+    throw new CredentialsError();
+  }
+
+  /*
+   * An account that only ever signed in with Google has no hash. It is
+   * refused exactly like a wrong password — same message, same cost — so the
+   * response never reveals how someone else signs in.
+   */
+  if (!user.passwordHash) {
     await verifyPassword(DUMMY_HASH, input.password);
     throw new CredentialsError();
   }
@@ -110,4 +120,111 @@ export async function register(
   const session = await createSession(created.id);
 
   return { session, user: created };
+}
+
+/**
+ * Signs in the holder of a verified Google identity, per DECISIONS.md D-042.
+ *
+ * Three cases, in order:
+ *   1. the Google subject is already linked — that account signs in;
+ *   2. an account exists with the same email — the identity is linked to it,
+ *      which is safe only because Google is asked for, and this is only
+ *      called with, a *verified* address;
+ *   3. nobody matches — a new customer is created with no password, exactly
+ *      like self-registration, which never grants a role.
+ *
+ * A second factor still applies: an account with TOTP configured gets a
+ * pending session here too, so Google cannot be used to walk past it.
+ */
+export async function signInWithGoogle(profile: {
+  subject: string;
+  email: string;
+  emailVerified: boolean;
+  firstName?: string | null;
+  lastName?: string | null;
+}) {
+  if (!profile.emailVerified) {
+    // Without a verified address there is nothing safe to match on: an
+    // unverified address could be anyone's.
+    throw new CredentialsError();
+  }
+
+  const email = profile.email.trim().toLowerCase();
+
+  const [linked] = await db
+    .select({
+      userId: oauthAccounts.userId,
+      email: users.email,
+      role: users.role,
+    })
+    .from(oauthAccounts)
+    .innerJoin(users, eq(users.id, oauthAccounts.userId))
+    .where(
+      and(
+        eq(oauthAccounts.provider, "google"),
+        eq(oauthAccounts.providerAccountId, profile.subject),
+      ),
+    )
+    .limit(1);
+
+  if (linked) {
+    return finishOAuthSignIn({
+      id: linked.userId,
+      email: linked.email,
+      role: linked.role,
+    });
+  }
+
+  const [existing] = await db
+    .select({ id: users.id, email: users.email, role: users.role })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+
+  if (existing) {
+    await db.insert(oauthAccounts).values({
+      userId: existing.id,
+      provider: "google",
+      providerAccountId: profile.subject,
+      email,
+    });
+
+    return finishOAuthSignIn(existing);
+  }
+
+  const [created] = await db
+    .insert(users)
+    .values({
+      email,
+      firstName: profile.firstName ?? null,
+      lastName: profile.lastName ?? null,
+      passwordHash: null,
+      role: "customer",
+      // Google only reports an address it has verified, and an unverified one
+      // never reaches here.
+      emailVerifiedAt: new Date(),
+    })
+    .returning({ id: users.id, email: users.email, role: users.role });
+
+  await db.insert(oauthAccounts).values({
+    userId: created.id,
+    provider: "google",
+    providerAccountId: profile.subject,
+    email,
+  });
+
+  return finishOAuthSignIn(created);
+}
+
+async function finishOAuthSignIn(user: {
+  id: string;
+  email: string;
+  role: string;
+}) {
+  const needsSecondFactor = await requiresTwoFactor(user.id);
+  const session = await createSession(user.id, {
+    pendingTwoFactor: needsSecondFactor,
+  });
+
+  return { session, needsSecondFactor, user };
 }

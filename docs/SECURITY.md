@@ -145,3 +145,25 @@ The limiter fails open if the database will not answer. Signing in needs the dat
   (spreadsheet formula injection). Exports are `no-store`.
 - Audit log: `seo_pulse.researched`, `seo_pulse.applied`, plus the usual
   `product.updated` from the save itself.
+
+## Signing in with Google (D-042)
+
+- The flow is authorization code with PKCE. The `state` and the code verifier
+  are held in http-only, `SameSite=Lax` cookies for ten minutes and are
+  deleted the moment the callback runs, whatever its outcome. A callback whose
+  `state` does not match the cookie — compared in constant time — is refused
+  and nothing is signed in.
+- The redirect URI is built from the site's own configured origin, never from
+  a request header, so it cannot be pointed elsewhere by a crafted request.
+- Only a *verified* Google address is matched to an existing account. An
+  unverified one is refused and creates nothing.
+- Accounts are matched on Google's subject identifier, not the email address.
+- Google is not a second factor and does not replace one: an account with TOTP
+  gets a pending session, which authenticates nothing until the code is proved.
+- An account with no password (Google only) is refused by the password path
+  with the same message, and the same argon2 cost, as a wrong password — so the
+  response cannot be used to learn how an account signs in.
+- Nothing Google returns is rendered. The callback redirects to `/login` with
+  one of four fixed keys, and the page maps those to its own wording.
+- Sign-in with Google is unavailable unless both credentials are configured:
+  the button is not rendered and both routes answer 404.

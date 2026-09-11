@@ -2281,3 +2281,64 @@ What was wrong, found by inspection:
   duplicate would have shared the original's options; the phone page was
   655px wide (screen-reader labels escaping the variants table's scroll box)
   — now 390px.
+
+## Signing in over the page, and with Google (this session, D-042)
+
+- `[x]` **Sign-in dialog.** The header's "Sign in" now opens a dialog over the
+  current page instead of navigating to `/login`: two tabs (Sign in, Create
+  account), the same `/api/auth/login` and `/api/auth/register` endpoints, and
+  the authenticator-code step when an account has one. On success it closes and
+  the page refreshes in place, so nobody loses the product they were reading.
+  `/login` and `/register` are unchanged and still serve every redirect.
+- `[x]` **Continue with Google**, on the dialog and on both pages —
+  authorization code with PKCE, state in an http-only cookie, the ID token's
+  issuer, audience and expiry checked. New: `lib/auth/google.ts`,
+  `GET /api/auth/google/start`, `GET /api/auth/google/callback`,
+  `signInWithGoogle()` in `lib/auth/accounts.ts`.
+- `[x]` **Migration 0021** (applied to the development database):
+  `users.password_hash` is nullable, and `oauth_accounts` links a Google
+  subject to an account. Matching is on the subject, never the address alone;
+  an unverified address is refused.
+- `[x]` Google is off unless `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are
+  set — the button is not rendered and both routes answer 404.
+
+### Verified
+
+- `npm run typecheck`, `npm run lint` and `npm run build` pass; both new routes
+  compile.
+- `tests/google-sign-in.test.ts` (18) with `tests/accounts.test.ts` and
+  `tests/schema.test.ts`: 31 pass. They cover the ID-token checks (wrong
+  audience, wrong issuer, expired, malformed), first sign-in creating a
+  customer with no password, the second visit returning to the same account,
+  following the subject when the address changes, linking a verified address to
+  an existing account, refusing an unverified one, TOTP still owed, and a
+  password never signing in to a Google-only account.
+- Browser, desktop and Pixel 7, against the development server: the dialog
+  opens over the home page, a wrong password is announced in place, the right
+  one closes it and the header reads the shopper's first name without a
+  navigation; the Create account tab registers and signs in the same way; no
+  sideways scroll at phone width. The throwaway account was deleted afterwards.
+- Against a production build with test credentials set: the button appears,
+  `/api/auth/google/start` redirects to Google with `response_type=code`,
+  `code_challenge_method=S256` and `prompt=select_account` and sets the three
+  http-only handshake cookies; a callback with a mismatched state redirects to
+  `/login?error=google-expired`; a cancelled one to `?error=google-cancelled`.
+
+### Not verified, stated plainly
+
+- `[!]` **A real Google sign-in — UNVERIFIED, external integration
+  unavailable.** No OAuth client exists for this shop, so the token exchange
+  was never run against Google. What was exercised is everything up to and
+  after it. To finish: create an OAuth client (Web application) in the Google
+  Cloud console, add `${SITE_URL}/api/auth/google/callback` as an authorised
+  redirect URI, and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+- `[ ]` No end-to-end spec was added for the dialog, and the full e2e sweep was
+  not run.
+- `[ ]` The wishlist and review sign-in links still navigate to `/login`; only
+  the header opens the dialog.
+
+### Found but not fixed (unrelated, reported rather than changed)
+
+- `mergeGuestCart()` in `lib/cart/index.ts` is called by nothing outside the
+  tests, so a guest's cart is not merged into their account when they sign in.
+  This predates this session's work and was left alone.

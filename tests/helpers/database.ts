@@ -52,7 +52,7 @@ export async function createTestDatabase() {
           variant_option_values, variant_images, product_variants,
           product_attributes, attribute_values, attributes,
           product_related, product_categories, product_images, products,
-          categories, sessions, addresses, newsletter_subscribers, users
+          categories, sessions, oauth_accounts, addresses, newsletter_subscribers, users
         restart identity cascade
       `);
     },

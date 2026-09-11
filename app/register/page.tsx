@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AuthShell, safeNext } from "@/components/auth-shell";
+import { AuthDivider, GoogleButton } from "@/components/google-button";
 import { getCurrentUser } from "@/lib/auth";
+import { isGoogleSignInEnabled } from "@/lib/auth/google";
 import { RegisterForm } from "./register-form";
 
 export const metadata: Metadata = {
@@ -42,6 +44,13 @@ export default async function RegisterPage({
         </p>
       }
     >
+      {isGoogleSignInEnabled() ? (
+        <div className="mb-6 flex flex-col gap-6">
+          <GoogleButton next={redirectTo} label="Continue with Google" />
+          <AuthDivider />
+        </div>
+      ) : null}
+
       <RegisterForm redirectTo={redirectTo} />
     </AuthShell>
   );

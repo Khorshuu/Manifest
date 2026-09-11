@@ -74,7 +74,7 @@ describe("register", () => {
       .where(eq(users.email, credentials.email));
 
     expect(created.passwordHash).not.toContain(credentials.password);
-    expect(created.passwordHash.startsWith("$argon2id$")).toBe(true);
+    expect(created.passwordHash?.startsWith("$argon2id$")).toBe(true);
   }, 30_000);
 
   it("refuses a second account on the same email", async () => {

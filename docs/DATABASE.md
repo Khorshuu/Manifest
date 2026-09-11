@@ -480,3 +480,16 @@ next version. The JSON shapes are `SeoPulseInput`, `SeoResearchData`,
 
 `products.seo_focus_keyword` (text, nullable): the phrase a listing is
 written to rank for. Never shown to shoppers.
+
+## Migration 0021 — `oauth_accounts`, and an optional password (D-042)
+
+`users.password_hash` becomes nullable: an account that only ever signs in with
+Google has no password, rather than a random one nobody knows.
+`lib/auth/accounts.ts` refuses a null hash exactly as it refuses a wrong
+password.
+
+`oauth_accounts`: `id, user_id → users, provider (check: google),
+provider_account_id, email (as reported at link time, for support), created_at`.
+Unique on `(provider, provider_account_id)` — one account per external
+identity — and indexed on `user_id`. The subject identifier is what is matched
+on; the email column is never used to find an account.

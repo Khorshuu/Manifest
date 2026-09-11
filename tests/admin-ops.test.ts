@@ -190,7 +190,7 @@ describe("staff management", () => {
       .where(eq(users.email, "new-staff@example.com"));
 
     expect(row.passwordHash).not.toContain("a-long-enough-password");
-    expect(row.passwordHash.startsWith("$argon2id$")).toBe(true);
+    expect(row.passwordHash?.startsWith("$argon2id$")).toBe(true);
   }, 30_000);
 
   it("refuses a duplicate email", async () => {

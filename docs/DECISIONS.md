@@ -737,3 +737,63 @@ would have kept every stored URL same-origin and left the policy alone, at the
 cost of a second hop on every image and a provider interface that has to read
 as well as write. Cloudflare R2 remains the option if this ever leaves Vercel;
 the provider interface is unchanged, so that is one new file.
+
+## D-042 — Signing in happens over the page, and Google is one of the ways
+
+**Context:** Signing in meant leaving for `/login`, and coming back only if a
+`next` parameter had been carried along. A shopper halfway down a product page
+who wanted a wishlist lost the page they were reading. The only credential the
+shop accepted was a password of its own, which every new customer had to invent
+before they could buy anything. D-000 chose to own sessions and roles rather
+than adopt an auth library, and noted that social login would be the reason to
+revisit that.
+
+**Decision:** Two additions, neither replacing what exists.
+
+1. A sign-in dialog over the current page, with Sign in and Create account as
+   two tabs, posting to the same `/api/auth/login` and `/api/auth/register`
+   endpoints the pages already use. `/login` and `/register` stay exactly as
+   they are and still serve every server-side redirect, every `next` link and
+   every visit without JavaScript. The dialog is a native `<dialog>`, so focus
+   handling, inertness and Escape come from the browser.
+
+2. "Continue with Google", on the dialog and on both pages, as the
+   authorization-code flow with PKCE written directly against Google's
+   endpoints. No auth library: the session table, the role check and the second
+   factor are already this app's own, and a framework would want to own all
+   three.
+
+The link is made on Google's subject identifier, held in a new
+`oauth_accounts` table, never on the email address alone — an address can be
+reassigned by the owner of a workspace domain, a subject cannot. An address
+Google reports as *verified* may be matched to an existing account, which is
+what lets someone who registered with a password later press the Google button
+and arrive at the same account. An unverified address is refused outright.
+
+An account created this way has no password at all, rather than a random one
+nobody knows: `users.password_hash` becomes nullable, and the password path
+refuses a null hash with the same message and the same cost as a wrong
+password, so the response never reveals how someone else signs in.
+
+Google does not stand in for the second factor. An account with TOTP gets the
+same pending session it gets after a password, and is sent to `/login` owing a
+code.
+
+**Why it is off by default:** `googleConfig()` returns null unless both
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set. The button is then not
+rendered and both routes answer 404, so a deployment without credentials is
+exactly the site it was before.
+
+**Alternatives considered:** Auth.js would have brought Google and a dozen
+other providers for a day's work, and then owned the session, which is the
+thing this app most needs to keep — sessions are re-read on every request so a
+revoked session or a changed role takes effect immediately, and admin actions
+are audited against them. Google One Tap was left out: it signs people in
+before they have decided to, which is the opposite of what the dialog is for.
+
+**Assumption to overturn later:** the ID token's signature is not verified
+locally. It is read only from the body of a direct server-to-server TLS
+response from Google's token endpoint, which OpenID Connect Core §3.1.3.7
+allows; issuer, audience and expiry are still checked. If the flow ever changes
+so that a token arrives by way of the browser, the signature must be verified
+against Google's JWKS first.

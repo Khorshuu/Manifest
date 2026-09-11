@@ -7,6 +7,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -33,7 +34,12 @@ export const users = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     email: text("email").notNull().unique(),
     phone: text("phone").unique(),
-    passwordHash: text("password_hash").notNull(),
+    /**
+     * Null for an account that only ever signs in with Google. The password
+     * path refuses such an account rather than reading "no hash" as "no
+     * password required" — see lib/auth/accounts.ts.
+     */
+    passwordHash: text("password_hash"),
     /** What the header greets a signed-in shopper by. Optional: older accounts have none. */
     firstName: text("first_name"),
     lastName: text("last_name"),
@@ -58,6 +64,37 @@ export const users = pgTable(
       "users_role_check",
       sql`${table.role} in ('super_admin', 'staff_admin', 'product_manager', 'order_manager', 'support', 'marketing', 'finance', 'customer')`,
     ),
+  ],
+);
+
+/**
+ * External identities linked to an account — today only Google.
+ *
+ * The provider's subject identifier is the key, not the email address: the
+ * owner of a workspace domain can reassign an address, but never a subject.
+ */
+export const oauthAccounts = pgTable(
+  "oauth_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    provider: text("provider").notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    /** The address the provider reported when the link was made, for support. */
+    email: text("email"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("oauth_accounts_provider_subject_unique").on(
+      table.provider,
+      table.providerAccountId,
+    ),
+    index("oauth_accounts_user_idx").on(table.userId),
+    check("oauth_accounts_provider_check", sql`${table.provider} in ('google')`),
   ],
 );
 

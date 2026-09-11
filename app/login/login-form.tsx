@@ -35,12 +35,22 @@ function SignInError({ message }: { message: string | null }) {
   );
 }
 
-export function LoginForm({ redirectTo }: { redirectTo: string }) {
+export function LoginForm({
+  redirectTo,
+  /** Set when the page is reached owing a code — after a Google sign-in. */
+  startWithCode = false,
+  /** A failure that happened before this page, such as on the way back from Google. */
+  initialError = null,
+}: {
+  redirectTo: string;
+  startWithCode?: boolean;
+  initialError?: string | null;
+}) {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   const [pending, setPending] = useState(false);
   /** Set once the password is accepted and a code is owed. */
-  const [needsCode, setNeedsCode] = useState(false);
+  const [needsCode, setNeedsCode] = useState(startWithCode);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
