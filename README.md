@@ -55,9 +55,14 @@ npm run test:e2e    # browser tests (Playwright); uses its own database
    only — comment out the seed step or run against an empty database you then
    clear.
 5. **Deploy.** The cron entry in `vercel.json` calls `/api/cron/maintenance`
-   every ten minutes; Vercel sends `CRON_SECRET` as a bearer token
+   once a day at 03:00 UTC; Vercel sends `CRON_SECRET` as a bearer token
    automatically, and the endpoint refuses every request when that variable is
    not set.
+
+   Daily is what Vercel Hobby allows: it refuses a deployment whose cron runs
+   more often than once a day. On Pro, a tighter schedule (`*/10 * * * *`)
+   sends queued customer emails within minutes instead of waiting for the
+   nightly run. Requests drain the queue as they go either way.
 
 ### Environment variables
 
