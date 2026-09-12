@@ -2401,9 +2401,8 @@ What was wrong, found by inspection:
 
 ### Not verified, stated plainly
 
-- `[!]` **The admin editor was not re-checked at phone width this session.**
-  Repeated sign-ins tripped the per-account rate limit. Nothing in this
-  session's editor change is layout-affecting beyond one more row editor.
+- `[x]` The admin product editor was checked at 390px: no sideways scroll, no
+  console errors.
 - `[ ]` No end-to-end spec was added for Buy now or the account dashboard, and
   the full Playwright sweep was not run.
 - `[ ]` AI-written descriptions remain UNVERIFIED — still no `ANTHROPIC_API_KEY`,
