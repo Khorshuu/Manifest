@@ -80,7 +80,7 @@ export function AccountMenu({ label, isStaff }: { label: string; isStaff: boolea
           My account
         </Link>
         <Link href="/account/orders" onClick={close} className={row}>
-          My orders
+          Orders
         </Link>
         <Link href="/account/wishlist" onClick={close} className={row}>
           Wishlist

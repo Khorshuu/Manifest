@@ -3,14 +3,17 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { effectivePriceSql } from "@/lib/catalog/price";
 import {
-  attributeValues,
-  attributes,
+  loadVariantOptions,
+  summariseOptions,
+  type VariantOption,
+} from "@/lib/catalog/variant-options";
+import {
   cartItems,
   carts,
   productImages,
   productVariants,
   products,
-  variantOptionValues,
+  variantImages,
 } from "@/db/schema";
 
 /**
@@ -27,7 +30,12 @@ export type CartLine = {
   productId: string;
   productTitle: string;
   productSlug: string;
+  /** "Pearl White · 3-Seater", or "" for a product with no options. */
   optionSummary: string;
+  /** The same choice as named pairs, for the checkout summary. */
+  options: VariantOption[];
+  /** The variant's SKU, shown where the exact version matters. */
+  sku: string;
   imageUrl: string | null;
   imageAlt: string;
   quantity: number;
@@ -123,6 +131,7 @@ export async function getCartView(cartId: string): Promise<CartView> {
       productStatus: products.status,
       productArchivedAt: products.archivedAt,
       /* Priced by the server, from the sale window as the database sees it. */
+      sku: productVariants.sku,
       unitPriceBdt: effectivePriceSql,
       fulfillmentMode: productVariants.fulfillmentMode,
       paymentMode: productVariants.paymentMode,
@@ -144,23 +153,21 @@ export async function getCartView(cartId: string): Promise<CartView> {
   const variantIds = rows.map((row) => row.variantId);
   const productIds = rows.map((row) => row.productId);
 
-  const [options, images] = await Promise.all([
+  const [options, variantPhotos, images] = await Promise.all([
+    loadVariantOptions(variantIds),
+    // The chosen variant's own photograph wins over the product's first one:
+    // a cart line showing the white sofa for a grey one bought is the whole
+    // complaint this change answers.
     variantIds.length
       ? db
-          .select({
-            variantId: variantOptionValues.variantId,
-            value: attributeValues.value,
+          .selectDistinctOn([variantImages.variantId], {
+            variantId: variantImages.variantId,
+            url: variantImages.url,
+            altText: variantImages.altText,
           })
-          .from(variantOptionValues)
-          .innerJoin(
-            attributeValues,
-            eq(variantOptionValues.attributeValueId, attributeValues.id),
-          )
-          .innerJoin(
-            attributes,
-            eq(variantOptionValues.attributeId, attributes.id),
-          )
-          .where(inArray(variantOptionValues.variantId, variantIds))
+          .from(variantImages)
+          .where(inArray(variantImages.variantId, variantIds))
+          .orderBy(variantImages.variantId, variantImages.sortOrder)
       : Promise.resolve([]),
     productIds.length
       ? db
@@ -176,7 +183,14 @@ export async function getCartView(cartId: string): Promise<CartView> {
   ]);
 
   const lines: CartLine[] = rows.map((row) => {
-    const image = images.find((entry) => entry.productId === row.productId);
+    const productImage = images.find(
+      (entry) => entry.productId === row.productId,
+    );
+    const variantPhoto = variantPhotos.find(
+      (entry) => entry.variantId === row.variantId,
+    );
+    const image = variantPhoto ?? productImage;
+    const variantOptions = options.get(row.variantId) ?? [];
 
     const available =
       row.fulfillmentMode === "preorder"
@@ -207,11 +221,9 @@ export async function getCartView(cartId: string): Promise<CartView> {
       productId: row.productId,
       productTitle: row.productTitle,
       productSlug: row.productSlug,
-      optionSummary:
-        options
-          .filter((option) => option.variantId === row.variantId)
-          .map((option) => option.value)
-          .join(" / ") || "Standard",
+      optionSummary: summariseOptions(variantOptions),
+      options: variantOptions,
+      sku: row.sku,
       imageUrl: image?.url ?? null,
       imageAlt: image?.altText ?? row.productTitle,
       quantity: row.quantity,

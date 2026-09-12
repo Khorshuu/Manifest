@@ -99,6 +99,12 @@ export const orderItems = pgTable(
     titleSnapshot: text("title_snapshot").notNull(),
     /** e.g. "Color: Red, Storage: 128GB" */
     optionSummarySnapshot: text("option_summary_snapshot"),
+    /** The variant's SKU as it was when bought. */
+    skuSnapshot: text("sku_snapshot"),
+    /** The photograph shown for this line, frozen with the rest. */
+    imageUrlSnapshot: text("image_url_snapshot"),
+    /** Array<{ label: string; value: string }> — "Colour: Pearl White". */
+    variantOptionsSnapshot: jsonb("variant_options_snapshot"),
     unitPriceBdt: integer("unit_price_bdt").notNull(),
     quantity: integer("quantity").notNull(),
     fulfillmentModeSnapshot: text("fulfillment_mode_snapshot").notNull(),

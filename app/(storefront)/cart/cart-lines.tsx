@@ -168,9 +168,13 @@ export function CartLines({
                         {line.productTitle}
                       </Link>
 
-                      <p className="text-meta text-ink/70">
-                        {line.optionSummary}
-                      </p>
+                      {/* Only when there is a choice to report: a product with
+                          one version should read as its own name (D-043). */}
+                      {line.optionSummary ? (
+                        <p className="text-meta text-ink/70">
+                          {line.optionSummary}
+                        </p>
+                      ) : null}
 
                       <div className="mt-0.5 flex flex-wrap items-center gap-2">
                         <StatusBadge

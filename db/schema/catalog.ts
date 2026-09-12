@@ -70,6 +70,13 @@ export const products = pgTable(
     bulletFeatures: jsonb("bullet_features"),
     /** Array<{ label: string; value: string }> */
     specTable: jsonb("spec_table"),
+    /**
+     * Array<{ label: string; value: string }> — measurable physical facts
+     * (length, weight, capacity). Its own column rather than rows in
+     * specTable so the product page can hide the tab when there are none,
+     * and so nothing generated can quietly invent a dimension (D-043).
+     */
+    measurements: jsonb("measurements"),
     /** string[] — "1 x charging cable" and the rest of the box. */
     boxContents: jsonb("box_contents"),
     /** ProductWarranty | null */
@@ -298,6 +305,12 @@ export type ProductCompliance = {
  * The shape stored in products.details — the advanced attribute block. Every
  * key is optional, and only the ones with a value are ever rendered.
  */
+/**
+ * One measurable fact about the product. Stored only when it is known —
+ * nothing here may be estimated or generated (D-043).
+ */
+export type ProductMeasurement = { label: string; value: string };
+
 export type ProductDetails = {
   manufacturer?: string | null;
   manufacturerPartNumber?: string | null;

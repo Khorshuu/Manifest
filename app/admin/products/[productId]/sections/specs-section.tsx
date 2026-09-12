@@ -27,6 +27,8 @@ export type SpecsSectionValues = {
   attributeValues: Record<string, string | string[]>;
   details: Record<string, string | null>;
   specTable: { label: string; value: string }[];
+  /** Measurable facts. Shown to shoppers as their own tab (D-043). */
+  measurements: { label: string; value: string }[];
 };
 
 /** The advanced block, grouped the way someone filling it in would expect. */
@@ -205,6 +207,7 @@ export function SpecsSection({
   const [values, setValues] = useState(product.attributeValues);
   const [details, setDetails] = useState(product.details);
   const [rows, setRows] = useState(product.specTable);
+  const [measurements, setMeasurements] = useState(product.measurements);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -228,6 +231,9 @@ export function SpecsSection({
       attributeValues,
       details: Object.values(cleanDetails).some(Boolean) ? cleanDetails : null,
       specTable: rows.filter((row) => row.label.trim() && row.value.trim()),
+      measurements: measurements.filter(
+        (row) => row.label.trim() && row.value.trim(),
+      ),
     });
   }
 
@@ -316,6 +322,18 @@ export function SpecsSection({
           items={rows}
           onChange={(items) => {
             setRows(items);
+            markDirty();
+          }}
+        />
+      </section>
+
+      <section className="border-t border-blue-300 pt-6">
+        <PairEditor
+          label="Measurements"
+          hint="Length, width, height, weight, capacity — anything measurable. Shoppers see these as their own tab, which disappears when the product has none. Leave a measurement out rather than estimating it."
+          items={measurements}
+          onChange={(items) => {
+            setMeasurements(items);
             markDirty();
           }}
         />

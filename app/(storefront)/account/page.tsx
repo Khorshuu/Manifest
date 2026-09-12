@@ -2,17 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LinkButton } from "@/components/button";
+import { AccountNav } from "@/components/account-nav";
 import { EmptyState } from "@/components/empty-state";
 import { IconArrowRight, IconManifest, IconStar } from "@/components/icons";
-import { AccountNav } from "@/components/account-nav";
-import { PageHeading } from "@/components/page-heading";
+import { OrderCard } from "@/components/order-card";
 import { Panel } from "@/components/panel";
-import { StatusBadge } from "@/components/status-badge";
 import { getCurrentUser } from "@/lib/auth";
-import { listOrdersForUser } from "@/lib/orders";
+import { countWishlist } from "@/lib/account";
+import { listOrderSummariesForUser } from "@/lib/orders";
 import { listReviewableProducts } from "@/lib/reviews";
 import { formatBdt } from "@/lib/money";
-import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -21,119 +20,142 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  placed: "Awaiting payment",
-  payment_confirmed: "Payment confirmed",
-  sourcing: "Sourcing in the US",
-  shipped_from_us: "Shipped from the US",
-  in_bd_customs: "In customs",
-  out_for_delivery: "Out for delivery",
-  delivered: "Delivered",
-  cancelled: "Cancelled",
-  refunded: "Refunded",
-};
+/** Statuses that mean the order is still on its way. */
+const IN_FLIGHT = new Set([
+  "placed",
+  "payment_confirmed",
+  "sourcing",
+  "shipped_from_us",
+  "in_bd_customs",
+  "out_for_delivery",
+]);
 
+/**
+ * The account dashboard (DECISIONS.md D-043).
+ *
+ * One place for the whole account: what is happening right now, the most
+ * recent orders with the exact version bought, and the way through to
+ * everything else. "My account" and "My orders" used to be two destinations
+ * for the same thing; orders now live inside the account.
+ *
+ * Every figure here is counted from the shopper's own orders — nothing on this
+ * page is illustrative.
+ */
 export default async function AccountPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/account");
 
-  const [orders, reviewable] = await Promise.all([
-    listOrdersForUser(user.id),
+  const [orders, reviewable, savedCount] = await Promise.all([
+    listOrderSummariesForUser(user.id),
     listReviewableProducts(user),
+    countWishlist(user.id),
   ]);
 
-  const inFlight = orders.filter(
-    (order) =>
-      order.status !== "delivered" &&
-      order.status !== "cancelled" &&
-      order.status !== "refunded",
-  ).length;
+  const processing = orders.filter((order) => IN_FLIGHT.has(order.status));
+  const delivered = orders.filter((order) => order.status === "delivered");
+  const spent = orders
+    .filter((order) => order.status !== "cancelled" && order.status !== "refunded")
+    .reduce((total, order) => total + order.totalBdt, 0);
+
+  const firstName = user.firstName?.trim().split(/\s+/)[0] ?? null;
+
+  const stats = [
+    { label: "Orders", value: String(orders.length), href: "/account/orders" },
+    {
+      label: "On the way",
+      value: String(processing.length),
+      href: "/account/orders",
+    },
+    { label: "Delivered", value: String(delivered.length), href: "/account/orders" },
+    { label: "Saved", value: String(savedCount), href: "/account/wishlist" },
+  ];
 
   return (
-    <div className="mx-auto w-full max-w-[960px] px-4 py-10 md:px-6 md:py-12">
-      <PageHeading
-        eyebrow="Your account"
-        title="Your orders"
-        summary={
-          orders.length === 0
-            ? "Everything you order will be tracked here."
-            : `${orders.length} order${orders.length === 1 ? "" : "s"}${
-                inFlight > 0 ? `, ${inFlight} still on the way` : ""
-              }.`
-        }
-        aside={
-          <LinkButton href="/account/security" variant="secondary" size="sm">
-            Security
-          </LinkButton>
-        }
-      />
+    <div className="mx-auto w-full max-w-[1080px] px-4 py-10 md:px-6 md:py-12">
+      {/* A greeting, not a page title with a subtitle under it. */}
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-meta uppercase tracking-[0.18em] text-brass-text">
+            Your account
+          </p>
+          <h1 className="mt-1 font-display text-[clamp(1.625rem,4vw,2.25rem)] leading-tight text-ink">
+            {firstName ? `Welcome back, ${firstName}` : "Welcome back"}
+          </h1>
+          <p className="mt-1 text-meta text-ink/70">
+            {processing.length > 0
+              ? `${processing.length} order${processing.length === 1 ? "" : "s"} on the way.`
+              : "Nothing is on its way right now."}{" "}
+            Signed in as {user.email}.
+          </p>
+        </div>
 
-      <p className="mt-3 text-meta text-ink/70">Signed in as {user.email}</p>
+        <LinkButton href="/search?available=1" variant="secondary" size="sm">
+          Keep shopping
+        </LinkButton>
+      </header>
 
       <AccountNav current="/account" />
 
-      {orders.length === 0 ? (
-        <EmptyState
-          className="mt-8"
-          icon={<IconManifest size={26} />}
-          title="You have not ordered yet"
-          body="When you preorder something, it appears here with its whole journey — from the batch closing to the courier reaching your door."
-          action={{ href: "/search?available=1", label: "See what is open" }}
-          secondary={{ href: "/orders/lookup", label: "Look up an order" }}
-        />
-      ) : (
-        <ul className="mt-8 flex flex-col gap-3">
-          {orders.map((order) => (
-            <li key={order.id}>
-              {/*
-               * The whole row is the link. It was a small blue order number
-               * inside a bare bordered row before, which made the largest
-               * target on the screen — the row — do nothing at all.
-               */}
-              <Link
-                href={`/account/orders/${order.id}`}
-                className="lift group flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)] sm:p-5"
-              >
-                <div className="min-w-0">
-                  <p className="font-display text-h3 tabular-nums text-ink">
-                    {order.orderNumber}
-                  </p>
-                  <p className="text-meta text-ink/70">
-                    Placed {formatDate(order.placedAt)}
-                  </p>
-                </div>
+      {/* Four figures, each a link to where they can be acted on — counted
+          from this account's own orders, never illustrative. */}
+      <ul className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {stats.map((stat) => (
+          <li key={stat.label}>
+            <Link
+              href={stat.href}
+              className="lift flex h-full flex-col justify-between rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)]"
+            >
+              <span className="text-meta text-ink/70">{stat.label}</span>
+              <span className="mt-2 font-display text-h2 tabular-nums text-ink">
+                {stat.value}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
 
-                <div className="flex flex-wrap items-center gap-4">
-                  <StatusBadge
-                    tone={
-                      order.status === "delivered"
-                        ? "positive"
-                        : order.status === "cancelled" ||
-                            order.status === "refunded"
-                          ? "negative"
-                          : "preorder"
-                    }
-                  >
-                    {STATUS_LABELS[order.status] ?? order.status}
-                  </StatusBadge>
+      {orders.length > 0 ? (
+        <p className="mt-3 text-meta text-ink/70">
+          {formatBdt(spent)} spent with us so far.
+        </p>
+      ) : null}
 
-                  <span className="font-display text-price font-semibold tabular-nums text-ink">
-                    {formatBdt(order.totalBdt)}
-                  </span>
+      <section className="mt-10">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 className="font-display text-h2 text-ink">Recent orders</h2>
+          {orders.length > 3 ? (
+            <Link
+              href="/account/orders"
+              className="inline-flex items-center gap-1 text-meta font-medium text-blue-600 underline-offset-4 hover:underline"
+            >
+              All {orders.length} orders
+              <IconArrowRight size={16} />
+            </Link>
+          ) : null}
+        </div>
 
-                  <IconArrowRight
-                    size={18}
-                    className="text-blue-500 transition-transform duration-200 ease-[var(--ease-out-quint)] group-hover:translate-x-1"
-                  />
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+        {orders.length === 0 ? (
+          <EmptyState
+            className="mt-4"
+            icon={<IconManifest size={26} />}
+            title="You have not ordered yet"
+            body="When you preorder something, it appears here with its whole journey — from the batch closing to the courier reaching your door."
+            action={{ href: "/search?available=1", label: "See what is open" }}
+            secondary={{ href: "/orders/lookup", label: "Look up an order" }}
+          />
+        ) : (
+          <ul className="mt-4 flex flex-col gap-3">
+            {orders.slice(0, 3).map((order) => (
+              <li key={order.id}>
+                <OrderCard order={order} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {reviewable.length > 0 ? (
-        <section className="mt-14">
+        <section className="mt-12">
           <div className="flex items-baseline gap-3">
             <IconStar size={20} className="shrink-0 text-brass" />
             <h2 className="font-display text-h2 text-ink">

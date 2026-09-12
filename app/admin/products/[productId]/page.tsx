@@ -245,6 +245,8 @@ export default async function AdminProductPage({
                 attributeValues: (product.attributeValues as Record<string, string | string[]>) ?? {},
                 details: (details ?? {}) as Record<string, string | null>,
                 specTable: (product.specTable as { label: string; value: string }[] | null) ?? [],
+                measurements:
+                  (product.measurements as { label: string; value: string }[] | null) ?? [],
               }}
             />
           </div>

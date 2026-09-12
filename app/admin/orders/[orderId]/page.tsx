@@ -92,13 +92,24 @@ export default async function AdminOrderPage({
                       key={item.id}
                       className={index % 2 === 1 ? "bg-blue-200/40" : undefined}
                     >
+                      {/*
+                        Exactly which version was bought, from the snapshot
+                        taken when the order was placed — never re-read from
+                        the live catalogue, which may since have been renamed,
+                        repriced or archived (D-043). An order placed before
+                        the snapshot existed simply shows the product name.
+                      */}
                       <td className="border-t border-blue-300 px-4 py-3">
                         {item.titleSnapshot}
                         {item.optionSummarySnapshot ? (
-                          <span className="block text-meta text-ink/70">
+                          <span className="block font-medium text-ink">
                             {item.optionSummarySnapshot}
                           </span>
                         ) : null}
+                        <span className="mt-0.5 block text-meta text-ink/70">
+                          {item.skuSnapshot ? `SKU ${item.skuSnapshot} · ` : ""}
+                          {formatBdt(item.unitPriceBdt)} each
+                        </span>
                       </td>
                       <td className="border-t border-blue-300 px-4 py-3 text-right tabular-nums">
                         {item.quantity}

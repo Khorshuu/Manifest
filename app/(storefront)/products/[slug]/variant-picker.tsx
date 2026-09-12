@@ -84,39 +84,73 @@ export function VariantPicker({
   returnTo?: string;
 }) {
   const router = useRouter();
-  const [selectedId, setSelectedId] = useState(variants[0]?.id ?? "");
+  /*
+   * Nothing is chosen for a shopper who has a choice to make (D-043). A
+   * product with a single option is that option, so it starts selected; with
+   * several, choosing one for them is how somebody buys the wrong colour.
+   */
+  const [selectedId, setSelectedId] = useState(
+    variants.length === 1 ? variants[0].id : "",
+  );
   const [quantity, setQuantity] = useState(1);
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState<"cart" | "buy" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function addToCart(variantId: string) {
-    setPending(true);
+  /**
+   * Add to cart, and for Buy now go straight on to checkout. Both send an
+   * identifier and a quantity only: the server prices the line, so the buy
+   * button cannot be used to name its own price.
+   */
+  async function addToCart(intent: "cart" | "buy") {
+    if (!selected) {
+      setMessage(null);
+      setError("Please select a variant before continuing.");
+      return;
+    }
+
+    setPending(intent);
     setError(null);
     setMessage(null);
 
     const response = await fetch("/api/cart", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      // Identifier and quantity only — the server prices it.
-      body: JSON.stringify({ variantId, quantity }),
+      body: JSON.stringify({ variantId: selected.id, quantity }),
     });
 
     const body = await response.json().catch(() => ({}));
-    setPending(false);
 
     if (!response.ok) {
+      setPending(null);
       setError(body.error ?? "Something went wrong. Try again.");
       return;
     }
 
+    if (intent === "buy") {
+      // Left pending deliberately: the button stays busy until the checkout
+      // page has taken over, rather than flashing back to "Buy now".
+      router.push("/checkout");
+      router.refresh();
+      return;
+    }
+
+    setPending(null);
     setMessage("Added to your cart.");
     router.refresh();
   }
 
-  const selected = variants.find((v) => v.id === selectedId) ?? variants[0];
+  const selected = variants.find((v) => v.id === selectedId) ?? null;
+  /** What the panel prices before a choice is made: the cheapest option. */
+  const cheapest = variants.reduce<PickerVariant | null>(
+    (lowest, variant) =>
+      lowest === null || variant.priceBdt < lowest.priceBdt ? variant : lowest,
+    null,
+  );
+  /** The option the panel describes — the chosen one, or the cheapest. */
+  const shown = selected ?? cheapest;
 
-  if (!selected) {
+  if (!shown) {
     return (
       <p className="text-body text-ink/70">
         This product has no options for sale yet.
@@ -124,9 +158,9 @@ export function VariantPicker({
     );
   }
 
-  const soldOut = selected.remaining !== null && selected.remaining <= 0;
-  const closed = selected.isClosed;
-  const arrival = selected.arrivalLabel;
+  const soldOut = shown.remaining !== null && shown.remaining <= 0;
+  const closed = shown.isClosed;
+  const arrival = shown.arrivalLabel;
 
   const unavailableReason = closed
     ? "This preorder has closed."
@@ -134,17 +168,27 @@ export function VariantPicker({
       ? "This preorder is full."
       : null;
 
-  const total = selected.priceBdt * quantity;
+  const total = shown.priceBdt * quantity;
   const dueNow =
-    selected.paymentMode === "deposit" && selected.depositPercent
-      ? Math.round((total * selected.depositPercent) / 100)
+    shown.paymentMode === "deposit" && shown.depositPercent
+      ? Math.round((total * shown.depositPercent) / 100)
       : total;
+
+  /**
+   * An unchosen option leaves both buttons live: pressing one is how a shopper
+   * finds out a choice is owed, and a disabled button with no explanation is
+   * the thing that actually confuses people.
+   */
+  const blocked = Boolean(unavailableReason);
 
   const buyLabel = unavailableReason
     ? "Unavailable"
-    : pending
+    : pending === "cart"
       ? "Adding…"
       : "Add to cart";
+
+  const buyNowLabel =
+    pending === "buy" ? "Taking you to checkout…" : "Buy now";
 
   return (
     <div className="flex flex-col gap-6">
@@ -155,18 +199,36 @@ export function VariantPicker({
       */}
       <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-blue-300 bg-paper/95 px-4 py-3 backdrop-blur lg:hidden">
         <div className="min-w-0">
-          <p className="truncate text-meta text-ink/70">{selected.label}</p>
+          <p className="truncate text-meta text-ink/70">
+            {selected ? selected.label : "Choose an option"}
+          </p>
           <p className="text-body font-semibold tabular-nums text-ink">
+            {selected ? "" : "From "}
             {formatBdt(dueNow)}
           </p>
         </div>
-        <Button
-          type="button"
-          disabled={Boolean(unavailableReason) || pending}
-          onClick={() => addToCart(selected.id)}
-        >
-          {buyLabel}
-        </Button>
+        {/* Both actions stay reachable on a phone: Buy now is the one most
+            people want, so it takes the width it needs and Add to cart
+            becomes the quieter of the two. */}
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={blocked || pending !== null}
+            onClick={() => addToCart("cart")}
+          >
+            {pending === "cart" ? "Adding…" : "Add"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={blocked || pending !== null}
+            onClick={() => addToCart("buy")}
+          >
+            {unavailableReason ? "Unavailable" : pending === "buy" ? "…" : "Buy now"}
+          </Button>
+        </div>
       </div>
       {/* Room for the bar, so it never covers the last line of the page. */}
       <div aria-hidden="true" className="h-16 lg:hidden" />
@@ -187,7 +249,7 @@ export function VariantPicker({
             {variants.map((variant) => {
               const variantSoldOut =
                 variant.remaining !== null && variant.remaining <= 0;
-              const chosen = variant.id === selected.id;
+              const chosen = variant.id === selectedId;
 
               return (
                 <label
@@ -232,26 +294,33 @@ export function VariantPicker({
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-baseline gap-2.5">
           <p className="text-[1.625rem] font-extrabold leading-none tracking-[-0.02em] tabular-nums text-ink">
-            {formatBdt(selected.priceBdt)}
+            {/* "From" until an option is chosen: the figure is the cheapest
+                one, and stating it flatly would misprice the others. */}
+            {selected ? null : (
+              <span className="mr-1.5 text-body font-semibold text-ink/70">
+                From
+              </span>
+            )}
+            {formatBdt(shown.priceBdt)}
           </p>
-          {selected.discountPercent !== null ? (
+          {shown.discountPercent !== null ? (
             <>
               {/* The regular price is stated as what it was, not implied by a
                   struck-through number alone — a screen reader reads a
                   line-through as nothing at all. */}
               <p className="text-body tabular-nums text-ink/60 line-through">
                 <span className="sr-only">Regular price </span>
-                {formatBdt(selected.listPriceBdt)}
+                {formatBdt(shown.listPriceBdt)}
               </p>
               <StatusBadge tone="positive">
-                Save {selected.discountPercent}%
+                Save {shown.discountPercent}%
               </StatusBadge>
             </>
           ) : null}
         </div>
-        {selected.saleEndsLabel ? (
+        {shown.saleEndsLabel ? (
           <p className="text-meta text-brass-text">
-            Sale price until {selected.saleEndsLabel}.
+            Sale price until {shown.saleEndsLabel}.
           </p>
         ) : null}
         <p className="flex items-center gap-1.5 text-[0.75rem] text-transit-green-text">
@@ -265,29 +334,29 @@ export function VariantPicker({
           tone={
             unavailableReason
               ? "negative"
-              : selected.stockState === "low_stock"
+              : shown.stockState === "low_stock"
                 ? "warning"
-                : selected.fulfillmentMode === "preorder"
+                : shown.fulfillmentMode === "preorder"
                   ? "preorder"
                   : "positive"
           }
         >
-          {STOCK_LABELS[selected.stockState] ??
-            (selected.fulfillmentMode === "preorder" ? "Preorder" : "In stock")}
+          {STOCK_LABELS[shown.stockState] ??
+            (shown.fulfillmentMode === "preorder" ? "Preorder" : "In stock")}
         </StatusBadge>
 
-        {selected.remaining !== null && selected.remaining > 0 ? (
+        {shown.remaining !== null && shown.remaining > 0 ? (
           <span className="text-meta text-ink/70">
-            {selected.remaining} place{selected.remaining === 1 ? "" : "s"} left
+            {shown.remaining} place{shown.remaining === 1 ? "" : "s"} left
           </span>
         ) : null}
 
         {/* The window, ticking, in one line rather than four large tiles. */}
-        {selected.closesAtIso && !closed ? (
+        {shown.closesAtIso && !closed ? (
           <span className="basis-full sm:ml-auto sm:basis-auto">
             <Countdown
               variant="inline"
-              closesAt={selected.closesAtIso}
+              closesAt={shown.closesAtIso}
               serverNow={serverNow}
             />
           </span>
@@ -300,10 +369,10 @@ export function VariantPicker({
         re-read it in a different form. "Places", not "slots": one word for one
         thing, everywhere.
       */}
-      {selected.fulfillmentMode === "preorder" ? (
+      {shown.fulfillmentMode === "preorder" ? (
         <CapacityMeter
-          remaining={selected.remaining}
-          total={selected.capacity}
+          remaining={shown.remaining}
+          total={shown.capacity}
           showLabel={false}
         />
       ) : null}
@@ -315,11 +384,11 @@ export function VariantPicker({
             <dd className="text-ink">{arrival}</dd>
           </div>
         ) : null}
-        {selected.paymentMode === "deposit" && selected.depositPercent ? (
+        {shown.paymentMode === "deposit" && shown.depositPercent ? (
           <div className="flex justify-between gap-4">
             <dt className="text-ink/70">Due now</dt>
             <dd className="text-ink tabular-nums">
-              {formatBdt(dueNow)} ({selected.depositPercent}% deposit)
+              {formatBdt(dueNow)} ({shown.depositPercent}% deposit)
             </dd>
           </div>
         ) : null}
@@ -348,7 +417,7 @@ export function VariantPicker({
               id="quantity"
               type="number"
               min={1}
-              max={selected.remaining ?? 99}
+              max={shown.remaining ?? 99}
               value={quantity}
               onChange={(event) =>
                 setQuantity(Math.max(1, Number(event.target.value) || 1))
@@ -360,10 +429,10 @@ export function VariantPicker({
               type="button"
               onClick={() =>
                 setQuantity((current) =>
-                  Math.min(selected.remaining ?? 99, current + 1),
+                  Math.min(shown.remaining ?? 99, current + 1),
                 )
               }
-              disabled={quantity >= (selected.remaining ?? 99)}
+              disabled={quantity >= (shown.remaining ?? 99)}
               className="inline-flex size-10 items-center justify-center rounded-r-control text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent"
             >
               <IconPlus size={16} />
@@ -373,18 +442,36 @@ export function VariantPicker({
         </div>
 
         {/* Wrapped rather than given a `hidden` class: the Button's own
-            `inline-flex` sits later in the stylesheet and would win. */}
-        <div className="hidden flex-1 lg:block">
+            `inline-flex` sits later in the stylesheet and would win.
+
+            Buy now is the primary action and Add to cart the quieter one
+            beside it — two clear ways to buy, not a cluttered row. */}
+        <div className="hidden flex-1 gap-2 lg:flex">
           <Button
             type="button"
-            className="w-full"
-            disabled={Boolean(unavailableReason) || pending}
-            onClick={() => addToCart(selected.id)}
+            variant="secondary"
+            className="flex-1"
+            disabled={blocked || pending !== null}
+            onClick={() => addToCart("cart")}
           >
             {buyLabel}
           </Button>
+          <Button
+            type="button"
+            className="flex-1"
+            disabled={blocked || pending !== null}
+            onClick={() => addToCart("buy")}
+          >
+            {unavailableReason ? "Unavailable" : buyNowLabel}
+          </Button>
         </div>
       </div>
+
+      {variants.length > 1 && !selected ? (
+        <p className="text-meta text-ink/70">
+          Choose an option above to see its price and buy it.
+        </p>
+      ) : null}
 
       {/* States why, rather than leaving a disabled button unexplained. */}
       <div aria-live="polite">
@@ -417,14 +504,17 @@ export function VariantPicker({
       </div>
 
       {/* Keyed on the option, so switching options shows that option's own
-          saved state rather than carrying the last one's. */}
-      <WishlistButton
-        key={selected.id}
-        variantId={selected.id}
-        initiallySaved={savedVariantIds.includes(selected.id)}
-        signedIn={signedIn}
-        returnTo={returnTo}
-      />
+          saved state rather than carrying the last one's. A wishlist entry is
+          an option, so there is nothing to save until one is chosen. */}
+      {selected ? (
+        <WishlistButton
+          key={selected.id}
+          variantId={selected.id}
+          initiallySaved={savedVariantIds.includes(selected.id)}
+          signedIn={signedIn}
+          returnTo={returnTo}
+        />
+      ) : null}
       </div>
     </div>
   );

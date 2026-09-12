@@ -1,6 +1,10 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { effectivePriceSql } from "@/lib/catalog/price";
+import {
+  loadVariantOptions,
+  summariseOptions,
+} from "@/lib/catalog/variant-options";
 import {
   addresses,
   cartItems,
@@ -10,6 +14,7 @@ import {
   payments,
   productVariants,
   products,
+  variantImages,
 } from "@/db/schema";
 import {
   deliverQueuedNotificationsInBackground,
@@ -174,6 +179,7 @@ export async function placeOrder(
         variantId: cartItems.variantId,
         quantity: cartItems.quantity,
         title: products.title,
+        sku: productVariants.sku,
         /* The charged price, read inside the transaction that places the
            order — a sale that ended a second ago is not honoured. */
         priceBdt: effectivePriceSql,
@@ -189,6 +195,24 @@ export async function placeOrder(
       .where(eq(cartItems.cartId, input.cartId));
 
     if (lines.length === 0) throw new CheckoutError("Your cart is empty.");
+
+    /*
+     * What each line actually is, frozen here rather than re-read later. A
+     * variant can be renamed, repriced, rephotographed or archived after the
+     * order exists; the order has to keep saying what was bought (D-043).
+     */
+    const variantIds = lines.map((line) => line.variantId);
+    const [optionsByVariant, variantPhotos] = await Promise.all([
+      loadVariantOptions(variantIds, tx),
+      tx
+        .selectDistinctOn([variantImages.variantId], {
+          variantId: variantImages.variantId,
+          url: variantImages.url,
+        })
+        .from(variantImages)
+        .where(inArray(variantImages.variantId, variantIds))
+        .orderBy(variantImages.variantId, variantImages.sortOrder),
+    ]);
 
     if (input.method === "cod" && !codAllowed(lines)) {
       throw new CheckoutError(
@@ -261,6 +285,13 @@ export async function placeOrder(
         orderId: order.id,
         variantId: line.variantId,
         titleSnapshot: line.title,
+        optionSummarySnapshot:
+          summariseOptions(optionsByVariant.get(line.variantId) ?? []) || null,
+        variantOptionsSnapshot: optionsByVariant.get(line.variantId) ?? [],
+        skuSnapshot: line.sku,
+        imageUrlSnapshot:
+          variantPhotos.find((photo) => photo.variantId === line.variantId)
+            ?.url ?? null,
         unitPriceBdt: line.priceBdt,
         quantity: line.quantity,
         fulfillmentModeSnapshot: line.fulfillmentMode,

@@ -26,8 +26,6 @@ import {
   Compliance,
   Highlights,
   LifestyleBand,
-  Section,
-  SpecTable,
   Warranty,
   type SpecRow,
 } from "./detail-sections";
@@ -44,6 +42,7 @@ import {
   listApprovedReviews,
 } from "@/lib/reviews";
 import { Gallery } from "./gallery";
+import { ProductInfoTabs } from "./info-tabs";
 import { Journey } from "@/components/journey";
 import { RecommendationSection } from "@/components/recommendation-section";
 import { ReviewsSection } from "./reviews-section";
@@ -254,6 +253,10 @@ export default async function ProductPage({
     Object.keys(storedAttributes),
   );
 
+  /*
+   * Two lists, not one. Anything measurable goes to the Measurements tab and
+   * the rest to Specification, so neither tab repeats the other (D-043).
+   */
   const DETAIL_LABELS: [keyof ProductDetails, string][] = [
     ["manufacturer", "Manufacturer"],
     ["modelName", "Model"],
@@ -261,18 +264,21 @@ export default async function ProductPage({
     ["manufacturerPartNumber", "Part number"],
     ["material", "Material"],
     ["color", "Colour"],
-    ["size", "Size"],
-    ["dimensions", "Dimensions"],
-    ["itemWeight", "Item weight"],
-    ["unitCount", "Unit count"],
-    ["unitType", "Unit type"],
-    ["packageDimensions", "Package dimensions"],
-    ["packageWeight", "Package weight"],
     ["compatibility", "Compatibility"],
     ["specialFeatures", "Special features"],
     ["intendedUse", "Intended use"],
     ["careInstructions", "Care instructions"],
     ["releaseDate", "Released"],
+  ];
+
+  const MEASUREMENT_LABELS: [keyof ProductDetails, string][] = [
+    ["size", "Size"],
+    ["dimensions", "Product dimensions"],
+    ["itemWeight", "Item weight"],
+    ["packageDimensions", "Package dimensions"],
+    ["packageWeight", "Package weight"],
+    ["unitCount", "Unit count"],
+    ["unitType", "Unit type"],
   ];
 
   const specs: SpecRow[] = [
@@ -309,6 +315,26 @@ export default async function ProductPage({
             value: product.identifierValue,
           },
         ]
+      : []),
+  ];
+
+  /*
+   * Measurements come only from what staff recorded — the measurement rows on
+   * the listing and the measurable fields of the advanced block. Nothing is
+   * derived or estimated, so the tab is absent on a listing that has none
+   * rather than showing a table of guesses.
+   */
+  const measurements: SpecRow[] = [
+    ...(Array.isArray(product.measurements)
+      ? (product.measurements as SpecRow[]).filter(
+          (row) => row.label?.trim() && row.value?.trim(),
+        )
+      : []),
+    ...(details
+      ? MEASUREMENT_LABELS.map(([key, label]) => {
+          const value = details[key];
+          return value ? { label, value: String(value) } : null;
+        }).filter((row): row is SpecRow => row !== null)
       : []),
   ];
 
@@ -452,40 +478,26 @@ export default async function ProductPage({
        * Every section below renders nothing at all when it has nothing to
        * say, so a thin listing reads as short rather than as unfinished.
        */}
-      <div className="mt-8 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start">
-        <div className="flex min-w-0 flex-col gap-8">
-          {product.descriptionHtml ? (
-            <Section title="Description">
-              <div
-                className="max-w-[62ch] text-body text-ink/80"
-                /* Authored by staff only — customers cannot create listings. */
-                dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
-              />
-            </Section>
-          ) : null}
+      {/*
+       * Description, Specification and — only when the listing has any —
+       * Measurements, as one tabbed panel rather than three headings stacked
+       * down the page (D-043). Everything below it is a different kind of
+       * promise (what is in the box, the warranty, safety) and stays its own
+       * section, each still rendering nothing when it has nothing to say.
+       */}
+      <div className="mt-10 flex min-w-0 flex-col gap-10">
+        <ProductInfoTabs
+          descriptionHtml={product.descriptionHtml}
+          keyFeatures={bullets}
+          specifications={specs}
+          measurements={measurements}
+        />
 
-          {bullets.length > 0 ? (
-            <Section title="Key features">
-              <div className="max-w-[62ch]">
-                <Highlights items={bullets} />
-              </div>
-            </Section>
-          ) : null}
+        <BoxContents items={boxContents} />
 
-          <BoxContents items={boxContents} />
+        <Warranty warranty={warranty} />
 
-          <Warranty warranty={warranty} />
-
-          <Compliance compliance={compliance} />
-        </div>
-
-        {specs.length > 0 ? (
-          <Section id="specifications" title="Specifications">
-            <div className="lg:sticky lg:top-28">
-              <SpecTable rows={specs} />
-            </div>
-          </Section>
-        ) : null}
+        <Compliance compliance={compliance} />
       </div>
 
       <div className="mt-12">

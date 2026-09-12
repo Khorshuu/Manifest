@@ -173,6 +173,17 @@ const productFields = {
     .max(50)
     .nullable()
     .optional(),
+  /** Measurable facts only, and only ones staff actually recorded (D-043). */
+  measurements: z
+    .array(
+      z.object({
+        label: z.string().trim().max(120),
+        value: z.string().trim().max(300),
+      }),
+    )
+    .max(30)
+    .nullable()
+    .optional(),
   warranty: warrantySchema.nullable().optional(),
   compliance: complianceSchema.nullable().optional(),
   details: productDetailsSchema.nullable().optional(),

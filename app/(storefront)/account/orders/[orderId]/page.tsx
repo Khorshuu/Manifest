@@ -88,16 +88,31 @@ export default async function AccountOrderPage({
                   key={item.id}
                   className="flex flex-wrap justify-between gap-4 border-b border-blue-200 px-5 py-4 last:border-b-0"
                 >
-                  <div className="min-w-0">
-                    <p className="text-body text-ink">{item.titleSnapshot}</p>
-                    <p className="text-meta text-ink/70">
-                      {item.optionSummarySnapshot
-                        ? `${item.optionSummarySnapshot} · `
-                        : ""}
-                      {item.quantity > 1
-                        ? `${item.quantity} × ${formatBdt(item.unitPriceBdt)}`
-                        : "Quantity 1"}
-                    </p>
+                  {/* The photograph and the exact version bought, as they
+                      were at purchase (D-043). Older orders carry neither and
+                      simply show the product name. */}
+                  <div className="flex min-w-0 items-start gap-3">
+                    {item.imageUrlSnapshot ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={item.imageUrlSnapshot}
+                        alt=""
+                        className="size-12 shrink-0 rounded-card border border-blue-300 object-cover"
+                      />
+                    ) : null}
+                    <div className="min-w-0">
+                      <p className="text-body text-ink">{item.titleSnapshot}</p>
+                      {item.optionSummarySnapshot ? (
+                        <p className="text-meta font-medium text-ink">
+                          {item.optionSummarySnapshot}
+                        </p>
+                      ) : null}
+                      <p className="text-meta text-ink/70">
+                        {item.quantity > 1
+                          ? `${item.quantity} × ${formatBdt(item.unitPriceBdt)}`
+                          : "Quantity 1"}
+                      </p>
+                    </div>
                   </div>
                   <p className="tabular-nums font-medium text-ink">
                     {formatBdt(item.unitPriceBdt * item.quantity)}

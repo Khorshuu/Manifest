@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
   addresses,
@@ -34,6 +34,53 @@ export async function listOrdersForUser(userId: string) {
     .from(orders)
     .where(eq(orders.userId, userId))
     .orderBy(desc(orders.placedAt));
+}
+
+export type OrderSummaryLine = {
+  titleSnapshot: string;
+  optionSummarySnapshot: string | null;
+  imageUrlSnapshot: string | null;
+  quantity: number;
+};
+
+export type OrderSummary = Awaited<
+  ReturnType<typeof listOrdersForUser>
+>[number] & { items: OrderSummaryLine[] };
+
+/**
+ * The account's orders with enough of each one to recognise it — the
+ * photograph, the product and the exact version bought (D-043). Everything
+ * comes from the snapshot written when the order was placed, so an order still
+ * reads correctly after the product it names has been renamed or archived.
+ */
+export async function listOrderSummariesForUser(
+  userId: string,
+  limit?: number,
+): Promise<OrderSummary[]> {
+  const rows = await listOrdersForUser(userId);
+  const wanted = limit ? rows.slice(0, limit) : rows;
+  if (wanted.length === 0) return [];
+
+  const lines = await db
+    .select({
+      orderId: orderItems.orderId,
+      titleSnapshot: orderItems.titleSnapshot,
+      optionSummarySnapshot: orderItems.optionSummarySnapshot,
+      imageUrlSnapshot: orderItems.imageUrlSnapshot,
+      quantity: orderItems.quantity,
+    })
+    .from(orderItems)
+    .where(
+      inArray(
+        orderItems.orderId,
+        wanted.map((order) => order.id),
+      ),
+    );
+
+  return wanted.map((order) => ({
+    ...order,
+    items: lines.filter((line) => line.orderId === order.id),
+  }));
 }
 
 /** Columns a customer may see. Note the absence of internalNotes. */

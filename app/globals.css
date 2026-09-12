@@ -1248,3 +1248,50 @@ html[data-catalog-open] .site-header {
 .hero-stage[data-tone="light"] .campaign-title {
   text-shadow: 0 1px 16px rgb(255 255 255 / 0.45);
 }
+
+/*
+ * Staff-authored product copy (D-043).
+ *
+ * A description is now written in real sections — an opening paragraph, then
+ * headed lists of features and facts — so the few tags it may contain need
+ * spacing of their own. Scoped to this class so nothing else on the site
+ * inherits it, and deliberately short: the allow-list in
+ * lib/seo-pulse/sanitize.ts is the only set of tags that can appear here.
+ */
+.product-copy > * + * {
+  margin-top: 1rem;
+}
+
+.product-copy h2,
+.product-copy h3 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--color-ink);
+}
+
+.product-copy h2 + *,
+.product-copy h3 + * {
+  margin-top: 0.5rem;
+}
+
+.product-copy ul,
+.product-copy ol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-left: 1.25rem;
+}
+
+.product-copy ul {
+  list-style: disc;
+}
+
+.product-copy ol {
+  list-style: decimal;
+}
+
+.product-copy strong {
+  font-weight: 600;
+  color: var(--color-ink);
+}

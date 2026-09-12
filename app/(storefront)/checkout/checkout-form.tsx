@@ -33,6 +33,10 @@ export type CheckoutLine = {
   itemId: string;
   title: string;
   optionSummary: string;
+  /** Named pairs — "Colour: Pearl White" — so nobody pays for a guess. */
+  options: { label: string; value: string }[];
+  sku: string;
+  unitPriceBdt: number;
   quantity: number;
   lineTotalBdt: number;
   imageUrl: string | null;
@@ -412,12 +416,28 @@ export function CheckoutForm({
                 )}
               </Link>
 
+              {/*
+                Exactly what is being paid for, before the order is placed:
+                every option by name, the quantity and the unit price. A line
+                that reads only "Sofa" is the complaint this answers (D-043).
+              */}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-meta font-medium text-ink">
-                  {line.title}
-                </p>
-                <p className="truncate text-meta text-ink/70">
-                  {line.optionSummary} · {line.quantity}
+                <p className="text-meta font-medium text-ink">{line.title}</p>
+                {line.options.length > 0 ? (
+                  <ul className="mt-0.5 flex flex-col gap-0.5">
+                    {line.options.map((option) => (
+                      <li
+                        key={`${option.label}-${option.value}`}
+                        className="text-meta text-ink/70"
+                      >
+                        <span className="text-ink/55">{option.label}: </span>
+                        {option.value}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <p className="mt-0.5 text-meta tabular-nums text-ink/70">
+                  {line.quantity} × {formatBdt(line.unitPriceBdt)}
                 </p>
               </div>
 
