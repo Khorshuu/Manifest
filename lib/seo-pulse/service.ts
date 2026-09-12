@@ -30,6 +30,8 @@ import type { SeoPulseApplyPayload } from "@/lib/validation/seo-pulse";
 import {
   competitorObservations,
   contentGaps,
+  measurementRows,
+  specificationRows,
   identifierStatus,
   imageFilenames,
   keywordGroups,
@@ -177,6 +179,9 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
     descriptionText: stripHtml(product.descriptionHtml).slice(0, 6000),
     bulletFeatures: strings(product.bulletFeatures),
     specifications,
+    measurements: Array.isArray(product.measurements)
+      ? (product.measurements as { label: string; value: string }[])
+      : [],
     details,
     boxContents: strings(product.boxContents),
     warranty: warranty
@@ -466,6 +471,8 @@ export async function executeResearch(input: SeoPulseInput) {
     keywordGroups: keywordGroups(generated),
     slugConflict,
     imageFilenames: imageFilenames(input, generated.slug.recommended),
+    specifications: specificationRows(input),
+    measurements: measurementRows(input),
     contentGaps: contentGaps(input),
     identifiers: identifierStatus(input),
     schemaReadiness: schemaReadiness(input),
@@ -920,6 +927,32 @@ export async function fillWithSeoPulse(
     }
   }
 
+  /*
+   * The specification and measurement tables, which are the product's own
+   * recorded facts rearranged rather than anything written (D-043). Filled
+   * only when empty, and skipped entirely when there is nothing factual to
+   * put in them — an empty measurements table keeps the tab off the page.
+   */
+  const rows = (
+    key: "specTable" | "measurements",
+    next: { label: string; value: string }[],
+    label: string,
+  ) => {
+    if (next.length === 0) return;
+    const current = Array.isArray(product[key])
+      ? (product[key] as { label: string; value: string }[])
+      : [];
+    if (current.length === 0) {
+      fields[key] = next;
+      filled.push(label);
+    } else {
+      kept.push(label);
+    }
+  };
+
+  rows("specTable", analysis.specifications, "Specification");
+  rows("measurements", analysis.measurements, "Measurements");
+
   const tags = strings(product.tags);
   const nextTags = mergeTerms(tags, analysis.tags, 30, 40);
   if (nextTags.length > tags.length) {
@@ -1023,6 +1056,19 @@ export async function applySeoPulse(
     }
   }
 
+  // The two tables are replaced whole rather than merged, so writing over a
+  // table staff have already filled in always needs Replace (D-043).
+  for (const field of ["specTable", "measurements"] as const) {
+    const next = fields[field];
+    if (next === undefined) continue;
+    const current = Array.isArray(product[field])
+      ? (product[field] as { label: string; value: string }[])
+      : [];
+    if (current.length > 0 && !overwrite.has(field)) {
+      conflicts.push({ field, existing: current });
+    }
+  }
+
   const images = fields.imageAlts?.length
     ? await db.select().from(productImages).where(eq(productImages.productId, productId))
     : [];
@@ -1059,6 +1105,8 @@ export async function applySeoPulse(
   if (fields.tags !== undefined) patch.tags = fields.tags;
   if (fields.searchKeywords !== undefined) patch.searchKeywords = fields.searchKeywords;
   if (fields.bulletFeatures !== undefined) patch.bulletFeatures = fields.bulletFeatures;
+  if (fields.specTable !== undefined) patch.specTable = fields.specTable;
+  if (fields.measurements !== undefined) patch.measurements = fields.measurements;
 
   if (Object.keys(patch).length > 0) {
     const parsed = productPatchSchema.safeParse(patch);

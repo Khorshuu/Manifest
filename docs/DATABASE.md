@@ -493,3 +493,19 @@ provider_account_id, email (as reported at link time, for support), created_at`.
 Unique on `(provider, provider_account_id)` — one account per external
 identity — and indexed on `user_id`. The subject identifier is what is matched
 on; the email column is never used to find an account.
+
+## Migration 0022 — measurements, and the variant an order bought (D-043)
+
+`products.measurements` (jsonb, nullable): `Array<{ label, value }>` of
+measurable facts — length, weight, capacity. Its own column rather than rows
+in `spec_table` so the product page can offer Measurements as a tab and hide
+that tab when there are none, and so nothing generated can quietly add a
+dimension.
+
+`order_items.sku_snapshot`, `order_items.image_url_snapshot` and
+`order_items.variant_options_snapshot` (jsonb,
+`Array<{ label, value }>`): what was bought, frozen at placement beside the
+title and price the row already kept. `option_summary_snapshot` existed but was
+never written; it is now. All four are null on orders placed before this
+migration, and every screen treats null as "not recorded" rather than showing
+a placeholder.

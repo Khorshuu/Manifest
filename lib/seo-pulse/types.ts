@@ -61,6 +61,8 @@ export type SeoPulseInput = {
   descriptionText: string;
   bulletFeatures: string[];
   specifications: { label: string; value: string }[];
+  /** Measurement rows the listing already carries. Never generated. */
+  measurements: { label: string; value: string }[];
   details: Record<string, string>;
   boxContents: string[];
   warranty: { hasWarranty: boolean; durationMonths: number | null } | null;
@@ -266,6 +268,13 @@ export type SeoAnalysis = GeneratedRecommendations & {
     status: "ready" | "missing" | "not_applicable";
     note: string;
   }[];
+  /**
+   * The specification and measurement tables, derived from the product's own
+   * recorded facts rather than written by a generator (D-043). No model is
+   * asked for these, so none can invent a dimension, a material or a weight.
+   */
+  specifications: { label: string; value: string }[];
+  measurements: { label: string; value: string }[];
   competitorObservations: { observation: string; basis: string }[];
   scores: { seo: ScoreResult; search: ScoreResult };
 };
@@ -279,6 +288,8 @@ export const APPLY_FIELDS = [
   "title",
   "descriptionHtml",
   "bulletFeatures",
+  "specTable",
+  "measurements",
   "tags",
   "searchKeywords",
   "imageAlts",

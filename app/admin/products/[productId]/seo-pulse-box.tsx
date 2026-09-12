@@ -97,7 +97,7 @@ export function SeoPulseBox({
         </span>
       </div>
       <p className="text-[0.75rem] text-ink/65">
-        Fills empty SEO, search and description fields from the facts you entered. Your own text is kept.
+        Fills empty description, specification, measurement, SEO and search fields from the facts you entered. Your own text is kept, and nothing is invented.
       </p>
       <Button type="button" size="sm" disabled={state === "saving" || state === "analyzing"} onClick={() => void fill()}>
         {state === "saving" || state === "analyzing" ? "Working…" : "✨ Fill with SEO Pulse"}

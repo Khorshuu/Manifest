@@ -2342,3 +2342,72 @@ What was wrong, found by inspection:
 - `mergeGuestCart()` in `lib/cart/index.ts` is called by nothing outside the
   tests, so a guest's cart is not merged into their account when they sign in.
   This predates this session's work and was left alone.
+
+## Variants through the purchase, product information tabs, account (this session, D-043)
+
+- `[x]` **The chosen variant survives.** One loader (`lib/catalog/variant-options.ts`)
+  builds the option pairs for the cart, the checkout summary and the order
+  snapshot. `order_items` now freezes the option pairs, the option summary, the
+  SKU and the variant photograph (migration 0022). Cart lines read
+  "Pearl White · 3-Seater"; checkout names each option with quantity and unit
+  price before the order is placed; the admin order shows the version and its
+  SKU; the customer's order shows the photograph and the version. Orders placed
+  before this carry no snapshot and show the product name alone — nothing is
+  invented for them.
+- `[x]` **Description · Specification · Measurements** as one tabbed panel on
+  the product page. New `products.measurements` column, edited beside the
+  specifications. The Measurements tab is absent when the listing has none.
+- `[x]` **Buy now** beside Add to cart, straight into checkout on the same
+  server-priced path. With more than one option nothing is preselected: the
+  panel prices the cheapest as "From", and either button without a choice says
+  "Please select a variant before continuing."
+- `[x]` **SEO Pulse writes more, and invents nothing.** The description now
+  covers what the product is, its characteristics, its use and what is in the
+  box, with each section present only when the listing supports it. The
+  specification and measurement tables are derived from recorded facts in
+  `lib/seo-pulse/facts.ts` and are not in the generated schema at all, so no
+  model is asked for a dimension or a material; the AI prompt carries the same
+  rule for prose. One-click fill now fills Specification and Measurements too.
+- `[x]` **One account:** `/account` is a dashboard (live counts, recent orders
+  with photograph and version) and `/account/orders` is the full list — a route
+  the header menu linked to while it did not exist.
+
+### Verified
+
+- `npm run typecheck`, `npm run lint`, `npm run build` pass. Full unit suite:
+  55 files, 855 pass, 2 skipped (the two that need a real PostgreSQL server).
+  New tests cover the cart/order snapshot, that renaming an option afterwards
+  does not rewrite an order, that a no-option product has no variant line, that
+  the description covers the product without repeating a sentence, that a thin
+  listing gets a shorter description rather than filler, that no measurement is
+  written for a listing that records none, and that specifications and
+  measurements do not repeat each other.
+- Browser, as a customer: the projector's three options start unselected and
+  the panel reads "From"; Buy now without choosing says "Please select a
+  variant before continuing"; choosing Midnight Black and pressing Buy now
+  lands on checkout showing "Color: Sandstone"/"Color: Midnight Black" with
+  quantities and unit prices; the cart line names the option; the order was
+  placed (ORD-2026-000012) and appears on the dashboard, in the orders list, on
+  the customer's order page and in the admin order table with the SKU.
+- Browser, as the owner, on a throwaway product (deleted afterwards): a new
+  product starts with no variants; "+ Add variant group" with ten values
+  produced ten compact rows with a "+4 more" chip; Publish now on an incomplete
+  product listed three named things to fix with Fix links; measurements typed
+  and saved; "Fill with SEO Pulse" filled the description, the specification and
+  the SEO fields, kept the typed measurements, and listed nine facts it cannot
+  know; the storefront preview then showed all three tabs.
+- Phone width (Pixel 7, 412px): product page, cart, account dashboard and
+  orders list have no sideways scroll; no console errors anywhere.
+
+### Not verified, stated plainly
+
+- `[!]` **The admin editor was not re-checked at phone width this session.**
+  Repeated sign-ins tripped the per-account rate limit. Nothing in this
+  session's editor change is layout-affecting beyond one more row editor.
+- `[ ]` No end-to-end spec was added for Buy now or the account dashboard, and
+  the full Playwright sweep was not run.
+- `[ ]` AI-written descriptions remain UNVERIFIED — still no `ANTHROPIC_API_KEY`,
+  so everything above is the rules generator.
+- Seeded data note, not a defect: two of the projector's three variants have a
+  price of 0 in the development database, which is why the panel reads
+  "From BDT 0".

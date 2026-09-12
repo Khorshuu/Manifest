@@ -267,3 +267,107 @@ export function competitorObservations(
 
   return observations;
 }
+
+/**
+ * The advanced-block fields that are measurements, and the labels shoppers
+ * see for them. Everything else in that block is a specification.
+ */
+const MEASUREMENT_FIELDS: [string, string][] = [
+  ["size", "Size"],
+  ["dimensions", "Product dimensions"],
+  ["itemWeight", "Item weight"],
+  ["packageDimensions", "Package dimensions"],
+  ["packageWeight", "Package weight"],
+  ["unitCount", "Unit count"],
+  ["unitType", "Unit type"],
+];
+
+const SPECIFICATION_FIELDS: [string, string][] = [
+  ["manufacturer", "Manufacturer"],
+  ["modelName", "Model"],
+  ["modelNumber", "Model number"],
+  ["manufacturerPartNumber", "Part number"],
+  ["material", "Material"],
+  ["color", "Colour"],
+  ["compatibility", "Compatibility"],
+  ["specialFeatures", "Special features"],
+  ["intendedUse", "Intended use"],
+  ["careInstructions", "Care instructions"],
+  ["releaseDate", "Released"],
+];
+
+/** A word that reads like a measurement, used only to sort rows, never to make one. */
+const MEASURED = /(length|width|height|depth|diameter|weight|capacity|volume|size|dimension|litre|liter|\bml\b|\bkg\b|\bcm\b|\bmm\b|\binch\b)/i;
+
+type Row = { label: string; value: string };
+
+function tidy(rows: Row[]): Row[] {
+  const seen = new Set<string>();
+  const out: Row[] = [];
+  for (const row of rows) {
+    const label = row.label.trim();
+    const value = row.value.trim();
+    const key = label.toLowerCase();
+    if (!label || !value || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ label, value });
+  }
+  return out;
+}
+
+/**
+ * The specification table SEO Pulse offers (D-043).
+ *
+ * Every row comes from something staff already recorded — the brand, the
+ * category's own specifications, the advanced block, the rows typed by hand.
+ * Nothing is derived, estimated or inferred, so a listing that records little
+ * gets a short table rather than a plausible-looking invented one.
+ */
+export function specificationRows(input: SeoPulseInput): Row[] {
+  const measurementKeys = new Set(MEASUREMENT_FIELDS.map(([key]) => key));
+
+  return tidy([
+    ...(input.brand ? [{ label: "Brand", value: input.brand }] : []),
+    // The category's questions and any hand-typed rows, minus anything that
+    // is really a measurement — that belongs in the other table.
+    ...input.specifications.filter((row) => !MEASURED.test(row.label)),
+    ...SPECIFICATION_FIELDS.flatMap(([key, label]) =>
+      input.details[key] && !measurementKeys.has(key)
+        ? [{ label, value: input.details[key] }]
+        : [],
+    ),
+    ...(input.countryOfOrigin
+      ? [{ label: "Country of origin", value: input.countryOfOrigin }]
+      : []),
+    ...(input.warranty?.hasWarranty && input.warranty.durationMonths
+      ? [{ label: "Warranty", value: `${input.warranty.durationMonths} months` }]
+      : []),
+    ...(input.identifierType && input.identifierValue
+      ? [
+          {
+            label: input.identifierType.toUpperCase(),
+            value: input.identifierValue,
+          },
+        ]
+      : []),
+  ]);
+}
+
+/**
+ * The measurements SEO Pulse offers — only ones that were recorded.
+ *
+ * A measurement nobody supplied is left out, and the product page hides the
+ * whole tab when this is empty. Guessing a weight would be worse than silence:
+ * a shopper can act on a wrong figure.
+ */
+export function measurementRows(input: SeoPulseInput): Row[] {
+  return tidy([
+    ...input.measurements,
+    ...MEASUREMENT_FIELDS.flatMap(([key, label]) =>
+      input.details[key] ? [{ label, value: input.details[key] }] : [],
+    ),
+    // A category specification such as "Capacity: 750 ml" is a measurement
+    // wherever it was entered.
+    ...input.specifications.filter((row) => MEASURED.test(row.label)),
+  ]);
+}

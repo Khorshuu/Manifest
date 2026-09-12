@@ -797,3 +797,71 @@ response from Google's token endpoint, which OpenID Connect Core §3.1.3.7
 allows; issuer, audience and expiry are still checked. If the flow ever changes
 so that a token arrives by way of the browser, the signature must be verified
 against Google's JWKS first.
+
+## D-043 — The chosen variant is the thing being sold, all the way to the order
+
+**Context:** A shopper could pick "Pearl White · 3-Seater" and never see it
+again. The cart joined the option values with a slash, the checkout summary
+repeated that one string, and `order_items` never wrote `option_summary_snapshot`
+at all — so every order screen, for staff and for the customer, read as a bare
+product name. Separately the product page stacked Description, Key features and
+a Specifications table down the page with no home for measurements, and there
+was no way to buy without going through the cart.
+
+**Decision:**
+
+1. **One loader for what a variant is.** `lib/catalog/variant-options.ts`
+   returns the option pairs (`Colour: Pearl White`) for a set of variants and
+   formats the summary. The cart, the checkout summary and the order snapshot
+   all use it, so the three cannot describe the same variant differently. A
+   product with no options returns an empty list and its lines read as the
+   product name alone, rather than the old "Standard".
+
+2. **The order snapshots the variant.** `order_items` already froze the title,
+   the price and the fulfilment mode; it now also freezes the option pairs, the
+   option summary, the SKU and the variant's photograph. Nothing about a line
+   is re-read from the live catalogue, so renaming an option or archiving a
+   variant cannot rewrite what an order says. Orders placed before this change
+   carry none of it and are shown as they always were — historical variants are
+   never guessed at.
+
+3. **Description · Specification · Measurements.** One tabbed panel on the
+   product page. Measurements is a new `products.measurements` column
+   (label/value rows staff type) plus the measurable fields of the advanced
+   block; the specification table keeps everything else, so neither repeats the
+   other. The tab is absent when the listing records no measurements.
+
+4. **Buy now beside Add to cart.** It adds the line and goes straight to
+   checkout — the same server-priced path, not a second one. With more than one
+   option nothing is preselected: the panel prices the cheapest option as
+   "From", and pressing either button without choosing asks for a choice. A
+   product with exactly one option still starts selected, because there is no
+   choice to make.
+
+5. **SEO Pulse writes fuller descriptions and no invented facts.** The
+   description now opens with what the product is, what it is made of and what
+   it is for, then key features and what is in the box, then how buying works
+   here — each section only when the listing supports it, so length follows the
+   product rather than a word count. The specification and measurement tables
+   are **derived** in `lib/seo-pulse/facts.ts` from the product's own recorded
+   facts and are not part of the generated schema at all, so no model is even
+   asked for a dimension, a material or a weight. The AI prompt states the same
+   rule for prose. Where a fact is missing it is listed under "Needs your
+   input" instead of being filled in.
+
+6. **One account.** `/account` is the dashboard (live counts from the
+   shopper's own orders, recent orders with the photograph and the version
+   bought) and `/account/orders` is the full list — a route the header menu had
+   been linking to while it did not exist.
+
+**Why the tables are derived rather than generated:** a generated
+specification is indistinguishable from an invented one once it is in the
+database. Deriving them means the worst case is an empty table, which is
+honest, instead of a plausible weight nobody measured.
+
+**Alternatives considered:** letting the model propose specification rows and
+filtering them against known facts afterwards would allow slightly richer
+tables, at the cost of a filter that has to be right every time. Storing
+measurements as fixed columns (length, width, height, weight) was rejected
+because it fits furniture and not coffee beans; label/value rows fit both and
+add one column instead of six.

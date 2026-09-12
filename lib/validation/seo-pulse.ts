@@ -35,6 +35,29 @@ export const seoPulseApplySchema = z
         tags: z.array(z.string().trim().min(1).max(40)).max(30).optional(),
         searchKeywords: z.array(z.string().trim().min(1).max(60)).max(40).optional(),
         bulletFeatures: z.array(z.string().trim().min(1).max(300)).max(20).optional(),
+        /* Rows derived from the product's own recorded facts (D-043). */
+        specTable: z
+          .array(
+            z
+              .object({
+                label: z.string().trim().min(1).max(120),
+                value: z.string().trim().min(1).max(300),
+              })
+              .strict(),
+          )
+          .max(50)
+          .optional(),
+        measurements: z
+          .array(
+            z
+              .object({
+                label: z.string().trim().min(1).max(120),
+                value: z.string().trim().min(1).max(300),
+              })
+              .strict(),
+          )
+          .max(30)
+          .optional(),
         imageAlts: z
           .array(
             z

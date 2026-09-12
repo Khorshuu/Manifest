@@ -9,6 +9,8 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   addresses,
+  attributeValues,
+  attributes,
   cartItems,
   orderItems,
   orderStatusHistory,
@@ -16,6 +18,8 @@ import {
   payments,
   productVariants,
   users,
+  variantImages,
+  variantOptionValues,
 } from "@/db/schema";
 import {
   addToCart,
@@ -703,5 +707,138 @@ describe("cart item scoping", () => {
 
     const unchanged = await getCartView(theirs);
     expect(unchanged.lines[0].quantity).toBe(1);
+  });
+});
+
+/**
+ * The variant a shopper chose, from the cart to the order (D-043).
+ *
+ * The order has to keep saying what was bought after the catalogue moves on,
+ * so the options, the SKU and the photograph are frozen at placement and
+ * never re-read from the live variant.
+ */
+describe("the chosen variant survives the purchase", () => {
+  async function seedVariantWithOptions() {
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const category = await createCategory(staff, {
+      name: `Cat ${suffix}`,
+      slug: `cat-${suffix}`,
+    });
+    const product = await createProduct(staff, {
+      title: `Sofa ${suffix}`,
+      categoryId: category.id,
+      status: "preorder_open",
+    });
+
+    const [colour] = await harness.db
+      .insert(attributes)
+      .values({ name: "Colour", productId: product.id })
+      .returning({ id: attributes.id });
+    const [size] = await harness.db
+      .insert(attributes)
+      .values({ name: "Size", productId: product.id })
+      .returning({ id: attributes.id });
+
+    const [pearl] = await harness.db
+      .insert(attributeValues)
+      .values({ attributeId: colour.id, value: "Pearl White" })
+      .returning({ id: attributeValues.id });
+    const [threeSeater] = await harness.db
+      .insert(attributeValues)
+      .values({ attributeId: size.id, value: "3-Seater" })
+      .returning({ id: attributeValues.id });
+
+    const [variant] = await harness.db
+      .insert(productVariants)
+      .values({
+        productId: product.id,
+        sku: `SOFA-${suffix}`,
+        priceBdt: 50_000_00,
+        fulfillmentMode: "preorder",
+        preorderCapacity: 10,
+        preorderReserved: 0,
+      })
+      .returning({ id: productVariants.id, sku: productVariants.sku });
+
+    await harness.db.insert(variantOptionValues).values([
+      { variantId: variant.id, attributeId: colour.id, attributeValueId: pearl.id },
+      { variantId: variant.id, attributeId: size.id, attributeValueId: threeSeater.id },
+    ]);
+
+    await harness.db.insert(variantImages).values({
+      variantId: variant.id,
+      url: "https://example.com/pearl-white.jpg",
+      altText: "Pearl White sofa",
+    });
+
+    return { product, variant };
+  }
+
+  it("names the variant in the cart, by value and by option", async () => {
+    const { variant } = await seedVariantWithOptions();
+    const cartId = await getOrCreateCart({ userId: customerId });
+    await addToCart(cartId, variant.id, 1);
+
+    const view = await getCartView(cartId);
+
+    expect(view.lines[0].optionSummary).toBe("Pearl White · 3-Seater");
+    expect(view.lines[0].options).toEqual([
+      { label: "Colour", value: "Pearl White" },
+      { label: "Size", value: "3-Seater" },
+    ]);
+    expect(view.lines[0].sku).toBe(variant.sku);
+    // The variant's own photograph, not the product's first one.
+    expect(view.lines[0].imageUrl).toBe("https://example.com/pearl-white.jpg");
+  });
+
+  it("freezes the variant on the order, and keeps it when the catalogue changes", async () => {
+    const { variant } = await seedVariantWithOptions();
+    const cartId = await getOrCreateCart({ userId: customerId });
+    await addToCart(cartId, variant.id, 1);
+
+    const placed = await placeOrder({
+      cartId,
+      userId: customerId,
+      guestEmail: "shopper@example.com",
+      guestPhone: null,
+      shippingAddressId: addressId,
+      method: "card",
+      idempotencyKey: `variant-${variant.id}`,
+    });
+
+    const [item] = await harness.db
+      .select()
+      .from(orderItems)
+      .where(eq(orderItems.orderId, placed.orderId));
+
+    expect(item.optionSummarySnapshot).toBe("Pearl White · 3-Seater");
+    expect(item.variantOptionsSnapshot).toEqual([
+      { label: "Colour", value: "Pearl White" },
+      { label: "Size", value: "3-Seater" },
+    ]);
+    expect(item.skuSnapshot).toBe(variant.sku);
+    expect(item.imageUrlSnapshot).toBe("https://example.com/pearl-white.jpg");
+
+    // Renaming the option afterwards must not rewrite history.
+    await harness.db
+      .update(attributeValues)
+      .set({ value: "Ivory" })
+      .where(eq(attributeValues.value, "Pearl White"));
+
+    const [again] = await harness.db
+      .select()
+      .from(orderItems)
+      .where(eq(orderItems.orderId, placed.orderId));
+    expect(again.optionSummarySnapshot).toBe("Pearl White · 3-Seater");
+  });
+
+  it("leaves a product with no options without a variant line", async () => {
+    const variant = await seedVariant();
+    const cartId = await getOrCreateCart({ userId: customerId });
+    await addToCart(cartId, variant.id, 1);
+
+    const view = await getCartView(cartId);
+    expect(view.lines[0].optionSummary).toBe("");
+    expect(view.lines[0].options).toEqual([]);
   });
 });

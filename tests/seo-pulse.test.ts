@@ -26,6 +26,7 @@ import {
   setIntelligenceProviderForTesting,
   type SeoIntelligenceProvider,
 } from "@/lib/seo-pulse/providers/intelligence";
+import { measurementRows, specificationRows } from "@/lib/seo-pulse/facts";
 import { generateByRules } from "@/lib/seo-pulse/rules";
 import { sanitizeDescriptionHtml, sanitizeGenerated } from "@/lib/seo-pulse/sanitize";
 import {
@@ -56,6 +57,7 @@ function sampleInput(overrides: Partial<SeoPulseInput> = {}): SeoPulseInput {
     descriptionText: "",
     bulletFeatures: ["Industry-leading noise cancelling", "30-hour battery"],
     specifications: [],
+    measurements: [],
     details: { color: "Black" },
     boxContents: [],
     warranty: null,
@@ -552,7 +554,7 @@ describe("applying", () => {
 
   it("offers a factual starter description even for a listing with nothing on it", () => {
     const generated = generateByRules(sampleInput({ bulletFeatures: [], details: {} }), emptyResearch);
-    expect(generated.description.suggestedHtml).toContain("Sourced from the United States");
+    expect(generated.description.suggestedHtml).toContain("sourced from the United States");
     expect(generated.keyFeatures).toEqual([]);
   });
 
@@ -584,5 +586,108 @@ describe("export", () => {
     const { run } = await runSeoPulse(staff, productId, { requestKey: nextKey(), fresh: true });
     const csv = exportCsv(run, "=HYPERLINK(\"x\")");
     expect(csv).toContain("'=HYPERLINK");
+  });
+});
+
+/**
+ * The description, the specification table and the measurements (D-043).
+ *
+ * The rule these all turn on: SEO Pulse rearranges facts the listing already
+ * holds and writes nothing else. A richer description is only richer because
+ * the product carries more, never because the generator filled the space.
+ */
+describe("product information SEO Pulse writes", () => {
+  const full = () =>
+    sampleInput({
+      bulletFeatures: [
+        "Industry-leading noise cancelling",
+        "30-hour battery",
+        "Multipoint pairing",
+      ],
+      boxContents: ["Headphones", "USB-C cable", "Carry case"],
+      specifications: [{ label: "Driver", value: "30 mm" }],
+      measurements: [{ label: "Weight", value: "250 g" }],
+      details: {
+        color: "Black",
+        material: "Plastic",
+        intendedUse: "travel",
+        dimensions: "20 x 18 x 8 cm",
+        modelNumber: "WH-1000XM5",
+      },
+      countryOfOrigin: "Malaysia",
+    });
+
+  it("writes a description that covers the product, not a page of filler", () => {
+    const html = generateByRules(full(), emptyResearch).description.suggestedHtml ?? "";
+
+    // What it is, what it is made of, what it is for — each said once.
+    expect(html).toContain("Headphones range");
+    expect(html).toContain("Plastic construction");
+    expect(html).toContain("intended for travel");
+    expect(html).toContain("<h2>Key features</h2>");
+    expect(html).toContain("Multipoint pairing");
+    expect(html).toContain("<h2>In the box</h2>");
+    expect(html).toContain("Carry case");
+
+    // Nothing is said twice: no sentence repeats anywhere in the description.
+    const sentences = html
+      .replace(/<[^>]+>/g, " ")
+      .split(/(?<=\.)\s+/)
+      .map((part) => part.trim().toLowerCase())
+      .filter((part) => part.length > 20);
+    expect(new Set(sentences).size).toBe(sentences.length);
+  });
+
+  it("stays short when the listing is thin, rather than padding it out", () => {
+    const thin = generateByRules(
+      sampleInput({ bulletFeatures: [], details: {}, boxContents: [] }),
+      emptyResearch,
+    ).description.suggestedHtml ?? "";
+    const rich = generateByRules(full(), emptyResearch).description.suggestedHtml ?? "";
+
+    expect(thin.length).toBeLessThan(rich.length);
+    expect(thin).not.toContain("<h2>Key features</h2>");
+    expect(thin).not.toContain("<h2>In the box</h2>");
+  });
+
+  it("never writes a measurement the listing does not hold", () => {
+    const analysisInput = sampleInput({
+      details: { color: "Black" },
+      specifications: [],
+      measurements: [],
+    });
+    const html =
+      generateByRules(analysisInput, emptyResearch).description.suggestedHtml ?? "";
+
+    expect(html).not.toContain("<h2>Measurements</h2>");
+    // No invented dimension, weight or capacity anywhere in the text.
+    expect(html).not.toMatch(/\d+\s?(cm|mm|kg|g|ml|litre|liter|inch)\b/i);
+  });
+
+  it("splits recorded facts into specifications and measurements", () => {
+    const input = full();
+    const specs = specificationRows(input);
+    const measures = measurementRows(input);
+
+    expect(specs).toContainEqual({ label: "Brand", value: "Sony" });
+    expect(specs).toContainEqual({ label: "Model number", value: "WH-1000XM5" });
+    expect(specs).toContainEqual({ label: "Country of origin", value: "Malaysia" });
+    expect(specs).toContainEqual({ label: "Driver", value: "30 mm" });
+
+    expect(measures).toContainEqual({ label: "Weight", value: "250 g" });
+    expect(measures).toContainEqual({
+      label: "Product dimensions",
+      value: "20 x 18 x 8 cm",
+    });
+
+    // Neither table repeats the other.
+    const specLabels = new Set(specs.map((row) => row.label));
+    expect(measures.some((row) => specLabels.has(row.label))).toBe(false);
+  });
+
+  it("has no measurements at all for a listing that recorded none", () => {
+    expect(
+      measurementRows(sampleInput({ details: { color: "Black" }, measurements: [] })),
+    ).toEqual([]);
   });
 });

@@ -71,8 +71,9 @@ Rules:
 - FAQ answers only from the product data; otherwise answer null and set needsManualAnswer.
 - SEO title: at most 50 characters (the site appends " · Manifest"). Meta description: 120–155 characters. Slug: lowercase words joined by single hyphens.
 - The H1 should name the product plainly — usually the product name itself.
-- suggestedHtml: a product description using only simple tags (p, h2, ul, li, strong). Base it on the product data; where the data is thin you may use well-established, widely published facts about this exact product (staff review everything before it is saved). Never invent prices, delivery dates, warranties or authenticity claims.
-- keyFeatures: 3–6 short lines for the product page's key features, on the same basis as suggestedHtml. Empty if you cannot identify the product with confidence.
+- suggestedHtml: the product's main description, using only simple tags (p, h2, ul, li, strong). Write it for a shopper deciding whether to buy, in plain sentences a person would say out loud. Cover what the product is, its important characteristics, what it is actually used for, and who it suits — then, where the data supports them, headed sections for key features and for what is in the box. Length follows the product: a simple item gets a short, complete description, a complex one gets more. Do not repeat a sentence in another form, do not pad, and do not repeat the same keyword to hit a count. Do not write a specifications or measurements table — the site builds those from its own recorded facts.
+- Everything in the description must be supported by the product data. Never invent dimensions, weights, measurements, materials, technical specifications, capacities, certifications, compatibility, country of origin, warranties, delivery dates, prices, performance claims or authenticity claims. Where a fact is missing, leave it out and list it under description.improvements as something staff should add. An incomplete description is correct; a complete-looking invented one is not.
+- keyFeatures: 3–6 short lines for the product page's key features, on the same basis as suggestedHtml — each one supported by the product data. Empty rather than guessed.
 - Keep imageId values exactly as given.`;
 
 /** The response shape, loosely typed: the strict check happens after cleaning. */

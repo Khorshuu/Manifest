@@ -203,7 +203,7 @@ describe("SEO Pulse one-click fill", () => {
     expect(row.seoMetaTitle).toBe("My own title");
     expect(row.seoFocusKeyword).toBeTruthy();
     // The starter description states only the shop's own facts.
-    expect(row.descriptionHtml).toContain("Sourced from the United States");
+    expect(row.descriptionHtml).toContain("sourced from the United States");
     expect(row.descriptionHtml).not.toMatch(/cm|kg|leather|warranty/i);
     const variants = await harness.db.select().from(productVariants).where(eq(productVariants.productId, sofaA));
     expect(variants).toHaveLength(1);

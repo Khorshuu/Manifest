@@ -4,6 +4,7 @@ import type {
   SeoPulseInput,
   SeoResearchData,
 } from "./types";
+import { measurementRows, specificationRows } from "./facts";
 import { isGenericAlt } from "./scores";
 import {
   clampText,
@@ -338,40 +339,107 @@ export function generateByRules(
     158,
   );
 
-  const facts = [
-    ...input.specifications.map((row) => `${row.label}: ${row.value}`),
-    ...Object.entries(input.details).map(
-      ([label, value]) => `${label.replace(/([A-Z])/g, " $1").toLowerCase()}: ${value}`,
-    ),
-  ];
+  const specs = specificationRows(input);
+  const measures = measurementRows(input);
+
   const escape = (value: string) =>
     value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const sentence = (value: string) =>
+    /[.!?]$/.test(value.trim()) ? value.trim() : `${value.trim()}.`;
+
   /*
-   * With nothing else on the listing, the introduction says only what is true
-   * of every product this shop sells: what it is, where it is filed, and how
-   * it reaches Bangladesh. Staff add the rest; nothing about the product
-   * itself is invented.
+   * The description, written from the listing's own facts and nothing else
+   * (D-043).
+   *
+   * It grows with the product rather than to a word count: a listing with
+   * three features, a specification table and measurements gets an opening,
+   * a feature list, both tables and a delivery note; a listing with only a
+   * name and a category gets two honest sentences. Every section appears at
+   * most once, and no sentence is repeated in another form — the padding that
+   * makes generated copy obvious is exactly what a shopper skips.
    */
-  const intro = `${displayName}${
-    input.categoryPath.length > 0 ? ` — from our ${input.categoryPath.join(" › ")} range` : ""
-  }. Sourced from the United States and delivered across Bangladesh at a fixed landed price${
-    preorder ? "; order now to reserve one from the next batch" : ""
-  }.`;
+  const opening: string[] = [];
+
+  /*
+   * "…is part of our Headphones range…" rather than "is a headphones": a
+   * category name may be singular or plural and the shop does not know which,
+   * so the sentence is written to be right either way.
+   */
+  opening.push(
+    `${displayName}${
+      productType ? ` is part of our ${titleCase(productType)} range and` : " is"
+    } sourced from the United States and delivered across Bangladesh.`,
+  );
+
+  // Only descriptors the listing actually records, and only once each: they
+  // are the words a shopper scans for, and the words a search engine matches.
+  const descriptors = [
+    material ? `${material} construction` : "",
+    color ? `finished in ${color}` : "",
+    size ? `in ${size}` : "",
+  ].filter(Boolean);
+  if (descriptors.length > 0) {
+    opening.push(`It comes with ${descriptors.join(", ")}.`);
+  }
+
+  if (use) opening.push(sentence(`It is intended for ${use}`));
+  if (compatibility) opening.push(sentence(`It works with ${compatibility}`));
+
+  // The strongest claim staff wrote, stated once in prose. The full list
+  // follows under its own heading, so nothing is said twice.
+  if (input.bulletFeatures[0] && !use) {
+    opening.push(sentence(input.bulletFeatures[0]));
+  }
+
+  const buying: string[] = [];
+  buying.push(
+    preorder
+      ? "This is a preorder: reserve one from the next batch and nothing is bought until the batch closes."
+      : "It is in stock and ships as soon as your order is confirmed.",
+  );
+  const arrives = input.variants.find((variant) => variant.arrivesFrom);
+  if (preorder && arrives?.arrivesFrom) {
+    buying.push(
+      `The current batch is expected to arrive from ${arrives.arrivesFrom}.`,
+    );
+  }
+  buying.push(
+    "The price you see already includes shipping and Bangladeshi customs duty, so there is nothing more to pay on delivery.",
+  );
+  if (input.warranty?.hasWarranty) {
+    buying.push(
+      input.warranty.durationMonths
+        ? `It is covered by a ${input.warranty.durationMonths}-month warranty.`
+        : "It is covered by a warranty.",
+    );
+  }
+
   const suggestedHtml =
-    input.descriptionText.length < 300
-      ? [
-          `<p>${escape(input.bulletFeatures[0] ? lead : intro)}</p>`,
-          input.bulletFeatures.length > 0
-            ? `<h2>Key features</h2><ul>${input.bulletFeatures.map((item) => `<li>${escape(item)}</li>`).join("")}</ul>`
-            : "",
-          facts.length > 0
-            ? `<h2>Specifications</h2><ul>${facts.slice(0, 15).map((item) => `<li>${escape(item)}</li>`).join("")}</ul>`
-            : "",
-          input.boxContents.length > 0
-            ? `<h2>In the box</h2><ul>${input.boxContents.map((item) => `<li>${escape(item)}</li>`).join("")}</ul>`
-            : "",
-        ].join("")
-      : null;
+    [
+      `<p>${escape(opening.join(" "))}</p>`,
+      input.bulletFeatures.length > 0
+        ? `<h2>Key features</h2><ul>${input.bulletFeatures
+            .map((item) => `<li>${escape(item)}</li>`)
+            .join("")}</ul>`
+        : "",
+      /*
+       * No specification or measurement list here. The product page shows
+       * both as their own tabs, built from the same recorded facts, and
+       * repeating them inside the description is exactly the duplication a
+       * shopper reads as padding (D-043).
+       */
+      input.boxContents.length > 0
+        ? `<h2>In the box</h2><ul>${input.boxContents
+            .map((item) => `<li>${escape(item)}</li>`)
+            .join("")}</ul>`
+        : "",
+      `<h2>Buying it here</h2><p>${escape(buying.join(" "))}</p>`,
+    ].join("") || null;
+
+  const facts = [
+    ...specs.map((entry) => `${entry.label}: ${entry.value}`),
+    ...measures.map((entry) => `${entry.label}: ${entry.value}`),
+  ];
 
   const improvements: string[] = [];
   if (input.descriptionText.length < 300) {
