@@ -2501,3 +2501,34 @@ Verified: `npm run typecheck`, `npm run lint` clean. Playwright —
 `notifications` + `orders`: 38 passed. Browser at 390px: Overview, Orders,
 Customers and Notifications render as cards with no sideways scroll; the same
 pages at 1280px are unchanged.
+
+### The rest of the admin on a phone (same session)
+
+- `[x]` **Staff.** The account list is cards below `md` and the role matrix is
+  one block per role, listing what that role allows as chips, below `lg`. The
+  row's controls — the name, the role `select` with its Save button, and Remove
+  access — were pulled out into components the table and the cards both use, so
+  the two shapes cannot drift and each `select` keeps a unique `id` for its
+  label.
+- `[x]` **Categories.** The tree is cards below `md`, indented by depth, with
+  the name, both counts and the full action row (move up, move down, + Sub,
+  View, Edit, Delete) wrapping instead of being a clipped vertical column. The
+  edit form and the add-sub-category form are shared with the table too.
+- `[x]` **Variants.** SKU comes off below `md`, and stock and state below `sm`
+  — all three are in the editor that opens under a variant — so the grid fits a
+  phone instead of being dragged sideways.
+- `[x]` **Two 320px overflows fixed:** the analytics date-range form and the
+  customer search form now wrap.
+- `[x]` **Admin search page overflow fixed.** A `sr-only` label inside the
+  table escaped its scroll box, because the box was not positioned, and pushed
+  the document to 375px on a 320px screen. The box is `relative min-w-0
+  max-w-full` now — the same lesson the variant matrix already carried.
+- `[x]` **Playwright's dev-server start budget raised to 180s.** A cold `.next`
+  took longer than the old 60s and the whole run failed before a test ran.
+
+Verified: `npm run typecheck`, `npm run lint` clean; unit suite 855 pass, 2
+skipped. Playwright — `admin-ops`, `admin-catalog`, `admin-variants`, `search`,
+`notifications`, `orders`: 61 passed, 2 skipped; `storefront`,
+`product-detail`, `filters`, `accessibility`, `experience`: 84 passed, 4
+skipped. Measured again in the browser: no page-level sideways scroll on any
+admin route at 320, 390, 768, 1024 or 1440.

@@ -54,8 +54,13 @@ export default async function AdminSearchPage({
     { label: "Followed by a click", value: percent(report.clickThroughRate) },
   ];
 
+  /* Three things, each load-bearing: `min-w-0` so the box does not grow to
+     the width of the table it holds, the scroll so the table can be wider
+     than the phone, and `relative` so the screen-reader-only labels inside
+     (which are absolutely positioned) are clipped by the box too — otherwise
+     one of them sat at 375px on a 320px screen and took the page with it. */
   const tableShell =
-    "overflow-x-auto rounded-card border border-blue-300 shadow-[var(--shadow-raise)]";
+    "relative min-w-0 max-w-full overflow-x-auto rounded-card border border-blue-300 shadow-[var(--shadow-raise)]";
   const th = "px-4 py-3 text-meta font-medium";
   const td = "border-t border-blue-300 px-4 py-3";
 

@@ -60,7 +60,41 @@ export default async function AdminStaffPage() {
 
       <section className="admin-card min-w-0">
         <h2 className="admin-h2">What each role can do</h2>
-        <div className="relative mt-3 overflow-x-auto">
+
+        {/* Narrow screens: one block per role, listing what it allows. A
+            matrix of nine columns is unreadable a column at a time, and the
+            question a phone is asking is "what can this role do", not "who
+            has this one permission". */}
+        <ul className="mt-3 flex flex-col gap-3 lg:hidden">
+          {STAFF_ROLES.map((role) => {
+            const allowed = PERMISSIONS.filter((permission) =>
+              ROLE_PERMISSIONS[role].includes(permission),
+            );
+            return (
+              <li
+                key={role}
+                className="rounded-card border border-blue-200 p-3"
+              >
+                <p className="font-semibold text-ink">{ROLE_DETAILS[role].label}</p>
+                {allowed.length === 0 ? (
+                  <p className="mt-1 text-[0.75rem] text-ink/70">
+                    Nothing in the admin.
+                  </p>
+                ) : (
+                  <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                    {allowed.map((permission) => (
+                      <li key={permission} className="admin-chip">
+                        {PERMISSION_LABELS[permission]}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+
+        <div className="relative mt-3 hidden overflow-x-auto lg:block">
           <table className="admin-table min-w-[760px]">
             <thead>
               <tr>

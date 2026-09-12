@@ -120,7 +120,7 @@ export default async function AdminAnalyticsPage({
               {period} days
             </Link>
           ))}
-          <form method="get" className="flex items-center gap-1.5">
+          <form method="get" className="flex flex-wrap items-center gap-1.5">
             <label className="sr-only" htmlFor="range-from">From</label>
             <input id="range-from" type="date" name="from" defaultValue={custom ? String(params.from) : ""} className="admin-input h-7 min-h-7 text-[0.75rem]" />
             <span className="text-[0.75rem] text-ink/70">to</span>

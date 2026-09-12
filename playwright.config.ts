@@ -68,7 +68,14 @@ export default defineConfig({
           }
         : {}),
     },
-    timeout: isProduction ? 120_000 : 60_000,
+    /*
+     * Three minutes for the dev server to answer.
+     *
+     * It was one, and on a cold `.next` — the first run after a broad change —
+     * the server was still compiling when the suite gave up, which reads as a
+     * failed run rather than as a slow start.
+     */
+    timeout: isProduction ? 120_000 : 180_000,
     // The dev server must pick up that DATABASE_URL, so never reuse one that
     // is already running against the development database.
     reuseExistingServer: false,

@@ -409,13 +409,16 @@ export function VariantMatrix({
             ) : null}
           </div>
 
-          {/* The table scrolls sideways inside its own box on a phone. The box
-              is `relative` so the screen-reader-only labels inside it (which
-              are absolutely positioned) are clipped by it too — without that
-              they escaped and widened the whole page to 655px on a 390px
-              screen. */}
+          {/* The SKU and the state come off on a narrow screen — both are in
+              the row that opens under a variant — so the grid fits a phone
+              rather than being dragged sideways at any width.
+
+              The box stays `relative` so the screen-reader-only labels inside
+              it (which are absolutely positioned) are clipped by it too:
+              without that they escaped and widened the whole page to 655px on
+              a 390px screen. */}
           <div className="relative w-full max-w-full overflow-x-auto rounded-card border border-blue-200">
-            <table className="admin-table min-w-[640px] [&_thead_th]:!static">
+            <table className="admin-table md:min-w-[640px] [&_thead_th]:!static">
               <thead>
                 <tr>
                   <th scope="col" className="w-8">
@@ -428,10 +431,10 @@ export function VariantMatrix({
                     />
                   </th>
                   <th scope="col">Variant</th>
-                  <th scope="col">SKU</th>
+                  <th scope="col" className="hidden md:table-cell">SKU</th>
                   <th scope="col" className="text-right">Price <span aria-hidden="true" className="text-stamp-red-text">*</span></th>
-                  <th scope="col" className="text-right">Stock</th>
-                  <th scope="col">State</th>
+                  <th scope="col" className="hidden text-right sm:table-cell">Stock</th>
+                  <th scope="col" className="hidden sm:table-cell">State</th>
                   <th scope="col" className="w-10"><span className="sr-only">Open</span></th>
                 </tr>
               </thead>
@@ -467,7 +470,7 @@ export function VariantMatrix({
                             <span className="font-medium text-ink">{variant.label}</span>
                           </span>
                         </td>
-                        <td className="whitespace-nowrap font-mono text-[0.75rem] text-ink/70">{variant.sku}</td>
+                        <td className="hidden whitespace-nowrap font-mono text-[0.75rem] text-ink/70 md:table-cell">{variant.sku}</td>
                         <td className="whitespace-nowrap text-right tabular-nums">
                           {variant.priceBdt <= 0 ? (
                             <span className="font-semibold text-stamp-red-text">Not set</span>
@@ -480,8 +483,8 @@ export function VariantMatrix({
                             formatBdt(variant.priceBdt)
                           )}
                         </td>
-                        <td className="whitespace-nowrap text-right tabular-nums text-ink/80">{stockText(variant)}</td>
-                        <td className="whitespace-nowrap"><StatusBadge tone={state.tone}>{state.text}</StatusBadge></td>
+                        <td className="hidden whitespace-nowrap text-right tabular-nums text-ink/80 sm:table-cell">{stockText(variant)}</td>
+                        <td className="hidden whitespace-nowrap sm:table-cell"><StatusBadge tone={state.tone}>{state.text}</StatusBadge></td>
                         <td className="text-right">
                           {variant.archived ? (
                             <button

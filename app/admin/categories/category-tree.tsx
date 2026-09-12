@@ -131,10 +131,231 @@ export function CategoryTree({
     return true;
   }
 
+  /*
+   * One category's pieces, written once and drawn twice: as a row in the
+   * table on a wide screen, and as a card on a phone. The table's four
+   * columns cannot be squeezed into 390px — the actions column ended up a
+   * clipped vertical stack with "Delete" cut in half — and duplicating the
+   * markup rather than the components would leave two places to keep in step.
+   */
+  function NodeName({ node }: { node: TreeNode }) {
+    return (
+      <>
+        {node.childCount > 0 ? (
+          <button
+            type="button"
+            aria-expanded={!folded.has(node.id)}
+            onClick={() =>
+              setFolded((current) => {
+                const next = new Set(current);
+                if (next.has(node.id)) next.delete(node.id);
+                else next.add(node.id);
+                return next;
+              })
+            }
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded text-ink/70 hover:bg-blue-50"
+          >
+            <span aria-hidden="true">{folded.has(node.id) ? "▸" : "▾"}</span>
+            <span className="sr-only">
+              {folded.has(node.id) ? `Show inside ${node.name}` : `Fold ${node.name}`}
+            </span>
+          </button>
+        ) : (
+          <span aria-hidden="true" className="inline-block size-6 shrink-0 text-center text-ink/25">
+            ·
+          </span>
+        )}
+        <span className={node.depth === 0 ? "font-semibold text-ink" : "text-ink"}>
+          {node.name}
+        </span>
+        <span className="hidden font-mono text-[0.6875rem] text-ink/70 sm:inline">
+          /{node.slug}
+        </span>
+        {node.childCount > 0 ? (
+          <span className="text-[0.6875rem] text-ink/70">{node.childCount} sub</span>
+        ) : null}
+      </>
+    );
+  }
+
+  function NodeActions({ node }: { node: TreeNode }) {
+    return (
+      <>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => move(node, -1)}
+          className="inline-flex size-7 items-center justify-center rounded text-blue-600 hover:bg-blue-50 disabled:opacity-40"
+        >
+          <span aria-hidden="true">↑</span>
+          <span className="sr-only">Move {node.name} up</span>
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => move(node, 1)}
+          className="inline-flex size-7 items-center justify-center rounded text-blue-600 hover:bg-blue-50 disabled:opacity-40"
+        >
+          <span aria-hidden="true">↓</span>
+          <span className="sr-only">Move {node.name} down</span>
+        </button>
+        <span aria-hidden="true" className="px-1.5 text-ink/25">|</span>
+        <button
+          type="button"
+          onClick={() => setAddingUnder(addingUnder === node.id ? null : node.id)}
+          className="font-semibold text-blue-600 hover:underline"
+        >
+          + Sub
+        </button>
+        <span aria-hidden="true" className="px-1.5 text-ink/25">|</span>
+        <Link
+          href={`/categories/${node.slug}`}
+          target="_blank"
+          className="text-blue-600 hover:underline"
+        >
+          View
+        </Link>
+        <span aria-hidden="true" className="px-1.5 text-ink/25">|</span>
+        <button
+          type="button"
+          onClick={() => setEditing(node.id)}
+          className="font-semibold text-blue-600 hover:underline"
+        >
+          Edit
+        </button>
+        <span aria-hidden="true" className="px-1.5 text-ink/25">|</span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            if (!window.confirm(`Delete “${node.name}”? This cannot be undone.`)) return;
+            if (await send("DELETE", node.id)) setMessage(`“${node.name}” deleted.`);
+          }}
+          className="text-stamp-red-text hover:underline disabled:opacity-50"
+          title={
+            node.subtreeTotal > 0 || node.childCount > 0
+              ? "Move its products and subcategories first"
+              : undefined
+          }
+        >
+          Delete
+        </button>
+      </>
+    );
+  }
+
+  function EditForm({ node }: { node: TreeNode }) {
+    return (
+      <form
+        className="flex flex-wrap items-end gap-2 py-1"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          const parent = String(form.get("parentId") ?? "");
+          const ok = await send("PATCH", node.id, {
+            name: String(form.get("name") ?? ""),
+            slug: String(form.get("slug") ?? ""),
+            parentId: parent || null,
+          });
+          if (ok) {
+            setEditing(null);
+            setMessage("Category saved.");
+          }
+        }}
+      >
+        <label className="flex flex-col gap-1 text-[0.75rem] text-ink/70">
+          Name
+          <input name="name" defaultValue={node.name} required className="admin-input w-48 max-w-full" />
+        </label>
+        <label className="flex flex-col gap-1 text-[0.75rem] text-ink/70">
+          Address
+          <input
+            name="slug"
+            defaultValue={node.slug}
+            required
+            className="admin-input w-44 max-w-full font-mono"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[0.75rem] text-ink/70">
+          Inside
+          <select name="parentId" defaultValue={node.parentId ?? ""} className="admin-input w-52 max-w-full">
+            <option value="">Top level</option>
+            {parents
+              .filter((parent) => parent.id !== node.id)
+              .map((parent) => (
+                <option key={parent.id} value={parent.id}>
+                  {parent.label}
+                </option>
+              ))}
+          </select>
+        </label>
+        <button
+          type="submit"
+          disabled={busy}
+          className="min-h-9 rounded-control bg-blue-600 px-3 text-meta font-semibold text-paper"
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(null)}
+          className="min-h-9 px-2 text-meta text-blue-600"
+        >
+          Cancel
+        </button>
+      </form>
+    );
+  }
+
+  function AddSubForm({ node }: { node: TreeNode }) {
+    return (
+      <form
+        className="flex flex-wrap items-end gap-2 py-1"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void addSub(node, String(new FormData(event.currentTarget).get("name") ?? ""));
+        }}
+      >
+        <label className="flex flex-col gap-1 text-[0.75rem] text-ink/70">
+          New sub-category inside {node.name}
+          <input
+            name="name"
+            required
+            autoFocus
+            placeholder="e.g. Headphones"
+            className="admin-input w-56 max-w-full"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={busy}
+          className="min-h-9 rounded-control bg-blue-600 px-3 text-meta font-semibold text-paper"
+        >
+          Add
+        </button>
+        <button
+          type="button"
+          onClick={() => setAddingUnder(null)}
+          className="min-h-9 px-2 text-meta text-blue-600"
+        >
+          Cancel
+        </button>
+      </form>
+    );
+  }
+
+  const visible = nodes.filter((node) => !hidden(node));
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 text-meta" aria-live="polite">
-        <button type="button" className="admin-chip" onClick={() => setFolded(new Set(nodes.filter((n) => n.childCount > 0).map((n) => n.id)))}>
+        <button
+          type="button"
+          className="admin-chip"
+          onClick={() =>
+            setFolded(new Set(nodes.filter((n) => n.childCount > 0).map((n) => n.id)))
+          }
+        >
           Fold all
         </button>
         <button type="button" className="admin-chip" onClick={() => setFolded(new Set())}>
@@ -144,8 +365,42 @@ export function CategoryTree({
         {message ? <span className="text-transit-green-text">{message}</span> : null}
       </div>
 
-      <div className="relative overflow-x-auto">
-        <table className="admin-table min-w-[620px]">
+      {/* Narrow screens: one card per category, indented by its depth. */}
+      <ul className="flex flex-col gap-1.5 md:hidden" aria-label="Categories">
+        {visible.map((node) => (
+          <li
+            key={node.id}
+            className="rounded-card border border-blue-200 p-2.5"
+            style={{ marginLeft: Math.min(node.depth, 3) * 14 }}
+          >
+            {editing === node.id ? (
+              <EditForm node={node} />
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <NodeName node={node} />
+                </div>
+                <p className="mt-1 pl-6 text-[0.75rem] tabular-nums text-ink/70">
+                  {node.total} here
+                  {node.total > node.live ? ` (${node.live} live)` : ""} ·{" "}
+                  {node.subtreeTotal} including below
+                </p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-1 gap-y-1 pl-6 text-[0.75rem]">
+                  <NodeActions node={node} />
+                </div>
+              </>
+            )}
+            {addingUnder === node.id ? (
+              <div className="mt-2 border-t border-blue-200 pt-2">
+                <AddSubForm node={node} />
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+
+      <div className="relative hidden overflow-x-auto md:block">
+        <table className="admin-table md:min-w-[620px]">
           <thead>
             <tr>
               <th scope="col">Category</th>
@@ -155,168 +410,46 @@ export function CategoryTree({
             </tr>
           </thead>
           <tbody>
-            {nodes.filter((node) => !hidden(node)).map((node) =>
+            {visible.map((node) =>
               editing === node.id ? (
                 <tr key={node.id}>
                   <td colSpan={4}>
-                    <form
-                      className="flex flex-wrap items-end gap-2 py-1"
-                      style={{ paddingLeft: node.depth * 20 }}
-                      onSubmit={async (event) => {
-                        event.preventDefault();
-                        const form = new FormData(event.currentTarget);
-                        const parent = String(form.get("parentId") ?? "");
-                        const ok = await send("PATCH", node.id, {
-                          name: String(form.get("name") ?? ""),
-                          slug: String(form.get("slug") ?? ""),
-                          parentId: parent || null,
-                        });
-                        if (ok) {
-                          setEditing(null);
-                          setMessage("Category saved.");
-                        }
-                      }}
-                    >
-                      <label className="flex flex-col gap-1 text-[0.75rem] text-ink/70">
-                        Name
-                        <input name="name" defaultValue={node.name} required className="admin-input w-48" />
-                      </label>
-                      <label className="flex flex-col gap-1 text-[0.75rem] text-ink/70">
-                        Address
-                        <input name="slug" defaultValue={node.slug} required className="admin-input w-44 font-mono" />
-                      </label>
-                      <label className="flex flex-col gap-1 text-[0.75rem] text-ink/70">
-                        Inside
-                        <select name="parentId" defaultValue={node.parentId ?? ""} className="admin-input w-52">
-                          <option value="">Top level</option>
-                          {parents
-                            .filter((parent) => parent.id !== node.id)
-                            .map((parent) => (
-                              <option key={parent.id} value={parent.id}>{parent.label}</option>
-                            ))}
-                        </select>
-                      </label>
-                      <button type="submit" disabled={busy} className="min-h-9 rounded-control bg-blue-600 px-3 text-meta font-semibold text-paper">
-                        Save
-                      </button>
-                      <button type="button" onClick={() => setEditing(null)} className="min-h-9 px-2 text-meta text-blue-600">
-                        Cancel
-                      </button>
-                    </form>
+                    <div style={{ paddingLeft: node.depth * 20 }}>
+                      <EditForm node={node} />
+                    </div>
                   </td>
                 </tr>
               ) : (
                 <Fragment key={node.id}>
-                <tr>
-                  <td>
-                    <div className="flex items-center gap-1.5" style={{ paddingLeft: node.depth * 20 }}>
-                      {node.childCount > 0 ? (
-                        <button
-                          type="button"
-                          aria-expanded={!folded.has(node.id)}
-                          onClick={() =>
-                            setFolded((current) => {
-                              const next = new Set(current);
-                              if (next.has(node.id)) next.delete(node.id);
-                              else next.add(node.id);
-                              return next;
-                            })
-                          }
-                          className="inline-flex size-6 items-center justify-center rounded text-ink/70 hover:bg-blue-50"
-                        >
-                          <span aria-hidden="true">{folded.has(node.id) ? "▸" : "▾"}</span>
-                          <span className="sr-only">{folded.has(node.id) ? `Show inside ${node.name}` : `Fold ${node.name}`}</span>
-                        </button>
-                      ) : (
-                        <span aria-hidden="true" className="inline-block size-6 text-center text-ink/25">·</span>
-                      )}
-                      <span className={node.depth === 0 ? "font-semibold text-ink" : "text-ink"}>{node.name}</span>
-                      <span className="font-mono text-[0.6875rem] text-ink/70">/{node.slug}</span>
-                      {node.childCount > 0 ? (
-                        <span className="text-[0.6875rem] text-ink/70">{node.childCount} sub</span>
-                      ) : null}
-                    </div>
-                  </td>
-                  <td className="text-right tabular-nums">
-                    {node.total}
-                    {node.total > node.live ? <span className="text-ink/70"> ({node.live} live)</span> : null}
-                  </td>
-                  <td className="text-right tabular-nums text-ink/70">{node.subtreeTotal}</td>
-                  <td className="whitespace-nowrap text-right">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => move(node, -1)}
-                      className="inline-flex size-7 items-center justify-center rounded text-blue-600 hover:bg-blue-50 disabled:opacity-40"
-                    >
-                      <span aria-hidden="true">↑</span>
-                      <span className="sr-only">Move {node.name} up</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => move(node, 1)}
-                      className="inline-flex size-7 items-center justify-center rounded text-blue-600 hover:bg-blue-50 disabled:opacity-40"
-                    >
-                      <span aria-hidden="true">↓</span>
-                      <span className="sr-only">Move {node.name} down</span>
-                    </button>
-                    <span aria-hidden="true" className="px-1.5 text-ink/25">|</span>
-                    <button
-                      type="button"
-                      onClick={() => setAddingUnder(addingUnder === node.id ? null : node.id)}
-                      className="font-semibold text-blue-600 hover:underline"
-                    >
-                      + Sub
-                    </button>
-                    <span aria-hidden="true" className="px-1.5 text-ink/25">|</span>
-                    <Link href={`/categories/${node.slug}`} target="_blank" className="text-blue-600 hover:underline">
-                      View
-                    </Link>
-                    <span aria-hidden="true" className="px-1.5 text-ink/25">|</span>
-                    <button type="button" onClick={() => setEditing(node.id)} className="font-semibold text-blue-600 hover:underline">
-                      Edit
-                    </button>
-                    <span aria-hidden="true" className="px-1.5 text-ink/25">|</span>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={async () => {
-                        if (!window.confirm(`Delete “${node.name}”? This cannot be undone.`)) return;
-                        if (await send("DELETE", node.id)) setMessage(`“${node.name}” deleted.`);
-                      }}
-                      className="text-stamp-red-text hover:underline disabled:opacity-50"
-                      title={node.subtreeTotal > 0 || node.childCount > 0 ? "Move its products and subcategories first" : undefined}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-                {addingUnder === node.id ? (
                   <tr>
-                    <td colSpan={4}>
-                      <form
-                        className="flex flex-wrap items-end gap-2 py-1"
-                        style={{ paddingLeft: (node.depth + 1) * 20 }}
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void addSub(node, String(new FormData(event.currentTarget).get("name") ?? ""));
-                        }}
+                    <td>
+                      <div
+                        className="flex items-center gap-1.5"
+                        style={{ paddingLeft: node.depth * 20 }}
                       >
-                        <label className="flex flex-col gap-1 text-[0.75rem] text-ink/70">
-                          New sub-category inside {node.name}
-                          <input name="name" required autoFocus placeholder="e.g. Headphones" className="admin-input w-56" />
-                        </label>
-                        <button type="submit" disabled={busy} className="min-h-9 rounded-control bg-blue-600 px-3 text-meta font-semibold text-paper">
-                          Add
-                        </button>
-                        <button type="button" onClick={() => setAddingUnder(null)} className="min-h-9 px-2 text-meta text-blue-600">
-                          Cancel
-                        </button>
-                      </form>
+                        <NodeName node={node} />
+                      </div>
+                    </td>
+                    <td className="text-right tabular-nums">
+                      {node.total}
+                      {node.total > node.live ? (
+                        <span className="text-ink/70"> ({node.live} live)</span>
+                      ) : null}
+                    </td>
+                    <td className="text-right tabular-nums text-ink/70">{node.subtreeTotal}</td>
+                    <td className="whitespace-nowrap text-right">
+                      <NodeActions node={node} />
                     </td>
                   </tr>
-                ) : null}
+                  {addingUnder === node.id ? (
+                    <tr>
+                      <td colSpan={4}>
+                        <div style={{ paddingLeft: (node.depth + 1) * 20 }}>
+                          <AddSubForm node={node} />
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
                 </Fragment>
               ),
             )}

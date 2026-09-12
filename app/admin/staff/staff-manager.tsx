@@ -93,6 +93,113 @@ export function StaffManager({
   const selectClass =
     "min-h-9 rounded-control border border-blue-300 bg-paper px-2 text-meta text-ink";
 
+  /*
+   * One account's three pieces, written once and drawn twice: in the table on
+   * a wide screen and in a card on a phone. They close over the same state, so
+   * the two shapes cannot drift apart, and `idPrefix` keeps the `select` in
+   * each from claiming the same `id` — a label pointing at two controls is a
+   * label pointing at neither.
+   */
+  function StaffName({ member }: { member: StaffRow }) {
+    return (
+      <>
+        <span className="block font-medium text-ink">
+          {member.firstName ?? member.email.split("@")[0]}
+          {member.isSelf ? <span className="ml-1.5 text-ink/70">(you)</span> : null}
+        </span>
+        <span className="block break-words text-ink/70">{member.email}</span>
+      </>
+    );
+  }
+
+  function RoleControl({
+    member,
+    idPrefix,
+  }: {
+    member: StaffRow;
+    idPrefix: string;
+  }) {
+    const chosen = draft[member.id] ?? member.role;
+    const changed = chosen !== member.role;
+
+    // Changing your own role is refused server-side too.
+    if (member.isSelf) return <span className="text-ink">{labelOf(member.role)}</span>;
+
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="sr-only" htmlFor={`${idPrefix}-${member.id}`}>
+          Role for {member.email}
+        </label>
+        <select
+          id={`${idPrefix}-${member.id}`}
+          value={chosen}
+          onChange={(event) =>
+            setDraft((current) => ({ ...current, [member.id]: event.target.value }))
+          }
+          className={selectClass}
+        >
+          {roles.map((role) => (
+            <option key={role.value} value={role.value}>
+              {role.label}
+            </option>
+          ))}
+        </select>
+        {changed ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={pending !== null}
+            onClick={() =>
+              send(
+                member.id,
+                "PATCH",
+                { userId: member.id, role: chosen },
+                `${member.email} is now ${labelOf(chosen)}.`,
+              ).then((ok) => {
+                if (ok)
+                  setDraft((current) => {
+                    const next = { ...current };
+                    delete next[member.id];
+                    return next;
+                  });
+              })
+            }
+          >
+            {pending === member.id ? "Saving…" : "Save role"}
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
+  function RemoveAccess({ member }: { member: StaffRow }) {
+    if (member.isSelf) return null;
+
+    return (
+      <button
+        type="button"
+        disabled={pending !== null}
+        onClick={() => {
+          if (
+            !window.confirm(
+              `Remove staff access for ${member.email}? They keep a customer account.`,
+            )
+          )
+            return;
+          void send(
+            `revoke-${member.id}`,
+            "PATCH",
+            { userId: member.id, role: "customer" },
+            `${member.email} no longer has staff access.`,
+          );
+        }}
+        className="min-h-9 self-start rounded-control px-2 text-meta font-medium text-stamp-red-text hover:bg-stamp-red/5 disabled:opacity-50"
+      >
+        Remove access
+      </button>
+    );
+  }
+
   return (
     <div className="grid min-w-0 grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <section className="admin-card min-w-0">
@@ -103,7 +210,23 @@ export function StaffManager({
           {message ? <p className="text-transit-green-text">{message}</p> : null}
         </div>
 
-        <div className="relative mt-2 overflow-x-auto">
+        {/* Narrow screens: one card per account. The controls are the same
+            components the table uses, given their own id prefix so the two
+            shapes never mint the same `id` for a label to point at. */}
+        <ul className="mt-2 flex flex-col gap-2 md:hidden" aria-label="Staff accounts">
+          {staff.map((member) => (
+            <li
+              key={member.id}
+              className="flex flex-col gap-2 rounded-card border border-blue-200 p-3"
+            >
+              <StaffName member={member} />
+              <RoleControl member={member} idPrefix="role-card" />
+              <RemoveAccess member={member} />
+            </li>
+          ))}
+        </ul>
+
+        <div className="relative mt-2 hidden overflow-x-auto md:block">
           <table className="admin-table min-w-[560px]">
             <thead>
               <tr>
@@ -113,101 +236,19 @@ export function StaffManager({
               </tr>
             </thead>
             <tbody>
-              {staff.map((member) => {
-                const chosen = draft[member.id] ?? member.role;
-                const changed = chosen !== member.role;
-                return (
-                  <tr key={member.id}>
-                    <td>
-                      <span className="block font-medium text-ink">
-                        {member.firstName ?? member.email.split("@")[0]}
-                        {member.isSelf ? (
-                          <span className="ml-1.5 text-ink/70">(you)</span>
-                        ) : null}
-                      </span>
-                      <span className="block text-ink/70">{member.email}</span>
-                    </td>
-                    <td>
-                      {member.isSelf ? (
-                        // Changing your own role is refused server-side too.
-                        <span className="text-ink">{labelOf(member.role)}</span>
-                      ) : (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <label className="sr-only" htmlFor={`role-${member.id}`}>
-                            Role for {member.email}
-                          </label>
-                          <select
-                            id={`role-${member.id}`}
-                            value={chosen}
-                            onChange={(event) =>
-                              setDraft((current) => ({
-                                ...current,
-                                [member.id]: event.target.value,
-                              }))
-                            }
-                            className={selectClass}
-                          >
-                            {roles.map((role) => (
-                              <option key={role.value} value={role.value}>
-                                {role.label}
-                              </option>
-                            ))}
-                          </select>
-                          {changed ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              disabled={pending !== null}
-                              onClick={() =>
-                                send(
-                                  member.id,
-                                  "PATCH",
-                                  { userId: member.id, role: chosen },
-                                  `${member.email} is now ${labelOf(chosen)}.`,
-                                ).then((ok) => {
-                                  if (ok)
-                                    setDraft((current) => {
-                                      const next = { ...current };
-                                      delete next[member.id];
-                                      return next;
-                                    });
-                                })
-                              }
-                            >
-                              {pending === member.id ? "Saving…" : "Save role"}
-                            </Button>
-                          ) : null}
-                        </div>
-                      )}
-                    </td>
-                    <td className="text-right">
-                      {member.isSelf ? null : (
-                        <button
-                          type="button"
-                          disabled={pending !== null}
-                          onClick={() => {
-                            if (
-                              !window.confirm(
-                                `Remove staff access for ${member.email}? They keep a customer account.`,
-                              )
-                            )
-                              return;
-                            void send(
-                              `revoke-${member.id}`,
-                              "PATCH",
-                              { userId: member.id, role: "customer" },
-                              `${member.email} no longer has staff access.`,
-                            );
-                          }}
-                          className="min-h-9 rounded-control px-2 text-meta font-medium text-stamp-red-text hover:bg-stamp-red/5 disabled:opacity-50"
-                        >
-                          Remove access
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              {staff.map((member) => (
+                <tr key={member.id}>
+                  <td>
+                    <StaffName member={member} />
+                  </td>
+                  <td>
+                    <RoleControl member={member} idPrefix="role" />
+                  </td>
+                  <td className="text-right">
+                    <RemoveAccess member={member} />
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

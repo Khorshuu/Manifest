@@ -43,7 +43,7 @@ export default async function AdminCustomersPage({
           </p>
         </div>
 
-        <form method="get" className="flex items-center gap-2" role="search">
+        <form method="get" className="flex flex-wrap items-center gap-2" role="search">
           <label htmlFor="customer-q" className="sr-only">
             Search customers
           </label>
