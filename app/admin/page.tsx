@@ -200,7 +200,39 @@ export default async function AdminOverviewPage({
             {recent.orders.length === 0 ? (
               <p className="px-4 pb-4 pt-2 text-meta text-ink/70">No orders yet.</p>
             ) : (
-              <div className="mt-2 overflow-x-auto">
+              <>
+              {/* Narrow screens: one row per order, stacked. */}
+              <ul className="flex flex-col gap-2 px-3 pb-3 pt-2 md:hidden" aria-label="Recent orders">
+                {recent.orders.map((order) => (
+                  <li
+                    key={order.id}
+                    className="flex flex-col gap-1 rounded-card border border-blue-200 p-2.5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <Link
+                        href={`/admin/orders/${order.id}`}
+                        className="font-semibold tabular-nums text-blue-600"
+                      >
+                        {order.orderNumber}
+                      </Link>
+                      <span className="font-semibold tabular-nums text-ink">
+                        {formatBdt(order.totalBdt)}
+                      </span>
+                    </div>
+                    <p className="truncate text-[0.75rem] text-ink/70">
+                      {order.customerName ?? order.customerEmail ?? "Guest"} ·{" "}
+                      {formatShortDate(order.placedAt)}
+                    </p>
+                    <div className="flex">
+                      <StatusBadge tone={orderStatusTone(order.status)}>
+                        {ORDER_STATUS_LABELS[order.status] ?? order.status}
+                      </StatusBadge>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-2 hidden overflow-x-auto md:block">
                 <table className="admin-table min-w-[520px]">
                   <thead>
                     <tr>
@@ -233,6 +265,7 @@ export default async function AdminOverviewPage({
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </section>
         ) : null}

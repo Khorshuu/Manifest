@@ -188,7 +188,37 @@ export default async function AdminNotificationsPage({
               <p className="text-meta text-ink">Nothing here.</p>
             </div>
           ) : (
-            <div className="admin-card relative overflow-x-auto p-0">
+            <>
+            {/* Narrow screens: one card per message. */}
+            <ul className="flex flex-col gap-2 md:hidden" aria-label="Messages">
+              {messages.map((row) => (
+                <li key={row.id} className="admin-card flex flex-col gap-1.5 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="min-w-0 font-semibold text-ink [overflow-wrap:anywhere]">
+                      {row.subject}
+                    </p>
+                    <StatusBadge tone={messageTone(row.status)}>{row.status}</StatusBadge>
+                  </div>
+                  <p className="text-[0.75rem] text-ink/70 [overflow-wrap:anywhere]">
+                    {row.recipient}
+                  </p>
+                  <p className="text-[0.75rem] text-ink/70">
+                    {row.channel} · {row.template}
+                    {row.orderNumber ? ` · ${row.orderNumber}` : ""}
+                  </p>
+                  {row.error ? (
+                    <p className="text-[0.75rem] text-stamp-red-text [overflow-wrap:anywhere]">
+                      {row.error}
+                    </p>
+                  ) : null}
+                  <p className="text-[0.75rem] text-ink/60">
+                    {formatDate(row.sentAt ?? row.createdAt)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+
+            <div className="admin-card relative hidden overflow-x-auto p-0 md:block">
               <table className="admin-table min-w-[760px]">
                 <thead>
                   <tr>
@@ -216,6 +246,7 @@ export default async function AdminNotificationsPage({
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </>
       )}

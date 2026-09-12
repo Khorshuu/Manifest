@@ -77,9 +77,13 @@ test("the page shows the sections the listing actually fills in", async ({
   await expect(
     page.getByRole("heading", { name: "Certifications and safety" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Specifications" }),
-  ).toBeVisible();
+  /*
+   * The specification is a tab rather than a heading of its own (D-043), so
+   * the table is behind it and the shopper has to ask for it.
+   */
+  const specification = page.getByRole("tab", { name: "Specification" });
+  await expect(specification).toBeVisible();
+  await specification.click();
 
   // A category-defined specification, answered by the product.
   await expect(page.getByRole("row", { name: /Impedance/ })).toContainText(

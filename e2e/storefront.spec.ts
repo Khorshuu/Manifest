@@ -85,7 +85,16 @@ test("a full preorder explains itself rather than just being disabled", async ({
   // Sandstone is seeded at full capacity.
   await page.getByText("Sandstone", { exact: false }).click();
 
-  await expect(page.getByRole("button", { name: "Unavailable" })).toBeVisible();
+  /*
+   * Both ways to buy say the same word, and the phone's buy bar carries its
+   * own pair besides, so this names the ones actually on the screen and checks
+   * the first rather than asserting how many the markup happens to hold.
+   */
+  const unavailable = page
+    .getByRole("button", { name: "Unavailable" })
+    .filter({ visible: true });
+  await expect(unavailable.first()).toBeVisible();
+  await expect(unavailable.first()).toBeDisabled();
   await expect(page.getByText(/This preorder is full/)).toBeVisible();
   await expect(page.getByText(/waitlist/i)).toBeVisible();
 });

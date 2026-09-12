@@ -2476,3 +2476,28 @@ variants, windows and wizard screens.
   desktop width. They are stale tests, not new breakage.
 - `[ ]` The admin's dense tables still scroll sideways inside their container
   on a phone rather than becoming stacked cards (D-044).
+
+### Follow-up in the same session: the two stale specs, and the admin on a phone
+
+- `[x]` **`product-detail.spec.ts:65` fixed.** It looked for a "Specifications"
+  heading that D-043 turned into a "Specification" tab, so it now opens the tab
+  and then reads the rows. The failure was stale, not a defect.
+- `[x]` **`storefront.spec.ts:80` fixed.** Both ways to buy say "Unavailable",
+  and the phone's buy bar carries its own pair, so the strict locator matched
+  more than one. It now names the visible buttons and checks the first is
+  present and disabled.
+- `[x]` **Admin tables become cards on a phone** on Overview (recent orders),
+  Orders, Customers and Notifications — the same `md:hidden` list plus
+  `hidden md:block` table that the product list already used. The desktop
+  tables are untouched.
+- `[ ]` **Still tables behind a sideways scroll:** the staff list and the role
+  matrix on /admin/staff, the category tree, and the variant matrix. The first
+  two carry per-row `select` controls and duplicated `id`s would break their
+  labels; the last two are genuinely grid-shaped editing. They are 560–760px
+  wide and do not push the page sideways.
+
+Verified: `npm run typecheck`, `npm run lint` clean. Playwright —
+`storefront` + `product-detail`: 38 passed, and `admin-ops` + `admin-catalog` +
+`notifications` + `orders`: 38 passed. Browser at 390px: Overview, Orders,
+Customers and Notifications render as cards with no sideways scroll; the same
+pages at 1280px are unchanged.

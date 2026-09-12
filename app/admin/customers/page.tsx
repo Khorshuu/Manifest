@@ -72,7 +72,66 @@ export default async function AdminCustomersPage({
           </p>
         </div>
       ) : (
-        <div className="admin-card relative overflow-x-auto p-0">
+        <>
+        {/* Narrow screens: one card per customer, with the two figures that
+            matter — what they have paid for and what they have spent — kept
+            side by side rather than six columns behind a sideways drag. */}
+        <ul className="flex flex-col gap-2 md:hidden" aria-label="Customers">
+          {customers.map((customer) => {
+            const name = [customer.firstName, customer.lastName]
+              .filter(Boolean)
+              .join(" ");
+            return (
+              <li key={customer.id} className="admin-card flex flex-col gap-2 p-3">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-ink">
+                    {name || customer.email}
+                  </p>
+                  {name ? (
+                    <p className="truncate text-[0.75rem] text-ink/70">{customer.email}</p>
+                  ) : null}
+                  {customer.phone ? (
+                    <p className="text-[0.75rem] text-ink/70">{customer.phone}</p>
+                  ) : null}
+                </div>
+
+                <dl className="flex flex-wrap gap-x-5 gap-y-1 text-[0.75rem]">
+                  <div>
+                    <dt className="text-ink/60">Paid orders</dt>
+                    <dd className="font-semibold tabular-nums text-ink">
+                      {customer.paidCount}
+                      {customer.orderCount > customer.paidCount ? (
+                        <span className="ml-1 font-normal text-ink/70">
+                          (+{customer.orderCount - customer.paidCount})
+                        </span>
+                      ) : null}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-ink/60">Spent</dt>
+                    <dd className="font-semibold tabular-nums text-ink">
+                      {formatBdt(customer.spentBdt)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-ink/60">Joined</dt>
+                    <dd className="tabular-nums text-ink/80">
+                      {formatShortDate(customer.createdAt)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-ink/60">Last order</dt>
+                    <dd className="tabular-nums text-ink/80">
+                      {customer.lastOrderAt ? formatShortDate(customer.lastOrderAt) : "Never"}
+                    </dd>
+                  </div>
+                </dl>
+              </li>
+            );
+          })}
+        </ul>
+
+        <div className="admin-card relative hidden overflow-x-auto p-0 md:block">
           <table className="admin-table min-w-[720px]">
             <thead>
               <tr>
@@ -117,6 +176,7 @@ export default async function AdminCustomersPage({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {pages > 1 ? (

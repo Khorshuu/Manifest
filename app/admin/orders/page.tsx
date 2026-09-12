@@ -201,7 +201,67 @@ export default async function AdminOrdersPage({
           <p className="text-meta text-ink">{filtered ? "No orders match those filters." : "No orders yet."}</p>
         </div>
       ) : result ? (
-        <div className="admin-card relative overflow-x-auto p-0">
+        <>
+        {/* Narrow screens: one card per order, the same fields stacked.
+            A six-column table 900px wide is readable on a phone only by
+            dragging it sideways a column at a time. */}
+        <ul className="flex flex-col gap-2 md:hidden" aria-label="Orders">
+          {result.orders.map((order) => (
+            <li key={order.id} className="admin-card flex flex-col gap-2 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Link
+                    href={`/admin/orders/${order.id}`}
+                    className="font-semibold tabular-nums text-blue-600"
+                  >
+                    {order.orderNumber}
+                  </Link>
+                  <p className="text-[0.75rem] text-ink/70">
+                    {formatShortDate(order.placedAt)} · {paymentLabel(order)}
+                  </p>
+                </div>
+                <p className="shrink-0 text-right font-semibold tabular-nums text-ink">
+                  {formatBdt(order.totalBdt)}
+                </p>
+              </div>
+
+              <p className="min-w-0 text-[0.8125rem] text-ink">
+                <span className="block truncate">
+                  {order.customerName ?? order.customerEmail ?? "—"}
+                </span>
+                <span className="block truncate text-ink/70">
+                  {order.isGuest
+                    ? "Guest checkout"
+                    : order.customerName
+                      ? order.customerEmail
+                      : "Account"}
+                </span>
+              </p>
+
+              <p className="min-w-0 text-[0.75rem] text-ink/70">
+                <span className="block truncate text-ink">{order.firstTitle ?? "—"}</span>
+                {order.itemCount} item{order.itemCount === 1 ? "" : "s"}
+                {order.lines > 1 ? ` · ${order.lines} products` : ""}
+                {order.hasPreorder ? " · preorder" : ""}
+              </p>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge tone={orderStatusTone(order.status)}>
+                  {ORDER_STATUS_LABELS[order.status] ?? order.status}
+                </StatusBadge>
+                {order.cancellationRequestedAt &&
+                order.status !== "cancelled" &&
+                order.status !== "refunded" ? (
+                  <span className="text-[0.6875rem] font-semibold text-stamp-red-text">
+                    Cancellation requested
+                  </span>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        <div className="admin-card relative hidden overflow-x-auto p-0 md:block">
           <table className="admin-table min-w-[900px]">
             <thead>
               <tr>
@@ -255,6 +315,7 @@ export default async function AdminOrdersPage({
             </tbody>
           </table>
         </div>
+        </>
       ) : null}
 
       {result && pages > 1 ? (
