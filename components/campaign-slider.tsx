@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useHeaderTheme } from "./header-theme";
+import { MediaImage } from "./media-image";
 import { IconArrowRight, IconChevronDown } from "./icons";
 import type { LiveCampaign } from "@/lib/homepage/campaigns";
 import { detectBackgroundTone, type BackgroundTone } from "@/lib/hero-tone";
@@ -153,17 +154,18 @@ export function CampaignSlider({ campaigns }: { campaigns: LiveCampaign[] }) {
                 active ? "z-[1] opacity-100" : "z-0 opacity-0"
               }`}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <MediaImage
                 src={campaign.imageUrl}
                 alt={campaign.title ?? ""}
+                // It fills the screen at every width, so there is one candidate
+                // per device rather than a desktop photograph on a phone.
+                sizes="100vw"
                 // The first photograph is the page's largest paint; the others
                 // follow once it is in, not in competition with it.
+                priority={position === 0}
                 fetchPriority={position === 0 ? "high" : "low"}
-                loading={position === 0 ? "eager" : "lazy"}
-                decoding="async"
-                className={`absolute inset-0 size-full object-cover ${active ? "hero-photo" : ""}`}
-                style={{ objectPosition: `${campaign.focalX}% ${campaign.focalY}%` }}
+                className={`object-cover ${active ? "hero-photo" : ""}`}
+                objectPosition={`${campaign.focalX}% ${campaign.focalY}%`}
               />
 
               {/* The whole photograph is the link, laid under the words so the
@@ -292,14 +294,13 @@ function ShowcaseTile({
 }) {
   const body = (
     <>
-      <span className="showcase-well flex aspect-square items-center justify-center overflow-hidden rounded-[22px] p-[3%]">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+      <span className="showcase-well relative flex aspect-square items-center justify-center overflow-hidden rounded-[22px] p-[3%]">
+        <MediaImage
           src={tile.imageUrl}
           alt={tile.title ?? ""}
-          loading="lazy"
-          decoding="async"
-          className="size-full object-contain transition-transform duration-500 ease-[var(--ease-out-quint)] group-hover:scale-[1.05]"
+          /* Four tiles across a wide screen, one and a bit on a phone. */
+          sizes="(min-width: 768px) 20vw, 66vw"
+          className="object-contain p-[3%] transition-transform duration-500 ease-[var(--ease-out-quint)] group-hover:scale-[1.05]"
         />
       </span>
       {tile.title ? (

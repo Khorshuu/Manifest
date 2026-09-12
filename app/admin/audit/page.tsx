@@ -20,7 +20,10 @@ function Detail({ label, value }: { label: string; value: unknown }) {
   return (
     <div>
       <span className="text-meta text-ink/70">{label}</span>
-      <pre className="mt-1 whitespace-pre-wrap font-mono text-meta text-ink/70">
+      {/* A recorded value is JSON, and JSON has no spaces to break at: without
+          `anywhere` a long one-line object pushes the whole page sideways at
+          every width. */}
+      <pre className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere] font-mono text-meta text-ink/70">
         {JSON.stringify(value)}
       </pre>
     </div>

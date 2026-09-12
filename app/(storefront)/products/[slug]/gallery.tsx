@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconClose, IconPlay } from "@/components/icons";
+import { MediaImage } from "@/components/media-image";
 import { ProductArt } from "@/components/product-art";
 
 export type GalleryImage = { id: string; url: string; altText: string };
@@ -206,21 +207,23 @@ export function Gallery({
             type="button"
             onClick={() => setOpen(true)}
             aria-label={`Open ${active.altText} full screen`}
-            className="block aspect-square size-full cursor-zoom-in"
+            className="relative block aspect-square size-full cursor-zoom-in"
           >
             {/* Keyed so a change re-runs the fade rather than swapping
                 silently. The transform is the zoom: the origin follows the
                 cursor, and the element's own box never changes. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <MediaImage
               key={active.id}
               src={active.url}
               alt={active.altText}
+              /* Full width on a phone, half the page beside the buy box from
+                 `lg`, and never wider than the column itself. */
+              sizes="(min-width: 1024px) 48vw, 100vw"
               /* The first shot is what a shopper waits for, so it is not
                  lazy and is given priority over the thumbnails. */
+              priority={index === 0}
               fetchPriority={index === 0 ? "high" : "auto"}
-              decoding="async"
-              className="animate-fade-in size-full object-cover transition-transform duration-300 ease-out motion-reduce:transition-none"
+              className="animate-fade-in object-cover transition-transform duration-300 ease-out motion-reduce:transition-none"
               style={{
                 transform: zooming ? "scale(2)" : "scale(1)",
                 transformOrigin: `${origin.x}% ${origin.y}%`,
@@ -260,12 +263,12 @@ export function Gallery({
                     <IconPlay size={22} />
                   </span>
                 ) : (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
+                  <MediaImage
                     src={item.url}
                     alt=""
-                    loading="lazy"
-                    decoding="async"
+                    width={80}
+                    height={80}
+                    sizes="80px"
                     className="size-20 object-cover"
                   />
                 )}

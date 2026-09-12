@@ -1295,3 +1295,34 @@ html[data-catalog-open] .site-header {
   font-weight: 600;
   color: var(--color-ink);
 }
+
+/*
+ * iOS zooms the whole page in when a form control smaller than 16px takes
+ * focus, and then leaves it zoomed — the shopper is dropped onto a page wider
+ * than the screen with no way back but pinching. The admin's controls are
+ * 13px by design, so the floor is applied only where a finger is the pointer
+ * and the screen is a phone or a tablet; a desktop keeps its density.
+ */
+@media (pointer: coarse) and (max-width: 1023px) {
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
+
+/*
+ * A phone held sideways.
+ *
+ * The stage has a 480px floor so that a tall, narrow screen still gets a
+ * photograph rather than a letterbox. Turned on its side that floor is taller
+ * than the whole screen, so the first thing a shopper sees is a picture with
+ * no shop under it and nothing to say there is more. Under about 520px of
+ * height the floor is dropped and the stage goes back to a share of the
+ * viewport, which puts the showcase row back on the first screen.
+ */
+@media (orientation: landscape) and (max-height: 520px) {
+  .hero-stage {
+    height: 78svh;
+  }
+}

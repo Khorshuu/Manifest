@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MediaImage } from "./media-image";
 import { IconArrowRight } from "./icons";
 import { Stagger, StaggerItem } from "./motion";
 
@@ -97,14 +98,11 @@ function BentoTile({
         }`}
       >
         {category.imageUrl ? (
-          /* Local seed media; next/image once the storage integration lands. */
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <MediaImage
             src={category.imageUrl}
             alt=""
-            loading="lazy"
-            decoding="async"
-            className="absolute inset-0 size-full object-contain p-4"
+            sizes={lead ? "(min-width: 768px) 50vw, 100vw" : "(min-width: 768px) 25vw, 50vw"}
+            className="object-contain p-4"
           />
         ) : (
           <span

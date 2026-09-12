@@ -143,8 +143,11 @@ export function Countdown({
 
   if (parts.closed) {
     return (
-      <p className="flex items-center gap-1.5 text-meta text-stamp-red-text">
-        <IconClock size={14} className="shrink-0" />
+      <p className="text-meta text-stamp-red-text">
+        <IconClock
+          size={14}
+          className="mr-1.5 inline-block shrink-0 align-[-0.15em]"
+        />
         This window has closed.
       </p>
     );
@@ -152,12 +155,20 @@ export function Countdown({
 
   if (variant === "inline") {
     return (
+      /*
+       * Ordinary text flow rather than a flex row: in a card two across on a
+       * phone the row broke into a column and stacked "Closes in / 14 / hours,
+       * / 31 / minutes" down five lines. As text it simply wraps.
+       */
       <p
-        className={`flex items-center gap-1.5 text-meta ${
+        className={`text-meta ${
           tone === "dark" ? "text-paper/70" : "text-ink/70"
         }`}
       >
-        <IconClock size={14} className="shrink-0" />
+        <IconClock
+          size={14}
+          className="mr-1.5 inline-block shrink-0 align-[-0.15em]"
+        />
         Closes in{" "}
         <span
           role="timer"

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { IconStar } from "./icons";
 import { CapacityMeter } from "./capacity-meter";
+import { MediaImage } from "./media-image";
 import { ProductArt } from "./product-art";
 import { formatBdt } from "@/lib/money";
 import { formatArrivalWindow } from "@/lib/format";
@@ -61,15 +62,13 @@ export function ProductCard({
     >
       <div className="surface-studio relative aspect-square w-full overflow-hidden rounded-[calc(var(--radius-media)-8px)]">
         {product.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <MediaImage
             src={product.imageUrl}
             alt={product.imageAlt}
-            width={480}
-            height={480}
-            loading="lazy"
-            decoding="async"
-            className="size-full object-cover"
+            /* Two across on a phone, three on a tablet, four on a laptop and
+               five on a wide screen — see `.product-grid` in globals.css. */
+            sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
+            className="object-cover"
           />
         ) : (
           <ProductArt

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CapacityMeter } from "./capacity-meter";
+import { MediaImage } from "./media-image";
 import { Countdown } from "./countdown";
 import { IconArrowRight } from "./icons";
 import { ProductArt } from "./product-art";
@@ -54,26 +55,27 @@ export function ClosingRail({
 
       <ul
         aria-label="Preorder windows closing soon"
-        className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4"
+        /*
+         * Two across on a phone, like every other listing on the site. One
+         * across made each card about half a screen tall and the eight of them
+         * four thousand pixels of scrolling before the rest of the homepage
+         * began.
+         */
+        className="mt-6 grid grid-cols-2 gap-2.5 sm:gap-4 md:mt-8 md:grid-cols-3 lg:grid-cols-4 lg:gap-5"
       >
         {items.map((item) => (
           <li key={item.id} className="min-w-0">
             <Link
               href={`/products/${item.slug}`}
-              className="media-zoom lift group flex h-full flex-col gap-4 rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)]"
+              className="media-zoom lift group flex h-full flex-col gap-2.5 rounded-card border border-blue-300 bg-paper p-2.5 shadow-[var(--shadow-raise)] sm:gap-4 sm:p-4"
             >
               <div className="surface-studio relative aspect-[5/4] w-full overflow-hidden rounded-card">
                 {item.imageUrl ? (
-                  /* Local seed media; next/image once storage lands. */
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <MediaImage
                     src={item.imageUrl}
                     alt={item.imageAlt}
-                    width={400}
-                    height={320}
-                    loading="lazy"
-                    decoding="async"
-                    className="size-full object-cover"
+                    sizes="(min-width: 1024px) 20vw, (min-width: 768px) 30vw, 45vw"
+                    className="object-cover"
                   />
                 ) : (
                   <ProductArt
@@ -84,11 +86,13 @@ export function ClosingRail({
                 )}
               </div>
 
-              <div className="flex min-w-0 flex-col gap-1">
+              <div className="flex min-w-0 flex-col gap-0.5">
                 {item.brand ? (
-                  <span className="text-meta text-ink/70">{item.brand}</span>
+                  <span className="truncate text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-ink/70 sm:text-meta sm:font-normal sm:normal-case sm:tracking-normal">
+                    {item.brand}
+                  </span>
                 ) : null}
-                <h3 className="font-display text-h3 leading-snug text-ink">
+                <h3 className="line-clamp-2 font-display text-[0.9375rem] font-semibold leading-[1.3] text-ink [overflow-wrap:anywhere] sm:text-h3 sm:leading-snug">
                   {item.title}
                 </h3>
               </div>
@@ -103,11 +107,11 @@ export function ClosingRail({
 
               <CapacityMeter remaining={item.remaining} total={item.total} />
 
-              <div className="mt-auto flex items-center justify-between gap-3 border-t border-blue-200 pt-3">
-                <p className="font-display text-price font-semibold tabular-nums text-ink">
+              <div className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-blue-200 pt-2 sm:pt-3">
+                <p className="font-display text-[1rem] font-semibold tabular-nums text-ink sm:text-price">
                   {item.priceLabel}
                 </p>
-                <span className="inline-flex items-center gap-1.5 text-meta font-medium text-blue-600">
+                <span className="inline-flex items-center gap-1.5 text-[0.75rem] font-medium text-blue-600 sm:text-meta">
                   Preorder
                   <IconArrowRight
                     size={16}

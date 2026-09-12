@@ -865,3 +865,52 @@ tables, at the cost of a filter that has to be right every time. Storing
 measurements as fixed columns (length, width, height, weight) was rejected
 because it fits furniture and not coffee beans; label/value rows fit both and
 add one column instead of six.
+
+## D-044 — The responsive pass keeps one layout, not a phone layout and a desktop one
+
+**Context.** The shop was designed on a desktop and had already grown a fair
+amount of responsive behaviour: a two-across product grid on a phone, a filter
+drawer, a full-screen search overlay, a category drawer, a sticky buy bar and a
+hero measured in `svh`. A full audit at every width from 320px to 1920px, in
+portrait and landscape, found a small number of real defects rather than a
+missing mobile experience.
+
+**Decision.** Fix the defects inside the existing components and breakpoints.
+No separate mobile components, no new breakpoint tiers, no bottom navigation
+bar, and no change to any business rule.
+
+1. **Two across on a phone, everywhere a product appears.** The "Windows
+   closing soon" rail was the last one-across grid on the site; eight cards
+   half a screen tall each put four thousand pixels between the hero and the
+   rest of the homepage. It now uses the same progression as every listing —
+   two on a phone, three on a tablet, four on a laptop — with the card's own
+   type stepped down to match the catalogue card.
+
+2. **Photographs are delivered at the size the screen needs.** A new
+   `components/media-image.tsx` renders product photography through
+   `next/image`, with a `sizes` string per call site, on the hero, the showcase
+   tiles, the catalogue card, the closing rail, the category board and the
+   product gallery and its thumbnails. SVG keeps the plain `<img>` element: the
+   optimiser refuses SVG unless `dangerouslyAllowSVG` is turned on, and a
+   vector has nothing to gain from resizing anyway.
+
+3. **Modern viewport units and safe areas on anything anchored to the bottom
+   of the screen.** The filter sheet is measured in `dvh` rather than `vh`, and
+   both it and the product page's buy bar keep clear of `env(safe-area-inset-
+   bottom)` so a phone's home indicator cannot sit on top of a control.
+
+4. **A 16px floor on form controls, for touch screens under 1024px only.** iOS
+   zooms the page in when a control smaller than that takes focus and does not
+   zoom back out. The admin's 13px density is kept on a desktop, where the
+   pointer is a cursor.
+
+5. **No bottom navigation.** Search, wishlist, cart and the catalogue are all
+   in the header, which is sticky, and the bottom of the screen on a product
+   page already belongs to the buy bar. A second bar would duplicate the header
+   and compete with it.
+
+**Not done, deliberately.** The admin's dense tables still scroll sideways
+inside their own container on a phone rather than becoming stacked cards. They
+do not push the page sideways and every column stays reachable; converting nine
+admin tables into a second card presentation is a larger piece of work than the
+customer-facing defects it would be traded against.

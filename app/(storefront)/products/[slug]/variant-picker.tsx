@@ -197,7 +197,7 @@ export function VariantPicker({
         options, countdown and details are stacked. This keeps it in reach
         without duplicating any of the logic — it drives the same handler.
       */}
-      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-blue-300 bg-paper/95 px-4 py-3 backdrop-blur lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-blue-300 bg-paper/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:hidden">
         <div className="min-w-0">
           <p className="truncate text-meta text-ink/70">
             {selected ? selected.label : "Choose an option"}
@@ -231,7 +231,10 @@ export function VariantPicker({
         </div>
       </div>
       {/* Room for the bar, so it never covers the last line of the page. */}
-      <div aria-hidden="true" className="h-16 lg:hidden" />
+      <div
+        aria-hidden="true"
+        className="h-[calc(4rem+env(safe-area-inset-bottom))] lg:hidden"
+      />
 
       {/*
        * The buy box, as one object.

@@ -183,6 +183,22 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
     trending: string[];
   } | null>(null);
 
+  /*
+   * A narrow field cannot hold "Search products, brands or SKUs": the words
+   * were cut mid-SKU behind the submit button, on a phone and again on a
+   * tablet, where the field is a fixed 16rem. The full prompt is kept from
+   * `lg` up, where the field is wide enough for it, and the short one is set
+   * after mount so the server's HTML and the first client render still agree.
+   */
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 63.9375rem)");
+    const sync = () => setNarrow(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
   const extrasLoaded = useRef(false);
   const cache = useRef(new Map<string, Omit<Answer, "term">>());
   const containerRef = useRef<HTMLDivElement>(null);
@@ -624,7 +640,11 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
               listVisible && active >= 0 ? `${listId}-${active}` : undefined
             }
             aria-describedby={hintId}
-            placeholder="Search products, brands or SKUs"
+            placeholder={
+              narrow && !overlay
+                ? "Search products"
+                : "Search products, brands or SKUs"
+            }
             value={term}
             onChange={(event) => {
               const next = event.target.value;
@@ -635,7 +655,11 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
             }}
             onFocus={openPanel}
             onKeyDown={onKeyDown}
-            className={`min-h-11 w-full rounded-control py-2 pl-10 pr-24 text-body transition-[background-color,border-color,color] duration-500 ease-[var(--ease-out-quint)] [&::-webkit-search-cancel-button]:appearance-none ${
+            /* The room kept on the right is the room actually taken: the clear
+               button only exists once something is typed. */
+            className={`min-h-11 w-full rounded-control py-2 pl-10 ${
+              term ? "pr-24" : "pr-12"
+            } text-body transition-[background-color,border-color,color] duration-500 ease-[var(--ease-out-quint)] [&::-webkit-search-cancel-button]:appearance-none ${
               solid ? fieldBar : fieldFloating
             }`}
           />

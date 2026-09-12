@@ -184,7 +184,12 @@ export function FilterPanel({
          * transform: a panel merely pushed past the bottom of the screen keeps
          * its inputs in the accessibility tree.
          */
-        className="invisible fixed inset-x-0 bottom-0 z-50 flex max-h-[85vh] translate-y-full flex-col overflow-hidden rounded-t-[var(--radius-media)] border border-blue-300 bg-paper shadow-[var(--shadow-float)] transition-[transform,visibility] duration-300 ease-[var(--ease-out-quint)] peer-checked:visible peer-checked:translate-y-0 lg:visible lg:sticky lg:top-24 lg:z-auto lg:max-h-[calc(100vh-7rem)] lg:translate-y-0 lg:rounded-card lg:shadow-none"
+        /*
+         * `dvh`, not `vh`: on a phone `vh` is the tallest the viewport ever
+         * gets, so a sheet measured in it runs under the browser's own bar
+         * and takes its footer with it.
+         */
+        className="invisible fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] translate-y-full flex-col overflow-hidden rounded-t-[var(--radius-media)] border border-blue-300 bg-paper shadow-[var(--shadow-float)] transition-[transform,visibility] duration-300 ease-[var(--ease-out-quint)] peer-checked:visible peer-checked:translate-y-0 lg:visible lg:sticky lg:top-24 lg:z-auto lg:max-h-[calc(100vh-7rem)] lg:translate-y-0 lg:rounded-card lg:shadow-none"
       >
         <div className="flex items-center justify-between gap-3 border-b border-blue-200 px-3 py-2">
           <p className="text-[0.8125rem] font-bold text-ink">
@@ -413,7 +418,7 @@ export function FilterPanel({
 
         {/* A phone's sheet ends with the running count and a way back to the
             results; there is nothing to apply. */}
-        <div className="flex items-center gap-3 border-t border-blue-200 bg-paper px-3 py-2.5 lg:hidden">
+        <div className="flex items-center gap-3 border-t border-blue-200 bg-paper px-3 pb-[max(0.625rem,env(safe-area-inset-bottom))] pt-2.5 lg:hidden">
           <span className="text-[0.8125rem] tabular-nums text-ink/70">{matches}</span>
           <label
             htmlFor="filter-drawer"

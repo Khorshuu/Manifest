@@ -2410,3 +2410,69 @@ What was wrong, found by inspection:
 - Seeded data note, not a defect: two of the projector's three variants have a
   price of 0 in the development database, which is why the panel reads
   "From BDT 0".
+
+## The responsive pass — phone, tablet, landscape (this session, D-044)
+
+What was audited: every customer route (home, search, a search with a query, a
+category, a product, cart, wishlist, sign in, register, help, order lookup),
+the signed-in account pages (dashboard, orders, addresses, security), checkout
+holding a real cart, and every admin route including the product editor, its
+variants, windows and wizard screens.
+
+- `[x]` **No sideways scroll at any width.** Measured, not eyeballed: document
+  width against viewport width at 320, 360, 375, 390, 412, 430, 480, 600, 768,
+  800, 834, 1024, 1180, 1280, 1366, 1440, 1536, 1600 and 1920, on every route
+  above, plus landscape at 568×320, 844×390, 932×430, 1024×768 and 1180×820.
+- `[x]` **The audit log no longer pushes the page sideways at every width.** A
+  recorded JSON value has no spaces to wrap at; it now breaks anywhere.
+- `[x]` **The closing rail is two across on a phone, three on a tablet.** The
+  homepage was 10,294px tall at 390px and is now about half that.
+- `[x]` **The inline countdown wraps as text** instead of breaking into a
+  column of single words inside a narrow card.
+- `[x]` **The search prompt fits the field it is in** — the short form below
+  1024px, where the field is a phone's width or the tablet's fixed 16rem, and
+  the room reserved on the right matches the buttons actually there.
+- `[x]` **Anything anchored to the bottom of the screen clears the phone's
+  own furniture**: the filter sheet is `dvh`, and the sheet and the buy bar
+  both respect `env(safe-area-inset-bottom)`.
+- `[x]` **Form controls are at least 16px on a touch screen under 1024px**, so
+  iOS does not zoom the page in on focus and leave it there. The admin keeps
+  its 13px density on a desktop.
+- `[x]` **A phone held sideways gets a hero it can see past.** The 480px floor
+  on the stage was taller than a landscape screen; under 520px of height the
+  stage is a share of the viewport again and the showcase row is back on the
+  first screen.
+- `[x]` **Photography is delivered at the size the screen needs** through
+  `next/image` and a `sizes` string per call site — hero, showcase tiles,
+  catalogue card, closing rail, category board, product gallery and its
+  thumbnails. A phone now fetches a 640px candidate where it used to fetch the
+  stored file.
+
+### Verified
+
+- `npm run typecheck`, `npm run lint`: clean. `npm run test`: 55 files, 855
+  pass, 2 skipped.
+- Playwright, both profiles: `storefront`, `product-detail`, `filters`,
+  `homepage-admin` — 59 passed, and `accessibility`, `experience`, `search`,
+  `smoke` — 54 passed, 6 skipped. The axe checks and "the buy bar is within
+  reach on a phone" both still pass after the safe-area change.
+- Browser: the catalogue drawer, the filter sheet, the search overlay and its
+  suggestions, the campaign swipe and its chevrons, the product gallery, the
+  buy bar, cart, checkout and the admin homepage editor were opened and used at
+  390px; desktop was re-checked at 1280, 1440 and 1920 and the hero, showcase,
+  header, rail and product page are unchanged.
+
+### Not verified, stated plainly
+
+- `[!]` **Real iOS and real Android were not used — no device and no
+  simulator here.** Everything above is Chromium at those viewports with touch
+  emulation. The safe-area insets are zero in that browser, so the rules are
+  written but their effect on a notched phone is UNVERIFIED.
+- `[ ]` The full Playwright sweep was not run; the specs listed above were.
+- `[ ]` Two specs fail, and both failed before this session's work as well:
+  `product-detail.spec.ts:65` looks for a "Specifications" heading that the
+  tabbed panel renamed to "Specification", and `storefront.spec.ts:80` matches
+  two "Unavailable" buttons because the phone's buy bar is in the DOM at
+  desktop width. They are stale tests, not new breakage.
+- `[ ]` The admin's dense tables still scroll sideways inside their container
+  on a phone rather than becoming stacked cards (D-044).
