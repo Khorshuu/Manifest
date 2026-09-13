@@ -914,3 +914,21 @@ inside their own container on a phone rather than becoming stacked cards. They
 do not push the page sideways and every column stays reachable; converting nine
 admin tables into a second card presentation is a larger piece of work than the
 customer-facing defects it would be traded against.
+
+## D-045 — On a phone the hero keeps the desktop composition
+
+**Context.** D-044 gave the phone its own hero: a portrait photograph most of a
+screen tall, and the showcase as a sideways-swiping row of large tiles. The
+owner reviewed it on a phone and asked for it to look like the web instead.
+
+**Decision.** One composition at every width — a landscape photograph with the
+tiles across its foot — scaled to the screen. Below `md` the header becomes the
+plain bar above the hero rather than floating over it, because a two-row header
+over a 16:9 photograph that is 219px tall would hide half the picture. The
+header's colour palettes are now classes rather than inline variables, which is
+what lets a breakpoint pick the bar on a phone and the floating treatment from
+`md` up.
+
+**Trade-off accepted.** Tile titles on a 390px phone are 10px and truncate
+sooner than on a desktop; that is the cost of four tiles in one row, which is
+what the owner asked for. The swipe carousel from D-044 is gone.

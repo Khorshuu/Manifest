@@ -8,6 +8,90 @@ import { ProductArt } from "@/components/product-art";
 export type GalleryImage = { id: string; url: string; altText: string };
 
 /**
+ * The full-screen photograph, with pinch and double-tap to zoom.
+ *
+ * A phone has no cursor for the hover magnifier, so the viewer is where a
+ * shopper looks closely. Two fingers scale the picture between 1× and 4×, one
+ * finger pans it once it is enlarged, and a double tap toggles 2×. While it is
+ * enlarged the gestures stop here, so a pan never reads as a swipe to the next
+ * photograph; at 1× they pass through and swiping works as before.
+ */
+function ZoomableImage({ src, alt }: { src: string; alt: string }) {
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const pinch = useRef<{ distance: number; scale: number } | null>(null);
+  const pan = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  const lastTap = useRef(0);
+
+  const distance = (touches: React.TouchList) =>
+    Math.hypot(
+      touches[0].clientX - touches[1].clientX,
+      touches[0].clientY - touches[1].clientY,
+    );
+
+  const reset = () => {
+    setScale(1);
+    setOffset({ x: 0, y: 0 });
+  };
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      draggable={false}
+      className="animate-fade-in max-h-full max-w-full touch-none select-none object-contain transition-transform duration-150 ease-out motion-reduce:transition-none"
+      style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${scale})` }}
+      onDoubleClick={() => (scale > 1 ? reset() : setScale(2))}
+      onTouchStart={(event) => {
+        if (event.touches.length === 2) {
+          pinch.current = { distance: distance(event.touches), scale };
+          pan.current = null;
+          event.stopPropagation();
+          return;
+        }
+        const now = Date.now();
+        if (now - lastTap.current < 280) {
+          if (scale > 1) reset();
+          else setScale(2);
+          lastTap.current = 0;
+          event.stopPropagation();
+          return;
+        }
+        lastTap.current = now;
+        if (scale > 1) {
+          const touch = event.touches[0];
+          pan.current = { x: touch.clientX, y: touch.clientY, ox: offset.x, oy: offset.y };
+          event.stopPropagation();
+        }
+      }}
+      onTouchMove={(event) => {
+        if (pinch.current && event.touches.length === 2) {
+          const next = (pinch.current.scale * distance(event.touches)) / pinch.current.distance;
+          setScale(Math.min(4, Math.max(1, next)));
+          event.stopPropagation();
+        } else if (pan.current && event.touches.length === 1) {
+          const touch = event.touches[0];
+          setOffset({
+            x: pan.current.ox + touch.clientX - pan.current.x,
+            y: pan.current.oy + touch.clientY - pan.current.y,
+          });
+          event.stopPropagation();
+        }
+      }}
+      onTouchEnd={(event) => {
+        const gesturing = pinch.current !== null || pan.current !== null || scale > 1;
+        if (event.touches.length < 2) pinch.current = null;
+        if (event.touches.length === 0) pan.current = null;
+        if (scale <= 1.02) reset();
+        if (gesturing) event.stopPropagation();
+      }}
+    />
+  );
+}
+
+
+/**
  * The product media, as a shopper actually uses it.
  *
  * Three behaviours, each earning its place:
@@ -332,13 +416,8 @@ export function Gallery({
                 <VideoFrame url={active.url} title={active.altText} />
               </div>
             ) : (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                key={active.id}
-                src={active.url}
-                alt={active.altText}
-                className="animate-fade-in max-h-full max-w-full object-contain"
-              />
+              /* Keyed so moving to another photograph starts it at 1×. */
+              <ZoomableImage key={active.id} src={active.url} alt={active.altText} />
             )}
 
             {count > 1 ? (

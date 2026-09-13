@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CatalogMenu, type CatalogSection } from "./catalog-menu";
 import { useHeaderTheme } from "./header-theme";
 
@@ -62,47 +62,31 @@ export function HeaderShell({
    * class names. Every child asks for the same few names and transitions its
    * own colour, so the swap between the two treatments animates across the lot
    * in one movement instead of snapping element by element.
+   *
+   * They are classes rather than inline variables, so a breakpoint can
+   * choose between them. Below `md` the header is always the plain bar, even
+   * on the home page: the hero there is a short landscape photograph like the
+   * desktop one, and a two-row header floating over it would cover half of it.
+   * From `md` up the floating treatments apply exactly as before.
    */
-  const floatingDark: CSSProperties = {
-    "--head-fg": "#ffffff",
-    "--head-muted": "rgb(255 255 255 / 0.78)",
-    "--head-ghost": "rgb(255 255 255 / 0.14)",
-    "--head-line": "rgb(255 255 255 / 0.55)",
-    "--head-field": "rgb(255 255 255 / 0.08)",
-    "--veil-dark": "1",
-    "--veil-light": "0",
-  } as CSSProperties;
+  const bar =
+    "[--head-fg:var(--color-ink)] [--head-muted:rgb(18_35_63/0.74)] [--head-ghost:rgb(18_35_63/0.06)] [--head-line:var(--color-blue-300)] [--head-field:var(--color-paper)] [--veil-dark:0] [--veil-light:0]";
 
-  const floatingLight: CSSProperties = {
-    "--head-fg": "var(--color-ink)",
-    "--head-muted": "rgb(18 35 63 / 0.74)",
-    "--head-ghost": "rgb(18 35 63 / 0.07)",
-    "--head-line": "rgb(18 35 63 / 0.3)",
-    "--head-field": "rgb(255 255 255 / 0.28)",
-    "--veil-dark": "0",
-    "--veil-light": "1",
-  } as CSSProperties;
+  const floatingDark =
+    "md:[--head-fg:#ffffff] md:[--head-muted:rgb(255_255_255/0.78)] md:[--head-ghost:rgb(255_255_255/0.14)] md:[--head-line:rgb(255_255_255/0.55)] md:[--head-field:rgb(255_255_255/0.08)] md:[--veil-dark:1] md:[--veil-light:0]";
 
-  const bar: CSSProperties = {
-    "--head-fg": "var(--color-ink)",
-    "--head-muted": "rgb(18 35 63 / 0.74)",
-    "--head-ghost": "rgb(18 35 63 / 0.06)",
-    "--head-line": "var(--color-blue-300)",
-    "--head-field": "var(--color-paper)",
-    "--veil-dark": "0",
-    "--veil-light": "0",
-  } as CSSProperties;
+  const floatingLight =
+    "md:[--head-fg:var(--color-ink)] md:[--head-muted:rgb(18_35_63/0.74)] md:[--head-ghost:rgb(18_35_63/0.07)] md:[--head-line:rgb(18_35_63/0.3)] md:[--head-field:rgb(255_255_255/0.28)] md:[--veil-dark:0] md:[--veil-light:1]";
 
-  const palette = floating ? (tone === "dark" ? floatingDark : floatingLight) : bar;
+  const palette = floating ? `${bar} ${tone === "dark" ? floatingDark : floatingLight}` : bar;
 
   return (
     <header
       data-floating={floating ? "true" : "false"}
       data-tone={tone}
-      style={palette}
-      className={`site-header z-50 text-[color:var(--head-fg)] transition-[background-color,box-shadow,border-color,color] duration-500 ease-[var(--ease-out-quint)] ${
+      className={`site-header ${palette} z-50 text-[color:var(--head-fg)] transition-[background-color,box-shadow,border-color,color] duration-500 ease-[var(--ease-out-quint)] ${
         floating
-          ? "fixed inset-x-0 top-0 border-b border-transparent bg-transparent"
+          ? "sticky top-0 border-b border-blue-300 bg-paper shadow-[var(--shadow-raise)] md:fixed md:inset-x-0 md:border-transparent md:bg-transparent md:shadow-none"
           : "sticky top-0 border-b border-blue-300 bg-paper shadow-[var(--shadow-raise)]"
       }`}
     >

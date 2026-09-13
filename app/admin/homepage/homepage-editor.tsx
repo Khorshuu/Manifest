@@ -386,6 +386,8 @@ function SlideEditor({
         </section>
       </div>
 
+      <SlidePreview slide={slide} draft={draft} />
+
       {/* Showcase */}
       <section className="admin-card flex flex-col gap-3">
         <div>
@@ -449,6 +451,113 @@ function SlideEditor({
         </Button>
       </div>
     </div>
+  );
+}
+
+type PreviewDevice = "desktop" | "tablet" | "phone";
+
+/**
+ * The slide as a shopper will see it, on the three shapes of screen.
+ *
+ * Built from the unsaved draft, so a headline or a focal point shows here the
+ * moment it is typed. It is a drawing of the storefront's composition, not the
+ * storefront itself: the frame is a size container and every measurement below
+ * is a share of its width (`cqw`), which is the same arithmetic the homepage
+ * does against the screen — a 16:9 frame and four tiles across its foot on a
+ * phone, a wider frame on a tablet and a desktop. Tiles that are switched off
+ * or have no image are left out, exactly as on the site.
+ */
+function SlidePreview({ slide, draft }: { slide: Campaign; draft: Draft }) {
+  const [device, setDevice] = useState<PreviewDevice>("desktop");
+
+  const frame: Record<PreviewDevice, { width: string; stage: string; tile: string; overlap: string; label: string }> = {
+    desktop: { width: "w-full", stage: "h-[55cqw]", tile: "w-[16.25%]", overlap: "-mt-[11.9cqw]", label: "Desktop" },
+    tablet: { width: "w-full max-w-[520px]", stage: "h-[62cqw]", tile: "w-[18.4%]", overlap: "-mt-[13.4cqw]", label: "Tablet" },
+    phone: { width: "w-full max-w-[300px]", stage: "h-[56.25cqw]", tile: "w-[22.5%]", overlap: "-mt-[16cqw]", label: "Phone" },
+  };
+  const shape = frame[device];
+
+  const tiles = slide.showcase
+    .map((item, position) => ({ item, draft: draft.showcase[position] }))
+    .filter(({ item, draft: tile }) => tile.active && item.image);
+
+  return (
+    <section className="admin-card flex min-w-0 flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="admin-h2">Preview</h2>
+        <div role="group" aria-label="Preview size" className="flex gap-1.5">
+          {(Object.keys(frame) as PreviewDevice[]).map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={device === option}
+              onClick={() => setDevice(option)}
+              className="admin-chip"
+            >
+              {frame[option].label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex justify-center rounded-card bg-blue-50 p-3">
+        <div className={`${shape.width} @container overflow-hidden rounded-[10px] border border-blue-200 bg-[#f5f6f8]`}>
+          <div className={`relative ${shape.stage} overflow-hidden bg-ink-deep`}>
+            {slide.image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={slide.image.url}
+                alt=""
+                className="absolute inset-0 size-full object-cover"
+                style={{ objectPosition: `${draft.focalX}% ${draft.focalY}%` }}
+              />
+            ) : (
+              <p className="flex size-full items-center justify-center px-4 text-center text-[0.75rem] text-paper/80">
+                No photograph — this slide is not shown.
+              </p>
+            )}
+            {slide.image && (draft.title || draft.text || draft.ctaText) ? (
+              <div className="absolute inset-x-0 bottom-0 flex flex-col items-center px-[8cqw] pb-[calc(12cqw+3cqw)] text-center text-paper [text-shadow:0_1px_12px_rgb(10_21_38/0.4)]">
+                {draft.title ? (
+                  <p className="line-clamp-2 text-[4.4cqw] font-extrabold leading-[1.05]">{draft.title}</p>
+                ) : null}
+                {draft.text ? (
+                  <p className="mt-[0.8cqw] line-clamp-1 text-[1.8cqw] opacity-85">{draft.text}</p>
+                ) : null}
+                {draft.ctaText ? (
+                  <span className="mt-[1.4cqw] rounded-full bg-paper px-[2.2cqw] py-[0.8cqw] text-[1.6cqw] font-bold text-ink [text-shadow:none]">
+                    {draft.ctaText}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          {tiles.length > 0 ? (
+            <ul className={`relative ${shape.overlap} flex justify-center gap-[1.6cqw] px-[4cqw] pb-[4cqw]`}>
+              {tiles.map(({ item, draft: tile }, position) => (
+                <li key={position} className={`${shape.tile} shrink-0 rounded-[2cqw] bg-paper p-[0.6cqw] shadow-[0_1px_2px_rgb(18_35_63/0.06),0_6px_16px_-6px_rgb(18_35_63/0.18)]`}>
+                  <span className="flex aspect-square items-center justify-center overflow-hidden rounded-[1.6cqw] bg-[#eceef1]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={item.image!.url} alt="" className="size-full object-contain p-[3%]" />
+                  </span>
+                  {tile.title ? (
+                    <span className="block truncate px-[0.4cqw] pt-[0.8cqw] text-center text-[1.5cqw] font-bold text-ink">
+                      {tile.title}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="h-[4cqw]" />
+          )}
+        </div>
+      </div>
+      <p className="text-[0.75rem] text-ink/70">
+        Unsaved changes show here straight away. Tiles that are off or have no image are left out, as on the site.
+      </p>
+    </section>
   );
 }
 

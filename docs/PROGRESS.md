@@ -2532,3 +2532,38 @@ skipped. Playwright — `admin-ops`, `admin-catalog`, `admin-variants`, `search`
 `product-detail`, `filters`, `accessibility`, `experience`: 84 passed, 4
 skipped. Measured again in the browser: no page-level sideways scroll on any
 admin route at 320, 390, 768, 1024 or 1440.
+
+## The phone looks like the web (owner's QC, D-045)
+
+The owner did not like the phone's own hero — a tall portrait photograph and a
+sideways-swiping row of large tiles — and asked for it to look like the desktop.
+
+- `[x]` **One composition at every width.** The hero is a landscape frame
+  everywhere: 16:9 below `md`, capped at `62vw` on a tablet so a portrait
+  screen does not stand it upright, and unchanged on a desktop (`88svh` is
+  always the smaller there — measured identical at 1280, 1440 and 1920). The
+  showcase is the same row of tiles laid across its foot, overlapping by about
+  the same share of a tile as on the desktop (61% on a 390px phone, 58% on a
+  768px tablet, 64% on a 1440px screen). No carousel; three tiles are three.
+- `[x]` **The header is a plain bar above the hero below `md`.** A two-row
+  header floating over a 219px photograph would have covered half of it. The
+  header's palettes moved from inline variables to classes so a breakpoint can
+  choose; from `md` up it floats over the photograph exactly as before.
+- `[x]` **At 320px the header is back to two rows** — the "Sign in" / first-name
+  label is visually hidden under 360px (it stays in the accessible name).
+- `[x]` **Pinch to zoom in the product photo viewer**: two fingers scale 1×–4×,
+  one finger pans an enlarged photograph, double-tap toggles 2×; swiping to the
+  next photograph still works at 1×.
+- `[x]` **Admin → Homepage has a Preview** with Desktop, Tablet and Phone
+  buttons, drawn from the unsaved draft, leaving out tiles that are off or have
+  no image as the site does.
+
+Verified: typecheck and lint clean; unit suite 855 pass, 2 skipped; Playwright
+`smoke`, `experience`, `homepage-admin`, `storefront`, `product-detail`, `auth`,
+`accessibility`, `search`: 112 passed, 6 skipped. Browser: hero and tiles
+measured at 320, 390, 430, 600, 768, 1024, 1280, 1440 and 1920 — one row every
+time, no sideways scroll; the admin preview rendered in all three sizes at
+1280px and 390px with no sideways scroll.
+
+Not verified: pinch zoom needs two real fingers — Chromium's touch emulation
+cannot produce a pinch, so the gesture code is UNVERIFIED on a device.

@@ -133,17 +133,24 @@ function SubmitButton({ floating = false }: { floating?: boolean }) {
       aria-label="Search"
       className={
         floating
-          ? "inline-flex size-9 shrink-0 items-center justify-center rounded-[8px] text-[color:var(--head-fg)] transition-[background-color,transform] duration-150 hover:bg-[color:var(--head-ghost)] active:scale-95"
+          ? "relative inline-flex size-9 shrink-0 items-center justify-center rounded-[8px] text-ink shadow-[var(--shadow-raise)] transition-[background-color,transform] duration-150 active:scale-95 md:text-[color:var(--head-fg)] md:shadow-none md:hover:bg-[color:var(--head-ghost)]"
           : "surface-brass inline-flex size-9 shrink-0 items-center justify-center rounded-[8px] text-ink shadow-[var(--shadow-raise)] transition-[filter,transform] duration-150 hover:brightness-[1.05] active:scale-95"
       }
     >
+      {/* Below `md` the header over the hero is the plain bar, so the button
+          keeps its brass there; the glass treatment starts where the header
+          floats. A layer rather than a class, because `.surface-brass` is
+          unlayered CSS that no responsive utility can switch off. */}
+      {floating ? (
+        <span aria-hidden="true" className="surface-brass absolute inset-0 rounded-[8px] md:hidden" />
+      ) : null}
       {pending ? (
         <span
           aria-hidden="true"
-          className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+          className="relative size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
         />
       ) : (
-        <IconSearch size={18} />
+        <IconSearch size={18} className="relative" />
       )}
     </button>
   );

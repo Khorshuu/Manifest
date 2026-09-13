@@ -137,8 +137,16 @@ export function CampaignSlider({ campaigns }: { campaigns: LiveCampaign[] }) {
          * cards sit over its lower edge. The owner set the proportion against a
          * reference: it is sized to about 88% of the screen so the
          * cards overlap its lower edge and still sit on the first screen.
+         *
+         * Every other width keeps that desktop shape rather than inventing one
+         * of its own — the owner asked for the phone to look like the web. A
+         * landscape frame (16:9 below `md`), the same row of tiles laid across
+         * its foot, overlapping by about the same share of a tile. The `62vw`
+         * cap stops a portrait tablet turning the frame upright; on a desktop
+         * screen `88svh` is always the smaller of the two, so nothing there
+         * changes.
          */
-        className="hero-stage relative h-[max(480px,82svh)] overflow-hidden bg-ink-deep md:h-[max(600px,88svh)]"
+        className="hero-stage relative h-[56.25vw] min-h-[180px] overflow-hidden bg-ink-deep md:h-[max(420px,min(88svh,62vw))] lg:h-[max(600px,min(88svh,62vw))]"
       >
         {campaigns.map((campaign, position) => {
           const active = position === index;
@@ -181,16 +189,16 @@ export function CampaignSlider({ campaigns }: { campaigns: LiveCampaign[] }) {
               ) : null}
 
               {campaign.title || campaign.text || campaign.cta ? (
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] pb-[clamp(7rem,17vh,9rem)] md:pb-[calc(clamp(7rem,19vh,12rem)+3.25rem)]">
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] pb-[calc(16vw+1.75rem)] md:pb-[calc(min(19vh,calc((100vw-4rem)*0.146))+3.25rem)] lg:pb-[calc(clamp(7rem,19vh,12rem)+3.25rem)]">
                   <div aria-hidden="true" className="campaign-scrim absolute inset-x-0 bottom-0 h-[55%]" />
-                  <div className="relative mx-auto flex w-full max-w-[1000px] flex-col items-center px-14 text-center text-[color:var(--hero-fg)] md:px-20">
+                  <div className="relative mx-auto flex w-full max-w-[1000px] flex-col items-center px-12 text-center text-[color:var(--hero-fg)] md:px-20">
                     {campaign.title ? (
-                      <h2 className="campaign-title text-[clamp(1.75rem,4.4vw,3.5rem)] font-extrabold leading-[1.04] tracking-[-0.03em] [text-wrap:balance]">
+                      <h2 className="campaign-title line-clamp-2 text-[clamp(1.0625rem,4.4vw,3.5rem)] font-extrabold leading-[1.04] tracking-[-0.03em] [text-wrap:balance]">
                         {campaign.title}
                       </h2>
                     ) : null}
                     {campaign.text ? (
-                      <p className="campaign-title mt-2.5 max-w-[48ch] text-[clamp(0.9375rem,1.25vw,1.125rem)] font-medium leading-snug text-[color:var(--hero-muted)]">
+                      <p className="campaign-title mt-1 line-clamp-1 max-w-[48ch] text-[clamp(0.6875rem,2.6vw,1.125rem)] sm:mt-2.5 md:line-clamp-none font-medium leading-snug text-[color:var(--hero-muted)]">
                         {campaign.text}
                       </p>
                     ) : null}
@@ -198,7 +206,7 @@ export function CampaignSlider({ campaigns }: { campaigns: LiveCampaign[] }) {
                       <Destination
                         href={campaign.cta.href}
                         newTab={campaign.newTab}
-                        className="pointer-events-auto mt-4 inline-flex min-h-10 items-center gap-1.5 rounded-full bg-[color:var(--hero-fg)] px-5 text-[0.875rem] font-bold text-[color:var(--campaign-cta-fg)] shadow-[0_4px_14px_rgb(10_21_38/0.2)] transition-transform duration-200 hover:-translate-y-0.5 md:min-h-11 md:px-6 md:text-[0.9375rem]"
+                        className="pointer-events-auto mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-full bg-[color:var(--hero-fg)] px-3.5 text-[0.75rem] sm:mt-4 sm:min-h-10 sm:px-5 sm:text-[0.875rem] font-bold text-[color:var(--campaign-cta-fg)] shadow-[0_4px_14px_rgb(10_21_38/0.2)] transition-transform duration-200 hover:-translate-y-0.5 md:min-h-11 md:px-6 md:text-[0.9375rem]"
                       >
                         {campaign.cta.label}
                         <IconArrowRight size={15} />
@@ -211,7 +219,7 @@ export function CampaignSlider({ campaigns }: { campaigns: LiveCampaign[] }) {
           );
         })}
 
-        <div aria-hidden="true" className="hero-veil pointer-events-none absolute inset-x-0 top-0 z-[3]" />
+        <div aria-hidden="true" className="hero-veil pointer-events-none absolute inset-x-0 top-0 z-[3] hidden md:block" />
 
         {count > 1 ? (
           <div className="pointer-events-none absolute inset-x-0 top-1/2 z-[4] flex -translate-y-1/2 justify-between px-2.5 md:px-6 lg:px-8">
@@ -227,7 +235,7 @@ export function CampaignSlider({ campaigns }: { campaigns: LiveCampaign[] }) {
         ) : null}
 
         {count > 1 ? (
-          <div className="absolute inset-x-0 bottom-[clamp(4.75rem,12vh,6rem)] z-[4] flex justify-center gap-2 md:bottom-[calc(clamp(7rem,19vh,12rem)+1.1rem)]">
+          <div className="absolute inset-x-0 bottom-[calc(16vw+0.5rem)] z-[4] flex justify-center gap-2 md:bottom-[calc(min(19vh,calc((100vw-4rem)*0.146))+1.1rem)] lg:bottom-[calc(clamp(7rem,19vh,12rem)+1.1rem)]">
             {campaigns.map((campaign, position) => (
               <button
                 key={campaign.id}
@@ -250,7 +258,7 @@ export function CampaignSlider({ campaigns }: { campaigns: LiveCampaign[] }) {
       </div>
 
       {current.showcase.length > 0 ? (
-        <div className="relative z-10 -mt-[clamp(3.25rem,9vh,5rem)] md:-mt-[clamp(7rem,19vh,12rem)]">
+        <div className="relative z-10 -mt-[16vw] md:-mt-[min(19vh,calc((100vw-4rem)*0.146))] lg:-mt-[clamp(7rem,19vh,12rem)]">
           <div className="mx-auto w-full max-w-[1280px] px-4 md:px-8">
             {/*
              * Keyed on the campaign, so the row is replaced — and rises in —
@@ -261,12 +269,12 @@ export function CampaignSlider({ campaigns }: { campaigns: LiveCampaign[] }) {
             <ul
               key={current.id}
               aria-label="Featured in this promotion"
-              className="rail -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-3 md:mx-0 md:justify-center md:gap-5 md:overflow-visible md:px-0 md:pb-0"
+              className="flex justify-center gap-[2vw] md:gap-5"
             >
               {current.showcase.map((tile, position) => (
                 <li
                   key={`${current.id}-${position}`}
-                  className="animate-rise w-[66%] shrink-0 snap-start sm:w-[42%] md:w-[min(20%,26vh)]"
+                  className="animate-rise w-[22.5%] shrink-0 md:w-[min(20%,26vh)]"
                   style={{ animationDelay: `${position * 60}ms` }}
                 >
                   <ShowcaseTile tile={tile} newTab={current.newTab} />
@@ -294,17 +302,17 @@ function ShowcaseTile({
 }) {
   const body = (
     <>
-      <span className="showcase-well relative flex aspect-square items-center justify-center overflow-hidden rounded-[22px] p-[3%]">
+      <span className="showcase-well relative flex aspect-square items-center justify-center overflow-hidden rounded-[10px] p-[3%] sm:rounded-[16px] md:rounded-[22px]">
         <MediaImage
           src={tile.imageUrl}
           alt={tile.title ?? ""}
           /* Four tiles across a wide screen, one and a bit on a phone. */
-          sizes="(min-width: 768px) 20vw, 66vw"
+          sizes="(min-width: 768px) 20vw, 25vw"
           className="object-contain p-[3%] transition-transform duration-500 ease-[var(--ease-out-quint)] group-hover:scale-[1.05]"
         />
       </span>
       {tile.title ? (
-        <span className="block truncate px-2 pb-1 pt-2.5 text-center text-[0.9375rem] font-bold leading-tight tracking-[-0.01em] text-ink md:text-[1.0625rem]">
+        <span className="block truncate px-0.5 pb-0.5 pt-1 text-center text-[0.625rem] font-bold leading-tight tracking-[-0.01em] text-ink sm:px-1 sm:pt-2 sm:text-[0.8125rem] md:px-2 md:pb-1 md:pt-2.5 md:text-[1.0625rem]">
           {tile.title}
         </span>
       ) : null}
@@ -312,7 +320,7 @@ function ShowcaseTile({
   );
 
   const className =
-    "showcase-card group block rounded-[28px] p-2 transition-[transform,box-shadow] duration-300 hover:-translate-y-1";
+    "showcase-card group block rounded-[14px] p-1 transition-[transform,box-shadow] duration-300 hover:-translate-y-1 sm:rounded-[20px] sm:p-1.5 md:rounded-[28px] md:p-2";
 
   return tile.href ? (
     <Destination href={tile.href} newTab={newTab} className={className}>

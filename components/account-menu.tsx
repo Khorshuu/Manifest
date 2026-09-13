@@ -63,7 +63,7 @@ export function AccountMenu({ label, isStaff }: { label: string; isStaff: boolea
         className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 font-semibold transition-colors hover:bg-[color:var(--head-ghost)]"
       >
         <IconUser size={18} className="shrink-0" />
-        <span className="max-w-[9ch] truncate sm:max-w-[12ch]">{label}</span>
+        <span className="max-w-[9ch] truncate max-[359px]:sr-only sm:max-w-[12ch]">{label}</span>
         <IconChevronDown
           size={14}
           className={`shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
