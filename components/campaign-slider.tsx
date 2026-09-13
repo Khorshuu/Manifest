@@ -219,7 +219,7 @@ export function CampaignSlider({ campaigns }: { campaigns: LiveCampaign[] }) {
           );
         })}
 
-        <div aria-hidden="true" className="hero-veil pointer-events-none absolute inset-x-0 top-0 z-[3] hidden md:block" />
+        <div aria-hidden="true" className="hero-veil pointer-events-none absolute inset-x-0 top-0 z-[3]" />
 
         {count > 1 ? (
           <div className="pointer-events-none absolute inset-x-0 top-1/2 z-[4] flex -translate-y-1/2 justify-between px-2.5 md:px-6 lg:px-8">

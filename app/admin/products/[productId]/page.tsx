@@ -224,7 +224,7 @@ export default async function AdminProductPage({
       content: (
         <div className="flex flex-col gap-8">
           <div className="flex flex-col gap-3">
-            <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/55">Description & key features</h3>
+            <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/70">Description & key features</h3>
             <ContentSection
               key={appliedKey}
               product={{
@@ -236,7 +236,7 @@ export default async function AdminProductPage({
             />
           </div>
           <div className="flex flex-col gap-3 border-t border-blue-200 pt-6">
-            <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/55">Specifications</h3>
+            <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/70">Specifications</h3>
             <SpecsSection
               categoryName={findName(tree, product.categoryId) ?? "This category"}
               definitions={definitions}
@@ -251,7 +251,7 @@ export default async function AdminProductPage({
             />
           </div>
           <div className="flex flex-col gap-3 border-t border-blue-200 pt-6">
-            <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/55">Search & SEO</h3>
+            <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/70">Search & SEO</h3>
             <SeoSection
               key={appliedKey}
               product={{

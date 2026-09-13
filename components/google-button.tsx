@@ -63,7 +63,7 @@ export function AuthDivider() {
   return (
     <div className="flex items-center gap-3" aria-hidden="true">
       <span className="h-px flex-1 bg-ink/12" />
-      <span className="text-meta text-ink/55">or</span>
+      <span className="text-meta text-ink/70">or</span>
       <span className="h-px flex-1 bg-ink/12" />
     </div>
   );

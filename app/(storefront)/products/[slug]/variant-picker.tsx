@@ -311,7 +311,7 @@ export function VariantPicker({
               {/* The regular price is stated as what it was, not implied by a
                   struck-through number alone — a screen reader reads a
                   line-through as nothing at all. */}
-              <p className="text-body tabular-nums text-ink/60 line-through">
+              <p className="text-body tabular-nums text-ink/70 line-through">
                 <span className="sr-only">Regular price </span>
                 {formatBdt(shown.listPriceBdt)}
               </p>

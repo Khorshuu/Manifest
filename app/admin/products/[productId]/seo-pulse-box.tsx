@@ -132,7 +132,7 @@ export function SeoPulseBox({
 
       {runId ? (
         <p className="flex flex-wrap gap-x-3 gap-y-1 border-t border-blue-200 pt-2 text-[0.75rem]">
-          <span className="text-ink/60">Report:</span>
+          <span className="text-ink/70">Report:</span>
           <a className="text-blue-600 hover:underline" href={`/api/admin/seo-pulse/runs/${runId}/export?format=html`} target="_blank" rel="noopener">
             View
           </a>

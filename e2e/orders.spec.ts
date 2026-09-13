@@ -44,7 +44,8 @@ async function registerCustomer(page: Page): Promise<string> {
     const response = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: address, password: "password123" }),
+      // A first name has been required since sign-up moved into the dialog.
+      body: JSON.stringify({ firstName: "Shopper", email: address, password: "password123" }),
     });
     return response.status;
   }, email);
@@ -58,14 +59,26 @@ async function placeOrderAsCustomer(page: Page): Promise<string> {
   const email = await registerCustomer(page);
 
   await page.goto("/products/seasonal-candy-variety-box");
+  // A product with more than one option starts with none chosen (D-043).
+  const options = page
+    .locator("fieldset", { has: page.getByText("Choose an option", { exact: true }) })
+    .locator("label")
+    .filter({ hasNotText: "Full" });
+  if ((await options.count()) > 0) await options.first().click();
+
   const added = page.waitForResponse(
     (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Add to cart" }).click();
+  // The panel "Add to cart" on a desktop; the sticky bar "Add" on a phone.
+  await page
+    .getByRole("button", { name: /^(Add to cart|Add)$/ })
+    .filter({ visible: true })
+    .first()
+    .click();
   await added;
 
   await page.goto("/checkout");
-  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByRole("main").getByLabel("Email", { exact: true }).fill(email);
 
   // After this account has ordered once it has a saved address, and the form
   // defaults to using it. Fill the new-address fields only when they are shown.
@@ -88,7 +101,8 @@ async function placeOrderAsCustomer(page: Page): Promise<string> {
 test("a shopper sees their order in their account", async ({ page }) => {
   const orderNumber = await placeOrderAsCustomer(page);
 
-  await page.goto("/account");
+  // /account is the dashboard; the full list is /account/orders (D-043).
+  await page.goto("/account/orders");
   await expect(
     page.getByRole("heading", { name: "Your orders" }),
   ).toBeVisible();
@@ -179,14 +193,14 @@ test("the order pipeline filters by status", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Orders" })).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Awaiting payment" }),
-  ).toHaveAttribute("aria-current", "page");
+  ).toHaveAttribute("aria-current", "true");
 
   // Asserting which filter is applied, not how many rows it happens to match:
   // other specs move orders through the pipeline in the same database.
   await page.goto("/admin/orders?status=refunded");
   await expect(
     page.getByRole("link", { name: "Refunded" }),
-  ).toHaveAttribute("aria-current", "page");
+  ).toHaveAttribute("aria-current", "true");
 });
 
 /**

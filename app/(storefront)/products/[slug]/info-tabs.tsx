@@ -118,7 +118,7 @@ export function ProductInfoTabs({
 
               {keyFeatures.length > 0 ? (
                 <div className="max-w-[68ch]">
-                  <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/60">
+                  <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/70">
                     Key features
                   </h3>
                   <div className="mt-3">
@@ -136,7 +136,7 @@ export function ProductInfoTabs({
           {tab.id === "measurements" ? (
             <div className="flex flex-col gap-3">
               <SpecTable rows={measurements} />
-              <p className="text-meta text-ink/60">
+              <p className="text-meta text-ink/70">
                 Measurements are as supplied by the manufacturer. Allow for
                 small differences between units.
               </p>

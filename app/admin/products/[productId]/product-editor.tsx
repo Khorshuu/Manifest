@@ -71,7 +71,7 @@ export function ProductEditor({
             onClick={() => window.dispatchEvent(new CustomEvent("product-editor:open", { detail: section.id }))}
             className="admin-chip"
           >
-            <span className="tabular-nums text-ink/45">{index + 1}.</span> {section.label}
+            <span className="tabular-nums text-ink/70">{index + 1}.</span> {section.label}
           </button>
         ))}
       </nav>
@@ -92,7 +92,7 @@ export function ProductEditor({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h2 id={`heading-${section.id}`} className="admin-h2 text-body">
-                  <span className="tabular-nums text-ink/40">{index + 1}.</span> {section.label}
+                  <span className="tabular-nums text-ink/70">{index + 1}.</span> {section.label}
                 </h2>
                 <p className="mt-0.5 max-w-[70ch] text-[0.8125rem] text-ink/65">{section.summary}</p>
               </div>

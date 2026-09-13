@@ -932,3 +932,9 @@ what lets a breakpoint pick the bar on a phone and the floating treatment from
 **Trade-off accepted.** Tile titles on a 390px phone are 10px and truncate
 sooner than on a desktop; that is the cost of four tiles in one row, which is
 what the owner asked for. The swipe carousel from D-044 is gone.
+
+**Amended after the next QC.** The owner asked for the header to be
+transparent over the phone hero, as on the web, and for search to be an icon
+with a pop-up. With search behind an icon the header fits on one row at any
+width, so the plain bar below `md` was dropped: the header floats over the
+landscape hero everywhere. The landscape composition itself stays.

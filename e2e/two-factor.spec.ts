@@ -67,7 +67,7 @@ async function registerAndSignIn(page: Page): Promise<string> {
     const response = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: address, password: "password123" }),
+      body: JSON.stringify({ firstName: "Shopper", email: address, password: "password123" }),
     });
     return response.status;
   }, email);

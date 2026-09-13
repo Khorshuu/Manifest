@@ -104,7 +104,7 @@ export function RowMenu({ label, groups }: { label: string; groups: MenuGroup[] 
         >
           {visible.map((group, groupIndex) => (
             <div key={group.label} role="group" aria-label={group.label} className={groupIndex > 0 ? "border-t border-blue-200 pt-1" : ""}>
-              <p aria-hidden="true" className="px-3 pb-0.5 pt-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-ink/55">
+              <p aria-hidden="true" className="px-3 pb-0.5 pt-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-ink/70">
                 {group.label}
               </p>
               {group.items.map((item) =>
@@ -120,7 +120,7 @@ export function RowMenu({ label, groups }: { label: string; groups: MenuGroup[] 
                     className={itemClass(item.tone)}
                   >
                     {item.label}
-                    {item.newTab ? <span aria-hidden="true" className="ml-auto text-ink/50">↗</span> : null}
+                    {item.newTab ? <span aria-hidden="true" className="ml-auto text-ink/70">↗</span> : null}
                   </Link>
                 ) : (
                   <button

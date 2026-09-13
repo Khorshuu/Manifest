@@ -27,22 +27,32 @@ test("staff sees the seeded catalog with live variant counts", async ({
     page.getByRole("heading", { name: "Products", level: 1 }),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Seasonal Candy Variety Box" }),
+    page.getByRole("link", { name: "Seasonal Candy Variety Box", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Studio Reference Headphones" }),
+    page.getByRole("link", { name: "Studio Reference Headphones", exact: true }),
   ).toBeVisible();
 });
+
+/** The category tree, as whichever of its two shapes is on screen. */
+function categoryTree(page: Page) {
+  return page
+    .getByRole("list", { name: "Categories" })
+    .or(page.getByRole("main").getByRole("table"))
+    .filter({ visible: true })
+    .first();
+}
 
 test("the category tree shows its nesting", async ({ page }) => {
   await signIn(page, "staff@example.com");
   await page.goto("/admin/categories");
 
   // Scoped to the tree: the same names also appear in the parent select.
-  const tree = page.getByRole("list", { name: "Category tree" });
-  await expect(tree.getByText("Snacks & Groceries")).toBeVisible();
-  await expect(tree.getByText("Candy & Chocolate")).toBeVisible();
-  await expect(tree.getByText("Seasonal & Limited Edition")).toBeVisible();
+  // The tree is a list of cards on a phone and a table from `md` up.
+  const tree = categoryTree(page);
+  await expect(tree.getByText("Snacks & Groceries", { exact: true })).toBeVisible();
+  await expect(tree.getByText("Candy & Chocolate", { exact: true })).toBeVisible();
+  await expect(tree.getByText("Seasonal & Limited Edition", { exact: true })).toBeVisible();
 });
 
 test("a staff member adds a category, and its slug follows the name", async ({
@@ -66,7 +76,7 @@ test("a staff member adds a category, and its slug follows the name", async ({
   expect((await response).status()).toBe(201);
 
   await expect(
-    page.getByRole("list", { name: "Category tree" }).getByText(name),
+    categoryTree(page).getByText(name, { exact: true }),
   ).toBeVisible();
 });
 
@@ -87,7 +97,7 @@ test("a staff member adds a product and it appears in the list", async ({
   await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
 
   await page.goto("/admin/products");
-  await expect(page.getByRole("link", { name: title })).toBeVisible();
+  await expect(page.getByRole("link", { name: title, exact: true })).toBeVisible();
 });
 
 /**

@@ -383,7 +383,7 @@ export function CartLines({
             <button
               type="button"
               disabled
-              className="inline-flex min-h-11 w-full cursor-not-allowed items-center justify-center rounded-control border border-blue-300 bg-blue-50 px-5 text-body font-medium text-ink/60"
+              className="inline-flex min-h-11 w-full cursor-not-allowed items-center justify-center rounded-control border border-blue-300 bg-blue-50 px-5 text-body font-medium text-ink/70"
             >
               Checkout
             </button>

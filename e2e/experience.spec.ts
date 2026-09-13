@@ -77,9 +77,12 @@ test("the buy bar is within reach on a phone", async ({ page }, testInfo) => {
 
   await page.goto(PRODUCT);
 
-  // Exactly one buy button on a phone — the sticky one — and it is reachable
-  // without scrolling past the options and the countdown.
-  const button = page.getByRole("button", { name: "Add to cart" });
+  // Exactly one add button on a phone — the sticky bar's, labelled "Add"
+  // beside Buy now (D-043) — and it is reachable without scrolling past the
+  // options and the countdown.
+  const button = page
+    .getByRole("button", { name: "Add", exact: true })
+    .filter({ visible: true });
   await expect(button).toHaveCount(1);
   await expect(button).toBeInViewport();
 });
@@ -103,8 +106,14 @@ test("adding to the cart is confirmed visibly", async ({ page }) => {
   await page.goto("/products/vermont-pancake-syrup");
 
   // Retried: a click before hydration finds a button with no handler.
+  // The panel's "Add to cart" on a desktop; the sticky bar's "Add" on a phone,
+  // where the panel's own pair is hidden.
   await expect(async () => {
-    await page.getByRole("button", { name: "Add to cart" }).click();
+    await page
+      .getByRole("button", { name: /^(Add to cart|Add)$/ })
+      .filter({ visible: true })
+      .first()
+      .click();
     await expect(page.getByText("Added to your cart.")).toBeVisible({
       timeout: 4000,
     });

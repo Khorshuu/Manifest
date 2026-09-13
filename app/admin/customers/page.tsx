@@ -97,7 +97,7 @@ export default async function AdminCustomersPage({
 
                 <dl className="flex flex-wrap gap-x-5 gap-y-1 text-[0.75rem]">
                   <div>
-                    <dt className="text-ink/60">Paid orders</dt>
+                    <dt className="text-ink/70">Paid orders</dt>
                     <dd className="font-semibold tabular-nums text-ink">
                       {customer.paidCount}
                       {customer.orderCount > customer.paidCount ? (
@@ -108,19 +108,19 @@ export default async function AdminCustomersPage({
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-ink/60">Spent</dt>
+                    <dt className="text-ink/70">Spent</dt>
                     <dd className="font-semibold tabular-nums text-ink">
                       {formatBdt(customer.spentBdt)}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-ink/60">Joined</dt>
+                    <dt className="text-ink/70">Joined</dt>
                     <dd className="tabular-nums text-ink/80">
                       {formatShortDate(customer.createdAt)}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-ink/60">Last order</dt>
+                    <dt className="text-ink/70">Last order</dt>
                     <dd className="tabular-nums text-ink/80">
                       {customer.lastOrderAt ? formatShortDate(customer.lastOrderAt) : "Never"}
                     </dd>

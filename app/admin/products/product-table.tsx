@@ -318,14 +318,14 @@ export function ProductTable({
       return (
         <span className="flex flex-col items-start gap-0.5">
           <StatusBadge tone="positive">Published</StatusBadge>
-          <span className="text-[0.6875rem] text-ink/60">{LIVE_LABELS[row.status] ?? row.status}</span>
+          <span className="text-[0.6875rem] text-ink/70">{LIVE_LABELS[row.status] ?? row.status}</span>
         </span>
       );
     }
     return (
       <span className="flex flex-col items-start gap-0.5">
         <StatusBadge tone="warning">{row.status === "scheduled" ? "Scheduled" : "Draft"}</StatusBadge>
-        <span className="text-[0.6875rem] text-ink/60">Not visible to customers</span>
+        <span className="text-[0.6875rem] text-ink/70">Not visible to customers</span>
       </span>
     );
   }
@@ -532,7 +532,7 @@ export function ProductTable({
               </Link>
             ) : null}
           </div>
-          <button type="button" onClick={() => setToast(null)} className="text-ink/60 hover:text-ink">
+          <button type="button" onClick={() => setToast(null)} className="text-ink/70 hover:text-ink">
             <span aria-hidden="true">×</span>
             <span className="sr-only">Dismiss</span>
           </button>
@@ -605,7 +605,7 @@ export function ProductTable({
                           <Link href={`/admin/products/${row.id}`} className="block max-w-[20rem] truncate font-semibold text-ink hover:text-blue-600">
                             {row.title}
                           </Link>
-                          <span className="block truncate text-[0.75rem] text-ink/60">
+                          <span className="block truncate text-[0.75rem] text-ink/70">
                             {[row.brand, `${row.variantCount} variant${row.variantCount === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
                             {!row.searchable ? <span className="font-semibold text-brass-text"> · hidden from search</span> : null}
                           </span>
@@ -618,7 +618,7 @@ export function ProductTable({
                     <td className="whitespace-nowrap">
                       <span className="flex flex-col items-start gap-0.5">
                         <StatusBadge tone={INVENTORY[row.inventory].tone}>{INVENTORY[row.inventory].label}</StatusBadge>
-                        {stockDetail(row) ? <span className="text-[0.6875rem] tabular-nums text-ink/60">{stockDetail(row)}</span> : null}
+                        {stockDetail(row) ? <span className="text-[0.6875rem] tabular-nums text-ink/70">{stockDetail(row)}</span> : null}
                       </span>
                     </td>
                     <td className="whitespace-nowrap">
@@ -673,7 +673,7 @@ export function ProductTable({
                     <Link href={`/admin/products/${row.id}`} className="block font-semibold leading-snug text-ink">
                       {row.title}
                     </Link>
-                    <p className="mt-0.5 text-[0.75rem] text-ink/60">
+                    <p className="mt-0.5 text-[0.75rem] text-ink/70">
                       {[row.sku, row.categoryName, priceText(row)].filter(Boolean).join(" · ")}
                     </p>
                     <div className="mt-2 flex flex-wrap items-start gap-2">

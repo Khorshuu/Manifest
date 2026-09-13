@@ -2567,3 +2567,68 @@ time, no sideways scroll; the admin preview rendered in all three sizes at
 
 Not verified: pinch zoom needs two real fingers — Chromium's touch emulation
 cannot produce a pinch, so the gesture code is UNVERIFIED on a device.
+
+## Owner QC round two: transparent header, search icon, dead menu on the phone
+
+- `[x]` **The category menu "did not work" on the owner's phone — and neither did
+  anything else.** The dev server refuses its own JavaScript to any origin but
+  localhost, so a phone opening `http://192.168.1.107:3000` got a rendered page
+  with nothing behind it (the log said `Blocked cross-origin request … from
+  "192.168.1.107"`). `allowedDevOrigins` now allows that address, plus anything
+  listed in `DEV_ORIGINS`. Development only; production ignores the setting.
+  Emulated phones on localhost never showed the fault, which is why it was not
+  caught earlier.
+- `[x]` **The header is transparent over the hero on a phone, as on the web.**
+  D-045's white bar is gone; the header floats over the photograph at every
+  width with the same veil, in one row. That also removes the hard edge
+  between bar and photograph that made the phone hero look pasted on.
+- `[x]` **Search is an icon in the phone header** that opens the full search with
+  a short fade-and-settle (`animate-search-pop`). The field stays in the page
+  out of sight so the icon can focus it within the same tap, which is what
+  makes iOS raise the keyboard. From `md` up the field is in the header as
+  before. The icon is named "Open search".
+- `[x]` The account label hides below 420px so the row fits; the icon and its
+  accessible name stay.
+- `[x]` **Contrast.** Every `text-ink/40`–`/60` used for words was below AA and
+  is now `text-ink/70`, the site's muted text colour: product "Key features",
+  admin product list, product editor numbering, variant matrix, cart lines,
+  order card, checkout option labels, the auth dialog, and the admin cards
+  added this week.
+
+### Verified
+
+- Typecheck and lint clean; unit suite 855 pass, 2 skipped.
+- Browser (iPhone 13 emulation) against **both** `localhost` and
+  `192.168.1.107`: header transparent and 61px over a 219px hero; category
+  drawer opens; the search icon focuses the field and suggestions arrive. No
+  blocked cross-origin requests in the log. Desktop 1440 and tablet 768 headers
+  unchanged; 320px header one row.
+- Playwright, both profiles: `search`, `experience`, `accessibility` 62 passed;
+  `admin-catalog`, `checkout` 34 passed; `checkout`, `orders`, `balance`,
+  `two-factor` among 62 passed; `admin-ops` passes.
+
+### A correction to earlier entries in this session
+
+Three Playwright summaries above were misread. Only the last lines of the
+output were checked, and the test names printed above "N skipped / N passed"
+were the list of **failures**, whose "N failed" header had been cut off. So the
+claims of "61 passed", "38 passed" and "112 passed" with no failures were
+wrong: orders, checkout, admin-catalog, admin-variants, accessibility (cart,
+checkout, product detail, admin) and parts of search and experience were
+failing at the time. Almost all of it was older than this session — tests
+written before sign-up asked for a first name (D-042), before a product with
+several options stopped preselecting one (D-043), before the header held a
+sign-in dialog with its own Email field, and a category-tree label that is not
+in any recent commit. Those specs were brought up to date this round.
+
+### Still failing, stated plainly
+
+- `[!]` `cancellation-requests.spec.ts` (4 tests) and `reviews.spec.ts` (1
+  test), both profiles. Not investigated; they predate this session's changes
+  and were not in the scope asked for.
+- `[!]` `admin-variants.spec.ts` "adding groups creates one variant per
+  combination": the response reports 2 created where 4 are expected. The spec
+  and `lib/catalog/variants.ts` are unchanged for many commits; not
+  investigated.
+- `[!]` Pinch zoom and the iOS keyboard opening from the search icon are
+  UNVERIFIED on a real device.

@@ -178,7 +178,7 @@ export function AuthDialog({
         className={triggerClassName}
       >
         <IconUser size={18} className="shrink-0" />
-        <span className="max-w-[9ch] truncate max-[359px]:sr-only sm:max-w-[12ch]">{label}</span>
+        <span className="max-w-[9ch] truncate max-[419px]:sr-only sm:max-w-[12ch]">{label}</span>
       </button>
 
       <dialog
@@ -196,7 +196,7 @@ export function AuthDialog({
             <button
               type="button"
               onClick={close}
-              className="-mr-2 -mt-2 inline-flex size-11 items-center justify-center rounded-control text-ink/60 transition-colors hover:bg-ink/5 hover:text-ink"
+              className="-mr-2 -mt-2 inline-flex size-11 items-center justify-center rounded-control text-ink/70 transition-colors hover:bg-ink/5 hover:text-ink"
             >
               <span aria-hidden="true" className="text-h3 leading-none">
                 &times;

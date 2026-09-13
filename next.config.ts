@@ -70,6 +70,22 @@ const nextConfig: NextConfig = {
    * badge. Compile and runtime errors are still surfaced without it.
    */
   devIndicators: false,
+  /*
+   * Phones on the same Wi-Fi, in development only.
+   *
+   * The dev server refuses its own JavaScript to any origin but localhost, so a
+   * phone opening http://192.168.x.x:3000 got the server-rendered page with
+   * nothing behind it: the category menu, the search, every button inert. The
+   * owner reviews on a phone, so the LAN address is allowed. Extra hosts can be
+   * added with DEV_ORIGINS (comma-separated). Production ignores this setting.
+   */
+  allowedDevOrigins: [
+    "192.168.1.107",
+    ...(process.env.DEV_ORIGINS ?? "")
+      .split(",")
+      .map((host) => host.trim())
+      .filter(Boolean),
+  ],
   images: {
     // next/image refuses a host it was not told about, and product photography
     // lives in Vercel Blob once MEDIA_PROVIDER is 'blob'.

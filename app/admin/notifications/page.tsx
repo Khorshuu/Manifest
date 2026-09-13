@@ -211,7 +211,7 @@ export default async function AdminNotificationsPage({
                       {row.error}
                     </p>
                   ) : null}
-                  <p className="text-[0.75rem] text-ink/60">
+                  <p className="text-[0.75rem] text-ink/70">
                     {formatDate(row.sentAt ?? row.createdAt)}
                   </p>
                 </li>

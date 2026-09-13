@@ -430,7 +430,7 @@ export function CheckoutForm({
                         key={`${option.label}-${option.value}`}
                         className="text-meta text-ink/70"
                       >
-                        <span className="text-ink/55">{option.label}: </span>
+                        <span className="text-ink/70">{option.label}: </span>
                         {option.value}
                       </li>
                     ))}

@@ -11,15 +11,28 @@ import { expect, test, type Page } from "@playwright/test";
 async function addFirstProductToCart(page: Page) {
   await page.goto("/products/seasonal-candy-variety-box");
 
+  // A product with more than one option starts with none chosen (D-043).
+  const options = page
+    .locator("fieldset", { has: page.getByText("Choose an option", { exact: true }) })
+    .locator("label")
+    .filter({ hasNotText: "Full" });
+  if ((await options.count()) > 0) await options.first().click();
+
   const added = page.waitForResponse(
     (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Add to cart" }).click();
+  // The panel's "Add to cart" on a desktop; the sticky bar's "Add" on a phone.
+  await page
+    .getByRole("button", { name: /^(Add to cart|Add)$/ })
+    .filter({ visible: true })
+    .first()
+    .click();
   expect((await added).status()).toBe(200);
 }
 
 async function fillGuestCheckout(page: Page, email: string) {
-  await page.getByLabel("Email", { exact: true }).fill(email);
+  // Scoped to the page: the header sign-in dialog has an Email field too.
+  await page.getByRole("main").getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Recipient name").fill("A Shopper");
   await page.getByLabel("Phone for delivery").fill("+8801700000000");
   await page.getByLabel("Address", { exact: true }).fill("12 Example Road");
@@ -209,7 +222,7 @@ test("an order can be tracked with its number and email", async ({ page }) => {
 
   await page.goto("/orders/lookup");
   await page.getByLabel("Order number").fill(orderNumber);
-  await page.getByLabel("Email").fill("tracked@example.com");
+  await page.getByRole("main").getByLabel("Email").fill("tracked@example.com");
   await page.getByRole("button", { name: "Find my order" }).click();
 
   await expect(

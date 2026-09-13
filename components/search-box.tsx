@@ -133,24 +133,17 @@ function SubmitButton({ floating = false }: { floating?: boolean }) {
       aria-label="Search"
       className={
         floating
-          ? "relative inline-flex size-9 shrink-0 items-center justify-center rounded-[8px] text-ink shadow-[var(--shadow-raise)] transition-[background-color,transform] duration-150 active:scale-95 md:text-[color:var(--head-fg)] md:shadow-none md:hover:bg-[color:var(--head-ghost)]"
+          ? "inline-flex size-9 shrink-0 items-center justify-center rounded-[8px] text-[color:var(--head-fg)] transition-[background-color,transform] duration-150 hover:bg-[color:var(--head-ghost)] active:scale-95"
           : "surface-brass inline-flex size-9 shrink-0 items-center justify-center rounded-[8px] text-ink shadow-[var(--shadow-raise)] transition-[filter,transform] duration-150 hover:brightness-[1.05] active:scale-95"
       }
     >
-      {/* Below `md` the header over the hero is the plain bar, so the button
-          keeps its brass there; the glass treatment starts where the header
-          floats. A layer rather than a class, because `.surface-brass` is
-          unlayered CSS that no responsive utility can switch off. */}
-      {floating ? (
-        <span aria-hidden="true" className="surface-brass absolute inset-0 rounded-[8px] md:hidden" />
-      ) : null}
       {pending ? (
         <span
           aria-hidden="true"
-          className="relative size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+          className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
         />
       ) : (
-        <IconSearch size={18} className="relative" />
+        <IconSearch size={18} />
       )}
     </button>
   );
@@ -594,6 +587,21 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
   const solid = overlay || !floating;
 
   return (
+    <>
+      {/* On a phone: an icon in the header that opens the full search. It is
+          gone while that search is open, and from `md` up, where the field
+          itself sits in the header. */}
+      {overlay ? null : (
+        <button
+          type="button"
+          aria-label="Open search"
+          aria-controls="site-search"
+          onClick={() => inputRef.current?.focus()}
+          className="ml-auto inline-flex size-10 shrink-0 items-center justify-center rounded-control text-[color:var(--head-fg)] transition-[background-color,transform] duration-150 hover:bg-[color:var(--head-ghost)] active:scale-90 md:hidden"
+        >
+          <IconSearch size={19} />
+        </button>
+      )}
     <div
       ref={containerRef}
       onBlur={(event) => {
@@ -604,8 +612,12 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
       }}
       className={
         overlay
-          ? "fixed inset-0 z-[70] flex flex-col bg-paper px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
-          : "relative order-last w-full md:order-none md:ml-auto md:w-64 lg:w-80 xl:w-[26rem]"
+          ? "animate-search-pop fixed inset-0 z-[70] flex flex-col bg-paper px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
+          : /* Below `md` the field stays rendered but out of sight rather
+               than `hidden`: the header icon focuses it inside the same tap,
+               which is the only way iOS will raise the keyboard, and that
+               focus is what opens the full search. */
+            "relative max-md:pointer-events-none max-md:absolute max-md:size-px max-md:overflow-hidden max-md:opacity-0 md:ml-auto md:w-64 lg:w-80 xl:w-[26rem]"
       }
     >
       <div className="flex items-center gap-2">
@@ -817,6 +829,7 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
         </div>
       ) : null}
     </div>
+    </>
   );
 }
 
@@ -827,7 +840,16 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
  */
 export function SearchBoxFallback() {
   return (
-    <div className="relative order-last w-full md:order-none md:ml-auto md:w-64 lg:w-80 xl:w-[26rem]">
+    <>
+    {/* Holds the icon place on a phone until the real search box arrives. */}
+    <a
+      href="/search"
+      aria-label="Open search"
+      className="ml-auto inline-flex size-10 shrink-0 items-center justify-center rounded-control text-[color:var(--head-fg)] md:hidden"
+    >
+      <IconSearch size={19} />
+    </a>
+    <div className="relative hidden md:ml-auto md:block md:w-64 lg:w-80 xl:w-[26rem]">
       <form action="/search" role="search" aria-label="Search the catalogue" className="relative">
         <label htmlFor="site-search" className="sr-only">
           Search products
@@ -852,5 +874,6 @@ export function SearchBoxFallback() {
         </button>
       </form>
     </div>
+    </>
   );
 }

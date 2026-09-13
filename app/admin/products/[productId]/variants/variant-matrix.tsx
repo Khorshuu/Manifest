@@ -263,7 +263,7 @@ export function VariantMatrix({
                 <li key={option.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
                   <span className="min-w-24 text-meta font-semibold text-ink">
                     {option.name}
-                    <span className="ml-1 font-normal text-ink/55">({option.values.length})</span>
+                    <span className="ml-1 font-normal text-ink/70">({option.values.length})</span>
                   </span>
                   <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                     {shown.map((value) => (
@@ -273,7 +273,7 @@ export function VariantMatrix({
                           type="button"
                           disabled={pending}
                           onClick={() => removeValue(option, value)}
-                          className="ml-0.5 inline-flex size-6 items-center justify-center rounded text-ink/50 hover:bg-stamp-red/10 hover:text-stamp-red-text"
+                          className="ml-0.5 inline-flex size-6 items-center justify-center rounded text-ink/70 hover:bg-stamp-red/10 hover:text-stamp-red-text"
                         >
                           <span aria-hidden="true">×</span>
                           <span className="sr-only">Remove {value.value}</span>
@@ -310,7 +310,7 @@ export function VariantMatrix({
                     type="button"
                     disabled={pending}
                     onClick={() => removeGroup(option)}
-                    className="text-[0.75rem] text-ink/55 hover:text-stamp-red-text"
+                    className="text-[0.75rem] text-ink/70 hover:text-stamp-red-text"
                   >
                     Remove group
                   </button>
@@ -378,7 +378,7 @@ export function VariantMatrix({
             Same price for all
           </Button>
         ) : null}
-        <p className="basis-full text-[0.75rem] text-ink/60">
+        <p className="basis-full text-[0.75rem] text-ink/70">
           {single
             ? "Used when the product's variant is created."
             : "New variants start at this price. Different prices per variant: open a variant below."}
@@ -394,7 +394,7 @@ export function VariantMatrix({
             </span>
             {checked.size > 0 ? (
               <>
-                <span className="text-ink/40">·</span>
+                <span className="text-ink/70">·</span>
                 <span className="text-ink">{checked.size} selected</span>
                 <button type="button" className="admin-chip" disabled={pending} onClick={() => bulkEnabled(true)}>Turn on</button>
                 <button type="button" className="admin-chip" disabled={pending} onClick={() => bulkEnabled(false)}>Turn off</button>
@@ -409,7 +409,7 @@ export function VariantMatrix({
             ) : null}
           </div>
 
-          {/* The SKU and the state come off on a narrow screen — both are in
+          {/* The SKU and the stock come off on a narrow screen — both are in
               the row that opens under a variant — so the grid fits a phone
               rather than being dragged sideways at any width.
 
@@ -434,7 +434,7 @@ export function VariantMatrix({
                   <th scope="col" className="hidden md:table-cell">SKU</th>
                   <th scope="col" className="text-right">Price <span aria-hidden="true" className="text-stamp-red-text">*</span></th>
                   <th scope="col" className="hidden text-right sm:table-cell">Stock</th>
-                  <th scope="col" className="hidden sm:table-cell">State</th>
+                  <th scope="col">State</th>
                   <th scope="col" className="w-10"><span className="sr-only">Open</span></th>
                 </tr>
               </thead>
@@ -444,7 +444,7 @@ export function VariantMatrix({
                   const open = openVariant === variant.id || (single && live.length === 1 && !variant.archived && openVariant === null);
                   return (
                     <Fragment key={variant.id}>
-                      <tr className={variant.archived ? "text-ink/55" : "cursor-pointer"} onClick={(event) => {
+                      <tr className={variant.archived ? "text-ink/70" : "cursor-pointer"} onClick={(event) => {
                         if ((event.target as HTMLElement).closest("input,button,a,label")) return;
                         if (!variant.archived) setOpenVariant(open ? "" : variant.id);
                       }}>
@@ -477,14 +477,14 @@ export function VariantMatrix({
                           ) : variant.salePriceBdt !== null ? (
                             <>
                               <span className="text-stamp-red-text">{formatBdt(variant.salePriceBdt)}</span>{" "}
-                              <s className="text-[0.75rem] text-ink/50">{formatBdt(variant.priceBdt)}</s>
+                              <s className="text-[0.75rem] text-ink/70">{formatBdt(variant.priceBdt)}</s>
                             </>
                           ) : (
                             formatBdt(variant.priceBdt)
                           )}
                         </td>
                         <td className="hidden whitespace-nowrap text-right tabular-nums text-ink/80 sm:table-cell">{stockText(variant)}</td>
-                        <td className="hidden whitespace-nowrap sm:table-cell"><StatusBadge tone={state.tone}>{state.text}</StatusBadge></td>
+                        <td className="whitespace-nowrap"><StatusBadge tone={state.tone}>{state.text}</StatusBadge></td>
                         <td className="text-right">
                           {variant.archived ? (
                             <button
@@ -655,7 +655,7 @@ function VariantEditor({
             <label className={label} htmlFor={id("capacity")}>
               <span>Preorder places <span aria-hidden="true" className="text-stamp-red-text">*</span></span>
               <input id={id("capacity")} name="capacity" type="number" min={variant.preorderReserved} placeholder="How many can be ordered" defaultValue={variant.preorderCapacity ?? ""} className={input} />
-              <span className="font-normal text-ink/55">{variant.preorderReserved} already reserved</span>
+              <span className="font-normal text-ink/70">{variant.preorderReserved} already reserved</span>
             </label>
             <label className={label} htmlFor={id("closes")}>
               <span>Preorder closes <span aria-hidden="true" className="text-stamp-red-text">*</span></span>
@@ -693,7 +693,7 @@ function VariantEditor({
             type="button"
             aria-pressed={photo === null}
             onClick={() => setPhoto(null)}
-            className={`inline-flex size-12 items-center justify-center rounded-[6px] border text-[0.6875rem] ${photo === null ? "border-blue-600 ring-2 ring-blue-600/30" : "border-blue-200"} bg-paper text-ink/60`}
+            className={`inline-flex size-12 items-center justify-center rounded-[6px] border text-[0.6875rem] ${photo === null ? "border-blue-600 ring-2 ring-blue-600/30" : "border-blue-200"} bg-paper text-ink/70`}
           >
             None
           </button>

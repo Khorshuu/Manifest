@@ -63,22 +63,20 @@ export function HeaderShell({
    * own colour, so the swap between the two treatments animates across the lot
    * in one movement instead of snapping element by element.
    *
-   * They are classes rather than inline variables, so a breakpoint can
-   * choose between them. Below `md` the header is always the plain bar, even
-   * on the home page: the hero there is a short landscape photograph like the
-   * desktop one, and a two-row header floating over it would cover half of it.
-   * From `md` up the floating treatments apply exactly as before.
+   * They are classes rather than inline variables so each is a literal the
+   * stylesheet can see. The header floats over the hero at every width, a
+   * phone included — the owner wants it transparent there, as on the web.
    */
   const bar =
     "[--head-fg:var(--color-ink)] [--head-muted:rgb(18_35_63/0.74)] [--head-ghost:rgb(18_35_63/0.06)] [--head-line:var(--color-blue-300)] [--head-field:var(--color-paper)] [--veil-dark:0] [--veil-light:0]";
 
   const floatingDark =
-    "md:[--head-fg:#ffffff] md:[--head-muted:rgb(255_255_255/0.78)] md:[--head-ghost:rgb(255_255_255/0.14)] md:[--head-line:rgb(255_255_255/0.55)] md:[--head-field:rgb(255_255_255/0.08)] md:[--veil-dark:1] md:[--veil-light:0]";
+    "[--head-fg:#ffffff] [--head-muted:rgb(255_255_255/0.78)] [--head-ghost:rgb(255_255_255/0.14)] [--head-line:rgb(255_255_255/0.55)] [--head-field:rgb(255_255_255/0.08)] [--veil-dark:1] [--veil-light:0]";
 
   const floatingLight =
-    "md:[--head-fg:var(--color-ink)] md:[--head-muted:rgb(18_35_63/0.74)] md:[--head-ghost:rgb(18_35_63/0.07)] md:[--head-line:rgb(18_35_63/0.3)] md:[--head-field:rgb(255_255_255/0.28)] md:[--veil-dark:0] md:[--veil-light:1]";
+    "[--head-fg:var(--color-ink)] [--head-muted:rgb(18_35_63/0.74)] [--head-ghost:rgb(18_35_63/0.07)] [--head-line:rgb(18_35_63/0.3)] [--head-field:rgb(255_255_255/0.28)] [--veil-dark:0] [--veil-light:1]";
 
-  const palette = floating ? `${bar} ${tone === "dark" ? floatingDark : floatingLight}` : bar;
+  const palette = floating ? (tone === "dark" ? floatingDark : floatingLight) : bar;
 
   return (
     <header
@@ -86,19 +84,19 @@ export function HeaderShell({
       data-tone={tone}
       className={`site-header ${palette} z-50 text-[color:var(--head-fg)] transition-[background-color,box-shadow,border-color,color] duration-500 ease-[var(--ease-out-quint)] ${
         floating
-          ? "sticky top-0 border-b border-blue-300 bg-paper shadow-[var(--shadow-raise)] md:fixed md:inset-x-0 md:border-transparent md:bg-transparent md:shadow-none"
+          ? "fixed inset-x-0 top-0 border-b border-transparent bg-transparent"
           : "sticky top-0 border-b border-blue-300 bg-paper shadow-[var(--shadow-raise)]"
       }`}
     >
       {/*
-       * `flex-wrap` so the search field can take a row of its own on a phone.
-       * Nested inside the actions group it was squeezed to about forty pixels
-       * between the cart icon and the screen edge — a search box you cannot
-       * read your own query in.
+       * One row at every width. On a phone the search is an icon that opens a
+       * full-screen search (see SearchBox), so nothing has to wrap onto a
+       * second line — which is what lets the header float over a landscape
+       * hero there without covering half of it.
        */}
       <div
-        className={`relative mx-auto flex w-full max-w-[1360px] flex-wrap items-center gap-x-3 gap-y-2 px-4 transition-[padding] duration-300 ease-[var(--ease-out-quint)] md:flex-nowrap md:gap-x-7 md:px-8 ${
-          tight ? "py-2" : "py-3.5 md:py-5"
+        className={`relative mx-auto flex w-full max-w-[1360px] items-center gap-x-1.5 px-4 transition-[padding] duration-300 ease-[var(--ease-out-quint)] sm:gap-x-3 md:gap-x-7 md:px-8 ${
+          tight ? "py-1.5 md:py-2" : "py-2 md:py-5"
         }`}
       >
         {/* The catalogue: one mark at the top left, at every width, opening a
@@ -112,22 +110,19 @@ export function HeaderShell({
         >
           <span
             className={`transition-[font-size] duration-300 ease-[var(--ease-out-quint)] ${
-              tight ? "text-h3" : "text-h2"
+              tight ? "text-h3" : "text-h3 sm:text-h2"
             }`}
           >
             Manifest
           </span>
         </Link>
 
-        {/*
-         * Both are direct children of the wrapping row, so on a phone the
-         * actions stay beside the wordmark and the search drops to a second
-         * line at full width. From `md` the row stops wrapping and they sit
-         * side by side as before.
-         */}
+        {/* The search: an icon on a phone, the field itself from `md`. It
+            carries its own `ml-auto`, which pushes it and the actions to the
+            right-hand end of the row. */}
         {search}
 
-        <div className="ml-auto flex shrink-0 items-center md:ml-0">
+        <div className="flex shrink-0 items-center">
           {actions}
         </div>
       </div>

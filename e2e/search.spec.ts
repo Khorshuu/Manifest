@@ -153,7 +153,9 @@ test("staff can hide a product from search without unpublishing it", async ({
 }) => {
   await signIn(page, "staff@example.com");
   await page.goto("/admin/products");
-  await page.getByRole("link", { name: "Maple Pecan Coffee Beans" }).click();
+  await page
+    .getByRole("link", { name: "Maple Pecan Coffee Beans", exact: true })
+    .click();
   await openSearchListing(page);
 
   const toggle = page.getByLabel("Show this product in search results and suggestions");
@@ -172,7 +174,9 @@ test("staff can hide a product from search without unpublishing it", async ({
   // Put it back for everyone else.
   await page.goBack();
   await page.goto("/admin/products");
-  await page.getByRole("link", { name: "Maple Pecan Coffee Beans" }).click();
+  await page
+    .getByRole("link", { name: "Maple Pecan Coffee Beans", exact: true })
+    .click();
   await openSearchListing(page);
   await page.getByLabel("Show this product in search results and suggestions").check();
   await page
@@ -217,8 +221,11 @@ test.describe("on a phone", () => {
 
   test("the search opens full screen and closes with Cancel", async ({ page }) => {
     await page.goto("/");
-    await page.getByLabel("Search products").click();
+    // On a phone the search is an icon in the header; pressing it opens the
+    // full-screen search with the field focused.
+    await page.getByRole("button", { name: "Open search" }).click();
     await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
+    await expect(page.getByLabel("Search products")).toBeFocused();
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth,

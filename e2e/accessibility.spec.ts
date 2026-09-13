@@ -32,6 +32,37 @@ async function signIn(page: Page, email: string) {
   await page.waitForURL((url) => !url.pathname.startsWith("/login"));
 }
 
+/**
+ * Puts the product on screen into the cart.
+ *
+ * A product with more than one option starts with none chosen (D-043), so the
+ * first one that is not full is picked before adding. The add button is the
+ * panel's "Add to cart" on a desktop and the sticky bar's "Add" on a phone.
+ *
+ * Retried on purpose: the dev server hydrates late under a full parallel run,
+ * and a click that lands before hydration hits a button with no handler
+ * attached yet. Retrying proves the button works without pretending hydration
+ * is instant.
+ */
+async function addToCart(page: Page) {
+  await expect(async () => {
+    const options = page
+      .locator("fieldset", { has: page.getByText("Choose an option", { exact: true }) })
+      .locator("label")
+      .filter({ hasNotText: "Full" });
+    if ((await options.count()) > 0) await options.first().click();
+
+    await page
+      .getByRole("button", { name: /^(Add to cart|Add)$/ })
+      .filter({ visible: true })
+      .first()
+      .click();
+    await expect(page.getByText("Added to your cart.")).toBeVisible({
+      timeout: 4000,
+    });
+  }).toPass({ timeout: 30_000 });
+}
+
 async function audit(page: Page) {
   const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
 
@@ -73,16 +104,7 @@ test.describe("the pages the spec names", () => {
     test.slow();
 
     await page.goto("/products/seasonal-candy-variety-box");
-    // Retried on purpose: the dev server hydrates late under a full parallel
-    // run, and a click that lands before hydration hits a button with no
-    // handler attached yet. Retrying proves the button works without
-    // pretending hydration is instant.
-    await expect(async () => {
-      await page.getByRole("button", { name: "Add to cart" }).click();
-      await expect(page.getByText("Added to your cart.")).toBeVisible({
-        timeout: 4000,
-      });
-    }).toPass({ timeout: 30_000 });
+    await addToCart(page);
 
     await page.goto("/cart");
     await audit(page);
@@ -92,16 +114,7 @@ test.describe("the pages the spec names", () => {
     test.slow();
 
     await page.goto("/products/seasonal-candy-variety-box");
-    // Retried on purpose: the dev server hydrates late under a full parallel
-    // run, and a click that lands before hydration hits a button with no
-    // handler attached yet. Retrying proves the button works without
-    // pretending hydration is instant.
-    await expect(async () => {
-      await page.getByRole("button", { name: "Add to cart" }).click();
-      await expect(page.getByText("Added to your cart.")).toBeVisible({
-        timeout: 4000,
-      });
-    }).toPass({ timeout: 30_000 });
+    await addToCart(page);
 
     await page.goto("/checkout");
     await audit(page);
@@ -160,7 +173,9 @@ test.describe("admin", () => {
     await signIn(page, "staff@example.com");
     await page.goto("/admin/products");
     await page
-      .getByRole("link", { name: /Studio Reference Headphones/ })
+      // Exact: the row also carries a storefront link whose name includes
+      // the product title.
+      .getByRole("link", { name: "Studio Reference Headphones", exact: true })
       .click();
     await page.getByRole("link", { name: "Preorder windows" }).click();
     await audit(page);

@@ -76,7 +76,7 @@ export function OrderCard({ order }: { order: OrderCardOrder }) {
           <p className="truncate text-body font-medium text-ink">
             {first.titleSnapshot}
             {extra > 0 ? (
-              <span className="text-ink/60"> and {extra} more</span>
+              <span className="text-ink/70"> and {extra} more</span>
             ) : null}
           </p>
         ) : null}
@@ -87,7 +87,7 @@ export function OrderCard({ order }: { order: OrderCardOrder }) {
           </p>
         ) : null}
 
-        <p className="mt-0.5 text-meta tabular-nums text-ink/60">
+        <p className="mt-0.5 text-meta tabular-nums text-ink/70">
           {order.orderNumber} · {formatDate(order.placedAt)}
         </p>
       </div>

@@ -67,12 +67,12 @@ test("a super admin manages staff roles", async ({ page }) => {
     page.getByRole("heading", { name: "Staff", level: 1 }),
   ).toBeVisible();
   await expect(
-    page.getByRole("main").getByText("admin@example.com").first(),
+    page.getByRole("main").getByText("admin@example.com").filter({ visible: true }).first(),
   ).toBeVisible();
 
   // Your own row carries no role control: changing your own role is refused
   // server-side too. The old "Change to" buttons are gone.
-  await expect(page.getByText("(you)")).toBeVisible();
+  await expect(page.getByText("(you)").filter({ visible: true })).toBeVisible();
   await expect(page.getByText("Change to")).toHaveCount(0);
   await expect(page.getByRole("combobox", { name: /Role for/ }).first()).toBeVisible();
 });
@@ -93,7 +93,9 @@ test("a super admin creates a staff account", async ({ page }) => {
   expect((await created).status()).toBe(200);
 
   await expect(page.getByText("Account created.")).toBeVisible();
-  await expect(page.getByText(email).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(email).filter({ visible: true }).first()).toBeVisible({
+    timeout: 15_000,
+  });
 });
 
 test("the audit log shows who made each change", async ({ page }) => {
@@ -111,7 +113,7 @@ test("the audit log shows who made each change", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();
   await expect(page.getByText("product.created").first()).toBeVisible();
   await expect(
-    page.getByRole("main").getByText("admin@example.com").first(),
+    page.getByRole("main").getByText("admin@example.com").filter({ visible: true }).first(),
   ).toBeVisible();
 });
 

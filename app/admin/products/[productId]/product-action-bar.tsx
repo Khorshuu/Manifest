@@ -343,7 +343,7 @@ export function ProductActionBar({
                 </ul>
               ) : null}
             </div>
-            <button type="button" onClick={() => { setNotice(null); setFailures([]); }} className="text-ink/60 hover:text-ink">
+            <button type="button" onClick={() => { setNotice(null); setFailures([]); }} className="text-ink/70 hover:text-ink">
               <span aria-hidden="true">×</span>
               <span className="sr-only">Dismiss</span>
             </button>
