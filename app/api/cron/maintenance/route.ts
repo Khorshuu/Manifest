@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { toErrorResponse } from "@/lib/api-error";
 import { deleteExpiredSessions } from "@/lib/auth/session";
 import { deliverQueuedNotifications } from "@/lib/notifications";
+import { expireUnpaidOrders } from "@/lib/orders/expiry";
 import { pruneRateLimits } from "@/lib/rate-limit";
 import { processSearchQueue } from "@/lib/search/maintenance";
 import { pruneSearchLogs } from "@/lib/search/analytics";
@@ -51,6 +52,9 @@ async function run() {
   }
 
   try {
+    // First, so the cancellation messages it queues go out in this run.
+    const unpaidOrders = await expireUnpaidOrders();
+
     const delivery = await deliverQueuedNotifications(BATCH_SIZE);
 
     // Housekeeping that otherwise only happened opportunistically on a request.
@@ -66,6 +70,7 @@ async function run() {
     const releasedSkuHolds = await releaseExpiredSkuReservations();
 
     return NextResponse.json({
+      expiredUnpaidOrders: unpaidOrders.expired.length,
       delivery,
       prunedRateLimits,
       searchIndex,

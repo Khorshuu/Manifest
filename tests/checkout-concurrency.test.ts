@@ -12,7 +12,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "@/db/schema";
 import { addresses, carts, cartItems, orderItems, orders, orderStatusHistory, payments, productVariants, users } from "@/db/schema";
-import { advanceOrder, confirmPayment, placeOrder } from "@/lib/orders";
+import { advanceOrder, confirmPayment, expireUnpaidOrders, placeOrder, recordCapturedPayment } from "@/lib/orders";
 import { CapacityUnavailableError } from "@/lib/preorder";
 import { setBackgroundDeliveryForTesting } from "@/lib/notifications";
 import { MockPaymentProvider, setPaymentProviderForTesting } from "@/lib/providers/payment";
@@ -309,6 +309,96 @@ describe.skipIf(!available)("checkout under real concurrency", () => {
 
     const results = await Promise.allSettled([
       advanceOrder(staff, held.orderId, "cancelled", "race"),
+      ...racers.map(({ shopper, cartId }) => place(shopper, cartId)),
+    ]);
+
+    const unexpected = rejectionCodes(results).filter((code) => code !== "CapacityUnavailableError");
+    expect(unexpected).toEqual([]);
+    await assertReservedMatchesOrders([scarce]);
+  }, 180_000);
+
+  it("G1: several sweepers expiring the same unpaid orders release each once", async () => {
+    const scarce = await variant(40);
+    const placed = [];
+    for (const shopper of shoppers.slice(0, 20)) {
+      placed.push(await place(shopper, await cart(shopper.userId, [{ variantId: scarce }])));
+    }
+    await harness.db
+      .update(orders)
+      .set({ placedAt: new Date(Date.now() - 3 * 60 * 60_000) })
+      .where(inArray(orders.id, placed.map((order) => order.orderId)));
+
+    const reports = await Promise.all(Array.from({ length: 5 }, () => expireUnpaidOrders()));
+
+    const expired = reports.flatMap((report) => report.expired);
+    expect(new Set(expired).size).toBe(expired.length);
+    expect(expired).toHaveLength(20);
+    await assertReservedMatchesOrders([scarce]);
+  }, 180_000);
+
+  it("G2: expiry racing payment never leaves an order both paid and holding nothing", async () => {
+    const item = await variant(40);
+    const placed = [];
+    for (const shopper of shoppers.slice(20, 40)) {
+      placed.push(await place(shopper, await cart(shopper.userId, [{ variantId: item }])));
+    }
+    const ids = placed.map((order) => order.orderId);
+    await harness.db
+      .update(orders)
+      .set({ placedAt: new Date(Date.now() - 3 * 60 * 60_000) })
+      .where(inArray(orders.id, ids));
+    const refs = await harness.db
+      .select({ orderId: payments.orderId, providerRef: payments.providerRef })
+      .from(payments)
+      .where(inArray(payments.orderId, ids));
+
+    const results = await Promise.allSettled([
+      expireUnpaidOrders(),
+      ...refs.map((row) => recordCapturedPayment(row.providerRef!, { source: "race" })),
+      expireUnpaidOrders(),
+    ]);
+
+    expect(rejectionCodes(results)).toEqual([]);
+
+    const finals = await harness.db
+      .select({ id: orders.id, status: orders.status })
+      .from(orders)
+      .where(inArray(orders.id, ids));
+    for (const order of finals) {
+      // Either the payment won (confirmed, still holding its place) or expiry
+      // won (cancelled, place released, the late capture flagged for refund).
+      expect(["payment_confirmed", "cancelled"]).toContain(order.status);
+      if (order.status === "cancelled") {
+        const notes = await harness.db
+          .select({ note: orderStatusHistory.note })
+          .from(orderStatusHistory)
+          .where(eq(orderStatusHistory.orderId, order.id));
+        expect(notes.some((row) => /after the order was cancelled/.test(row.note ?? ""))).toBe(true);
+      }
+    }
+    await assertReservedMatchesOrders([item]);
+  }, 180_000);
+
+  it("G3: places released by expiry are taken by new checkouts without overselling", async () => {
+    const scarce = await variant(10);
+    const stale = [];
+    for (const shopper of shoppers.slice(0, 10)) {
+      stale.push(await place(shopper, await cart(shopper.userId, [{ variantId: scarce }])));
+    }
+    await harness.db
+      .update(orders)
+      .set({ placedAt: new Date(Date.now() - 3 * 60 * 60_000) })
+      .where(inArray(orders.id, stale.map((order) => order.orderId)));
+
+    const racers = await Promise.all(
+      shoppers.slice(10, 40).map(async (shopper) => ({
+        shopper,
+        cartId: await cart(shopper.userId, [{ variantId: scarce }]),
+      })),
+    );
+
+    const results = await Promise.allSettled([
+      expireUnpaidOrders(),
       ...racers.map(({ shopper, cartId }) => place(shopper, cartId)),
     ]);
 

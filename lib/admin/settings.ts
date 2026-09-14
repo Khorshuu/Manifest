@@ -46,6 +46,12 @@ export const SETTING_DEFINITIONS = {
     label: "Assumed weight when unknown (grams)",
     hint: "Used only for variants with no weight recorded.",
   },
+  "orders.unpaid_hold_minutes": {
+    schema: z.number().int().min(5).max(1440),
+    fallback: 30,
+    label: "Unpaid order hold (minutes)",
+    hint: "How long an order placed without payment keeps its places before it is cancelled and they are released (DECISIONS.md D-052). Cash on delivery is never affected.",
+  },
 } as const;
 
 export type SettingKey = keyof typeof SETTING_DEFINITIONS;
