@@ -3,6 +3,7 @@ export * from "./catalog";
 export * from "./variants";
 export * from "./cart";
 export * from "./orders";
+export * from "./payment-events";
 export * from "./admin";
 export * from "./notifications";
 export * from "./rate-limits";

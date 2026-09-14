@@ -1,17 +1,30 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { toErrorResponse } from "@/lib/api-error";
+import { getEnv } from "@/lib/env";
 import { confirmPayment } from "@/lib/orders";
 
 const schema = z.object({ providerRef: z.string().min(1) }).strict();
 
 /**
- * Stands in for the gateway's webhook while the mock provider is in use.
+ * Development stand-in for a gateway's webhook, and nothing more.
  *
- * The real SSLCommerz webhook will verify a signature before reaching this
- * logic; the idempotency guarantee is the same either way.
+ * It confirms a payment by reference without any proof that money moved, so
+ * it must never be reachable where real orders live. In production it answers
+ * 404 whatever the configuration; elsewhere it only works while the mock
+ * provider is selected. Real gateways confirm through the signed webhook at
+ * /api/webhooks/payments/[provider].
  */
+function mockConfirmationAllowed(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  return getEnv().PAYMENT_PROVIDER === "mock";
+}
+
 export async function POST(request: Request) {
+  if (!mockConfirmationAllowed()) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+
   const parsed = schema.safeParse(await request.json().catch(() => null));
 
   if (!parsed.success) {

@@ -4,6 +4,7 @@ import type { PaymentProvider } from "./types";
 
 export * from "./types";
 export { MockPaymentProvider };
+export { MOCK_SIGNATURE_HEADER, MOCK_TIMESTAMP_HEADER, signMockWebhook } from "./mock";
 
 let instance: PaymentProvider | undefined;
 

@@ -57,6 +57,35 @@ export type RefundInput = {
   reason: string;
 };
 
+export type PaymentEventType =
+  | "payment.captured"
+  | "payment.failed"
+  | "refund.completed";
+
+/**
+ * A webhook event whose signature has been checked. Only a provider's
+ * `verifyWebhook` produces one, so nothing downstream acts on an unverified
+ * body.
+ */
+export type VerifiedPaymentEvent = {
+  /** The provider's own event id — the idempotency key for processing. */
+  eventId: string;
+  type: PaymentEventType | "unknown";
+  providerRef: string | null;
+  /** What the provider says moved, in paisa, when it says. */
+  amountBdt: number | null;
+  payload: unknown;
+};
+
+export class WebhookVerificationError extends Error {
+  readonly status = 401;
+
+  constructor(message = "That webhook could not be verified.") {
+    super(message);
+    this.name = "WebhookVerificationError";
+  }
+}
+
 export interface PaymentProvider {
   readonly name: string;
   /** Methods this provider can actually take, for the checkout UI. */
@@ -65,4 +94,19 @@ export interface PaymentProvider {
   /** Confirms an intent — in production this is driven by a webhook. */
   capture(providerRef: string): Promise<PaymentIntent>;
   refund(input: RefundInput): Promise<{ providerRef: string }>;
+  /**
+   * Checks a webhook's signature and freshness, and turns its body into an
+   * event. Throws WebhookVerificationError for anything it cannot prove came
+   * from the provider.
+   */
+  verifyWebhook(input: {
+    rawBody: string;
+    headers: Headers;
+    now?: Date;
+  }): Promise<VerifiedPaymentEvent>;
+  /**
+   * The provider's current view of an attempt, for reconciliation. Optional:
+   * a provider without a lookup API relies on webhooks alone.
+   */
+  retrieve?(providerRef: string): Promise<PaymentIntent>;
 }

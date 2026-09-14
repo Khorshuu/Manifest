@@ -25,6 +25,11 @@ const schema = z.object({
   PAYMENT_PROVIDER: z.enum(["mock", "sslcommerz"]).default("mock"),
   SHIPPING_PROVIDER: z.enum(["mock", "courier"]).default("mock"),
   NOTIFICATION_PROVIDER: z.enum(["mock", "live"]).default("mock"),
+  /**
+   * Shared secret the payment provider signs webhooks with. Without it every
+   * webhook is refused, which is the safe failure.
+   */
+  PAYMENT_WEBHOOK_SECRET: z.string().min(32).optional(),
   // SEO Pulse reads its own variables in lib/seo-pulse/config.ts.
 });
 

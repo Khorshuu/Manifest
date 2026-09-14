@@ -1,10 +1,12 @@
-import { createHash, randomUUID } from "node:crypto";
-import type {
-  CreatePaymentInput,
-  PaymentIntent,
-  PaymentMethod,
-  PaymentProvider,
-  RefundInput,
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  WebhookVerificationError,
+  type CreatePaymentInput,
+  type PaymentIntent,
+  type PaymentMethod,
+  type PaymentProvider,
+  type RefundInput,
+  type VerifiedPaymentEvent,
 } from "./types";
 
 /**
@@ -31,6 +33,9 @@ function referenceFor(idempotencyKey: string, declined: boolean): string {
 
 export class MockPaymentProvider implements PaymentProvider {
   readonly name = "mock";
+
+  /** Defaults to PAYMENT_WEBHOOK_SECRET; tests pass their own. */
+  constructor(private readonly webhookSecret?: string) {}
 
   supportedMethods(): PaymentMethod[] {
     return ["card", "bkash", "nagad", "rocket", "bank_transfer", "cod"];
@@ -76,6 +81,79 @@ export class MockPaymentProvider implements PaymentProvider {
     return { providerRef: `mock_refund_${randomUUID()}` };
   }
 
+  /**
+   * Webhooks signed the way real gateways sign them: HMAC-SHA256 over
+   * `<timestamp>.<raw body>` with a shared secret, and refused when the
+   * timestamp is more than five minutes from now, so a captured request cannot
+   * be replayed later.
+   */
+  async verifyWebhook(input: {
+    rawBody: string;
+    headers: Headers;
+    now?: Date;
+  }): Promise<VerifiedPaymentEvent> {
+    const secret = this.webhookSecret ?? process.env.PAYMENT_WEBHOOK_SECRET;
+    if (!secret) throw new WebhookVerificationError("Webhook signing is not configured.");
+
+    const timestamp = input.headers.get(MOCK_TIMESTAMP_HEADER) ?? "";
+    const signature = input.headers.get(MOCK_SIGNATURE_HEADER) ?? "";
+    const seconds = Number(timestamp);
+    const now = (input.now ?? new Date()).getTime() / 1000;
+
+    if (!Number.isFinite(seconds) || Math.abs(now - seconds) > WEBHOOK_TOLERANCE_SECONDS) {
+      throw new WebhookVerificationError("That webhook is too old or has no timestamp.");
+    }
+
+    const expected = Buffer.from(signMockWebhook(input.rawBody, secret, seconds));
+    const actual = Buffer.from(signature);
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+      throw new WebhookVerificationError();
+    }
+
+    let body: { id?: unknown; type?: unknown; providerRef?: unknown; amountBdt?: unknown };
+    try {
+      body = JSON.parse(input.rawBody);
+    } catch {
+      throw new WebhookVerificationError("That webhook body is not JSON.");
+    }
+    if (typeof body.id !== "string" || body.id.length === 0 || body.id.length > 200) {
+      throw new WebhookVerificationError("That webhook has no event id.");
+    }
+
+    const known = ["payment.captured", "payment.failed", "refund.completed"] as const;
+    return {
+      eventId: body.id,
+      type: known.includes(body.type as (typeof known)[number])
+        ? (body.type as (typeof known)[number])
+        : "unknown",
+      providerRef: typeof body.providerRef === "string" ? body.providerRef : null,
+      amountBdt: Number.isInteger(body.amountBdt) ? (body.amountBdt as number) : null,
+      payload: body,
+    };
+  }
+
+  async retrieve(providerRef: string): Promise<PaymentIntent> {
+    if (!providerRef.startsWith(PREFIX)) {
+      throw new Error(`Unknown payment reference ${providerRef}.`);
+    }
+    // The mock never captures on its own; only a webhook or capture() does.
+    return {
+      providerRef,
+      redirectUrl: null,
+      status: providerRef.startsWith(DECLINED) ? "failed" : "initiated",
+    };
+  }
+
   /** Kept for existing tests; there is nothing to forget. */
   reset(): void {}
+}
+
+export const MOCK_SIGNATURE_HEADER = "x-mock-signature";
+export const MOCK_TIMESTAMP_HEADER = "x-mock-timestamp";
+const WEBHOOK_TOLERANCE_SECONDS = 300;
+
+/** The signature the mock expects, for tests and local tooling. */
+export function signMockWebhook(rawBody: string, secret: string, timestampSeconds: number): string {
+  const digest = createHmac("sha256", secret).update(`${timestampSeconds}.${rawBody}`).digest("hex");
+  return `sha256=${digest}`;
 }
