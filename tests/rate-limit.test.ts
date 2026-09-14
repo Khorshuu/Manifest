@@ -10,7 +10,7 @@
  * serves one connection, so nothing here can actually race.
  */
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { rateLimitHits } from "@/db/schema";
 import {
   consumeRateLimit,
@@ -163,8 +163,16 @@ describe("when the database will not answer", () => {
   it("allows the attempt rather than locking everyone out", async () => {
     await harness.client.exec("drop table rate_limit_hits");
 
+    // The failure is logged for operators; captured here so the run shows an
+    // assertion, not a database stack trace.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const result = await consumeRateLimit("anything", 1, 1000);
     expect(result.allowed).toBe(true);
+    expect(logged).toHaveBeenCalledWith(
+      "Rate limit check failed; allowing the attempt.",
+      expect.anything(),
+    );
+    logged.mockRestore();
 
     // Restored for the next test, since the harness truncates rather than
     // rebuilds between tests.
