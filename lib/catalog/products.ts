@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   categories,
@@ -160,6 +160,263 @@ export async function listProductsForAdmin(
     uncappedPreorders: Number(row.uncappedPreorders),
     lowStockVariants: Number(row.lowStockVariants),
   }));
+}
+
+export type AdminProductStatusFilter = "all" | "published" | "draft" | "archived";
+export type AdminProductStockFilter = "all" | "in_stock" | "low" | "out";
+export type AdminProductSort =
+  | "updated"
+  | "created"
+  | "name_asc"
+  | "name_desc"
+  | "price_asc"
+  | "price_desc"
+  | "stock_asc";
+
+export type AdminProductListRow = Omit<AdminProductRow, "createdAt" | "updatedAt" | "archivedAt"> & {
+  archivedAt: Date | null;
+  updatedAt: Date;
+  createdAt: Date;
+  /** Shown to shoppers: a public status and not archived. */
+  live: boolean;
+  archived: boolean;
+  inventory: "in_stock" | "low" | "out" | "none";
+};
+
+export type AdminProductCounts = {
+  all: number;
+  published: number;
+  drafts: number;
+  out: number;
+  low: number;
+  archived: number;
+};
+
+const ADMIN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function resultRows<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  return ((result as { rows?: T[] }).rows ?? []) as T[];
+}
+
+/**
+ * Admin → Products, one page at a time.
+ *
+ * The list used to load every product with nine correlated subqueries each
+ * and filter, sort and count in the browser: 5,000 rows and 220 ms before
+ * anything rendered, growing with the catalogue. Now the variant figures are
+ * one grouped pass, filtering, sorting and paging happen in SQL, the summary
+ * counts and the filtered total come from one aggregate, and thumbnails are
+ * read for the page only. The rules are the ones the browser applied:
+ *
+ * - live: a public status and not archived; draft: neither live nor archived;
+ * - inventory "none" with no variants, "out" when nothing can be bought (no
+ *   units, no capped places, no uncapped preorder), "low" when any variant is
+ *   at or below its line, otherwise "in_stock". The "in stock" filter includes
+ *   low stock, as before.
+ */
+export async function searchProductsForAdmin(
+  actor: SessionUser | null,
+  filters: {
+    q?: string;
+    status?: AdminProductStatusFilter;
+    stock?: AdminProductStockFilter;
+    categoryId?: string;
+    sort?: AdminProductSort;
+    page?: number;
+    pageSize?: number;
+  } = {},
+): Promise<{
+  rows: AdminProductListRow[];
+  counts: AdminProductCounts;
+  total: number;
+  page: number;
+  pageSize: number;
+  pageCount: number;
+}> {
+  requirePermission(actor, "catalog.manage");
+
+  const pageSize = Math.min(200, Math.max(1, filters.pageSize ?? 50));
+  const publicList = sql.join(
+    PUBLIC_STATUSES.map((status) => sql`${status}`),
+    sql`, `,
+  );
+
+  const listed = sql`
+    with variant_totals as (
+      select v.product_id,
+        count(*) filter (where v.archived_at is null)::int as variant_count,
+        (min(v.price_bdt) filter (where v.archived_at is null))::int as min_price_bdt,
+        (max(v.price_bdt) filter (where v.archived_at is null))::int as max_price_bdt,
+        (sum(v.stock_quantity) filter (where v.archived_at is null and v.fulfillment_mode = 'in_stock'))::int as stock_on_hand,
+        (sum(v.preorder_capacity - v.preorder_reserved) filter (
+          where v.archived_at is null and v.fulfillment_mode = 'preorder' and v.preorder_capacity is not null
+        ))::int as preorder_remaining,
+        count(*) filter (where v.archived_at is null and v.fulfillment_mode = 'preorder')::int as preorder_variants,
+        count(*) filter (
+          where v.archived_at is null and v.is_enabled and v.fulfillment_mode = 'preorder' and v.preorder_capacity is null
+        )::int as uncapped_preorders,
+        count(*) filter (
+          where v.archived_at is null and v.is_enabled and (
+            (v.fulfillment_mode = 'in_stock' and v.stock_quantity > 0
+              and v.stock_quantity <= coalesce(v.low_stock_threshold, 3))
+            or (v.fulfillment_mode = 'preorder' and v.preorder_capacity is not null
+              and v.preorder_capacity - v.preorder_reserved between 1 and 3)
+          )
+        )::int as low_stock_variants
+      from product_variants v
+      group by v.product_id
+    ),
+    listed as (
+      select p.id, p.title, p.slug, p.brand, p.sku, p.status, p.searchable,
+        p.category_id, c.name as category_name, p.archived_at, p.updated_at, p.created_at,
+        coalesce(t.variant_count, 0) as variant_count,
+        t.min_price_bdt, t.max_price_bdt, t.stock_on_hand, t.preorder_remaining,
+        coalesce(t.preorder_variants, 0) as preorder_variants,
+        coalesce(t.uncapped_preorders, 0) as uncapped_preorders,
+        coalesce(t.low_stock_variants, 0) as low_stock_variants,
+        (p.archived_at is not null or p.status = 'archived') as archived,
+        (p.archived_at is null and p.status in (${publicList})) as live,
+        case
+          when coalesce(t.variant_count, 0) = 0 then 'none'
+          when coalesce(t.stock_on_hand, 0) <= 0 and coalesce(t.preorder_remaining, 0) <= 0
+            and coalesce(t.uncapped_preorders, 0) = 0 then 'out'
+          when coalesce(t.low_stock_variants, 0) > 0 then 'low'
+          else 'in_stock'
+        end as inventory
+      from products p
+      left join categories c on c.id = p.category_id
+      left join variant_totals t on t.product_id = p.id
+    )`;
+
+  const conditions: SQL[] = [];
+  switch (filters.status ?? "all") {
+    case "published":
+      conditions.push(sql`live`);
+      break;
+    case "draft":
+      conditions.push(sql`not live and not archived`);
+      break;
+    case "archived":
+      conditions.push(sql`archived`);
+      break;
+    default:
+      conditions.push(sql`not archived`);
+  }
+  if (filters.stock === "in_stock") conditions.push(sql`inventory in ('in_stock', 'low')`);
+  if (filters.stock === "low") conditions.push(sql`inventory = 'low'`);
+  if (filters.stock === "out") conditions.push(sql`inventory = 'out'`);
+  if (filters.categoryId && ADMIN_UUID.test(filters.categoryId)) {
+    conditions.push(sql`category_id = ${filters.categoryId}::uuid`);
+  }
+  const term = filters.q?.trim();
+  if (term) {
+    const pattern = `%${term.slice(0, 100).replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+    conditions.push(sql`(title ilike ${pattern} or brand ilike ${pattern} or sku ilike ${pattern}
+      or slug ilike ${pattern} or id::text ilike ${pattern})`);
+  }
+  const matches = sql.join(conditions, sql` and `);
+
+  const [summary] = resultRows<Record<string, number>>(
+    await db.execute(sql`${listed}
+      select
+        count(*) filter (where ${matches})::int as total,
+        count(*) filter (where not archived)::int as all_count,
+        count(*) filter (where live)::int as published,
+        count(*) filter (where not live and not archived)::int as drafts,
+        count(*) filter (where not archived and inventory = 'out')::int as out_count,
+        count(*) filter (where not archived and inventory = 'low')::int as low_count,
+        count(*) filter (where archived)::int as archived_count
+      from listed`),
+  );
+
+  const total = Number(summary?.total ?? 0);
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(pageCount, Math.max(1, Math.floor(filters.page ?? 1)));
+
+  const order = (() => {
+    switch (filters.sort ?? "updated") {
+      case "created":
+        return sql`created_at desc, id desc`;
+      case "name_asc":
+        return sql`lower(title) asc, id asc`;
+      case "name_desc":
+        return sql`lower(title) desc, id desc`;
+      case "price_asc":
+        return sql`min_price_bdt asc nulls last, id asc`;
+      case "price_desc":
+        return sql`min_price_bdt desc nulls last, id desc`;
+      case "stock_asc":
+        return sql`(case when uncapped_preorders > 0 then 2147483647
+          else coalesce(stock_on_hand, 0) + coalesce(preorder_remaining, 0) end) asc, id asc`;
+      default:
+        return sql`updated_at desc, id desc`;
+    }
+  })();
+
+  const pageRows = resultRows<Record<string, unknown>>(
+    await db.execute(sql`${listed}
+      select * from listed where ${matches}
+      order by ${order}
+      limit ${pageSize} offset ${(page - 1) * pageSize}`),
+  );
+
+  const ids = pageRows.map((row) => String(row.id));
+  const images = ids.length
+    ? await db
+        .selectDistinctOn([productImages.productId], {
+          productId: productImages.productId,
+          url: productImages.url,
+        })
+        .from(productImages)
+        .where(and(inArray(productImages.productId, ids), eq(productImages.kind, "gallery")))
+        .orderBy(productImages.productId, productImages.sortOrder, productImages.createdAt)
+    : [];
+  const imageOf = new Map(images.map((image) => [image.productId, image.url]));
+
+  const numberOrNull = (value: unknown) => (value === null || value === undefined ? null : Number(value));
+  const dateOrNull = (value: unknown) => (value === null || value === undefined ? null : new Date(String(value)));
+
+  return {
+    rows: pageRows.map((row) => ({
+      id: String(row.id),
+      title: String(row.title),
+      slug: String(row.slug),
+      brand: (row.brand as string | null) ?? null,
+      sku: (row.sku as string | null) ?? null,
+      status: String(row.status),
+      searchable: Boolean(row.searchable),
+      categoryId: (row.category_id as string | null) ?? null,
+      categoryName: (row.category_name as string | null) ?? null,
+      variantCount: Number(row.variant_count),
+      archivedAt: dateOrNull(row.archived_at),
+      updatedAt: new Date(String(row.updated_at)),
+      createdAt: new Date(String(row.created_at)),
+      imageUrl: imageOf.get(String(row.id)) ?? null,
+      minPriceBdt: numberOrNull(row.min_price_bdt),
+      maxPriceBdt: numberOrNull(row.max_price_bdt),
+      stockOnHand: numberOrNull(row.stock_on_hand),
+      preorderRemaining: numberOrNull(row.preorder_remaining),
+      preorderVariants: Number(row.preorder_variants),
+      uncappedPreorders: Number(row.uncapped_preorders),
+      lowStockVariants: Number(row.low_stock_variants),
+      live: Boolean(row.live),
+      archived: Boolean(row.archived),
+      inventory: String(row.inventory) as AdminProductListRow["inventory"],
+    })),
+    counts: {
+      all: Number(summary?.all_count ?? 0),
+      published: Number(summary?.published ?? 0),
+      drafts: Number(summary?.drafts ?? 0),
+      out: Number(summary?.out_count ?? 0),
+      low: Number(summary?.low_count ?? 0),
+      archived: Number(summary?.archived_count ?? 0),
+    },
+    total,
+    page,
+    pageSize,
+    pageCount,
+  };
 }
 
 export async function getProductForAdmin(

@@ -3,9 +3,7 @@ import { LinkButton } from "@/components/button";
 import { requireAdminPage } from "@/lib/auth/admin-page";
 import {
   getCategoryTree,
-  listProductsForAdmin,
-  PUBLIC_STATUSES,
-  type AdminProductRow,
+  searchProductsForAdmin,
   type CategoryNode,
 } from "@/lib/catalog";
 import {
@@ -15,29 +13,19 @@ import {
   STOCK_FILTERS,
   type Filters,
 } from "./filters";
-import { ProductTable, type Inventory } from "./product-table";
+import { ProductTable } from "./product-table";
 
 export const metadata: Metadata = { title: "Products" };
 export const dynamic = "force-dynamic";
+
+/** Products per page. */
+const PAGE_SIZE = 50;
 
 function flatten(nodes: CategoryNode[]): { id: string; label: string }[] {
   return nodes.flatMap((node) => [
     { id: node.id, label: `${"— ".repeat(node.depth)}${node.name}` },
     ...flatten(node.children),
   ]);
-}
-
-/**
- * Out of stock: it has variants, and none can be bought — no units on hand,
- * no preorder places left, no uncapped preorder. Low: at least one variant is
- * at or below its low-stock line (see listProductsForAdmin).
- */
-function inventoryOf(row: AdminProductRow): Inventory {
-  if (row.variantCount === 0) return "none";
-  const sellable =
-    (row.stockOnHand ?? 0) > 0 || (row.preorderRemaining ?? 0) > 0 || row.uncappedPreorders > 0;
-  if (!sellable) return "out";
-  return row.lowStockVariants > 0 ? "low" : "in_stock";
 }
 
 function pick<T extends string>(value: string | string[] | undefined, allowed: readonly T[], fallback: T): T {
@@ -47,15 +35,12 @@ function pick<T extends string>(value: string | string[] | undefined, allowed: r
 
 /**
  * Admin → Products: what exists, what is live, what is a draft, what has run
- * out — and the next step for each, in plain sight.
+ * out — and the next step for each, in plain sight. Filtered, sorted and paged
+ * on the server (lib/catalog/products.ts), with the view in the address.
  */
 export default async function AdminProductsPage({ searchParams }: PageProps<"/admin/products">) {
   const user = await requireAdminPage("catalog.manage");
   const query = await searchParams;
-  const [rows, tree] = await Promise.all([
-    listProductsForAdmin(user, { includeArchived: true }),
-    getCategoryTree(),
-  ]);
 
   const initial: Filters = {
     q: typeof query.q === "string" ? query.q.slice(0, 100) : "",
@@ -64,6 +49,20 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
     category: typeof query.category === "string" ? query.category : "",
     sort: pick(query.sort, SORTS, DEFAULT_FILTERS.sort),
   };
+  const requestedPage = Number(Array.isArray(query.page) ? query.page[0] : query.page) || 1;
+
+  const [result, tree] = await Promise.all([
+    searchProductsForAdmin(user, {
+      q: initial.q,
+      status: initial.status,
+      stock: initial.stock,
+      categoryId: initial.category || undefined,
+      sort: initial.sort,
+      page: requestedPage,
+      pageSize: PAGE_SIZE,
+    }),
+    getCategoryTree(),
+  ]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -82,32 +81,33 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
       <ProductTable
         initial={initial}
         categories={flatten(tree)}
-        rows={rows.map((row) => {
-          const archived = row.archivedAt !== null || row.status === "archived";
-          return {
-            id: row.id,
-            title: row.title,
-            slug: row.slug,
-            brand: row.brand,
-            sku: row.sku,
-            status: archived ? "archived" : row.status,
-            archived,
-            live: !archived && (PUBLIC_STATUSES as readonly string[]).includes(row.status),
-            searchable: row.searchable,
-            categoryId: row.categoryId,
-            categoryName: row.categoryName,
-            variantCount: row.variantCount,
-            imageUrl: row.imageUrl,
-            minPriceBdt: row.minPriceBdt,
-            maxPriceBdt: row.maxPriceBdt,
-            stockOnHand: row.stockOnHand,
-            preorderRemaining: row.preorderRemaining,
-            uncappedPreorders: row.uncappedPreorders,
-            inventory: inventoryOf(row),
-            updatedAt: row.updatedAt.toISOString(),
-            createdAt: row.createdAt.toISOString(),
-          };
-        })}
+        counts={result.counts}
+        total={result.total}
+        page={result.page}
+        pageCount={result.pageCount}
+        rows={result.rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          slug: row.slug,
+          brand: row.brand,
+          sku: row.sku,
+          status: row.archived ? "archived" : row.status,
+          archived: row.archived,
+          live: row.live,
+          searchable: row.searchable,
+          categoryId: row.categoryId,
+          categoryName: row.categoryName,
+          variantCount: row.variantCount,
+          imageUrl: row.imageUrl,
+          minPriceBdt: row.minPriceBdt,
+          maxPriceBdt: row.maxPriceBdt,
+          stockOnHand: row.stockOnHand,
+          preorderRemaining: row.preorderRemaining,
+          uncappedPreorders: row.uncappedPreorders,
+          inventory: row.inventory,
+          updatedAt: row.updatedAt.toISOString(),
+          createdAt: row.createdAt.toISOString(),
+        }))}
       />
     </div>
   );

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Button, buttonClass } from "@/components/button";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -79,10 +79,20 @@ export function ProductTable({
   rows,
   categories,
   initial,
+  counts,
+  total,
+  page,
+  pageCount,
 }: {
+  /** One page, already filtered and sorted by the server. */
   rows: ProductRow[];
   categories: { id: string; label: string }[];
   initial: Filters;
+  counts: { all: number; published: number; drafts: number; out: number; low: number; archived: number };
+  /** Products matching the filters, across every page. */
+  total: number;
+  page: number;
+  pageCount: number;
 }) {
   const router = useRouter();
   const [filters, setFilters] = useState<Filters>(initial);
@@ -90,72 +100,48 @@ export function ProductTable({
   const [working, setWorking] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<Toast | null>(null);
   const [pending, setPending] = useState<Pending>(null);
-  const deferredQuery = useDeferredValue(filters.q);
+  const [navigating, startNavigation] = useTransition();
 
-  // The filters live in the address, so a card or a link can open a view and
-  // the browser's back button returns to it.
-  useEffect(() => {
+  /*
+   * The server filters, sorts and pages (lib/catalog/products.ts), and the
+   * address is the state: a card or a link opens a view, and the browser's
+   * back button returns to it. A new view starts at page one with nothing
+   * selected, since a selection only ever meant rows on screen.
+   */
+  function navigate(next: Filters, toPage = 1) {
     const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(filters)) {
+    for (const [key, value] of Object.entries(next)) {
       if (value && value !== DEFAULT_FILTERS[key as keyof Filters]) params.set(key, value);
     }
+    if (toPage > 1) params.set("page", String(toPage));
     const query = params.toString();
-    window.history.replaceState(null, "", query ? `?${query}` : window.location.pathname);
-  }, [filters]);
-
-  const set = <K extends keyof Filters>(key: K, value: Filters[K]) =>
-    setFilters((current) => ({ ...current, [key]: value }));
-
-  const counts = useMemo(() => {
-    const active = rows.filter((row) => !row.archived);
-    return {
-      all: active.length,
-      published: active.filter((row) => row.live).length,
-      drafts: active.filter((row) => !row.live).length,
-      out: active.filter((row) => row.inventory === "out").length,
-      low: active.filter((row) => row.inventory === "low").length,
-      archived: rows.length - active.length,
-    };
-  }, [rows]);
-
-  const visible = useMemo(() => {
-    const term = deferredQuery.trim().toLowerCase();
-    const filtered = rows.filter((row) => {
-      if (filters.status === "all" && row.archived) return false;
-      if (filters.status === "published" && !row.live) return false;
-      if (filters.status === "draft" && (row.live || row.archived)) return false;
-      if (filters.status === "archived" && !row.archived) return false;
-      if (filters.stock === "in_stock" && row.inventory !== "in_stock" && row.inventory !== "low") return false;
-      if (filters.stock === "low" && row.inventory !== "low") return false;
-      if (filters.stock === "out" && row.inventory !== "out") return false;
-      if (filters.category && row.categoryId !== filters.category) return false;
-      if (!term) return true;
-      return [row.title, row.brand, row.sku, row.slug, row.id]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(term));
+    setSelected(new Set());
+    startNavigation(() => {
+      router.replace(query ? `?${query}` : window.location.pathname, { scroll: false });
     });
+  }
 
-    const stockOf = (row: ProductRow) =>
-      row.uncappedPreorders > 0 ? Number.MAX_SAFE_INTEGER : (row.stockOnHand ?? 0) + (row.preorderRemaining ?? 0);
-    return filtered.sort((a, b) => {
-      switch (filters.sort) {
-        case "created":
-          return b.createdAt.localeCompare(a.createdAt);
-        case "name_asc":
-          return a.title.localeCompare(b.title);
-        case "name_desc":
-          return b.title.localeCompare(a.title);
-        case "price_asc":
-          return (a.minPriceBdt ?? Infinity) - (b.minPriceBdt ?? Infinity);
-        case "price_desc":
-          return (b.minPriceBdt ?? -Infinity) - (a.minPriceBdt ?? -Infinity);
-        case "stock_asc":
-          return stockOf(a) - stockOf(b);
-        default:
-          return b.updatedAt.localeCompare(a.updatedAt);
-      }
-    });
-  }, [rows, deferredQuery, filters]);
+  // Search follows typing after a short pause rather than on every key.
+  useEffect(() => {
+    if (filters.q === initial.q) return;
+    const timer = window.setTimeout(() => navigate(filters), 300);
+    return () => window.clearTimeout(timer);
+    // Only the typed text schedules this; every other control navigates itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.q]);
+
+  const set = <K extends keyof Filters>(key: K, value: Filters[K]) => {
+    const next = { ...filters, [key]: value };
+    setFilters(next);
+    if (key !== "q") navigate(next);
+  };
+
+  const applyFilters = (next: Filters) => {
+    setFilters(next);
+    navigate(next);
+  };
+
+  const visible = rows;
 
   const filtered =
     filters.q !== "" ||
@@ -365,16 +351,17 @@ export function ProductTable({
   }
 
   const cards: { key: string; label: string; value: number; active: boolean; apply: () => void; tone?: string }[] = [
-    { key: "all", label: "All products", value: counts.all, active: filters.status === "all" && filters.stock === "all", apply: () => setFilters((c) => ({ ...c, status: "all", stock: "all" })) },
-    { key: "published", label: "Published", value: counts.published, active: filters.status === "published" && filters.stock === "all", apply: () => setFilters((c) => ({ ...c, status: "published", stock: "all" })) },
-    { key: "drafts", label: "Drafts", value: counts.drafts, active: filters.status === "draft", apply: () => setFilters((c) => ({ ...c, status: "draft", stock: "all" })), tone: "text-brass-text" },
-    { key: "out", label: "Out of stock", value: counts.out, active: filters.stock === "out", apply: () => setFilters((c) => ({ ...c, status: "all", stock: "out" })), tone: "text-stamp-red-text" },
-    { key: "low", label: "Low stock", value: counts.low, active: filters.stock === "low", apply: () => setFilters((c) => ({ ...c, status: "all", stock: "low" })), tone: "text-brass-text" },
+    { key: "all", label: "All products", value: counts.all, active: filters.status === "all" && filters.stock === "all", apply: () => applyFilters({ ...filters, status: "all", stock: "all" }) },
+    { key: "published", label: "Published", value: counts.published, active: filters.status === "published" && filters.stock === "all", apply: () => applyFilters({ ...filters, status: "published", stock: "all" }) },
+    { key: "drafts", label: "Drafts", value: counts.drafts, active: filters.status === "draft", apply: () => applyFilters({ ...filters, status: "draft", stock: "all" }), tone: "text-brass-text" },
+    { key: "out", label: "Out of stock", value: counts.out, active: filters.stock === "out", apply: () => applyFilters({ ...filters, status: "all", stock: "out" }), tone: "text-stamp-red-text" },
+    { key: "low", label: "Low stock", value: counts.low, active: filters.stock === "low", apply: () => applyFilters({ ...filters, status: "all", stock: "low" }), tone: "text-brass-text" },
   ];
 
   const selectLabel = "flex min-w-0 flex-col gap-1 text-[0.75rem] font-medium text-ink/70";
 
-  if (rows.length === 0) {
+  // A shop with no products at all, not a filter that matched nothing.
+  if (counts.all + counts.archived === 0) {
     return (
       <EmptyState
         title="No products yet"
@@ -462,7 +449,7 @@ export function ProductTable({
         <button
           type="button"
           disabled={!filtered && filters.sort === "updated"}
-          onClick={() => setFilters(DEFAULT_FILTERS)}
+          onClick={() => applyFilters(DEFAULT_FILTERS)}
           className="min-h-9 rounded-control px-2 text-meta font-medium text-blue-600 hover:bg-blue-50 disabled:text-ink/35 disabled:hover:bg-transparent"
         >
           Clear filters
@@ -502,8 +489,9 @@ export function ProductTable({
           </div>
         ) : (
           <span className="text-ink/65">
-            {visible.length} of {counts.all + counts.archived} shown
-            {working.size > 0 ? " · working…" : ""}
+            {total === 0 ? "None" : `${(page - 1) * 50 + 1}–${(page - 1) * 50 + visible.length}`} of {total} shown
+            {pageCount > 1 ? ` · page ${page} of ${pageCount}` : ""}
+            {working.size > 0 ? " · working…" : navigating ? " · loading…" : ""}
           </span>
         )}
       </div>
@@ -543,7 +531,7 @@ export function ProductTable({
       {visible.length === 0 ? (
         <div className="admin-card flex flex-col items-start gap-2">
           <p className="text-body font-semibold text-ink">No products match these filters.</p>
-          <button type="button" onClick={() => setFilters(DEFAULT_FILTERS)} className="text-meta font-medium text-blue-600 hover:underline">
+          <button type="button" onClick={() => applyFilters(DEFAULT_FILTERS)} className="text-meta font-medium text-blue-600 hover:underline">
             Clear filters
           </button>
         </div>
@@ -688,6 +676,31 @@ export function ProductTable({
           </ul>
         </>
       )}
+
+      {/* ---------------------------------------------------- pages */}
+      {pageCount > 1 ? (
+        <nav aria-label="Pages" className="flex flex-wrap items-center gap-3 text-meta">
+          <button
+            type="button"
+            disabled={page <= 1 || navigating}
+            onClick={() => navigate(filters, page - 1)}
+            className="min-h-9 rounded-control px-2 font-medium text-blue-600 hover:bg-blue-50 disabled:text-ink/35 disabled:hover:bg-transparent"
+          >
+            Previous
+          </button>
+          <span className="text-ink/70">
+            Page {page} of {pageCount}
+          </span>
+          <button
+            type="button"
+            disabled={page >= pageCount || navigating}
+            onClick={() => navigate(filters, page + 1)}
+            className="min-h-9 rounded-control px-2 font-medium text-blue-600 hover:bg-blue-50 disabled:text-ink/35 disabled:hover:bg-transparent"
+          >
+            Next
+          </button>
+        </nav>
+      ) : null}
 
       {/* ---------------------------------------------------- dialogs */}
       {pending?.kind === "delete" ? (
