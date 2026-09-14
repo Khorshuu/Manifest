@@ -1,12 +1,9 @@
 import { PGlite } from "@electric-sql/pglite";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import * as schema from "@/db/schema";
 import { setDatabaseForTesting, type Database } from "@/db";
-
-const MIGRATIONS_DIR = join(process.cwd(), "db/migrations");
+import { migrate, pgliteExecutor } from "@/db/migrator";
 
 /**
  * Spins up an in-process Postgres with the real migrations applied, and points
@@ -19,17 +16,8 @@ export async function createTestDatabase() {
   const client = new PGlite({ extensions: { pg_trgm } });
   const db = drizzle(client, { schema });
 
-  const files = readdirSync(MIGRATIONS_DIR)
-    .filter((name) => name.endsWith(".sql"))
-    .sort();
-
-  for (const file of files) {
-    const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-    for (const statement of sqlText.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await client.exec(trimmed);
-    }
-  }
+  // The same ledger-keeping runner a deployment uses (db/migrator.ts).
+  await migrate(pgliteExecutor(client), { log: () => undefined });
 
   setDatabaseForTesting(db as unknown as Database);
 
@@ -46,7 +34,7 @@ export async function createTestDatabase() {
           search_queries, search_clicks, search_history, search_synonyms,
           product_search_words, product_search_queue, product_search,
           seo_research_runs, sku_reservations, recovery_codes, rate_limit_hits, notifications, audit_log, site_settings, reviews,
-          payments, order_status_history, order_items, orders,
+          payment_events, payments, order_status_history, order_items, orders,
           wishlist_items, cart_items, carts,
           waitlist_entries, inventory_adjustments,
           variant_option_values, variant_images, product_variants,

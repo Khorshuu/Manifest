@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "test:e2e": "tsx e2e/prepare-db.ts && playwright test",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx db/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx db/seed-cli.ts",
     "db:setup": "tsx db/setup.ts",
@@ -20,6 +20,9 @@
     "test:e2e:only": "playwright test",
     "test:e2e:prod": "tsx e2e/prepare-db.ts && next build && cross-env E2E_PRODUCTION=1 playwright test",
     "db:migrate:deploy": "tsx db/migrate.ts",
+    "db:seed:scale": "tsx db/seed-scale.ts",
+    "perf:bench": "tsx scripts/perf/bench.ts",
+    "perf:http": "node scripts/perf/http-load.mjs",
     "vercel-build": "tsx db/migrate.ts && next build"
   },
   "dependencies": {
@@ -53,7 +56,6 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
     "typescript": "^5",
-    "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^5.0.0"
   },
   "allowScripts": {

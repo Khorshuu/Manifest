@@ -1,10 +1,11 @@
 /**
- * Applies the checked-in migrations, and nothing else.
+ * Applies pending migrations, and nothing else.
  *
  * `db/setup.ts` is the local convenience: it migrates *and* seeds, and the
  * seed truncates the tables it owns, so it must never touch a real shop. This
- * script is the one a deployment runs. It is idempotent — a statement that
- * reports the object already exists is skipped — so it is safe on every build.
+ * script is the one a deployment runs. Each migration is applied once and
+ * recorded in `schema_migrations` (db/migrator.ts); running it again with
+ * nothing pending does nothing.
  *
  * With no DATABASE_URL it does nothing and succeeds, because a build with no
  * database configured is still a valid build.
@@ -16,45 +17,12 @@
  * Run with: npm run db:migrate:deploy
  */
 import "../lib/load-env";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { hash } from "@node-rs/argon2";
 import { sql } from "drizzle-orm";
+import postgres from "postgres";
 import { getDb } from "./index";
+import { migratePostgres } from "./migrator";
 import { users } from "./schema";
-
-const MIGRATIONS_DIR = join(process.cwd(), "db/migrations");
-
-async function applyMigrations() {
-  const files = readdirSync(MIGRATIONS_DIR)
-    .filter((name) => name.endsWith(".sql"))
-    .sort();
-
-  const db = getDb();
-
-  for (const file of files) {
-    const sqlText = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
-    process.stdout.write(`Applying ${file}...\n`);
-
-    for (const statement of sqlText.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (!trimmed) continue;
-      try {
-        await db.execute(trimmed);
-      } catch (error) {
-        // Drizzle wraps driver errors, so the useful text is on the cause.
-        const message = [
-          error instanceof Error ? error.message : String(error),
-          error instanceof Error && error.cause ? String(error.cause) : "",
-        ].join(" ");
-
-        // Re-running against an existing database is expected and harmless.
-        if (/already exists/i.test(message)) continue;
-        throw error;
-      }
-    }
-  }
-}
 
 /**
  * Creates the owner's account if the shop has no staff yet. An existing
@@ -91,18 +59,28 @@ async function ensureFirstAdministrator() {
 }
 
 async function main() {
-  if (!process.env.DATABASE_URL?.trim()) {
+  const url = process.env.DATABASE_URL?.trim();
+  if (!url) {
     process.stdout.write("No DATABASE_URL; skipping migrations.\n");
     process.exit(0);
   }
 
-  await applyMigrations();
+  const client = postgres(url, { max: 1, onnotice: () => {} });
+  try {
+    const report = await migratePostgres(client);
+    process.stdout.write(
+      `Migrations: ${report.applied.length} applied, ${report.baselined.length} baselined, ${report.alreadyApplied} already applied.\n`,
+    );
+  } finally {
+    await client.end({ timeout: 5 });
+  }
+
   await ensureFirstAdministrator();
   process.stdout.write("Database schema is up to date.\n");
   process.exit(0);
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 });

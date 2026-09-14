@@ -1,8 +1,7 @@
 import "../lib/load-env";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { migratePostgres } from "../db/migrator";
 import * as schema from "../db/schema";
 import { seed } from "../db/seed";
 
@@ -36,16 +35,7 @@ async function prepareDatabase() {
   const client = postgres(testUrl, { max: 1, onnotice: () => {} });
   const db = drizzle(client, { schema });
 
-  const migrationsDir = join(process.cwd(), "db/migrations");
-  for (const file of readdirSync(migrationsDir)
-    .filter((name) => name.endsWith(".sql"))
-    .sort()) {
-    const text = readFileSync(join(migrationsDir, file), "utf8");
-    for (const statement of text.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await client.unsafe(trimmed);
-    }
-  }
+  await migratePostgres(client, { log: () => undefined });
 
   await seed(db);
   await client.end();

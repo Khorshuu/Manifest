@@ -1,9 +1,8 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import postgres from "postgres";
 import * as schema from "@/db/schema";
 import { setDatabaseForTesting, type Database } from "@/db";
+import { migratePostgres } from "@/db/migrator";
 
 /**
  * A disposable database on the real PostgreSQL server (`npm run db:server`).
@@ -48,13 +47,7 @@ export async function createRealTestDatabase(name: string, poolSize = 24) {
   const client = postgres(url, { max: poolSize, onnotice: () => {} });
   const db = drizzle(client, { schema });
 
-  const dir = join(process.cwd(), "db/migrations");
-  for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
-    for (const statement of readFileSync(join(dir, file), "utf8").split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await client.unsafe(trimmed);
-    }
-  }
+  await migratePostgres(client, { log: () => undefined });
 
   // Open every pooled connection before racing. A lazy pool lets the first
   // transaction finish while the rest are still connecting, and the suite then
