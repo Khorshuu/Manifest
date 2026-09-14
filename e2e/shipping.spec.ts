@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { addToCart, fillGuestCheckout } from "./helpers/cart";
 
 /**
  * Shipping as staff drive it, and what the shopper then sees.
@@ -33,20 +34,10 @@ async function placeGuestOrder(page: Page) {
   await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 
-  await page.goto("/products/seasonal-candy-variety-box");
-  const added = page.waitForResponse(
-    (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Add to cart" }).click();
-  await added;
+  await addToCart(page);
 
   await page.goto("/checkout");
-  await page.getByLabel("Email", { exact: true }).fill(email);
-  await page.getByLabel("Recipient name").fill("A Shopper");
-  await page.getByLabel("Phone for delivery").fill("+8801700000000");
-  await page.getByLabel("Address", { exact: true }).fill("12 Example Road");
-  await page.getByLabel("City").fill("Dhaka");
-  await page.getByLabel("District").fill("Dhaka");
+  await fillGuestCheckout(page, { email: email, name: "A Shopper" });
   await page.getByRole("button", { name: "Place order" }).click();
   await page.waitForURL(/\/checkout\/confirmation/);
 

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { addToCart, fillGuestCheckout } from "./helpers/cart";
 
 /**
  * The notification outbox in the browser: a real order writes a real row, staff
@@ -26,13 +27,14 @@ test("the outbox says plainly that nothing is actually delivered", async ({
   page,
 }) => {
   await signIn(page, "staff@example.com");
-  await page.goto("/admin/notifications");
+  // The notice sits with the customer messages it qualifies, not the inbox.
+  await page.goto("/admin/notifications?tab=messages");
 
   await expect(
     page.getByRole("heading", { name: "Notifications", level: 1 }),
   ).toBeVisible();
   await expect(
-    page.getByText("No email or SMS provider is connected."),
+    page.getByText(/No email or SMS provider is connected\./),
   ).toBeVisible();
 });
 
@@ -45,21 +47,11 @@ test("placing an order writes a message staff can see and send", async ({
   // A guest checkout, so the address on the row is one this test controls.
   const email = `outbox-${crypto.randomUUID().slice(0, 8)}@example.com`;
 
-  await page.goto("/products/seasonal-candy-variety-box");
-  const added = page.waitForResponse(
-    (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Add to cart" }).click();
-  expect((await added).status()).toBe(200);
+  await addToCart(page);
 
   await page.goto("/checkout");
 
-  await page.getByLabel("Email", { exact: true }).fill(email);
-  await page.getByLabel("Recipient name").fill("Outbox Tester");
-  await page.getByLabel("Phone for delivery").fill("+8801700000000");
-  await page.getByLabel("Address", { exact: true }).fill("12 Example Road");
-  await page.getByLabel("City").fill("Dhaka");
-  await page.getByLabel("District").fill("Dhaka");
+  await fillGuestCheckout(page, { email: email, name: "Outbox Tester" });
 
   await page.getByRole("button", { name: "Place order" }).click();
   await page.waitForURL(/\/checkout\/confirmation/);
@@ -70,7 +62,9 @@ test("placing an order writes a message staff can see and send", async ({
     .textContent())!.match(/ORD-\d{4}-\d{6}/)![0];
 
   await signIn(page, "staff@example.com");
-  await page.goto("/admin/notifications");
+  // Customer messages have their own tab; the default view is the staff
+  // inbox, which also names the order ("New order …") but has no status.
+  await page.goto("/admin/notifications?tab=messages");
 
   const row = page.getByRole("listitem").filter({ hasText: orderNumber });
   await expect(row).toBeVisible();

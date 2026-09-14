@@ -86,9 +86,29 @@ Migration: `0023_payment_events.sql`.
 
 | # | Item | Status | Files | Verification |
 | --- | --- | --- | --- | --- |
-| 4.1 | E2E failures classified and repaired | NOT STARTED | | |
-| 4.2 | Loading-skeleton ARIA violation | NOT STARTED | | |
+| 4.1 | E2E failures classified and repaired | IN PROGRESS | see classification below | Targeted rerun of the 14 affected spec files: 55 → 25 failing after the first pass; second pass in progress. |
+| 4.2 | Loading-skeleton ARIA violation | COMPLETE | `app/admin/products/loading.tsx`, `app/admin/products/[productId]/loading.tsx` | `aria-label` on a role-less `div` is prohibited; the container keeps `aria-busy` and announces loading through a visually hidden `role="status"` message. Axe no longer reports it; the same spec then surfaced a title race (E, below). |
 | 4.3 | Node 22 pinned; Vitest warnings and noise | IN PROGRESS | `.nvmrc`, `vitest.config.mts` | `.nvmrc` = 22 matches `engines`. Config now ESM with native `resolve.tsconfigPaths`; `vite-tsconfig-paths` removed. Real-Postgres suites run as a separate, sequential project after the unit group — running them beside each other exhausted the server's 100 connections and timed out a teardown. Local machine still runs Node 24.20.0 (no version manager installed); CI will run 22. |
+
+### E2E failure classification (baseline run, 55 failures)
+
+Classes: A real application defect · B stale test · C stale selector ·
+D layout/expectation mismatch · E test infrastructure/timing · F unknown.
+
+| Spec (tests × viewports) | Symptom | Cause | Class | Fixed in |
+| --- | --- | --- | --- | --- |
+| shipping (5×2), cancellation-requests (4×2), landed-price (3×2), notifications placing (1×2), cron (1×2), reviews (1×2) — 30 | `waitForResponse` on `POST /api/cart` times out after 180 s | The seeded candy box has options (D-043). Pressing Add with none chosen correctly opens the chooser and sends nothing; the old helper never chose. Not an application bug: the passing checkout spec already chose an option. | B | Shared `e2e/helpers/cart.ts` `addToCart` |
+| same checkout specs, second pass — 16 | `getByLabel('Email')` resolves to 2 elements | The header sign-in dialog (D-050) is always in the document and has its own Email field. | C | `fillGuestCheckout` scoped to `main`; reviews spec scoped likewise |
+| analytics (5×2) — 10 | "Revenue", "Funnel", "Not measured yet", "Last 7 days", "Preorder commitment" not found; "Orders placed" matches 2 | Page redesigned for phones (`86e376f`). Behaviour intact: money behind `finance.view`, funnel still names what is not recorded, utilisation still reported. | D (C for the duplicate) | Spec rewritten against the page's real sections |
+| landed-price settings (1×2) | Staff cannot see Settings heading | Since D-034 `staff_admin` has no `settings.manage`; the test predates the role split. | B | Asserts refusal (`/admin?denied=1`) and API 403 |
+| notifications outbox notice (1×2) | Notice text not found | Notice moved into the "Customer messages" tab. | D | Spec opens `?tab=messages` |
+| security sign-out (1×2) | Heading "Today" not found | Dashboard heading is now a greeting. | D | Asserts the level-1 heading |
+| preorder-windows capacity (1×2) | Product link resolves to 2 | Row gained a "Preview …" storefront link. | C | Exact link name |
+| accessibility preorder windows (1×2) | axe `aria-prohibited-attr` on skeleton; then `document-title` | First: real ARIA misuse. Second: the spec audited immediately after a client-side navigation, before the title updated (verified: the page's HTML carries the title). | A, then E | Skeleton fixed; spec waits for URL and title |
+| admin-variants (1, mobile at baseline, both in rerun) | Second group created 2 variants, not 4 | **Real defect.** The variant screen sends the groups it last rendered; a second group added before the refresh landed was sent alone, and the server replaced the product's groups with it — pruning every variant of the first group. Two staff editing one product would lose data the same way. | A | `setProductAttributes` never drops a product-owned, still-linked group by omission; explicit removal unchanged. Regression tests in `tests/product-options.test.ts`. |
+| seo layout shift (1×2) | 1 unsized image | Gallery's main SVG fills a lightbox `<button>` that fills the sized frame; the test only looked at the direct parent. | D | Test walks up through filling wrappers |
+| filters autosuggest (1 desktop at baseline, the keyboard variant in rerun) | Suggestions listbox never appears | Production mode enables the in-memory suggest throttle (40 per 10 s per visitor); every browser in the suite is one visitor. | E | Ceilings now `SEARCH_SUGGEST_LIMIT` / `SEARCH_CLICK_LIMIT` (defaults unchanged); production E2E raises them as it does the login ceilings |
+| search hide-from-search (1 desktop) | Editor section button not found in time | Passed in the rerun with no change; timing under the full parallel run. | E | — |
 
 ## Phase 5 — Migration safety
 
@@ -102,7 +122,7 @@ Migration: `0023_payment_events.sql`.
 
 | # | Item | Status |
 | --- | --- | --- |
-| 6.1 | Unpaid-order expiry (30 min default, D-052) | NOT STARTED |
+| 6.1 | Unpaid-order expiry (30 min default, D-052) — VERIFIED: `lib/orders/expiry.ts`, setting `orders.unpaid_hold_minutes`; `tests/order-expiry.test.ts` 8/8 (expiry, stock return, repeat sweep, inside window, paid, COD, moved-on, setting); real Postgres G1 (5 concurrent sweepers × 20 orders → each once), G2 (expiry vs capture → confirmed or cancelled-with-refund-note, reserved matches), G3 (released places vs 30 checkouts → no oversell). Runs from the maintenance sweep until the job runner lands. | VERIFIED |
 | 7.1 | Durable job runner | NOT STARTED |
 | 8.1 | Justified indexes (EXPLAIN verified) | NOT STARTED |
 | 8.2 | Server-side / keyset pagination in admin | NOT STARTED |

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/api-error";
+import { getEnv } from "@/lib/env";
 import { cleanQuery } from "@/lib/search/normalize";
 import { suggest } from "@/lib/search/suggest";
 import { allowRequest } from "@/lib/search/throttle";
@@ -20,10 +21,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ suggestions: [], correctedQuery: null });
   }
 
-  // Forty a ten-second window is far beyond any typist with a debounced box,
-  // and well short of a script walking the catalogue a prefix at a time.
+  // Forty a ten-second window (the default) is far beyond any typist with a
+  // debounced box, and well short of a script walking the catalogue a prefix
+  // at a time.
   const visitor = await currentVisitorHash();
-  if (!allowRequest(`suggest:${visitor}`, 40, 10_000)) {
+  if (!allowRequest(`suggest:${visitor}`, getEnv().SEARCH_SUGGEST_LIMIT, 10_000)) {
     return NextResponse.json(
       { error: "Too many suggestions at once. Try again in a moment." },
       { status: 429, headers: { "retry-after": "10" } },

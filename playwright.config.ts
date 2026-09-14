@@ -65,6 +65,10 @@ export default defineConfig({
             // raises the configured ceiling rather than asking for a backdoor.
             LOGIN_RATE_LIMIT_PER_IP: "100000",
             LOGIN_RATE_LIMIT_PER_ACCOUNT: "100000",
+            // Every browser in the suite is one "visitor" (same address, same
+            // user agent), so the public search ceilings are raised too.
+            SEARCH_SUGGEST_LIMIT: "100000",
+            SEARCH_CLICK_LIMIT: "100000",
           }
         : {}),
     },

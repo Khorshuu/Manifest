@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { addToCart, fillGuestCheckout } from "./helpers/cart";
 
 /**
  * The landed price in the browser.
@@ -33,20 +34,10 @@ async function placeGuestOrder(page: Page) {
   await page.goto("/login");
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 
-  await page.goto("/products/seasonal-candy-variety-box");
-  const added = page.waitForResponse(
-    (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Add to cart" }).click();
-  await added;
+  await addToCart(page);
 
   await page.goto("/checkout");
-  await page.getByLabel("Email", { exact: true }).fill(email);
-  await page.getByLabel("Recipient name").fill("A Shopper");
-  await page.getByLabel("Phone for delivery").fill("+8801700000000");
-  await page.getByLabel("Address", { exact: true }).fill("12 Example Road");
-  await page.getByLabel("City").fill("Dhaka");
-  await page.getByLabel("District").fill("Dhaka");
+  await fillGuestCheckout(page, { email: email, name: "A Shopper" });
   await page.getByRole("button", { name: "Place order" }).click();
   await page.waitForURL(/\/checkout\/confirmation/);
 
@@ -59,12 +50,7 @@ test("checkout never adds shipping or duty on top of the price", async ({
 }) => {
   test.slow();
 
-  await page.goto("/products/seasonal-candy-variety-box");
-  const added = page.waitForResponse(
-    (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Add to cart" }).click();
-  await added;
+  await addToCart(page);
 
   await page.goto("/cart");
   const summary = page.getByRole("heading", { name: "Summary" }).locator("..");
@@ -121,16 +107,19 @@ test("staff see the same split on the order", async ({ page }) => {
   await expect(totals.getByText("Duty")).toBeVisible();
 });
 
-test("staff can read settings but only a super admin writes them", async ({
+/*
+ * Settings decide prices and policy, so since the seven staff roles (D-034)
+ * only the owner reaches them at all: an operations manager is turned away
+ * from the page, and the API refuses the write whatever the page shows.
+ */
+test("only a super admin reaches settings, and staff cannot write them", async ({
   page,
 }) => {
   await signIn(page, "staff@example.com");
   await page.goto("/admin/settings");
 
-  await expect(
-    page.getByRole("heading", { name: "Settings", level: 1 }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Customs duty percent")).toBeDisabled();
+  await expect(page).toHaveURL(/\/admin\?denied=1/);
+  await expect(page.getByLabel("Customs duty percent")).toHaveCount(0);
 
   const status = await page.evaluate(async () => {
     const response = await fetch("/api/admin/settings", {

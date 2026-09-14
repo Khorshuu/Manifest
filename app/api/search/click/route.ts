@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getEnv } from "@/lib/env";
 import { logSearchClick } from "@/lib/search/analytics";
 import { allowRequest } from "@/lib/search/throttle";
 import { currentVisitorHash } from "@/lib/search/visitor";
@@ -27,7 +28,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return new NextResponse(null, { status: 400 });
 
   const visitor = await currentVisitorHash();
-  if (!allowRequest(`click:${visitor}`, 30, 60_000)) {
+  if (!allowRequest(`click:${visitor}`, getEnv().SEARCH_CLICK_LIMIT, 60_000)) {
     return new NextResponse(null, { status: 429 });
   }
 

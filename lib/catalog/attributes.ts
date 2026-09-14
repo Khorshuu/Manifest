@@ -379,13 +379,33 @@ export async function setProductAttributes(
   requirePermission(actor, "catalog.manage");
 
   await db.transaction(async (tx) => {
+    /*
+     * A variant group this product owns is only ever taken off it by
+     * `removeProductOption`, which unlinks it explicitly. A list that simply
+     * leaves one out is a stale list, not a removal: the admin screen builds it
+     * from what it last rendered, so a second group added before that render
+     * caught up arrived as [Size] alone — and the product lost Flavor, with
+     * every Flavor variant pruned. Such groups are kept, after the ones named.
+     * Legacy shared attributes (no owning product) keep the old replace rule.
+     */
+    const ownedAndLinked = await tx
+      .select({ attributeId: productAttributes.attributeId })
+      .from(productAttributes)
+      .innerJoin(attributes, eq(attributes.id, productAttributes.attributeId))
+      .where(and(eq(productAttributes.productId, productId), eq(attributes.productId, productId)))
+      .orderBy(asc(productAttributes.sortOrder));
+
+    const finalIds = [
+      ...new Set([...attributeIds, ...ownedAndLinked.map((row) => row.attributeId)]),
+    ];
+
     await tx
       .delete(productAttributes)
       .where(eq(productAttributes.productId, productId));
 
-    if (attributeIds.length > 0) {
+    if (finalIds.length > 0) {
       await tx.insert(productAttributes).values(
-        attributeIds.map((attributeId, index) => ({
+        finalIds.map((attributeId, index) => ({
           productId,
           attributeId,
           sortOrder: index,

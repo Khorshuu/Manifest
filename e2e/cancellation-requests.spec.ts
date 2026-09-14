@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { addToCart } from "./helpers/cart";
 
 /**
  * The cancellation review queue.
@@ -45,12 +46,7 @@ async function orderAsNewShopper(page: Page) {
 
   // The seeded candy box is deliberately roomy, so parallel tests do not
   // exhaust it.
-  await page.goto("/products/seasonal-candy-variety-box");
-  const added = page.waitForResponse(
-    (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Add to cart" }).click();
-  await added;
+  await addToCart(page);
 
   const placed = await page.evaluate(async (address: string) => {
     const response = await fetch("/api/checkout", {

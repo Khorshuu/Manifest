@@ -67,7 +67,9 @@ test("the session cookie is not visible to JavaScript", async ({ page }) => {
 test("signing out invalidates the session server-side", async ({ page }) => {
   await signIn(page, "staff@example.com");
   await page.goto("/admin");
-  await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
+  // The dashboard greets by name ("Hello, …") or reads "Overview"; either way
+  // it is the page's one level-1 heading.
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
   await page.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
 

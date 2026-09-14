@@ -148,7 +148,7 @@ test("capacity cannot be set below what is already reserved", async ({
 
   // The seeded headphones have a variant deliberately at full capacity.
   await page.goto("/admin/products");
-  await page.getByRole("link", { name: /Studio Reference Headphones/ }).click();
+  await page.getByRole("link", { name: "Studio Reference Headphones", exact: true }).click();
   await page.getByRole("link", { name: "Preorder windows" }).click();
 
   const variantId = await page

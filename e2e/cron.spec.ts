@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { addToCart, fillGuestCheckout } from "./helpers/cart";
 
 /**
  * The scheduled sweep.
@@ -97,20 +98,10 @@ test("an order placed now is delivered by the sweep", async ({
 
   const email = `cron-${crypto.randomUUID().slice(0, 8)}@example.com`;
 
-  await page.goto("/products/seasonal-candy-variety-box");
-  const added = page.waitForResponse(
-    (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Add to cart" }).click();
-  await added;
+  await addToCart(page);
 
   await page.goto("/checkout");
-  await page.getByLabel("Email", { exact: true }).fill(email);
-  await page.getByLabel("Recipient name").fill("A Shopper");
-  await page.getByLabel("Phone for delivery").fill("+8801700000000");
-  await page.getByLabel("Address", { exact: true }).fill("12 Example Road");
-  await page.getByLabel("City").fill("Dhaka");
-  await page.getByLabel("District").fill("Dhaka");
+  await fillGuestCheckout(page, { email: email, name: "A Shopper" });
   await page.getByRole("button", { name: "Place order" }).click();
   await page.waitForURL(/\/checkout\/confirmation/);
 
@@ -126,7 +117,9 @@ test("an order placed now is delivered by the sweep", async ({
   expect(response.status()).toBe(200);
 
   await signIn(page, "staff@example.com");
-  await page.goto("/admin/notifications");
+  // Customer messages have their own tab; the default view is the staff
+  // inbox, which also names the order ("New order …") but has no status.
+  await page.goto("/admin/notifications?tab=messages");
 
   const row = page.getByRole("listitem").filter({ hasText: orderNumber });
   await expect(row.first()).toContainText("sent");

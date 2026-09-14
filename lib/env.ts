@@ -21,6 +21,12 @@ const schema = z.object({
    */
   LOGIN_RATE_LIMIT_PER_ACCOUNT: z.coerce.number().int().positive().default(10),
   LOGIN_RATE_LIMIT_PER_IP: z.coerce.number().int().positive().default(60),
+  /**
+   * Public search ceilings, per visitor: suggestions per 10 seconds and result
+   * clicks per minute. Counted in memory per instance (lib/search/throttle.ts).
+   */
+  SEARCH_SUGGEST_LIMIT: z.coerce.number().int().positive().default(40),
+  SEARCH_CLICK_LIMIT: z.coerce.number().int().positive().default(30),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PAYMENT_PROVIDER: z.enum(["mock", "sslcommerz"]).default("mock"),
   SHIPPING_PROVIDER: z.enum(["mock", "courier"]).default("mock"),

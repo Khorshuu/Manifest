@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { addToCart } from "./helpers/cart";
 
 /**
  * Reviews, end to end.
@@ -50,23 +51,20 @@ async function registerCustomer(page: Page): Promise<string> {
 }
 
 async function buyCandy(page: Page, email: string): Promise<string> {
-  await page.goto(PRODUCT);
-  const added = page.waitForResponse(
-    (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Add to cart" }).click();
-  await added;
+  await addToCart(page, PRODUCT);
 
   await page.goto("/checkout");
-  await page.getByLabel("Email", { exact: true }).fill(email);
+  // Scoped to the page: the header's sign-in dialog has an Email field too.
+  const main = page.getByRole("main");
+  await main.getByLabel("Email", { exact: true }).fill(email);
 
-  const savedOption = page.getByRole("radio", { name: "Use a saved address" });
+  const savedOption = main.getByRole("radio", { name: "Use a saved address" });
   if ((await savedOption.count()) === 0) {
-    await page.getByLabel("Recipient name").fill("A Reviewer");
-    await page.getByLabel("Phone for delivery").fill("+8801700000000");
-    await page.getByLabel("Address", { exact: true }).fill("12 Example Road");
-    await page.getByLabel("City").fill("Dhaka");
-    await page.getByLabel("District").fill("Dhaka");
+    await main.getByLabel("Recipient name").fill("A Reviewer");
+    await main.getByLabel("Phone for delivery").fill("+8801700000000");
+    await main.getByLabel("Address", { exact: true }).fill("12 Example Road");
+    await main.getByLabel("City").fill("Dhaka");
+    await main.getByLabel("District").fill("Dhaka");
   }
 
   await page.getByRole("button", { name: "Place order" }).click();

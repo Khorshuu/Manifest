@@ -190,15 +190,24 @@ test("no layout shift from images without dimensions", async ({ page }) => {
   await page.goto("/products/seasonal-candy-variety-box");
 
   // Every image reserves its space, either with attributes or with an
-  // aspect-ratio box, so the page does not jump as media arrives.
+  // aspect-ratio box, so the page does not jump as media arrives. A photograph
+  // that fills its frame absolutely can sit inside a wrapper (the gallery's
+  // lightbox button), so the box is looked for a few levels up, stopping at
+  // the first ancestor that is not itself a filling wrapper.
   const unsized = await page.evaluate(() =>
     Array.from(document.querySelectorAll("img")).filter((image) => {
-      const hasAttributes = image.hasAttribute("width") && image.hasAttribute("height");
-      const parent = image.parentElement;
-      const reserved =
-        parent !== null &&
-        getComputedStyle(parent).aspectRatio !== "auto";
-      return !hasAttributes && !reserved;
+      if (image.hasAttribute("width") && image.hasAttribute("height")) return false;
+
+      let box = image.parentElement;
+      for (let depth = 0; box && depth < 4; depth += 1) {
+        const style = getComputedStyle(box);
+        if (style.aspectRatio !== "auto") return false;
+        // A wrapper that is not sized by its own content hands the question up.
+        const fills = box.classList.contains("size-full") || style.position === "absolute";
+        if (!fills) break;
+        box = box.parentElement;
+      }
+      return true;
     }).length,
   );
 

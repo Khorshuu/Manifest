@@ -178,6 +178,10 @@ test.describe("admin", () => {
       .getByRole("link", { name: "Studio Reference Headphones", exact: true })
       .click();
     await page.getByRole("link", { name: "Preorder windows" }).click();
+    // A client-side navigation: the URL, the page and its <title> arrive in
+    // that order, and axe checks the title, so the audit waits for all three.
+    await page.waitForURL(/\/windows$/);
+    await expect(page).toHaveTitle(/Preorder windows/);
     await audit(page);
   });
 });

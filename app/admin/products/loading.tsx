@@ -2,7 +2,12 @@
 export default function ProductsLoading() {
   const bar = "animate-pulse rounded bg-blue-200/60";
   return (
-    <div className="flex flex-col gap-5" aria-busy="true" aria-label="Loading products">
+    <div className="flex flex-col gap-5" aria-busy="true">
+      {/* A div has no role, so it cannot carry a name; the loading state is
+          announced by a status message instead. */}
+      <p role="status" className="sr-only">
+        Loading products…
+      </p>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-2">
           <span className={`${bar} h-6 w-32`} />

@@ -20,6 +20,7 @@ import {
   listVariants,
   removeProductOption,
   removeProductOptionValue,
+  setProductAttributes,
   setVariantImage,
 } from "@/lib/catalog";
 import { fillWithSeoPulse } from "@/lib/seo-pulse";
@@ -136,6 +137,41 @@ describe("options belong to one product", () => {
 
   it("refuses a customer", async () => {
     await expect(createProductOption(customer, sofaA, { name: "Size", values: ["S"] })).rejects.toThrow(AuthorizationError);
+  });
+});
+
+/*
+ * The admin screen sends the groups it last rendered. Adding a second group
+ * before that render caught up sent only the new one, and the product lost the
+ * first group and every variant built on it (found by e2e/admin-variants).
+ */
+describe("a stale list of groups", () => {
+  it("never takes a group off the product by leaving it out", async () => {
+    const flavor = await createProductOption(staff, sofaA, { name: "Flavor", values: ["Pumpkin Spice", "Peppermint"] });
+    await setProductAttributes(staff, sofaA, [flavor.id]);
+    const first = await generateVariants(staff, sofaA, { priceBdt: 150_000, prune: true });
+    expect(first.created).toBe(2);
+
+    const size = await createProductOption(staff, sofaA, { name: "Size", values: ["Small", "Large"] });
+    // What the browser sent: only the group it had just created.
+    await setProductAttributes(staff, sofaA, [size.id]);
+    const second = await generateVariants(staff, sofaA, { priceBdt: 150_000, prune: true });
+
+    expect((await listProductOptions(sofaA)).map((option) => option.name).sort()).toEqual(["Flavor", "Size"]);
+    expect(second.created).toBe(4);
+    expect((await listVariants(staff, sofaA)).filter((variant) => !variant.archivedAt)).toHaveLength(4);
+  });
+
+  it("still removes a group when it is removed on purpose", async () => {
+    const flavor = await createProductOption(staff, sofaA, { name: "Flavor", values: ["Pumpkin Spice", "Peppermint"] });
+    const size = await createProductOption(staff, sofaA, { name: "Size", values: ["Small", "Large"] });
+    await generateVariants(staff, sofaA, { priceBdt: 150_000, prune: true });
+
+    await removeProductOption(staff, sofaA, size.id);
+    await setProductAttributes(staff, sofaA, [flavor.id]);
+    await generateVariants(staff, sofaA, { priceBdt: 150_000, prune: true });
+
+    expect((await listProductOptions(sofaA)).map((option) => option.name)).toEqual(["Flavor"]);
   });
 });
 
