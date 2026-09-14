@@ -66,7 +66,11 @@ test("placing an order writes a message staff can see and send", async ({
   // inbox, which also names the order ("New order …") but has no status.
   await page.goto("/admin/notifications?tab=messages");
 
-  const row = page.getByRole("listitem").filter({ hasText: orderNumber });
+  // A card on a phone, a table row from md up; whichever this viewport shows.
+  const row = page
+    .getByRole("main")
+    .locator("li, tr")
+    .filter({ hasText: orderNumber, visible: true });
   await expect(row).toBeVisible();
   await expect(row).toContainText(email);
 
