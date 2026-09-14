@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { StatusBadge } from "@/components/status-badge";
 import { requireAdminPage } from "@/lib/auth/admin-page";
-import { listCancellationRequests, searchOrdersForStaff } from "@/lib/orders";
+import { decodeOrderCursor, listCancellationRequests, searchOrdersForStaff } from "@/lib/orders";
 import { formatBdt } from "@/lib/money";
 import { formatShortDate } from "@/lib/format";
 import { ORDER_STATUSES, type OrderStatus } from "@/db/schema";
@@ -53,6 +53,10 @@ export default async function AdminOrdersPage({
   const toStart = parseDay(toDay);
   const to = toStart ? new Date(toStart.getTime() + 24 * 60 * 60 * 1000) : undefined;
   const page = Math.max(1, Number(params.page) || 1);
+  // Newest and oldest page by position, not by page number (lib/orders).
+  const keyset = sort === "newest" || sort === "oldest";
+  const after = decodeOrderCursor(params.after);
+  const before = decodeOrderCursor(params.before);
 
   const showingRequests = status === "cancellation_requested";
   const validStatus = (ORDER_STATUSES as readonly string[]).includes(status)
@@ -70,7 +74,9 @@ export default async function AdminOrdersPage({
           to,
           sort,
           limit: PAGE_SIZE,
-          offset: (page - 1) * PAGE_SIZE,
+          offset: keyset ? undefined : (page - 1) * PAGE_SIZE,
+          after: keyset ? after : undefined,
+          before: keyset ? before : undefined,
         }),
   ]);
 
@@ -318,7 +324,27 @@ export default async function AdminOrdersPage({
         </>
       ) : null}
 
-      {result && pages > 1 ? (
+      {result && keyset && (result.previousCursor || result.nextCursor) ? (
+        <nav aria-label="Pages" className="flex items-center gap-4 text-meta">
+          {result.previousCursor ? (
+            <Link href={keep({ before: result.previousCursor })} className="text-blue-600 hover:underline">
+              {sort === "newest" ? "Newer orders" : "Earlier orders"}
+            </Link>
+          ) : null}
+          {result.nextCursor ? (
+            <Link href={keep({ after: result.nextCursor })} className="text-blue-600 hover:underline">
+              {sort === "newest" ? "Older orders" : "Later orders"}
+            </Link>
+          ) : null}
+          {after || before ? (
+            <Link href={keep({})} className="text-ink/70 hover:underline">
+              Back to the start
+            </Link>
+          ) : null}
+        </nav>
+      ) : null}
+
+      {result && !keyset && pages > 1 ? (
         <nav aria-label="Pages" className="flex items-center gap-3 text-meta">
           {page > 1 ? (
             <Link href={keep({ page: String(page - 1) })} className="text-blue-600 hover:underline">

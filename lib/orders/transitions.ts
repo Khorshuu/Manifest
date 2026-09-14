@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, ilike, isNotNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   orderItems,
@@ -636,6 +636,26 @@ export async function listOrdersForStaff(
   return rows;
 }
 
+/** A position in the newest/oldest order list: the last row a page showed. */
+export type OrderCursor = { placedAt: Date; id: string };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function encodeOrderCursor(cursor: OrderCursor): string {
+  return `${cursor.placedAt.toISOString()}_${cursor.id}`;
+}
+
+/** Reads a cursor from the address bar; anything malformed is ignored. */
+export function decodeOrderCursor(value: unknown): OrderCursor | undefined {
+  if (typeof value !== "string" || value.length > 80) return undefined;
+  const separator = value.lastIndexOf("_");
+  if (separator < 0) return undefined;
+  const placedAt = new Date(value.slice(0, separator));
+  const id = value.slice(separator + 1);
+  if (Number.isNaN(placedAt.getTime()) || !UUID.test(id)) return undefined;
+  return { placedAt, id };
+}
+
 export type StaffOrderQuery = {
   /** Order number, customer email, phone or name. */
   q?: string;
@@ -645,7 +665,12 @@ export type StaffOrderQuery = {
   to?: Date;
   sort?: "newest" | "oldest" | "total_desc" | "total_asc";
   limit?: number;
+  /** Page offset, for the total sorts only. */
   offset?: number;
+  /** Newest/oldest: the page continuing after this row. */
+  after?: OrderCursor;
+  /** Newest/oldest: the page leading up to this row. */
+  before?: OrderCursor;
 };
 
 /**
@@ -653,6 +678,13 @@ export type StaffOrderQuery = {
  * and carrying what a person scanning the list needs — who ordered, how many
  * items and the first of them — so most questions are answered without
  * opening the order.
+ *
+ * Newest and oldest page by keyset on (placed_at, id), which the ordering
+ * indexes from migration 0025 answer directly: the thousandth page costs what
+ * the first does. The total sorts, which nobody pages deeply through, keep an
+ * offset. The line summary is read for the page's orders only — it used to
+ * aggregate every order line in the shop to decorate fifty rows (202 ms at
+ * 100,000 orders; docs/PRODUCTION-READINESS.md).
  */
 export async function searchOrdersForStaff(
   actor: SessionUser | null,
@@ -661,7 +693,10 @@ export async function searchOrdersForStaff(
   requirePermission(actor, "orders.view");
 
   const term = query.q?.trim();
-  const pattern = term ? `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+  const pattern = term ? "%" + term.replace(/[\\%_]/g, (c) => "\\" + c) + "%" : null;
+  const limit = query.limit ?? 50;
+  const sort = query.sort ?? "newest";
+  const keyset = sort === "newest" || sort === "oldest";
 
   const where = and(
     query.status ? eq(orders.status, query.status) : undefined,
@@ -680,28 +715,26 @@ export async function searchOrdersForStaff(
       : undefined,
   );
 
-  const order =
-    query.sort === "oldest"
-      ? asc(orders.placedAt)
-      : query.sort === "total_desc"
-        ? desc(orders.totalBdt)
-        : query.sort === "total_asc"
-          ? asc(orders.totalBdt)
-          : desc(orders.placedAt);
+  // Walking back towards the first page scans the other way, then reverses.
+  const backwards = keyset && Boolean(query.before);
+  const cursor = keyset ? (query.before ?? query.after) : undefined;
+  const descending = keyset ? (sort === "newest") !== backwards : sort === "total_desc";
 
-  const items = db
-    .select({
-      orderId: orderItems.orderId,
-      itemCount: sql<number>`sum(${orderItems.quantity})::int`.as("item_count"),
-      firstTitle: sql<string>`min(${orderItems.titleSnapshot})`.as("first_title"),
-      lines: sql<number>`count(*)::int`.as("lines"),
-      preorder: sql<boolean>`bool_or(${orderItems.fulfillmentModeSnapshot} = 'preorder')`.as("has_preorder"),
-    })
-    .from(orderItems)
-    .groupBy(orderItems.orderId)
-    .as("items");
+  const cursorCondition = cursor
+    ? descending
+      ? sql`(${orders.placedAt}, ${orders.id}) < (${cursor.placedAt.toISOString()}::timestamptz, ${cursor.id}::uuid)`
+      : sql`(${orders.placedAt}, ${orders.id}) > (${cursor.placedAt.toISOString()}::timestamptz, ${cursor.id}::uuid)`
+    : undefined;
 
-  const [rows, [total]] = await Promise.all([
+  const orderBy = keyset
+    ? descending
+      ? [desc(orders.placedAt), desc(orders.id)]
+      : [asc(orders.placedAt), asc(orders.id)]
+    : descending
+      ? [desc(orders.totalBdt), desc(orders.id)]
+      : [asc(orders.totalBdt), asc(orders.id)];
+
+  const [fetched, [total]] = await Promise.all([
     db
       .select({
         id: orders.id,
@@ -716,18 +749,14 @@ export async function searchOrdersForStaff(
         email: users.email,
         firstName: users.firstName,
         lastName: users.lastName,
-        itemCount: items.itemCount,
-        lines: items.lines,
-        firstTitle: items.firstTitle,
-        hasPreorder: items.preorder,
       })
       .from(orders)
       .leftJoin(users, eq(orders.userId, users.id))
-      .leftJoin(items, eq(items.orderId, orders.id))
-      .where(where)
-      .orderBy(order)
-      .limit(query.limit ?? 50)
-      .offset(query.offset ?? 0),
+      .where(and(where, cursorCondition))
+      .orderBy(...orderBy)
+      // One extra row says whether there is a further page.
+      .limit(limit + 1)
+      .offset(keyset ? 0 : (query.offset ?? 0)),
     db
       .select({ value: sql<number>`count(*)::int` })
       .from(orders)
@@ -735,16 +764,51 @@ export async function searchOrdersForStaff(
       .where(where),
   ]);
 
+  const more = fetched.length > limit;
+  const rows = fetched.slice(0, limit);
+  if (backwards) rows.reverse();
+
+  const summaries = rows.length
+    ? await db
+        .select({
+          orderId: orderItems.orderId,
+          itemCount: sql<number>`sum(${orderItems.quantity})::int`,
+          firstTitle: sql<string>`min(${orderItems.titleSnapshot})`,
+          lines: sql<number>`count(*)::int`,
+          hasPreorder: sql<boolean>`bool_or(${orderItems.fulfillmentModeSnapshot} = 'preorder')`,
+        })
+        .from(orderItems)
+        .where(inArray(orderItems.orderId, rows.map((row) => row.id)))
+        .groupBy(orderItems.orderId)
+    : [];
+  const summaryOf = new Map(summaries.map((summary) => [summary.orderId, summary]));
+
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  const nextCursor =
+    keyset && last && (backwards || more) ? encodeOrderCursor({ placedAt: last.placedAt, id: last.id }) : null;
+  const previousCursor =
+    keyset && first && (backwards ? more : Boolean(query.after))
+      ? encodeOrderCursor({ placedAt: first.placedAt, id: first.id })
+      : null;
+
   return {
-    orders: rows.map((row) => ({
-      ...row,
-      itemCount: Number(row.itemCount ?? 0),
-      lines: Number(row.lines ?? 0),
-      customerName:
-        [row.firstName, row.lastName].filter(Boolean).join(" ") || null,
-      customerEmail: row.email ?? row.guestEmail ?? null,
-      isGuest: row.userId === null,
-    })),
+    orders: rows.map((row) => {
+      const summary = summaryOf.get(row.id);
+      return {
+        ...row,
+        itemCount: Number(summary?.itemCount ?? 0),
+        lines: Number(summary?.lines ?? 0),
+        firstTitle: summary?.firstTitle ?? null,
+        hasPreorder: Boolean(summary?.hasPreorder),
+        customerName:
+          [row.firstName, row.lastName].filter(Boolean).join(" ") || null,
+        customerEmail: row.email ?? row.guestEmail ?? null,
+        isGuest: row.userId === null,
+      };
+    }),
     total: Number(total?.value ?? 0),
+    nextCursor,
+    previousCursor,
   };
 }

@@ -81,7 +81,10 @@ export const orders = pgTable(
       sql`${table.userId} is not null or ${table.guestEmail} is not null`,
     ),
     index("orders_user_placed_idx").on(table.userId, table.placedAt),
-    index("orders_status_idx").on(table.status),
+    // Migration 0025: newest-first listing and keyset paging, with and without
+    // a status filter. The composite replaced a status-only index.
+    index("orders_placed_at_id_idx").on(table.placedAt.desc(), table.id.desc()),
+    index("orders_status_placed_at_id_idx").on(table.status, table.placedAt.desc(), table.id.desc()),
   ],
 );
 

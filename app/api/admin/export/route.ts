@@ -3,8 +3,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import {
   exportMarginCsv,
-  exportOrdersCsv,
   exportPreordersCsv,
+  streamOrdersCsv,
 } from "@/lib/admin";
 
 /**
@@ -27,7 +27,8 @@ export async function GET(request: Request) {
         case "margin":
           return { csv: await exportMarginCsv(user), filename: "margin.csv" };
         case "orders":
-          return { csv: await exportOrdersCsv(user), filename: "orders.csv" };
+          // Streamed: every order, without holding the file in memory.
+          return { csv: streamOrdersCsv(user), filename: "orders.csv" };
         default:
           throw Object.assign(new Error("Unknown report."), { status: 400 });
       }

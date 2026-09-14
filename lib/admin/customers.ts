@@ -54,9 +54,30 @@ export async function listCustomersWithOrders(
       : undefined,
   );
 
+  /*
+   * The page of accounts is chosen first, then each one's totals are read
+   * through the (user_id, placed_at) index. Grouping every order in the shop
+   * to decorate fifty rows cost 29 ms at 100,000 orders and grew with every
+   * sale; this costs 4.8 ms and does not (docs/PRODUCTION-READINESS.md).
+   */
+  const page = db
+    .select({
+      id: users.id,
+      email: users.email,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      phone: users.phone,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .where(where)
+    .orderBy(desc(users.createdAt), desc(users.id))
+    .limit(options.limit ?? 50)
+    .offset(options.offset ?? 0)
+    .as("page");
+
   const totals = db
     .select({
-      userId: orders.userId,
       orderCount: sql<number>`count(*)::int`.as("order_count"),
       paidCount:
         sql<number>`(count(*) filter (where ${orders.status} in ${spentStatusList}))::int`.as(
@@ -69,29 +90,26 @@ export async function listCustomersWithOrders(
       lastOrderAt: sql<Date | null>`max(${orders.placedAt})`.as("last_order_at"),
     })
     .from(orders)
-    .groupBy(orders.userId)
+    .where(eq(orders.userId, page.id))
     .as("totals");
 
   const [rows, [total]] = await Promise.all([
     db
       .select({
-        id: users.id,
-        email: users.email,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        phone: users.phone,
-        createdAt: users.createdAt,
+        id: page.id,
+        email: page.email,
+        firstName: page.firstName,
+        lastName: page.lastName,
+        phone: page.phone,
+        createdAt: page.createdAt,
         orderCount: totals.orderCount,
         paidCount: totals.paidCount,
         spentBdt: totals.spentBdt,
         lastOrderAt: totals.lastOrderAt,
       })
-      .from(users)
-      .leftJoin(totals, eq(totals.userId, users.id))
-      .where(where)
-      .orderBy(desc(users.createdAt))
-      .limit(options.limit ?? 50)
-      .offset(options.offset ?? 0),
+      .from(page)
+      .leftJoinLateral(totals, sql`true`)
+      .orderBy(desc(page.createdAt), desc(page.id)),
     db.select({ value: sql<number>`count(*)::int` }).from(users).where(where),
   ]);
 
