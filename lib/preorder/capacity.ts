@@ -246,6 +246,108 @@ export async function reserveCapacity(
   };
 }
 
+export type CapacityLine = { variantId: string; quantity: number };
+
+function toVariantRow(row: Record<string, unknown>): VariantRow {
+  return {
+    id: String(row.id),
+    isEnabled: Boolean(row.is_enabled),
+    archivedAt: row.archived_at ? new Date(String(row.archived_at)) : null,
+    fulfillmentMode: String(row.fulfillment_mode),
+    stockQuantity: row.stock_quantity === null ? null : Number(row.stock_quantity),
+    preorderCapacity: row.preorder_capacity === null ? null : Number(row.preorder_capacity),
+    preorderReserved: Number(row.preorder_reserved),
+    preorderClosesAt: row.preorder_closes_at ? new Date(String(row.preorder_closes_at)) : null,
+  };
+}
+
+/**
+ * Reserves capacity for every line of an order at once, inside the caller's
+ * transaction.
+ *
+ * All the variants are locked by one statement, in ascending id order. That
+ * order is the point: two checkouts holding the same variants must take their
+ * locks in the same sequence, or each can end up holding the row the other is
+ * waiting for. Locking line by line in cart order did exactly that — carts
+ * with the same two items added in opposite order deadlocked (27 of 40 in the
+ * audit's reproduction, tests/checkout-concurrency.test.ts).
+ *
+ * Lines naming the same variant twice are added together before checking, so
+ * a cart cannot slip past the remaining count by splitting a quantity.
+ *
+ * Returns what is left on each variant afterwards (null when unlimited).
+ */
+export async function reserveCapacityForLines(
+  tx: Executor,
+  lines: CapacityLine[],
+  now: Date = new Date(),
+): Promise<Map<string, number | null>> {
+  const wanted = new Map<string, number>();
+  for (const line of lines) {
+    if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
+      throw new Error(`Quantity must be a positive whole number, got ${line.quantity}.`);
+    }
+    wanted.set(line.variantId, (wanted.get(line.variantId) ?? 0) + line.quantity);
+  }
+
+  const remainingAfter = new Map<string, number | null>();
+  if (wanted.size === 0) return remainingAfter;
+
+  const ids = [...wanted.keys()].sort();
+
+  const locked = await tx.execute(sql`
+    select id, is_enabled, archived_at, fulfillment_mode, stock_quantity,
+           preorder_capacity, preorder_reserved, preorder_closes_at
+    from product_variants
+    where id in (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+    order by id
+    for update
+  `);
+
+  const rows = (Array.isArray(locked) ? locked : (locked.rows ?? [])) as Record<string, unknown>[];
+  const byId = new Map(rows.map((row) => [String(row.id), toVariantRow(row)]));
+
+  // Every line is checked before anything is written, so a refusal on the
+  // third line leaves nothing half-reserved even inside the transaction.
+  for (const id of ids) {
+    const variant = byId.get(id);
+    if (!variant) throw new VariantNotFoundError();
+
+    const quantity = wanted.get(id)!;
+    const availability = evaluate(variant, now);
+
+    if (!availability.isPurchasable) {
+      throw new CapacityUnavailableError(REASON_MESSAGES[availability.reason], availability.reason, 0);
+    }
+
+    if (availability.remaining !== null && availability.remaining < quantity) {
+      throw new CapacityUnavailableError(
+        `Only ${availability.remaining} left.`,
+        variant.fulfillmentMode === "preorder" ? "sold_out" : "out_of_stock",
+        availability.remaining,
+      );
+    }
+
+    remainingAfter.set(id, availability.remaining === null ? null : availability.remaining - quantity);
+  }
+
+  for (const id of ids) {
+    const variant = byId.get(id)!;
+    const quantity = wanted.get(id)!;
+
+    await tx
+      .update(productVariants)
+      .set(
+        variant.fulfillmentMode === "preorder"
+          ? { preorderReserved: sql`${productVariants.preorderReserved} + ${quantity}`, updatedAt: new Date() }
+          : { stockQuantity: sql`${productVariants.stockQuantity} - ${quantity}`, updatedAt: new Date() },
+      )
+      .where(eq(productVariants.id, id));
+  }
+
+  return remainingAfter;
+}
+
 /**
  * Returns capacity to a variant — a cancelled order, or a batch that was
  * never purchased. Clamped at zero so a double release cannot drive the

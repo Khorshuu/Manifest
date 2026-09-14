@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { effectivePriceSql } from "@/lib/catalog/price";
 import {
@@ -22,19 +22,29 @@ import {
 } from "@/lib/notifications";
 import { getSettings } from "@/lib/admin/settings";
 import { splitLandedOrder } from "@/lib/pricing";
-import { reserveCapacity } from "@/lib/preorder";
+import { reserveCapacityForLines } from "@/lib/preorder";
 import {
   getPaymentProvider,
   type PaymentMethod,
 } from "@/lib/providers/payment";
+import {
+  isTransientDatabaseError,
+  isUniqueViolation,
+  withTransientRetry,
+} from "@/lib/db-errors";
+import { TransientConflictError } from "@/lib/errors";
 
 /**
  * Order placement.
  *
- * Everything here happens in one transaction: prices are re-read from the
- * database, capacity is reserved under a row lock, and the order is written.
- * If any part fails, no slot stays held and no order exists
- * (docs/BUSINESS_LOGIC.md).
+ * Everything that decides the order happens in one transaction: prices are
+ * re-read from the database, capacity is reserved under row locks taken in a
+ * fixed order, and the order, its lines, its first history row and its
+ * payment record are written. If any part fails, no slot stays held and no
+ * order exists (docs/BUSINESS_LOGIC.md).
+ *
+ * The payment provider is called only after that transaction commits, so a
+ * slow gateway never holds a lock on a variant another shopper is waiting for.
  */
 
 export class CheckoutError extends Error {
@@ -65,6 +75,11 @@ export type PlacedOrder = {
   redirectUrl: string | null;
   /** True when an existing order was returned rather than a new one created. */
   reused: boolean;
+  /**
+   * Whether the provider accepted the payment attempt. "failed" leaves a
+   * placed, unpaid order that releases its places when the hold expires.
+   */
+  paymentStatus: "initiated" | "failed";
 };
 
 /**
@@ -75,28 +90,16 @@ export type PlacedOrder = {
  * already placed. The count was a read-then-write race against a unique
  * column: two checkouts in the same instant read the same number, both tried
  * to insert it, and one customer got "Something went wrong" at the moment they
- * pressed Place order. It surfaced when several end-to-end tests started
- * checking out in parallel, and it would have surfaced in production the first
- * time two people ordered at once.
+ * pressed Place order.
  *
  * `nextval` is atomic and takes no transaction-scoped lock, so concurrent
- * checkouts do not queue behind each other. A counter row incremented with an
- * upsert would also be correct, and was tried first — but it holds a row lock
- * for the rest of the transaction, which serialised every placement and cost
- * the end-to-end suite four minutes.
- *
- * Two consequences, both deliberate. The sequence does not restart each year,
- * so numbering runs continuously and the year is a label rather than a
- * counter — restarting it would need exactly the lock this avoids. And a
- * rolled-back placement leaves a gap, because a sequence does not roll back;
- * a number nobody was ever given is not a problem worth a lock.
+ * checkouts do not queue behind each other. The sequence does not restart each
+ * year, and a rolled-back placement leaves a gap; both are deliberate.
  */
 async function nextOrderNumber(tx: typeof db): Promise<string> {
   const year = new Date().getUTCFullYear();
 
-  // postgres-js returns an array of rows; PGlite returns { rows }. The rest of
-  // this file uses the query builder, which hides the difference — a raw
-  // `nextval` cannot.
+  // postgres-js returns an array of rows; PGlite returns { rows }.
   const result = (await tx.execute(
     sql`select nextval('order_number_seq') as value`,
   )) as unknown as
@@ -118,12 +121,10 @@ export function codAllowed(lines: { fulfillmentMode: string }[]): boolean {
   return lines.every((line) => line.fulfillmentMode === "in_stock");
 }
 
-export async function placeOrder(
-  input: PlaceOrderInput,
-): Promise<PlacedOrder> {
-  // An existing order for this key is returned as-is: a retry after a timeout
-  // or a double tap must not charge twice.
-  const [alreadyPlaced] = await db
+const IDEMPOTENCY_CONSTRAINT = "orders_idempotency_key_unique";
+
+async function findOrderByKey(executor: typeof db, idempotencyKey: string) {
+  const [order] = await executor
     .select({
       id: orders.id,
       orderNumber: orders.orderNumber,
@@ -131,19 +132,30 @@ export async function placeOrder(
       amountDueNowBdt: orders.amountDueNowBdt,
     })
     .from(orders)
-    .where(eq(orders.idempotencyKey, input.idempotencyKey))
+    .where(eq(orders.idempotencyKey, idempotencyKey))
     .limit(1);
+  return order ?? null;
+}
 
-  if (alreadyPlaced) {
-    return {
-      orderId: alreadyPlaced.id,
-      orderNumber: alreadyPlaced.orderNumber,
-      totalBdt: alreadyPlaced.totalBdt,
-      amountDueNowBdt: alreadyPlaced.amountDueNowBdt,
-      redirectUrl: null,
-      reused: true,
-    };
-  }
+function reusedResult(order: NonNullable<Awaited<ReturnType<typeof findOrderByKey>>>): PlacedOrder {
+  return {
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    totalBdt: order.totalBdt,
+    amountDueNowBdt: order.amountDueNowBdt,
+    redirectUrl: null,
+    reused: true,
+    paymentStatus: "initiated",
+  };
+}
+
+export async function placeOrder(
+  input: PlaceOrderInput,
+): Promise<PlacedOrder> {
+  // Fast path for a retry that arrives after the first request finished. It is
+  // an optimisation only: the authoritative check is inside the transaction.
+  const alreadyPlaced = await findOrderByKey(db, input.idempotencyKey);
+  if (alreadyPlaced) return reusedResult(alreadyPlaced);
 
   const [address] = await db
     .select({ id: addresses.id, userId: addresses.userId })
@@ -172,172 +184,239 @@ export async function placeOrder(
     assumedWeightGrams: configured["landed.assumed_weight_grams"],
   };
 
-  const placed = await db.transaction(async (tx) => {
-    const lines = await tx
-      .select({
-        itemId: cartItems.id,
-        variantId: cartItems.variantId,
-        quantity: cartItems.quantity,
-        title: products.title,
-        sku: productVariants.sku,
-        /* The charged price, read inside the transaction that places the
-           order — a sale that ended a second ago is not honoured. */
-        priceBdt: effectivePriceSql,
-        fulfillmentMode: productVariants.fulfillmentMode,
-        paymentMode: productVariants.paymentMode,
-        depositPercent: productVariants.depositPercent,
-        estimatedArrivalFrom: productVariants.estimatedArrivalFrom,
-        weightGrams: productVariants.weightGrams,
-      })
-      .from(cartItems)
-      .innerJoin(productVariants, eq(cartItems.variantId, productVariants.id))
-      .innerJoin(products, eq(productVariants.productId, products.id))
-      .where(eq(cartItems.cartId, input.cartId));
+  const provider = getPaymentProvider();
 
-    if (lines.length === 0) throw new CheckoutError("Your cart is empty.");
-
-    /*
-     * What each line actually is, frozen here rather than re-read later. A
-     * variant can be renamed, repriced, rephotographed or archived after the
-     * order exists; the order has to keep saying what was bought (D-043).
-     */
-    const variantIds = lines.map((line) => line.variantId);
-    const [optionsByVariant, variantPhotos] = await Promise.all([
-      loadVariantOptions(variantIds, tx),
-      tx
-        .selectDistinctOn([variantImages.variantId], {
-          variantId: variantImages.variantId,
-          url: variantImages.url,
-        })
-        .from(variantImages)
-        .where(inArray(variantImages.variantId, variantIds))
-        .orderBy(variantImages.variantId, variantImages.sortOrder),
-    ]);
-
-    if (input.method === "cod" && !codAllowed(lines)) {
-      throw new CheckoutError(
-        "Cash on delivery is not available for preorders — they fund the purchase in the US.",
+  const attempt = () =>
+    db.transaction(async (tx) => {
+      /*
+       * One placement per key at a time. Two requests with the same key — a
+       * double tap, a retry after a timeout — queue here, and the second finds
+       * the order the first committed. Checking before inserting without this
+       * lock is a race; relying on the unique constraint alone turned nine of
+       * ten simultaneous submissions into server errors.
+       */
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${input.idempotencyKey}, 0))`,
       );
-    }
 
-    // Reserve every line before writing anything. Capacity is checked under a
-    // row lock here, which is the authoritative check.
-    for (const line of lines) {
-      await reserveCapacity(tx, line.variantId, line.quantity);
-    }
+      const existing = await findOrderByKey(tx as unknown as typeof db, input.idempotencyKey);
+      if (existing) return { kind: "reused" as const, order: existing };
 
-    // Prices come from the rows just read inside this transaction, never from
-    // the client and never from the cart.
-    const landedTotalBdt = lines.reduce(
-      (sum, line) => sum + line.priceBdt * line.quantity,
-      0,
-    );
+      const lines = await tx
+        .select({
+          itemId: cartItems.id,
+          variantId: cartItems.variantId,
+          quantity: cartItems.quantity,
+          title: products.title,
+          sku: productVariants.sku,
+          /* The charged price, read inside the transaction that places the
+             order — a sale that ended a second ago is not honoured. */
+          priceBdt: effectivePriceSql,
+          fulfillmentMode: productVariants.fulfillmentMode,
+          paymentMode: productVariants.paymentMode,
+          depositPercent: productVariants.depositPercent,
+          estimatedArrivalFrom: productVariants.estimatedArrivalFrom,
+          weightGrams: productVariants.weightGrams,
+        })
+        .from(cartItems)
+        .innerJoin(productVariants, eq(cartItems.variantId, productVariants.id))
+        .innerJoin(products, eq(productVariants.productId, products.id))
+        .where(eq(cartItems.cartId, input.cartId))
+        // The order the shopper added them in, so the order lines read the
+        // same way the cart did. Locking does not depend on it.
+        .orderBy(asc(cartItems.addedAt), asc(cartItems.id));
 
-    // The landed price is what the shopper pays; this only records what it is
-    // made of, so the total is unchanged by the split (lib/pricing/landed.ts).
-    const breakdown = splitLandedOrder(
-      lines.map((line) => ({
-        unitPriceBdt: line.priceBdt,
-        quantity: line.quantity,
-        weightGrams: line.weightGrams,
-      })),
-      rates,
-    );
+      if (lines.length === 0) throw new CheckoutError("Your cart is empty.");
 
-    const amountDueNowBdt = lines.reduce((sum, line) => {
-      const lineTotal = line.priceBdt * line.quantity;
-      if (line.paymentMode === "deposit" && line.depositPercent) {
-        return sum + Math.round((lineTotal * line.depositPercent) / 100);
+      if (input.method === "cod" && !codAllowed(lines)) {
+        throw new CheckoutError(
+          "Cash on delivery is not available for preorders — they fund the purchase in the US.",
+        );
       }
-      return sum + lineTotal;
-    }, 0);
 
-    const orderNumber = await nextOrderNumber(tx as unknown as typeof db);
+      // Every variant locked in one statement, in id order, and checked before
+      // anything is written. This is the authoritative capacity check.
+      await reserveCapacityForLines(
+        tx,
+        lines.map((line) => ({ variantId: line.variantId, quantity: line.quantity })),
+      );
 
-    const [order] = await tx
-      .insert(orders)
-      .values({
-        orderNumber,
-        userId: input.userId,
-        guestEmail: input.guestEmail,
-        guestPhone: input.guestPhone,
+      /*
+       * What each line actually is, frozen here rather than re-read later. A
+       * variant can be renamed, repriced, rephotographed or archived after the
+       * order exists; the order has to keep saying what was bought (D-043).
+       */
+      const variantIds = lines.map((line) => line.variantId);
+      const [optionsByVariant, variantPhotos] = await Promise.all([
+        loadVariantOptions(variantIds, tx),
+        tx
+          .selectDistinctOn([variantImages.variantId], {
+            variantId: variantImages.variantId,
+            url: variantImages.url,
+          })
+          .from(variantImages)
+          .where(inArray(variantImages.variantId, variantIds))
+          .orderBy(variantImages.variantId, variantImages.sortOrder),
+      ]);
+
+      // Prices come from the rows just read inside this transaction, never
+      // from the client and never from the cart.
+      const landedTotalBdt = lines.reduce(
+        (sum, line) => sum + line.priceBdt * line.quantity,
+        0,
+      );
+
+      // The landed price is what the shopper pays; this only records what it
+      // is made of, so the total is unchanged by the split.
+      const breakdown = splitLandedOrder(
+        lines.map((line) => ({
+          unitPriceBdt: line.priceBdt,
+          quantity: line.quantity,
+          weightGrams: line.weightGrams,
+        })),
+        rates,
+      );
+
+      const amountDueNowBdt = lines.reduce((sum, line) => {
+        const lineTotal = line.priceBdt * line.quantity;
+        if (line.paymentMode === "deposit" && line.depositPercent) {
+          return sum + Math.round((lineTotal * line.depositPercent) / 100);
+        }
+        return sum + lineTotal;
+      }, 0);
+
+      const orderNumber = await nextOrderNumber(tx as unknown as typeof db);
+
+      const [order] = await tx
+        .insert(orders)
+        .values({
+          orderNumber,
+          userId: input.userId,
+          guestEmail: input.guestEmail,
+          guestPhone: input.guestPhone,
+          status: "placed",
+          shippingAddressId: input.shippingAddressId,
+          subtotalBdt: breakdown.goodsBdt,
+          shippingFeeBdt: breakdown.shippingBdt,
+          dutyBdt: breakdown.dutyBdt,
+          discountBdt: 0,
+          totalBdt: landedTotalBdt,
+          amountDueNowBdt,
+          idempotencyKey: input.idempotencyKey,
+        })
+        .returning({
+          id: orders.id,
+          orderNumber: orders.orderNumber,
+          totalBdt: orders.totalBdt,
+          amountDueNowBdt: orders.amountDueNowBdt,
+        });
+
+      await tx.insert(orderItems).values(
+        lines.map((line) => ({
+          orderId: order.id,
+          variantId: line.variantId,
+          titleSnapshot: line.title,
+          optionSummarySnapshot:
+            summariseOptions(optionsByVariant.get(line.variantId) ?? []) || null,
+          variantOptionsSnapshot: optionsByVariant.get(line.variantId) ?? [],
+          skuSnapshot: line.sku,
+          imageUrlSnapshot:
+            variantPhotos.find((photo) => photo.variantId === line.variantId)
+              ?.url ?? null,
+          unitPriceBdt: line.priceBdt,
+          quantity: line.quantity,
+          fulfillmentModeSnapshot: line.fulfillmentMode,
+          estimatedArrivalSnapshot: line.estimatedArrivalFrom,
+        })),
+      );
+
+      await tx.insert(orderStatusHistory).values({
+        orderId: order.id,
         status: "placed",
-        shippingAddressId: input.shippingAddressId,
-        // The three parts add back to exactly the landed total, so what the
-        // shopper pays is the same as it was before the split existed.
-        subtotalBdt: breakdown.goodsBdt,
-        shippingFeeBdt: breakdown.shippingBdt,
-        dutyBdt: breakdown.dutyBdt,
-        discountBdt: 0,
-        totalBdt: landedTotalBdt,
-        amountDueNowBdt,
-        idempotencyKey: input.idempotencyKey,
-      })
-      .returning({
-        id: orders.id,
-        orderNumber: orders.orderNumber,
-        totalBdt: orders.totalBdt,
-        amountDueNowBdt: orders.amountDueNowBdt,
+        note: "Order placed by the shopper.",
+        actorUserId: input.userId,
       });
 
-    await tx.insert(orderItems).values(
-      lines.map((line) => ({
-        orderId: order.id,
-        variantId: line.variantId,
-        titleSnapshot: line.title,
-        optionSummarySnapshot:
-          summariseOptions(optionsByVariant.get(line.variantId) ?? []) || null,
-        variantOptionsSnapshot: optionsByVariant.get(line.variantId) ?? [],
-        skuSnapshot: line.sku,
-        imageUrlSnapshot:
-          variantPhotos.find((photo) => photo.variantId === line.variantId)
-            ?.url ?? null,
-        unitPriceBdt: line.priceBdt,
-        quantity: line.quantity,
-        fulfillmentModeSnapshot: line.fulfillmentMode,
-        estimatedArrivalSnapshot: line.estimatedArrivalFrom,
-      })),
-    );
+      /*
+       * The payment record exists from the moment the order does. Before, it
+       * was written after the provider answered, so a provider that threw
+       * left an order holding capacity with no trace of the attempt.
+       */
+      const [payment] = await tx
+        .insert(payments)
+        .values({
+          orderId: order.id,
+          kind: "full",
+          provider: provider.name,
+          providerRef: null,
+          method: input.method,
+          amountBdt: amountDueNowBdt,
+          status: "initiated",
+        })
+        .returning({ id: payments.id });
 
-    await tx.insert(orderStatusHistory).values({
-      orderId: order.id,
-      status: "placed",
-      note: "Order placed by the shopper.",
-      actorUserId: input.userId,
+      // The cart is emptied inside the same transaction, so a failure cannot
+      // leave the shopper with both an order and the items still in the cart.
+      await tx.delete(cartItems).where(eq(cartItems.cartId, input.cartId));
+
+      // Queued in the same transaction as the order: a message exists only for
+      // an order that was actually committed (lib/notifications).
+      await queueOrderNotification(tx, order.id, "placed");
+
+      return { kind: "placed" as const, order, paymentId: payment.id };
     });
 
-    // The cart is emptied inside the same transaction, so a failure cannot
-    // leave the shopper with both an order and the items still in their cart.
-    await tx.delete(cartItems).where(eq(cartItems.cartId, input.cartId));
+  let outcome: Awaited<ReturnType<typeof attempt>>;
+  try {
+    // A deadlock or serialisation failure rolled everything back, so running
+    // the whole transaction again cannot repeat any of its effects.
+    outcome = await withTransientRetry(attempt);
+  } catch (error) {
+    // Belt and braces: the advisory lock should make this unreachable.
+    if (isUniqueViolation(error, IDEMPOTENCY_CONSTRAINT)) {
+      const existing = await findOrderByKey(db, input.idempotencyKey);
+      if (existing) return reusedResult(existing);
+    }
+    if (isTransientDatabaseError(error)) throw new TransientConflictError();
+    throw error;
+  }
 
-    // Queued in the same transaction as the order: a message exists only for
-    // an order that was actually committed (lib/notifications).
-    await queueOrderNotification(tx, order.id, "placed");
+  if (outcome.kind === "reused") return reusedResult(outcome.order);
 
-    return order;
-  });
+  const placed = outcome.order;
+  let redirectUrl: string | null = null;
+  let paymentStatus: PlacedOrder["paymentStatus"] = "initiated";
 
-  // The payment attempt is made after the order exists, so there is always
-  // something to attach it to.
-  const provider = getPaymentProvider();
-  const intent = await provider.createPayment({
-    orderId: placed.id,
-    orderNumber: placed.orderNumber,
-    amountBdt: placed.amountDueNowBdt,
-    method: input.method,
-    customerEmail: input.guestEmail ?? "",
-    idempotencyKey: input.idempotencyKey,
-  });
+  try {
+    const intent = await provider.createPayment({
+      orderId: placed.id,
+      orderNumber: placed.orderNumber,
+      amountBdt: placed.amountDueNowBdt,
+      method: input.method,
+      customerEmail: input.guestEmail ?? "",
+      idempotencyKey: input.idempotencyKey,
+    });
 
-  await db.insert(payments).values({
-    orderId: placed.id,
-    kind: "full",
-    provider: provider.name,
-    providerRef: intent.providerRef,
-    method: input.method,
-    amountBdt: placed.amountDueNowBdt,
-    status: intent.status === "failed" ? "failed" : "initiated",
-  });
+    paymentStatus = intent.status === "failed" ? "failed" : "initiated";
+    redirectUrl = intent.redirectUrl;
+
+    await db
+      .update(payments)
+      .set({ providerRef: intent.providerRef, status: paymentStatus })
+      .where(eq(payments.id, outcome.paymentId));
+  } catch (error) {
+    // The order stands and its hold expires on schedule; the payment row says
+    // why nothing was charged. The provider's message is kept for staff only.
+    paymentStatus = "failed";
+    await db
+      .update(payments)
+      .set({
+        status: "failed",
+        rawPayload: { error: error instanceof Error ? error.message : String(error) },
+      })
+      .where(eq(payments.id, outcome.paymentId));
+    console.error(`Payment could not be started for ${placed.orderNumber}.`);
+  }
 
   // Delivery is outside the transaction and cannot fail the order.
   deliverQueuedNotificationsInBackground();
@@ -347,7 +426,8 @@ export async function placeOrder(
     orderNumber: placed.orderNumber,
     totalBdt: placed.totalBdt,
     amountDueNowBdt: placed.amountDueNowBdt,
-    redirectUrl: intent.redirectUrl,
+    redirectUrl,
     reused: false,
+    paymentStatus,
   };
 }

@@ -89,7 +89,10 @@ export async function advanceOrder(
     const [order] = await tx
       .select({ id: orders.id, status: orders.status })
       .from(orders)
-      .where(eq(orders.id, orderId));
+      .where(eq(orders.id, orderId))
+      // Held until commit, so two changes to one order cannot both read the
+      // same starting status.
+      .for("update");
 
     if (!order) throw new TransitionError("That order no longer exists.");
 
@@ -107,7 +110,10 @@ export async function advanceOrder(
           quantity: orderItems.quantity,
         })
         .from(orderItems)
-        .where(eq(orderItems.orderId, orderId));
+        .where(eq(orderItems.orderId, orderId))
+        // Released in variant id order, the same order checkout locks in, so
+        // a cancellation and a checkout sharing variants cannot deadlock.
+        .orderBy(asc(orderItems.variantId));
 
       for (const item of items) {
         await releaseCapacity(tx, item.variantId, item.quantity);
@@ -344,7 +350,10 @@ export async function refundOrder(
           quantity: orderItems.quantity,
         })
         .from(orderItems)
-        .where(eq(orderItems.orderId, orderId));
+        .where(eq(orderItems.orderId, orderId))
+        // Released in variant id order, the same order checkout locks in, so
+        // a cancellation and a checkout sharing variants cannot deadlock.
+        .orderBy(asc(orderItems.variantId));
 
       for (const item of items) {
         await releaseCapacity(tx, item.variantId, item.quantity);

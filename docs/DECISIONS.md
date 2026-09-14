@@ -1166,3 +1166,32 @@ size rather than a sideways row: the first shelf as a tall feature card beside
 a two-by-two of the rest, rows 7.5rem high (about 310px for the section). On a
 phone the small cards carry only the name, which wraps to two lines in a
 slightly smaller size; the feature card keeps its count and arrow.
+
+## D-052 — An unpaid online order holds its places for 30 minutes
+
+**Context.** Placing an order reserves preorder capacity (or stock) inside the
+same transaction that writes the order, before any money moves. Until now no
+code path ever gave those places back if the shopper never paid, so an
+abandoned checkout kept a batch looking fuller than it was, indefinitely
+(INITIAL_TECHNICAL_AUDIT.md, S3).
+
+**Decision.** An order still `placed` with no captured payment is cancelled
+automatically **30 minutes** after it was placed, and its reserved capacity is
+released in the same transaction, with a status-history row and the usual
+cancellation message. The window is the site setting
+`orders.unpaid_hold_minutes` (default 30, allowed 5–1440), read in one place
+(`lib/orders/expiry.ts`), not a number repeated around the code.
+
+**What it does not touch.** Cash-on-delivery orders, which are paid at the
+door and are never expected to have a captured payment at placement; any
+order that has moved past `placed`; any order with a captured payment row.
+
+**If a payment lands after the order expired.** The payment is still recorded
+as captured, the order stays cancelled (its places may already belong to
+someone else), and the order history says the payment arrived after expiry so
+staff refund it. Reinstating the order automatically was rejected: it could
+oversell a batch that has since filled.
+
+**Why 30 minutes.** Long enough for a bKash/Nagad/card flow including an OTP
+and a retry; short enough that a launch-day batch is not held hostage by
+abandoned carts. The owner can change the setting without a deploy.
