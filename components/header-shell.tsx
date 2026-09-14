@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { CatalogMenu, type CatalogSection } from "./catalog-menu";
 import { useHeaderTheme } from "./header-theme";
@@ -42,13 +43,62 @@ export function HeaderShell({
 }) {
   const [scrolled, setScrolled] = useState(false);
   const { floating, tone } = useHeaderTheme();
+  const pathname = usePathname();
+
+  /*
+   * On a product page below `lg` the photograph starts at the very top of the
+   * screen with no header over it (D-048). The header waits out of sight and
+   * slides down once the shopper has scrolled a good part of the photograph
+   * away, and slides back up when they return to it. Anything inside it
+   * taking keyboard focus brings it back regardless, so it is never a trap.
+   */
+  const onProduct = pathname.startsWith("/products/");
+  const [pastPhoto, setPastPhoto] = useState(false);
+  const [focused, setFocused] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
+    const onScroll = () => {
+      setScrolled(window.scrollY > 24);
+      if (!onProduct) return;
+      const photo = document.querySelector("[data-product-photo]");
+      if (!photo) {
+        setPastPhoto(true);
+        return;
+      }
+      const rect = photo.getBoundingClientRect();
+      // Once about two fifths of the photograph has scrolled off the top.
+      setPastPhoto(rect.bottom < rect.height * 0.6);
+    };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    window.addEventListener("resize", onScroll);
+
+    /*
+     * A product page that is slow to render arrives as its loading state
+     * first, with no photograph in it, and the check above shows the header.
+     * Without a scroll nothing would check again, so the header stayed over
+     * the photograph once it arrived. Watch for the photograph instead, and
+     * stop watching as soon as it is there.
+     */
+    let observer: MutationObserver | null = null;
+    if (onProduct && !document.querySelector("[data-product-photo]")) {
+      observer = new MutationObserver(() => {
+        if (!document.querySelector("[data-product-photo]")) return;
+        observer?.disconnect();
+        observer = null;
+        onScroll();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [onProduct, pathname]);
+
+  const tucked = onProduct && !pastPhoto && !focused;
 
   /*
    * Over a hero the bar keeps its full height however far the page has been
@@ -82,10 +132,26 @@ export function HeaderShell({
     <header
       data-floating={floating ? "true" : "false"}
       data-tone={tone}
-      className={`site-header ${palette} z-50 text-[color:var(--head-fg)] transition-[background-color,box-shadow,border-color,color] duration-500 ease-[var(--ease-out-quint)] ${
+      data-tucked={tucked ? "true" : undefined}
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (!next || !event.currentTarget.contains(next)) setFocused(false);
+      }}
+      /*
+       * Tucked, it is moved up out of view and faded, rather than hidden: a
+       * screen reader still finds the navigation. No translate at all while
+       * it is showing — any transform would become the containing block for
+       * the fixed category drawer and search inside it.
+       */
+      className={`site-header ${palette} z-50 text-[color:var(--head-fg)] transition-[background-color,box-shadow,border-color,color,translate,opacity] duration-500 ease-[var(--ease-out-quint)] ${
         floating
           ? "fixed inset-x-0 top-0 border-b border-transparent bg-transparent"
           : "sticky top-0 border-b border-blue-300 bg-paper shadow-[var(--shadow-raise)]"
+      } ${onProduct ? "max-lg:fixed max-lg:inset-x-0" : ""} ${
+        tucked
+          ? "max-lg:pointer-events-none max-lg:-translate-y-full max-lg:opacity-0 max-lg:shadow-none"
+          : ""
       }`}
     >
       {/*

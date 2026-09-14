@@ -167,6 +167,34 @@ export function IconUser(props: IconProps) {
   );
 }
 
+/** A tray with an arrow leaving it — share this page. */
+export function IconShare(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 14.5V4m0 0L8.25 7.75M12 4l3.75 3.75" />
+      <path d="M8 10.5H6.25A1.5 1.5 0 0 0 4.75 12v6.5a1.5 1.5 0 0 0 1.5 1.5h11.5a1.5 1.5 0 0 0 1.5-1.5V12a1.5 1.5 0 0 0-1.5-1.5H16" />
+    </Icon>
+  );
+}
+
+/** A bin with ruled sides — remove this line. */
+export function IconTrash(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4.75 7h14.5M9.5 7V5.25h5V7M6.5 7l.75 12.25h9.5L17.5 7M10.25 10.5v5.5M13.75 10.5v5.5" />
+    </Icon>
+  );
+}
+
+/** A single chevron pointing left — back. */
+export function IconChevronLeft(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m14.5 5.5-6.5 6.5 6.5 6.5" />
+    </Icon>
+  );
+}
+
 export function IconHeart(props: IconProps) {
   return (
     <Icon {...props}>

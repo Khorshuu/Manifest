@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { AuthShell, safeNext } from "@/components/auth-shell";
 import { AuthDivider, GoogleButton } from "@/components/google-button";
 import { getCurrentUser } from "@/lib/auth";
-import { isGoogleSignInEnabled } from "@/lib/auth/google";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
@@ -22,6 +21,8 @@ const GOOGLE_ERRORS: Record<string, string> = {
     "That Google sign-in took too long. Start it again from this page.",
   "google-state":
     "That Google sign-in could not be verified. Start it again from this page.",
+  "google-unavailable":
+    "Google sign-in isn't switched on yet. Use your email and password for now.",
   "google-failed":
     "Google sign-in did not complete. Try again, or use your email and password.",
 };
@@ -71,12 +72,10 @@ export default async function LoginPage({
         </>
       }
     >
-      {isGoogleSignInEnabled() ? (
-        <div className="mb-6 flex flex-col gap-6">
-          <GoogleButton next={redirectTo} />
-          <AuthDivider />
-        </div>
-      ) : null}
+      <div className="mb-6 flex flex-col gap-6">
+        <GoogleButton next={redirectTo} />
+        <AuthDivider label="or use your email" />
+      </div>
 
       <LoginForm
         redirectTo={redirectTo}

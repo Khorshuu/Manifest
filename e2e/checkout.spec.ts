@@ -45,9 +45,16 @@ test("a guest completes a purchase end to end", async ({ page }) => {
 
   await page.goto("/cart");
   await expect(page.getByRole("heading", { name: "Your cart" })).toBeVisible();
-  await expect(page.getByText("BDT 1,850").first()).toBeVisible();
+  // The visible one: a phone's compact row hides the "each" line (D-047).
+  await expect(
+    page.getByText("BDT 1,850").filter({ visible: true }).first(),
+  ).toBeVisible();
 
-  await page.getByRole("link", { name: "Checkout" }).click();
+  await page
+    .getByRole("link", { name: "Checkout" })
+    .filter({ visible: true })
+    .first()
+    .click();
   await expect(page.getByRole("heading", { name: "Checkout" })).toBeVisible();
 
   await fillGuestCheckout(page, "guest@example.com");
@@ -181,7 +188,10 @@ test("the cart shows a running total and updates on quantity change", async ({
   await addFirstProductToCart(page);
   await page.goto("/cart");
 
-  await expect(page.getByText("BDT 1,850").first()).toBeVisible();
+  // The visible one: a phone's compact row hides the "each" line (D-047).
+  await expect(
+    page.getByText("BDT 1,850").filter({ visible: true }).first(),
+  ).toBeVisible();
 
   const updated = page.waitForResponse(
     (r) => r.url().includes("/api/cart") && r.request().method() === "PATCH",
@@ -190,7 +200,9 @@ test("the cart shows a running total and updates on quantity change", async ({
   await page.getByLabel(/^Quantity of/).blur();
   await updated;
 
-  await expect(page.getByText("BDT 5,550").first()).toBeVisible();
+  await expect(
+    page.getByText("BDT 5,550").filter({ visible: true }).first(),
+  ).toBeVisible();
 });
 
 test("removing the last item returns the empty state", async ({ page }) => {

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Figtree } from "next/font/google";
 import "./globals.css";
 import { organisationJsonLd, siteUrl } from "@/lib/seo";
@@ -36,6 +36,19 @@ export const metadata: Metadata = {
   },
   // No Twitter card image yet; declaring one without the asset is worse than
   // letting the platform fall back to the page description.
+};
+
+/*
+ * `cover` lets the page run under an iPhone's rounded corners and home
+ * indicator, which is what makes `env(safe-area-inset-*)` report real values.
+ * Without it every `env()` in the stylesheet reads zero, and the sticky buy
+ * bar sat on top of the home indicator.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

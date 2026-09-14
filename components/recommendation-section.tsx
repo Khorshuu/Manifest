@@ -26,7 +26,7 @@ export function RecommendationSection({
   if (products.length === 0) return null;
 
   return (
-    <section className="mt-10 border-t border-ink/10 pt-6">
+    <section className="mt-8 border-t border-ink/10 pt-5 sm:mt-10 sm:pt-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.16em] text-brass-text">
@@ -47,7 +47,8 @@ export function RecommendationSection({
         ) : null}
       </div>
 
-      <Stagger className="product-grid mt-4">
+      {/* A sideways shelf on a phone, the grid from `sm` (globals.css). */}
+      <Stagger className="product-grid product-rail mt-3 sm:mt-4">
         {products.map((product) => (
           <StaggerItem key={product.id} className="h-full">
             <ProductCard product={product} />

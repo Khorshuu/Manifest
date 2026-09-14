@@ -219,21 +219,31 @@ test("staff can add a synonym and search follows it", async ({ page }) => {
 test.describe("on a phone", () => {
   test.skip(({ viewport }) => (viewport?.width ?? 1280) >= 768, "phone layout only");
 
-  test("the search opens full screen and closes with Cancel", async ({ page }) => {
+  test("the search opens as a small card and closes again", async ({ page }) => {
     await page.goto("/");
-    // On a phone the search is an icon in the header; pressing it opens the
-    // full-screen search with the field focused.
+    // On a phone the search is an icon in the header; pressing it opens a
+    // compact search card at the top of the screen with the field focused —
+    // not a full-screen page.
     await page.getByRole("button", { name: "Open search" }).click();
-    await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
+    const close = page.getByRole("button", { name: "Close search" });
+    await expect(close).toBeVisible();
     await expect(page.getByLabel("Search products")).toBeFocused();
+
+    const card = await page.evaluate(() => {
+      const input = document.getElementById("site-search");
+      const box = input?.closest("[class*='rounded-card']")?.getBoundingClientRect();
+      return box ? { height: box.height, viewport: window.innerHeight } : null;
+    });
+    expect(card).not.toBeNull();
+    expect(card!.height).toBeLessThan(card!.viewport / 2);
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth,
     );
     expect(overflow).toBe(false);
 
-    await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByRole("button", { name: "Cancel" })).toHaveCount(0);
+    await close.click();
+    await expect(page.getByRole("button", { name: "Close search" })).toHaveCount(0);
   });
 
   test("filters and sort sit side by side above the results", async ({ page }) => {

@@ -17,7 +17,7 @@ export default function ProductLoading() {
         <div className="h-4 w-56 bg-ink/10" />
 
         <div className="mt-6 grid gap-10 lg:grid-cols-2">
-          <div className="aspect-square w-full bg-ink/10" />
+          <div className="aspect-square max-h-[62svh] w-full rounded-card bg-ink/10 lg:max-h-none" />
 
           <div className="flex flex-col gap-6">
             <div className="h-3 w-32 bg-ink/10" />

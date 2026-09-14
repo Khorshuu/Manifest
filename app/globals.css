@@ -1183,6 +1183,68 @@ input[type="radio"] {
   }
 }
 
+/*
+ * A shelf of recommendations on a phone: one sideways row of cards rather
+ * than a second grid stacked under the first. Two and a bit cards show, so the
+ * row visibly continues. From `sm` it is the ordinary grid again.
+ */
+@media (max-width: 639.98px) {
+  .product-rail {
+    /* Positioned, so the cards' visually hidden text is clipped by the rail
+       rather than escaping it and widening a phone's layout to ~500px. */
+    position: relative;
+    display: flex;
+    gap: 0.625rem;
+    margin-inline: -1rem;
+    padding: 0.25rem 1rem 0.75rem;
+    scroll-padding-inline: 1rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .product-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .product-rail > * {
+    flex: 0 0 42%;
+    scroll-snap-align: start;
+  }
+}
+
+/*
+ * A phone screen with a bar fixed along its foot (the product buy bar, the
+ * cart's checkout bar) sets `data-bottom-bar` on <html>, so the very end of
+ * the page — the footer's last line — scrolls clear of the bar.
+ */
+@media (max-width: 1023.98px) {
+  html[data-bottom-bar] body {
+    padding-bottom: calc(4.75rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* A bottom sheet rising from the foot of the screen. */
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.animate-sheet-up {
+  animation: sheet-up 340ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Landscape on a notched phone: keep the page out from under the notch. */
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
 /* Inside a listing with the filter column beside it, one fewer across. */
 @media (min-width: 1280px) {
   .product-grid[data-with-filters="true"] {
@@ -1349,4 +1411,121 @@ html[data-catalog-open] .site-header {
 .animate-search-pop {
   animation: search-pop 260ms var(--ease-out-quint) both;
   transform-origin: top right;
+}
+
+/*
+ * The sign-in dialog, opening and closing (D-050).
+ *
+ * Transitions rather than keyframes, so the same rules run both ways: the
+ * panel rises and settles with a slight spring as `[open]` arrives, and sinks
+ * and fades as it leaves. `@starting-style` gives the entrance its first
+ * frame, and `display`/`overlay` with allow-discrete keep the dialog in the
+ * top layer until the exit has finished. A browser without them simply shows
+ * and hides it. Reduced motion is covered by the global rule above.
+ */
+.auth-dialog {
+  opacity: 0;
+  transform: translate3d(0, 0.75rem, 0) scale(0.97);
+  transition:
+    opacity 200ms var(--ease-in-quint),
+    transform 200ms var(--ease-in-quint),
+    overlay 200ms allow-discrete,
+    display 200ms allow-discrete;
+}
+
+.auth-dialog[open] {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 280ms var(--ease-out-quint),
+    transform 460ms var(--ease-spring),
+    overlay 460ms allow-discrete,
+    display 460ms allow-discrete;
+}
+
+@starting-style {
+  .auth-dialog[open] {
+    opacity: 0;
+    transform: translate3d(0, 1.5rem, 0) scale(0.94);
+  }
+}
+
+.auth-dialog::backdrop {
+  background-color: rgb(10 21 38 / 0);
+  backdrop-filter: blur(0);
+  transition:
+    background-color 200ms var(--ease-in-quint),
+    backdrop-filter 200ms var(--ease-in-quint),
+    overlay 200ms allow-discrete,
+    display 200ms allow-discrete;
+}
+
+.auth-dialog[open]::backdrop {
+  background-color: rgb(10 21 38 / 0.5);
+  backdrop-filter: blur(6px);
+  transition-duration: 320ms;
+  transition-timing-function: var(--ease-out-quint);
+}
+
+@starting-style {
+  .auth-dialog[open]::backdrop {
+    background-color: rgb(10 21 38 / 0);
+    backdrop-filter: blur(0);
+  }
+}
+
+/* The badge pops in just after the panel lands. */
+.auth-dialog[open] .auth-dialog-badge {
+  animation: auth-badge-pop 520ms 120ms var(--ease-spring) both;
+}
+
+@keyframes auth-badge-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Switching between Sign in and Create account slides the form in. */
+.auth-dialog-pane {
+  animation: auth-pane-in 320ms var(--ease-out-quint) both;
+}
+
+@keyframes auth-pane-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0.5rem, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* A refused sign-in nudges sideways once, so it reads as "no". */
+.auth-dialog-error {
+  animation: auth-error-shake 380ms var(--ease-out-quint);
+}
+
+@keyframes auth-error-shake {
+  0%,
+  100% {
+    transform: none;
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(5px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
 }

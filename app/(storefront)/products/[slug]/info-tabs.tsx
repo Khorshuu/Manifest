@@ -1,7 +1,76 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { IconChevronDown } from "@/components/icons";
 import { Highlights, SpecTable, type SpecRow } from "./detail-sections";
+
+/**
+ * The description, folded on a phone.
+ *
+ * A long description is a wall of text on a small screen, standing between a
+ * shopper and the specification, the box contents and the reviews. Below `lg`
+ * it stops at about a dozen lines under a soft fade with a "Read more" button;
+ * a description short enough to fit never shows the button at all. A desktop
+ * shows it whole, as before.
+ */
+function DescriptionCopy({ html }: { html: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const measure = () =>
+      setOverflowing(element.scrollHeight > element.clientHeight + 4);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [expanded]);
+
+  const folded = !expanded;
+
+  return (
+    <div className="max-w-[68ch]">
+      <div className="relative">
+        <div
+          ref={ref}
+          id="product-description-copy"
+          className={`product-copy text-body text-ink/80 ${
+            folded ? "max-lg:max-h-[17rem] max-lg:overflow-hidden" : ""
+          }`}
+          /* Authored by staff only — customers cannot create listings,
+             and generated HTML is reduced to an allow-list before it
+             is ever stored (lib/seo-pulse/sanitize.ts). */
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+        {folded && overflowing ? (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-paper to-transparent lg:hidden"
+          />
+        ) : null}
+      </div>
+
+      {overflowing || expanded ? (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls="product-description-copy"
+          onClick={() => setExpanded((current) => !current)}
+          className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-control text-meta font-semibold text-blue-600 lg:hidden"
+        >
+          {expanded ? "Show less" : "Read more"}
+          <IconChevronDown
+            size={16}
+            className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+          />
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * Description · Specification · Measurements (DECISIONS.md D-043).
@@ -107,13 +176,7 @@ export function ProductInfoTabs({
           {tab.id === "description" ? (
             <div className="flex flex-col gap-6">
               {descriptionHtml ? (
-                <div
-                  className="product-copy max-w-[68ch] text-body text-ink/80"
-                  /* Authored by staff only — customers cannot create listings,
-                     and generated HTML is reduced to an allow-list before it
-                     is ever stored (lib/seo-pulse/sanitize.ts). */
-                  dangerouslySetInnerHTML={{ __html: descriptionHtml }}
-                />
+                <DescriptionCopy html={descriptionHtml} />
               ) : null}
 
               {keyFeatures.length > 0 ? (

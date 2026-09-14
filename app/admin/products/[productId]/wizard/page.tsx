@@ -128,7 +128,8 @@ export default async function ProductWizardPage({
           <div className="flex flex-col gap-6">
             <p className="max-w-[70ch] text-meta text-ink/70">
               The first photograph is the one shown on the product card and at
-              the top of the product page. Square, on a plain ground.
+              the top of the product page. Upload any shape — each opens in a
+              crop editor at the 4:5 product standard before it is saved.
             </p>
             <ImageManager
               productId={productId}

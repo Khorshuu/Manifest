@@ -6,6 +6,7 @@ import {
   IconTruck,
   IconUser,
 } from "./icons";
+import { FooterSection } from "./footer-section";
 import { NewsletterForm } from "./newsletter-form";
 
 /**
@@ -31,9 +32,9 @@ const HOW = [
 
 export function SiteFooter() {
   return (
-    <footer className="surface-paper mt-16 border-t border-ink/15">
-      <div className="mx-auto grid w-full max-w-[1280px] gap-10 px-4 py-14 md:grid-cols-[1.5fr_1fr_1fr] md:px-6">
-        <div>
+    <footer className="surface-paper mt-12 border-t border-ink/15 md:mt-16">
+      <div className="mx-auto grid w-full max-w-[1280px] gap-0 px-4 pt-8 md:grid-cols-[1.5fr_1fr_1fr] md:gap-10 md:px-6 md:py-14">
+        <div className="pb-6 md:pb-0">
           <p className="flex items-baseline gap-2 font-display text-h2 tracking-tight text-ink">
             Manifest
           </p>
@@ -54,11 +55,8 @@ export function SiteFooter() {
           <NewsletterForm />
         </div>
 
-        <div>
-          <h2 className="text-meta font-medium uppercase tracking-[0.14em] text-ink">
-            Help
-          </h2>
-          <ul className="mt-4 flex flex-col gap-1">
+        <FooterSection title="Help">
+          <ul className="flex flex-col gap-1 md:mt-4">
             {HELP.map(({ href, label, icon: Glyph }) => (
               <li key={href}>
                 <Link
@@ -74,13 +72,10 @@ export function SiteFooter() {
               </li>
             ))}
           </ul>
-        </div>
+        </FooterSection>
 
-        <div>
-          <h2 className="text-meta font-medium uppercase tracking-[0.14em] text-ink">
-            How preordering works
-          </h2>
-          <ul className="mt-4 flex flex-col gap-2.5">
+        <FooterSection title="How preordering works">
+          <ul className="flex flex-col gap-2.5 md:mt-4">
             {HOW.map((line) => (
               <li key={line} className="flex items-start gap-2.5 text-meta text-ink/70">
                 <IconSeal size={16} className="mt-0.5 shrink-0 text-blue-400" />
@@ -88,10 +83,10 @@ export function SiteFooter() {
               </li>
             ))}
           </ul>
-        </div>
+        </FooterSection>
       </div>
 
-      <div className="border-t border-ink/10">
+      <div className="border-t border-ink/10 md:border-t">
         <p className="mx-auto w-full max-w-[1280px] px-4 py-5 text-meta text-ink/70 md:px-6">
           Prices in Bangladeshi taka. Arrival windows are estimates — customs
           clearance is the part nobody can promise to the day.

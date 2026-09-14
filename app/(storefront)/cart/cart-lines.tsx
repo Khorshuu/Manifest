@@ -4,7 +4,7 @@ import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { ProductArt } from "@/components/product-art";
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LinkButton } from "@/components/button";
 import {
   IconAlert,
@@ -14,6 +14,7 @@ import {
   IconShield,
   IconTag,
   IconClose,
+  IconTrash,
 } from "@/components/icons";
 import { Panel } from "@/components/panel";
 import { StatusBadge } from "@/components/status-badge";
@@ -47,6 +48,99 @@ const ASSURANCES = [
   { icon: IconSeal, text: "Nothing is bought until the batch closes." },
   { icon: IconShield, text: "Full refund until we place the US order." },
 ];
+
+/** How far a row slides to show its bin, and how far a swipe must go. */
+const REVEAL = 84;
+const COMMIT = 52;
+
+/**
+ * A cart row that slides left under a thumb to show a red bin (D-047).
+ *
+ * The gesture is an extra, never the only way: the stepper's own bin at a
+ * quantity of one, and Remove from `sm` up, do the same thing. `touch-action:
+ * pan-y` leaves vertical scrolling to the browser, so only a sideways drag
+ * reaches this code, and a drag that is mostly vertical is ignored.
+ */
+function SwipeRow({
+  onRemove,
+  disabled,
+  children,
+}: {
+  onRemove: () => void;
+  disabled: boolean;
+  children: ReactNode;
+}) {
+  const [offset, setOffset] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const start = useRef<{ x: number; y: number; base: number; axis: "x" | "y" | null } | null>(
+    null,
+  );
+
+  return (
+    <div className="relative">
+      {/* The bin behind the row. A pointer-only affordance: the row's own
+          controls carry the accessible Remove. */}
+      <button
+        type="button"
+        aria-hidden="true"
+        tabIndex={-1}
+        disabled={disabled}
+        onClick={onRemove}
+        className="absolute inset-y-0 right-0 flex items-center justify-center bg-stamp-red/10 text-stamp-red-text sm:hidden"
+        style={{ width: REVEAL }}
+      >
+        <span className="inline-flex size-11 items-center justify-center rounded-full bg-stamp-red/15">
+          <IconTrash size={20} />
+        </span>
+      </button>
+
+      <div
+        className={`relative bg-paper [touch-action:pan-y] ${
+          dragging ? "" : "transition-transform duration-300 ease-[var(--ease-out-quint)]"
+        }`}
+        style={{ transform: offset ? `translateX(${offset}px)` : undefined }}
+        onTouchStart={(event) => {
+          if (disabled) return;
+          const touch = event.touches[0];
+          start.current = { x: touch.clientX, y: touch.clientY, base: offset, axis: null };
+        }}
+        onTouchMove={(event) => {
+          const origin = start.current;
+          if (!origin) return;
+          const touch = event.touches[0];
+          const dx = touch.clientX - origin.x;
+          const dy = touch.clientY - origin.y;
+          if (origin.axis === null) {
+            if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+            origin.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+          }
+          if (origin.axis !== "x") return;
+          setDragging(true);
+          setOffset(Math.min(0, Math.max(-REVEAL - 24, origin.base + dx)));
+        }}
+        onTouchEnd={() => {
+          const origin = start.current;
+          start.current = null;
+          setDragging(false);
+          if (!origin || origin.axis !== "x") {
+            // A tap on an open row closes it rather than following a link.
+            return;
+          }
+          setOffset((current) => (current < -COMMIT ? -REVEAL : 0));
+        }}
+        onClickCapture={(event) => {
+          if (offset !== 0) {
+            event.preventDefault();
+            event.stopPropagation();
+            setOffset(0);
+          }
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export function CartLines({
   lines,
@@ -109,16 +203,29 @@ export function CartLines({
     router.refresh();
   }
 
+  // The checkout bar is fixed to the foot of a phone screen; the page makes
+  // room for it so the footer's last line is never under it.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.bottomBar = "true";
+    return () => {
+      delete root.dataset.bottomBar;
+    };
+  }, []);
+
   const balance = subtotalBdt - dueNowBdt;
 
   return (
     <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-12">
       <div className="min-w-0">
-        <ul className="flex flex-col gap-4">
+        {/* On a phone the rows sit on a pale ground, edge to edge, as white
+            slips with a little space between them (D-047). */}
+        <ul className="flex flex-col gap-4 max-sm:-mx-4 max-sm:gap-2 max-sm:bg-paper-raised max-sm:px-3 max-sm:py-3">
           <AnimatePresence initial={false}>
             {lines.map((line) => {
               const busy = pending === line.itemId;
               const max = line.available ?? 99;
+              const isPreorder = line.fulfillmentMode === "preorder";
 
               return (
                 <motion.li
@@ -132,14 +239,23 @@ export function CartLines({
                       : { opacity: 0, x: -24, height: 0, marginBottom: 0 }
                   }
                   transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-                  className={`lift overflow-hidden rounded-card border bg-paper shadow-[var(--shadow-raise)] ${
-                    line.problem ? "border-stamp-red" : "border-blue-300"
+                  className={`lift overflow-hidden rounded-card border bg-paper shadow-[var(--shadow-raise)] max-sm:shadow-none ${
+                    line.problem ? "border-stamp-red" : "border-blue-300 max-sm:border-transparent"
                   } ${busy ? "opacity-70" : ""}`}
                 >
-                  <div className="flex flex-wrap items-start gap-4 p-4 sm:gap-5 sm:p-5">
+                  <SwipeRow disabled={busy} onRemove={() => change(line.itemId, 0)}>
+                  {/*
+                   * On a phone, a slip in three columns — photograph; name and
+                   * terms; option — with the line total and a small stepper
+                   * along its foot. The two inner groups dissolve into that
+                   * grid with `contents`, so there is one set of controls at
+                   * every width. From `sm` it is the three-column row it
+                   * always was.
+                   */}
+                  <div className="grid grid-cols-[4rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 p-3 sm:flex sm:flex-wrap sm:gap-5 sm:p-5">
                     <Link
                       href={`/products/${line.productSlug}`}
-                      className="media-zoom surface-studio size-24 shrink-0 overflow-hidden rounded-card border border-blue-300 sm:size-28"
+                      className="media-zoom surface-studio row-span-4 size-16 shrink-0 overflow-hidden rounded-control sm:size-28 sm:rounded-card sm:border sm:border-blue-300"
                       tabIndex={-1}
                       aria-hidden="true"
                     >
@@ -160,60 +276,58 @@ export function CartLines({
                       )}
                     </Link>
 
-                    <div className="flex min-w-[180px] flex-1 flex-col gap-1.5">
+                    <div className="contents sm:flex sm:min-w-[180px] sm:flex-1 sm:flex-col sm:gap-1.5">
                       <Link
                         href={`/products/${line.productSlug}`}
-                        className="link-draw self-start font-display text-h3 leading-snug text-ink"
+                        className="link-draw col-start-2 row-start-1 self-start font-display text-[0.875rem] leading-snug text-ink max-sm:line-clamp-2 sm:text-h3"
                       >
                         {line.productTitle}
                       </Link>
 
                       {/* Only when there is a choice to report: a product with
-                          one version should read as its own name (D-043). */}
+                          one version should read as its own name (D-043). On a
+                          phone it sits opposite the name, as in the reference. */}
                       {line.optionSummary ? (
-                        <p className="text-meta text-ink/70">
+                        <p className="col-start-3 row-start-1 max-w-[7.5rem] truncate text-right text-[0.75rem] leading-snug text-ink/70 sm:max-w-none sm:overflow-visible sm:whitespace-normal sm:text-left sm:text-meta">
                           {line.optionSummary}
                         </p>
                       ) : null}
 
-                      <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                        <StatusBadge
-                          tone={
-                            line.fulfillmentMode === "preorder"
-                              ? "preorder"
-                              : "positive"
-                          }
-                        >
-                          {line.fulfillmentMode === "preorder"
-                            ? "Preorder"
-                            : "In stock"}
-                        </StatusBadge>
+                      <div className="col-start-2 row-start-2 flex flex-wrap items-center gap-x-2 gap-y-1 sm:mt-0.5">
+                        <span className="hidden sm:inline-flex">
+                          <StatusBadge tone={isPreorder ? "preorder" : "positive"}>
+                            {isPreorder ? "Preorder" : "In stock"}
+                          </StatusBadge>
+                        </span>
+                        <span className="text-[0.75rem] text-ink/70 sm:hidden">
+                          {isPreorder ? "Preorder" : "In stock"}
+                        </span>
 
                         {/* The deposit is the single most surprising thing on a
                             preorder line, so it is named on the line itself
                             rather than only in the total. */}
                         {line.paymentMode === "deposit" &&
                         line.depositPercent !== null ? (
-                          <span className="text-meta text-ink/70">
+                          <span className="text-[0.75rem] text-ink/70 sm:text-meta">
                             {line.depositPercent}% deposit now
                           </span>
                         ) : null}
                       </div>
 
-                      <p className="text-meta tabular-nums text-ink/70">
+                      <p className="hidden text-meta tabular-nums text-ink/70 sm:block">
                         {formatBdt(line.unitPriceBdt)} each
                       </p>
 
                       {line.problem ? (
-                        <p className="mt-1 flex items-start gap-2 text-meta text-stamp-red-text">
+                        <p className="col-span-2 col-start-2 row-start-3 mt-1 flex items-start gap-2 text-meta text-stamp-red-text">
                           <IconAlert size={16} className="mt-0.5 shrink-0" />
                           {line.problem}
                         </p>
                       ) : null}
                     </div>
 
-                    <div className="flex flex-col items-end gap-3">
-                      <p className="font-display text-price font-semibold tabular-nums text-ink">
+                    <div className="contents sm:flex sm:flex-col sm:items-end sm:gap-3">
+                      <p className="col-start-2 row-start-4 self-center text-[1rem] font-extrabold tabular-nums text-ink sm:font-display sm:text-price sm:font-semibold">
                         {formatBdt(line.lineTotalBdt)}
                       </p>
 
@@ -224,21 +338,37 @@ export function CartLines({
                        * reader — but the two buttons are what a thumb reaches
                        * for, and they commit immediately instead of waiting
                        * for a blur that a phone keyboard makes awkward.
+                       *
+                       * On a phone it is smaller and borderless, and at a
+                       * quantity of one its minus becomes a bin.
                        */}
-                      <div className="flex items-center rounded-control border border-blue-300 bg-paper">
+                      <div className="col-start-3 row-start-4 mt-1 flex items-center justify-self-end rounded-control sm:mt-0 sm:border sm:border-blue-300 sm:bg-paper">
                         <button
                           type="button"
                           onClick={() =>
                             change(line.itemId, Math.max(1, line.quantity - 1))
                           }
                           disabled={busy || line.quantity <= 1}
-                          className="inline-flex size-10 items-center justify-center rounded-l-control text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent"
+                          className={`inline-flex size-9 items-center justify-center rounded-control bg-blue-50 text-ink transition-colors hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent sm:size-10 sm:rounded-l-control sm:rounded-r-none sm:bg-transparent sm:text-blue-600 ${
+                            line.quantity <= 1 ? "max-sm:hidden" : ""
+                          }`}
                         >
                           <IconMinus size={16} />
                           <span className="sr-only">
                             One fewer {line.productTitle}
                           </span>
                         </button>
+                        {line.quantity <= 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => change(line.itemId, 0)}
+                            disabled={busy}
+                            className="inline-flex size-9 items-center justify-center rounded-control bg-stamp-red/10 text-stamp-red-text transition-colors disabled:opacity-60 sm:hidden"
+                          >
+                            <IconTrash size={16} />
+                            <span className="sr-only">Remove {line.productTitle}</span>
+                          </button>
+                        ) : null}
 
                         <label
                           htmlFor={`quantity-${line.itemId}`}
@@ -275,14 +405,14 @@ export function CartLines({
                               event.currentTarget.blur();
                             }
                           }}
-                          className="h-10 w-12 border-x border-blue-300 bg-transparent text-center text-body tabular-nums [appearance:textfield] focus:shadow-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          className="h-9 w-9 bg-transparent text-center text-body font-semibold tabular-nums [appearance:textfield] focus:shadow-none sm:h-10 sm:w-12 sm:border-x sm:border-blue-300 sm:font-normal [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         />
 
                         <button
                           type="button"
                           onClick={() => change(line.itemId, line.quantity + 1)}
                           disabled={busy || line.quantity >= max}
-                          className="inline-flex size-10 items-center justify-center rounded-r-control text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent"
+                          className="inline-flex size-9 items-center justify-center rounded-control bg-blue-50 text-ink transition-colors hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent sm:size-10 sm:rounded-l-none sm:rounded-r-control sm:bg-transparent sm:text-blue-600"
                         >
                           <IconPlus size={16} />
                           <span className="sr-only">
@@ -295,7 +425,7 @@ export function CartLines({
                         type="button"
                         onClick={() => change(line.itemId, 0)}
                         disabled={busy}
-                        className="inline-flex min-h-9 items-center gap-1.5 rounded-control px-2 text-meta text-ink/70 transition-colors hover:bg-blue-50 hover:text-stamp-red-text disabled:opacity-60"
+                        className="hidden min-h-9 items-center gap-1.5 rounded-control px-2 text-meta text-ink/70 transition-colors hover:bg-blue-50 hover:text-stamp-red-text disabled:opacity-60 sm:inline-flex"
                       >
                         <IconClose size={14} />
                         Remove
@@ -306,7 +436,7 @@ export function CartLines({
                           type="button"
                           onClick={() => saveForLater(line.itemId)}
                           disabled={busy}
-                          className="inline-flex min-h-9 items-center gap-1.5 rounded-control px-2 text-meta text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-60"
+                          className="col-start-3 row-start-2 inline-flex min-h-8 items-center justify-self-end rounded-control text-[0.75rem] font-medium text-blue-600 transition-colors hover:bg-blue-50 disabled:opacity-60 sm:min-h-9 sm:gap-1.5 sm:px-2 sm:text-meta"
                         >
                           Save for later
                           <span className="sr-only"> {line.productTitle}</span>
@@ -314,6 +444,7 @@ export function CartLines({
                       ) : null}
                     </div>
                   </div>
+                  </SwipeRow>
                 </motion.li>
               );
             })}
@@ -329,11 +460,44 @@ export function CartLines({
           ) : null}
         </div>
 
-        <div className="mt-6">
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
           <LinkButton href="/search?available=1" variant="quiet" size="sm">
             Keep browsing
           </LinkButton>
+          <p className="text-[0.75rem] text-ink/70 sm:hidden">
+            Swipe a line left to remove it.
+          </p>
         </div>
+      </div>
+
+      {/*
+       * The phone's checkout bar (D-047): what is due and the way to pay, at
+       * the foot of the screen for the whole visit, as in the owner's
+       * reference. The summary below keeps the breakdown; its own button is
+       * a desktop's.
+       */}
+      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-4 border-t border-blue-300 bg-paper/95 pb-[max(0.625rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-2.5 shadow-[0_-8px_24px_-16px_rgb(18_35_63/0.35)] backdrop-blur lg:hidden">
+        <div className="min-w-0">
+          <p className="text-meta text-ink/70">
+            {balance > 0 ? "Due now" : "Subtotal"}
+          </p>
+          <p className="font-display text-[1.375rem] font-bold leading-tight tabular-nums text-ink">
+            {formatBdt(dueNowBdt)}
+          </p>
+        </div>
+        {hasProblems ? (
+          <button
+            type="button"
+            disabled
+            className="inline-flex min-h-12 cursor-not-allowed items-center justify-center rounded-control border border-blue-300 bg-blue-50 px-5 text-body font-medium text-ink/70"
+          >
+            Fix flagged items
+          </button>
+        ) : (
+          <LinkButton href="/checkout" variant="primary" className="min-h-12 min-w-36 px-7">
+            Checkout
+          </LinkButton>
+        )}
       </div>
 
       <Panel
@@ -376,7 +540,7 @@ export function CartLines({
           </p>
         ) : null}
 
-        <div className="mt-5">
+        <div className="mt-5 hidden lg:block">
           {hasProblems ? (
             /* A link cannot be disabled, so the blocked state is a real
                button that says why rather than a dead anchor. */

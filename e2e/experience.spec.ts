@@ -77,11 +77,11 @@ test("the buy bar is within reach on a phone", async ({ page }, testInfo) => {
 
   await page.goto(PRODUCT);
 
-  // Exactly one add button on a phone — the sticky bar's, labelled "Add"
-  // beside Buy now (D-043) — and it is reachable without scrolling past the
-  // options and the countdown.
+  // Exactly one add button on a phone — the sticky bar's "Add to cart" beside
+  // the option picker (D-047) — and it is reachable without scrolling past
+  // the options and the countdown.
   const button = page
-    .getByRole("button", { name: "Add", exact: true })
+    .getByRole("button", { name: "Add to cart", exact: true })
     .filter({ visible: true });
   await expect(button).toHaveCount(1);
   await expect(button).toBeInViewport();

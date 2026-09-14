@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { buttonClass } from "./button";
-import { IconCheck, IconStar } from "./icons";
+import { IconHeart } from "./icons";
 
 /**
  * Save the chosen option to the wishlist, or take it off again.
@@ -33,7 +33,7 @@ export function WishlistButton({
         href={`/login?next=${encodeURIComponent(returnTo)}`}
         className={buttonClass({ variant: "quiet", size: "sm", className: "self-start" })}
       >
-        <IconStar size={16} />
+        <IconHeart size={16} />
         Sign in to save to your wishlist
       </a>
     );
@@ -67,7 +67,13 @@ export function WishlistButton({
         aria-pressed={saved}
         className={buttonClass({ variant: "quiet", size: "sm", className: "self-start" })}
       >
-        {saved ? <IconCheck size={16} /> : <IconStar size={16} />}
+        {/* The heart the header uses for the wishlist, filled once saved —
+            and keyed so it stamps as the state changes. */}
+        <IconHeart
+          key={saved ? "saved" : "not-saved"}
+          size={16}
+          className={saved ? "animate-stamp fill-stamp-red text-stamp-red" : ""}
+        />
         {saved ? "Saved to your wishlist" : "Save to wishlist"}
       </button>
       <div aria-live="polite">

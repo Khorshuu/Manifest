@@ -2,15 +2,18 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Button } from "./button";
+import { Button, buttonClass } from "./button";
 import { Field } from "./field";
-import { AuthDivider, GoogleButton } from "./google-button";
-import { IconAlert, IconUser } from "./icons";
+import { AuthDivider, GoogleButton, GoogleMark } from "./google-button";
+import { IconAlert, IconClose, IconUser } from "./icons";
 
 type Mode = "signin" | "signup" | "code";
 
+const GOOGLE_UNAVAILABLE =
+  "Google sign-in isn't switched on yet. Use your email for now.";
+
 /**
- * Signing in without leaving the page (DECISIONS.md D-042).
+ * Signing in without leaving the page (DECISIONS.md D-042, D-050).
  *
  * The same two endpoints the /login and /register pages post to, in a dialog
  * over whatever the shopper was already looking at — a product, a cart, a
@@ -20,7 +23,8 @@ type Mode = "signin" | "signup" | "code";
  *
  * It is a native dialog element, so the browser supplies the modal behaviour
  * that is otherwise hand-written and usually wrong: focus stays inside it, the
- * page behind is inert, and Escape closes it.
+ * page behind is inert, and Escape closes it. The entrance and exit are CSS
+ * transitions on `.auth-dialog` in globals.css.
  */
 export function AuthDialog({
   googleEnabled,
@@ -57,6 +61,11 @@ export function AuthDialog({
     setOpen(false);
     setError(null);
     setPending(false);
+  }
+
+  function switchMode(next: Mode) {
+    setMode(next);
+    setError(null);
   }
 
   /**
@@ -154,18 +163,25 @@ export function AuthDialog({
   }
 
   const tab = (active: boolean) =>
-    `flex min-h-10 flex-1 items-center justify-center rounded-control text-meta font-semibold transition-colors ${
-      active
-        ? "bg-paper text-ink shadow-[var(--shadow-raise)]"
-        : "text-ink/65 hover:text-ink"
+    `relative z-10 flex min-h-10 flex-1 items-center justify-center rounded-control text-meta font-semibold transition-colors duration-300 ${
+      active ? "text-ink" : "text-ink/60 hover:text-ink"
     }`;
 
   const title =
     mode === "signup"
-      ? "Create an account"
+      ? "Create your account"
       : mode === "code"
         ? "One more step"
-        : "Sign in";
+        : "Welcome back";
+
+  const subtitle =
+    mode === "signup"
+      ? "Keep your preorders, wishlist and addresses in one place."
+      : mode === "code"
+        ? "Confirm it's you with your authenticator app."
+        : "Sign in to track preorders and check out faster.";
+
+  const googleLabel = mode === "signup" ? "Sign up with Google" : "Continue with Google";
 
   return (
     <>
@@ -185,169 +201,196 @@ export function AuthDialog({
         ref={dialogRef}
         onClose={close}
         onCancel={close}
+        // The dialog has no padding of its own, so a click whose target is the
+        // dialog itself landed on the backdrop.
+        onClick={(event) => {
+          if (event.target === event.currentTarget) close();
+        }}
         aria-labelledby="auth-dialog-title"
-        className="w-[min(28rem,calc(100vw-2rem))] rounded-card border border-ink/10 bg-paper p-0 text-ink shadow-[var(--shadow-raise)] backdrop:bg-ink/45 backdrop:backdrop-blur-[2px]"
+        aria-describedby="auth-dialog-subtitle"
+        className="auth-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(27rem,calc(100vw-2rem))] overflow-y-auto overscroll-contain rounded-[calc(var(--radius-media)+4px)] border border-ink/8 bg-paper p-0 text-ink shadow-[var(--shadow-float)]"
       >
-        <div className="p-6 sm:p-8">
-          <div className="flex items-start justify-between gap-4">
-            <h2 id="auth-dialog-title" className="font-display text-h2">
+        <div className="relative px-6 pb-6 pt-8 sm:px-8 sm:pb-8">
+          <button
+            type="button"
+            onClick={close}
+            className="absolute right-3 top-3 inline-flex size-10 items-center justify-center rounded-full text-ink/60 transition-[background-color,color,transform] duration-200 hover:rotate-90 hover:bg-ink/5 hover:text-ink"
+          >
+            <IconClose size={18} />
+            <span className="sr-only">Close</span>
+          </button>
+
+          <div className="flex flex-col items-center text-center">
+            <span className="auth-dialog-badge inline-flex size-14 items-center justify-center rounded-full bg-blue-50 text-blue-600 ring-8 ring-blue-50/50">
+              <IconUser size={24} />
+            </span>
+            <h2 id="auth-dialog-title" className="mt-4 font-display text-h2">
               {title}
             </h2>
-            <button
-              type="button"
-              onClick={close}
-              className="-mr-2 -mt-2 inline-flex size-11 items-center justify-center rounded-control text-ink/70 transition-colors hover:bg-ink/5 hover:text-ink"
-            >
-              <span aria-hidden="true" className="text-h3 leading-none">
-                &times;
-              </span>
-              <span className="sr-only">Close</span>
-            </button>
+            <p id="auth-dialog-subtitle" className="mt-1 max-w-[34ch] text-meta text-ink/65">
+              {subtitle}
+            </p>
           </div>
 
           {mode !== "code" ? (
-            <div className="mt-5 flex rounded-control bg-ink/5 p-1">
+            <div className="relative mt-6 flex rounded-control bg-ink/5 p-1">
+              {/* One pill slides under whichever tab is chosen. */}
+              <span
+                aria-hidden="true"
+                className={`absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-control bg-paper shadow-[var(--shadow-raise)] transition-transform duration-300 ease-[var(--ease-out-quint)] ${
+                  mode === "signup" ? "translate-x-full" : "translate-x-0"
+                }`}
+              />
               <button
                 type="button"
+                aria-pressed={mode === "signin"}
                 className={tab(mode === "signin")}
-                onClick={() => {
-                  setMode("signin");
-                  setError(null);
-                }}
+                onClick={() => switchMode("signin")}
               >
                 Sign in
               </button>
               <button
                 type="button"
+                aria-pressed={mode === "signup"}
                 className={tab(mode === "signup")}
-                onClick={() => {
-                  setMode("signup");
-                  setError(null);
-                }}
+                onClick={() => switchMode("signup")}
               >
                 Create account
               </button>
             </div>
           ) : null}
 
-          {googleEnabled && mode !== "code" ? (
-            <div className="mt-6 flex flex-col gap-5">
-              {/* Comes back to the page the dialog was opened on. */}
-              <GoogleButton next={pathname} />
-              <AuthDivider />
-            </div>
-          ) : null}
+          {/* Keyed on the mode, so each switch replays the pane's entrance. */}
+          <div key={mode} className="auth-dialog-pane">
+            {mode !== "code" ? (
+              <div className="mt-6 flex flex-col gap-5">
+                {googleEnabled ? (
+                  // Comes back to the page the dialog was opened on.
+                  <GoogleButton next={pathname} label={googleLabel} />
+                ) : (
+                  // Without credentials the redirect has nowhere to go, so the
+                  // shopper is told here rather than sent off the page.
+                  <button
+                    type="button"
+                    onClick={() => setError(GOOGLE_UNAVAILABLE)}
+                    className={buttonClass({
+                      variant: "secondary",
+                      size: "lg",
+                      className: "w-full",
+                    })}
+                  >
+                    <GoogleMark />
+                    {googleLabel}
+                  </button>
+                )}
+                <AuthDivider label="or use your email" />
+              </div>
+            ) : null}
 
-          {mode === "signin" ? (
-            <form onSubmit={onSignIn} className="mt-6 flex flex-col gap-5" noValidate>
-              <Field
-                label="Email"
-                name="email"
-                id="auth-dialog-email"
-                type="email"
-                autoComplete="email"
-                required
-              />
-              <Field
-                label="Password"
-                name="password"
-                id="auth-dialog-password"
-                type="password"
-                autoComplete="current-password"
-                required
-              />
-              <DialogError message={error} errorRef={errorRef} />
-              <Button type="submit" size="lg" disabled={pending} className="w-full">
-                {pending ? "Signing in…" : "Sign in"}
-              </Button>
-            </form>
-          ) : null}
+            {mode === "signin" ? (
+              <form onSubmit={onSignIn} className="mt-5 flex flex-col gap-5" noValidate>
+                <Field
+                  label="Email"
+                  name="email"
+                  id="auth-dialog-email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                />
+                <Field
+                  label="Password"
+                  name="password"
+                  id="auth-dialog-password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                />
+                <DialogError message={error} errorRef={errorRef} />
+                <Button type="submit" size="lg" disabled={pending} className="w-full">
+                  {pending ? "Signing in…" : "Sign in"}
+                </Button>
+              </form>
+            ) : null}
 
-          {mode === "signup" ? (
-            <form onSubmit={onSignUp} className="mt-6 flex flex-col gap-5" noValidate>
-              <Field
-                label="First name"
-                name="firstName"
-                id="auth-dialog-first-name"
-                autoComplete="given-name"
-                required
-                maxLength={60}
-              />
-              <Field
-                label="Email"
-                name="email"
-                id="auth-dialog-signup-email"
-                type="email"
-                autoComplete="email"
-                required
-              />
-              <Field
-                label="Mobile number"
-                name="phone"
-                id="auth-dialog-phone"
-                type="tel"
-                autoComplete="tel"
-                inputMode="tel"
-                hint="Optional. For delivery updates, e.g. 01712345678."
-              />
-              <Field
-                label="Password"
-                name="password"
-                id="auth-dialog-signup-password"
-                type="password"
-                autoComplete="new-password"
-                required
-                minLength={10}
-                hint="At least 10 characters."
-              />
-              <DialogError message={error} errorRef={errorRef} />
-              <Button type="submit" size="lg" disabled={pending} className="w-full">
-                {pending ? "Creating…" : "Create account"}
-              </Button>
-            </form>
-          ) : null}
+            {mode === "signup" ? (
+              <form onSubmit={onSignUp} className="mt-5 flex flex-col gap-5" noValidate>
+                <Field
+                  label="First name"
+                  name="firstName"
+                  id="auth-dialog-first-name"
+                  autoComplete="given-name"
+                  required
+                  maxLength={60}
+                />
+                <Field
+                  label="Email"
+                  name="email"
+                  id="auth-dialog-signup-email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                />
+                <Field
+                  label="Mobile number"
+                  name="phone"
+                  id="auth-dialog-phone"
+                  type="tel"
+                  autoComplete="tel"
+                  inputMode="tel"
+                  hint="Optional. For delivery updates, e.g. 01712345678."
+                />
+                <Field
+                  label="Password"
+                  name="password"
+                  id="auth-dialog-signup-password"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  minLength={10}
+                  hint="At least 10 characters."
+                />
+                <DialogError message={error} errorRef={errorRef} />
+                <Button type="submit" size="lg" disabled={pending} className="w-full">
+                  {pending ? "Creating…" : "Create account"}
+                </Button>
+              </form>
+            ) : null}
 
-          {mode === "code" ? (
-            <form onSubmit={onCode} className="mt-6 flex flex-col gap-5" noValidate>
-              <p className="max-w-[60ch] text-meta text-ink/70">
-                Enter the six-digit code from your authenticator app. If you have
-                lost your phone, one of your recovery codes works here too.
+            {mode === "code" ? (
+              <form onSubmit={onCode} className="mt-6 flex flex-col gap-5" noValidate>
+                <p className="max-w-[60ch] text-meta text-ink/70">
+                  Enter the six-digit code from your authenticator app. If you have
+                  lost your phone, one of your recovery codes works here too.
+                </p>
+                <Field
+                  label="Code"
+                  name="code"
+                  id="auth-dialog-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  required
+                />
+                <DialogError message={error} errorRef={errorRef} />
+                <Button type="submit" size="lg" disabled={pending} className="w-full">
+                  {pending ? "Checking…" : "Continue"}
+                </Button>
+              </form>
+            ) : null}
+
+            {mode === "signin" ? (
+              <p className="mt-5 text-center text-meta text-ink/70">
+                Ordered without an account?{" "}
+                <a
+                  href="/orders/lookup"
+                  className="text-blue-600 underline-offset-4 hover:underline"
+                >
+                  Track it with your order number
+                </a>
+                .
               </p>
-              <Field
-                label="Code"
-                name="code"
-                id="auth-dialog-code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                autoFocus
-                required
-              />
-              <DialogError message={error} errorRef={errorRef} />
-              <Button type="submit" size="lg" disabled={pending} className="w-full">
-                {pending ? "Checking…" : "Continue"}
-              </Button>
-            </form>
-          ) : null}
-
-          {mode === "signin" ? (
-            <p className="mt-5 text-meta text-ink/70">
-              Ordered without an account?{" "}
-              <a
-                href="/orders/lookup"
-                className="text-blue-600 underline-offset-4 hover:underline"
-              >
-                Track it with your order number
-              </a>
-              .
-            </p>
-          ) : null}
-
-          {mode === "signup" ? (
-            <p className="mt-5 text-meta text-ink/70">
-              An account keeps your preorders, your wishlist and your delivery
-              addresses in one place.
-            </p>
-          ) : null}
+            ) : null}
+          </div>
         </div>
       </dialog>
     </>
@@ -367,7 +410,7 @@ function DialogError({
         <p
           ref={errorRef}
           tabIndex={-1}
-          className="flex items-start gap-2 rounded-card border border-stamp-red bg-stamp-red/5 p-3 text-meta text-stamp-red-text"
+          className="auth-dialog-error flex items-start gap-2 rounded-card border border-stamp-red bg-stamp-red/5 p-3 text-meta text-stamp-red-text"
         >
           <IconAlert size={16} className="mt-0.5 shrink-0" />
           {message}

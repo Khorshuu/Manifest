@@ -83,6 +83,55 @@ export async function addProductImage(
   });
 }
 
+/**
+ * Swaps the file behind one image, keeping its place (D-049).
+ *
+ * This is what the crop editor's Replace and Edit save: the image keeps its
+ * id, position and — unless a new one is given — its description, so a
+ * re-cropped main image is still the main image.
+ *
+ * The previous file is left in storage on purpose. Orders, carts and variants
+ * record an image's address when they are made, and deleting it here would
+ * blank the thumbnail on an order placed last month.
+ */
+export async function replaceProductImage(
+  actor: SessionUser | null,
+  productId: string,
+  imageId: string,
+  input: UploadInput & { altText?: string },
+) {
+  const staff = requirePermission(actor, "catalog.manage");
+
+  const [image] = await db
+    .select()
+    .from(productImages)
+    .where(eq(productImages.id, imageId));
+
+  if (!image || image.productId !== productId) {
+    throw new MediaError("That image does not belong to this product.");
+  }
+
+  const altText = input.altText?.trim() || image.altText;
+  const stored = await getMediaProvider().upload(input);
+
+  const [updated] = await db
+    .update(productImages)
+    .set({ url: stored.url, altText })
+    .where(eq(productImages.id, imageId))
+    .returning();
+
+  await recordAudit({
+    actorUserId: staff.id,
+    action: "product.updated",
+    entityType: "product",
+    entityId: productId,
+    before: { imageUrl: image.url },
+    after: { imageReplaced: stored.url, bytes: stored.bytes },
+  });
+
+  return updated;
+}
+
 export async function listProductImages(
   productId: string,
   kind?: "gallery" | "lifestyle",

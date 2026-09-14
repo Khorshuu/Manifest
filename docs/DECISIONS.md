@@ -938,3 +938,231 @@ transparent over the phone hero, as on the web, and for search to be an icon
 with a pop-up. With search behind an icon the header fits on one row at any
 width, so the plain bar below `md` was dropped: the header floats over the
 landscape hero everywhere. The landscape composition itself stays.
+
+## D-046 — The phone's shopping screens behave like an app, not a shrunk page
+
+**Context.** The owner asked for a full mobile pass over the customer-facing
+shop: a swipe gallery with no arrow buttons, compact cart rows, a total and
+Checkout within reach, shorter descriptions, sideways recommendation shelves
+and a footer that does not take a screen of links. The desktop was to stay as
+it is.
+
+**Decision.**
+- **Gallery.** Every photograph sits in one horizontal scroll-snap track. Below
+  `lg` the track is swiped with the browser's own momentum and a row of dots
+  (real buttons, 24px targets) shows the position; there are no arrow buttons
+  on a phone, in the page or in the full-screen viewer. From `lg` the same
+  track is locked and driven by the thumbnails, jumping and fading the shot in,
+  so the desktop looks as before. The frame is square but capped at 62svh, so
+  a short or sideways phone still shows the title and price.
+- **Buy box order.** Below `lg` the price, availability and batch meter come
+  before the option chips, straight under the title. The desktop keeps options
+  first. The sticky buy bar stays the phone's one place to buy (D-043).
+- **Description.** Below `lg` a long description folds at about a dozen lines
+  behind "Read more"; a short one shows no button.
+- **Cart.** Rows are compact below `sm` (photo and name side by side, stepper,
+  Remove and line total on one line). Below `lg` a bar with the amount due and
+  Checkout rides the foot of the screen while the summary is still below the
+  screen, and hides once the summary's own button is visible, so two Checkout
+  buttons are never on screen together.
+- **Recommendations** are a sideways shelf below `sm` and the grid from `sm`.
+- **Footer** lists fold behind their headings below `md`.
+- **Safe areas.** The root viewport is `viewport-fit=cover`. Without it every
+  `env(safe-area-inset-*)` already in the stylesheet read zero.
+
+**Not changed, deliberately.** The home hero and showcase keep the owner's
+D-045 composition — a landscape frame with the tiles across its foot, not a
+carousel — although the brief mentioned horizontal scrolling for the
+showcase; the owner had already rejected that on a phone. The wishlist stays
+per option (D-031), so the product page's heart button appears once an option
+is chosen.
+
+**Trap recorded.** A horizontal scroller must be positioned. The product cards'
+`sr-only` text is absolutely positioned; inside an unpositioned `overflow-x:
+auto` rail it escaped the clip, and a real phone widened the whole layout to
+about 507px and zoomed out. Chromium's plain viewport emulation does not show
+it — only `isMobile` does.
+
+## D-047 — The phone's product page and cart follow the owner's reference
+
+**Context.** After D-046 the owner showed the reference they had in mind: a
+shopping-app product screen (a photograph edge to edge with back, share and
+save over it, a short name-and-price row, and a bar with an option picker and
+Add to cart) and a cart of slim rows with a subtotal and Checkout fixed to the
+foot of the screen.
+
+**Decision.** Below `lg`, and only there:
+- **Product photograph** runs edge to edge with no card border. Back, Share and
+  a heart sit on it in round buttons. Position marks are short dashes on the
+  photograph. The breadcrumb is not shown (Back does its job; the structured
+  breadcrumb data stays).
+- **Heading.** A status pill, the name with its price beside it (following the
+  chosen option, "From" until one is chosen), and two lines from the first key
+  feature or the description. The buy box underneath loses its card surface.
+- **Buy bar.** An option button and Add to cart. The option button opens a
+  bottom sheet of every option with its price or "Full". Pressing Add to cart
+  with nothing chosen opens the same sheet, and choosing there adds straight
+  away. After adding, the button says "Added" for two seconds.
+- **Heart.** Saves the chosen option (D-031 still holds — the wishlist is per
+  option). With no option chosen it says so and opens the option sheet.
+- **Cart rows** are slips on a pale ground: photograph, name, stock and deposit
+  line, the option opposite the name, and the line total with a small stepper
+  along the foot. At a quantity of one the minus is a bin. A row also slides
+  left to show a bin.
+- **Checkout bar** is fixed to the foot of the screen for the whole visit; the
+  summary panel keeps the breakdown and its own button is desktop-only.
+- **Room for bars.** A page with a fixed bottom bar sets `data-bottom-bar` on
+  `<html>`, which pads the body so the footer is never under the bar.
+
+**Overrides.** D-043's "Buy now" on the phone bar is gone — the reference has
+one buy action. Buy now stays on a desktop. D-046's cart bar that appeared
+only while the summary was out of view is replaced by the always-present one.
+
+**Kept to Manifest's identity, not copied.** The brass call to action, the
+brand type, and the preorder terms (deposit, arrival window, countdown, places
+left) all stay on the page; the reference's black pill buttons and bare
+fashion layout were not copied.
+
+## D-048 — On a phone's product page the header waits until the photograph is scrolled
+
+**Context.** With the photograph edge to edge and its own Back, Share and heart
+buttons (D-047), the owner asked for the site header to be invisible while the
+photograph is at the top, and to appear with an animation on scrolling down.
+
+**Decision.** Below `lg`, on `/products/*` only, the header is fixed rather
+than sticky, so the photograph starts at the top of the screen. It is moved up
+by its own height and faded out while the photograph is mostly on screen, and
+slides down (500ms, the site's ease-out) once about two fifths of the
+photograph has scrolled off the top. Scrolling back up tucks it away again.
+
+- It is moved and faded, never `visibility: hidden` or `inert`, so a screen
+  reader still reaches the navigation; keyboard focus inside it brings it back.
+- While it is showing it carries no translate at all. A transform on the header
+  would become the containing block for the fixed category drawer and search
+  inside it and squash them into the header's box.
+- The gallery marks its frame `data-product-photo`; a product page without one
+  (the loading state) shows the header.
+- Reduced motion keeps the behaviour and drops the slide.
+- Desktop and every other route are unchanged.
+
+## D-049 — Product images are cropped in the browser before upload
+
+**Context.** The owner asked for staff to upload any product image and frame
+it in a crop editor — preset ratios with 4:5 as the default, a custom ratio,
+drag, zoom, rotate, a preview — rather than preparing files beforehand.
+
+**Decision.**
+- **Where the crop happens.** In the admin's browser, on a canvas, before
+  upload. The result (WebP, or JPEG where the browser cannot write WebP) goes
+  through the existing `POST /api/admin/products/[id]/images` route, which
+  keeps every check it had: staff only, the file's own bytes decide its type,
+  5MB ceiling. No new dependency and no server-side image processing.
+- **Geometry** lives in `lib/images/crop.ts`, pure and unit-tested; drawing,
+  decoding and encoding in `lib/images/browser.ts`; the dialog in
+  `app/admin/products/[productId]/crop-editor.tsx`.
+- **Sizes.** The frame's long edge is 2000px, so 4:5 saves at 1600 × 2000. A
+  crop that would enlarge the original is saved at the original's own
+  resolution instead. Originals are decoded no larger than 6000px on the long
+  side, and may be up to 40MB, so a camera file cannot freeze the page.
+- **Product-safe first framing.** A photograph within about 12% of the frame's
+  shape fills it; anything else is shown whole and the admin zooms in. Nothing
+  is stretched — the picture is only scaled evenly.
+- **Empty space** inside the frame is filled with the colour around the
+  image's own edge (so a studio background stays that background), or white.
+  No background removal or generation.
+- **EXIF orientation** is applied when decoding (`imageOrientation:
+  "from-image"`), and the saved file is written upright.
+- **Several files** open one after another ("Image 2 of 5"); Cancel becomes
+  Skip within a batch.
+- **Edit and Replace** save through the same route with `replaceImageId`. The
+  image keeps its id, position and (unless changed) description. The previous
+  file is not deleted, because orders, carts and variants keep the address they
+  recorded. Delete keeps its existing behaviour.
+- **No schema change.** The ratio badge on each admin thumbnail is read from
+  the image's real pixel size once it loads. Existing images are untouched and
+  keep working.
+
+**Not changed.** The storefront. Its catalogue cards and the desktop product
+gallery are square frames that fill their box, so a 4:5 image shows there
+with a little of its top and bottom trimmed (the editor's "Catalogue card"
+preview shows exactly how much). Moving those frames to 4:5 is a
+customer-facing change left for the owner to ask for.
+
+**Amended (owner's QC).** The owner found no direct way to buy on a phone, so
+Buy now is back on the phone's bar beside Add to cart, as on the desktop. The
+option button is narrower (at most a third of the bar) so all three fit at
+360px. Either buy button pressed with no option chosen opens the option sheet
+("Choose an option to add" or "…to buy"); choosing there adds, and for Buy now
+goes on to checkout.
+
+## D-050 — The sign-in dialog is centred and animated, and Google is always offered
+
+**Context.** The owner found the sign-in popup sitting at the top-left of the
+screen and looking generic, and saw no way to sign up with Google. The corner
+placement was a bug: Tailwind's reset removes the `margin: auto` a browser uses
+to centre a modal `<dialog>`. The Google button was missing because D-042
+hides it until credentials are configured, and none are.
+
+**Decision.**
+- The dialog gets `m-auto`, so it is centred, and a redesign: a round badge,
+  a greeting and a one-line reason to sign in, a segmented Sign in / Create
+  account control whose highlight slides between the two, and Google above the
+  email form ("Continue with Google", or "Sign up with Google" on the create
+  tab).
+- Motion is CSS only, in `globals.css` under `.auth-dialog`: the backdrop fades
+  and blurs, the panel rises with a slight spring, the badge pops in after it,
+  switching tabs slides the form in, a refused sign-in shakes the error once,
+  and closing sinks and fades. Clicking the backdrop closes it. The global
+  reduced-motion rule turns all of it off.
+- **The Google button is now always shown** — on the dialog, `/login` and
+  `/register`. This overturns D-042's "off by default" for the button only;
+  the flow itself still needs `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+  Without them, the dialog's button says "Google sign-in isn't switched on
+  yet" in place, and `/api/auth/google/start` redirects to
+  `/login?error=google-unavailable` instead of answering 404. The callback
+  still answers 404 unconfigured, since nothing legitimate reaches it then.
+
+**Assumption to overturn later:** a visible button that cannot yet work is
+better than no button, because the owner is reviewing the site and wants to see
+it. If the shop goes live without Google credentials, hide it again by
+restoring the `isGoogleSignInEnabled()` checks.
+
+## D-051 — Phone search is a small card; Browse by kind is a row of small tiles
+
+**Context.** The owner found the phone search taking the whole screen and
+asked for it to be small and usable like the desktop field, and asked for
+"Browse by kind" to be more modern and take less room, with each category
+no longer the size of a slide.
+
+**Decision — search.** The header's search icon still focuses the hidden field
+inside the same tap (so iOS raises the keyboard), but what opens is a card
+fixed near the top of the screen, inset 12px from each side: the field, a close
+button, and the same suggestions below it, capped at about 58% of the screen
+height and scrolling inside. The page behind dims slightly and stays where it
+is; tapping it, the close button or Escape closes the search. The full-screen
+panel and its page scroll lock are gone. Desktop is unchanged.
+
+**Decision — Browse by kind.** Every top shelf is the same compact tile: a
+square photograph of something filed there, the name and a live count. No lead
+tile. On a phone the tiles are one sideways row that settles on a tile, about
+three to a screen; on a tablet five across; from `lg` a grid of tiles about
+nine rem wide. The heading is smaller and the link reads "See all".
+
+**Amended (owner's QC).** The small plain tiles were rejected as not modern
+enough. Browse by kind is now an image-led board: on tablet and desktop the
+first shelf is a tall feature card beside a two-by-two of the rest (about
+400px high); on a phone, one sideways row of portrait cards, a little over two
+to a screen. Each card shows its photograph whole, in a rounded frame with a
+soft shadow, over a blurred, enlarged copy of the same photograph, so every
+card wears its own colours and no photo is cropped or looks pasted on. A
+frosted strip along the foot carries the name, a live count (and on the
+feature card a few sub-shelves) and a round arrow. Two rejected attempts along
+the way: multiplying the photo into a tinted ground (the seed art's own
+backdrop still showed as a box) and a full-bleed cover (it cut products off
+behind the label).
+
+**Amended again (owner's QC).** The phone now uses the desktop board at phone
+size rather than a sideways row: the first shelf as a tall feature card beside
+a two-by-two of the rest, rows 7.5rem high (about 310px for the section). On a
+phone the small cards carry only the name, which wraps to two lines in a
+slightly smaller size; the feature card keeps its count and arrow.

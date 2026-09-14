@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { IconClose, IconPlay } from "@/components/icons";
 import { MediaImage } from "@/components/media-image";
 import { ProductArt } from "@/components/product-art";
@@ -94,17 +94,16 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
 /**
  * The product media, as a shopper actually uses it.
  *
- * Three behaviours, each earning its place:
+ * Every photograph sits side by side in one track that scrolls sideways and
+ * settles on a photograph (D-046). On a phone that track *is* the gallery: a
+ * swipe moves to the next shot with the browser's own momentum, and a row of
+ * small dots under it says where you are. There are no arrow buttons on a
+ * phone — the owner ruled them out, and a thumb swipes anyway.
  *
- *  - Thumbnails are buttons. They are reachable by keyboard and announce
- *    which one is showing, and the main image fades between shots rather than
- *    snapping.
- *  - Hovering the main image magnifies the part under the cursor. It is the
- *    same file scaled with a moving transform origin, so nothing reloads,
- *    nothing blurs beyond the source's own resolution, and the frame never
- *    changes size — a zoom that reflows the page is worse than no zoom.
- *  - Clicking opens a full-screen viewer with arrows, thumbnails, escape to
- *    close and swipe on a touch screen.
+ * From `lg` the same track is locked and driven by the thumbnails, jumping
+ * rather than sliding and fading the new shot in, so the desktop reads exactly
+ * as it did: thumbnails as buttons, a hover magnifier on the photograph, and a
+ * click for the full-screen viewer.
  *
  * Touch devices never see the hover zoom: there is no cursor to follow, so
  * the tap opens the viewer instead, which is the touch-friendly equivalent.
@@ -162,16 +161,30 @@ function VideoFrame({ url, title }: { url: string; title: string }) {
   );
 }
 
+/** The media query the desktop gallery is drawn from — `lg` in Tailwind. */
+const DESKTOP = "(min-width: 1024px)";
+
+/**
+ * Edge to edge below `lg`, as in the owner's reference (D-047): the frame
+ * steps out of the page gutter and loses its card border, so the photograph
+ * is the width of the phone.
+ */
+const BLEED =
+  "max-md:-mx-4 max-md:w-[calc(100%+2rem)] md:max-lg:-mx-6 md:max-lg:w-[calc(100%+3rem)] max-lg:rounded-none max-lg:border-0 max-lg:shadow-none";
+
 export function Gallery({
   images,
   title,
   slug,
   videoUrl,
+  overlay,
 }: {
   images: GalleryImage[];
   title: string;
   slug: string;
   videoUrl?: string | null;
+  /** Controls drawn over the photograph — the phone's back, share and save. */
+  overlay?: ReactNode;
 }) {
   // A variant's own photograph (sent by the variant picker when it is
   // chosen). Shown first when it is not already one of the gallery images.
@@ -198,8 +211,19 @@ export function Gallery({
   const [zooming, setZooming] = useState(false);
   const [origin, setOrigin] = useState({ x: 50, y: 50 });
   const [open, setOpen] = useState(false);
+  /** Read after mount only: the server renders the phone's track. */
+  const [desktop, setDesktop] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const touchStart = useRef<number | null>(null);
+
+  useEffect(() => {
+    const query = window.matchMedia(DESKTOP);
+    const sync = () => setDesktop(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     const onVariant = (event: Event) => {
@@ -218,6 +242,24 @@ export function Gallery({
     (delta: number) => setIndex((current) => (current + delta + count) % count),
     [count],
   );
+
+  /*
+   * The track follows the index whenever something other than a swipe moved
+   * it — a dot, a thumbnail, the chosen variant, the viewer. A swipe updates
+   * the index from the scroll position, so by the time this runs the track is
+   * already there and nothing moves.
+   */
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track || track.clientWidth === 0) return;
+    const showing = Math.round(track.scrollLeft / track.clientWidth);
+    if (showing === index) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    track.scrollTo({
+      left: index * track.clientWidth,
+      behavior: desktop || reduce ? "instant" : "smooth",
+    });
+  }, [index, desktop]);
 
   // Keyboard control for the viewer. Bound only while it is open, so the
   // arrow keys keep scrolling the page the rest of the time.
@@ -244,15 +286,17 @@ export function Gallery({
 
   if (count === 0) {
     return (
-      <div className="surface-studio aspect-square w-full overflow-hidden rounded-card border border-blue-300 shadow-[var(--shadow-raise)]">
+      <div data-product-photo className={`surface-studio relative aspect-square max-h-[62svh] w-full overflow-hidden rounded-card border border-blue-300 shadow-[var(--shadow-raise)] lg:max-h-none ${BLEED}`}>
         {/* Generated artwork rather than an empty box: a young catalogue
             should still look deliberate. */}
         <ProductArt title={title} seed={slug} className="size-full" />
+        {overlay}
       </div>
     );
   }
 
-  const active = items[Math.min(index, count - 1)];
+  const safeIndex = Math.min(index, count - 1);
+  const active = items[safeIndex];
 
   function trackCursor(event: React.MouseEvent<HTMLDivElement>) {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -262,7 +306,15 @@ export function Gallery({
     });
   }
 
-  function onTouchEnd(event: React.TouchEvent) {
+  /** A swipe settles the index on whichever photograph is mostly in view. */
+  function onTrackScroll(event: React.UIEvent<HTMLDivElement>) {
+    const track = event.currentTarget;
+    if (track.clientWidth === 0) return;
+    const showing = Math.round(track.scrollLeft / track.clientWidth);
+    if (showing !== index && showing >= 0 && showing < count) setIndex(showing);
+  }
+
+  function onViewerTouchEnd(event: React.TouchEvent) {
     const start = touchStart.current;
     touchStart.current = null;
     if (start === null) return;
@@ -275,56 +327,127 @@ export function Gallery({
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <div
-        className="surface-studio relative aspect-square w-full overflow-hidden rounded-card border border-blue-300 shadow-[var(--shadow-raise)]"
+        /*
+         * Square on a desktop. On a phone it is square until that would take
+         * more than about three fifths of the screen — a phone held sideways,
+         * or a short one — so the title and price are never pushed a whole
+         * screen down.
+         */
+        data-product-photo
+        className={`surface-studio relative aspect-square max-h-[62svh] w-full overflow-hidden rounded-card border border-blue-300 shadow-[var(--shadow-raise)] lg:max-h-none ${BLEED}`}
         onMouseMove={active.kind === "image" ? trackCursor : undefined}
-        onMouseEnter={active.kind === "image" ? () => setZooming(true) : undefined}
+        onMouseEnter={
+          active.kind === "image"
+            ? () => {
+                if (window.matchMedia("(hover: hover)").matches) setZooming(true);
+              }
+            : undefined
+        }
         onMouseLeave={() => setZooming(false)}
-        onTouchStart={(event) => {
-          touchStart.current = event.touches[0].clientX;
-        }}
-        onTouchEnd={onTouchEnd}
       >
-        {active.kind === "video" ? (
-          <VideoFrame url={active.url} title={active.altText} />
-        ) : (
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            aria-label={`Open ${active.altText} full screen`}
-            className="relative block aspect-square size-full cursor-zoom-in"
-          >
-            {/* Keyed so a change re-runs the fade rather than swapping
-                silently. The transform is the zoom: the origin follows the
-                cursor, and the element's own box never changes. */}
-            <MediaImage
-              key={active.id}
-              src={active.url}
-              alt={active.altText}
-              /* Full width on a phone, half the page beside the buy box from
-                 `lg`, and never wider than the column itself. */
-              sizes="(min-width: 1024px) 48vw, 100vw"
-              /* The first shot is what a shopper waits for, so it is not
-                 lazy and is given priority over the thumbnails. */
-              priority={index === 0}
-              fetchPriority={index === 0 ? "high" : "auto"}
-              className="animate-fade-in object-cover transition-transform duration-300 ease-out motion-reduce:transition-none"
-              style={{
-                transform: zooming ? "scale(2)" : "scale(1)",
-                transformOrigin: `${origin.x}% ${origin.y}%`,
-              }}
-            />
-          </button>
-        )}
+        <div
+          ref={trackRef}
+          onScroll={onTrackScroll}
+          aria-roledescription="carousel"
+          aria-label={`${title} photographs`}
+          className="flex size-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none] lg:snap-none lg:overflow-hidden [&::-webkit-scrollbar]:hidden"
+        >
+          {items.map((item, position) => {
+            const current = position === safeIndex;
+            return (
+              <div
+                key={item.id}
+                aria-roledescription="slide"
+                aria-label={`${position + 1} of ${count}`}
+                aria-hidden={current ? undefined : true}
+                className="relative size-full shrink-0 snap-center snap-always"
+              >
+                {item.kind === "video" ? (
+                  <VideoFrame url={item.url} title={item.altText} />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setOpen(true)}
+                    tabIndex={current ? 0 : -1}
+                    aria-label={`Open ${item.altText} full screen`}
+                    className="relative block size-full cursor-zoom-in"
+                  >
+                    {/* The transform is the zoom: the origin follows the
+                        cursor, and the element's own box never changes. On a
+                        desktop the shot fades in as it is chosen; on a phone
+                        the slide itself is the movement. */}
+                    <MediaImage
+                      key={desktop && current ? `${item.id}-shown` : item.id}
+                      src={item.url}
+                      alt={item.altText}
+                      /* Full width on a phone, half the page beside the buy box
+                         from `lg`, and never wider than the column itself. */
+                      sizes="(min-width: 1024px) 48vw, 100vw"
+                      /* The first shot is what a shopper waits for, so it is
+                         not lazy and is given priority over the rest. */
+                      priority={position === 0}
+                      fetchPriority={position === 0 ? "high" : "auto"}
+                      className={`object-cover transition-transform duration-300 ease-out motion-reduce:transition-none max-lg:object-contain ${
+                        desktop && current ? "animate-fade-in" : ""
+                      }`}
+                      style={{
+                        transform: zooming && current ? "scale(2)" : "scale(1)",
+                        transformOrigin: `${origin.x}% ${origin.y}%`,
+                      }}
+                    />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
 
         {count > 1 ? (
-          <p className="pointer-events-none absolute bottom-3 right-3 rounded-control bg-ink/70 px-2 py-1 text-meta text-paper">
-            {index + 1} / {count}
-          </p>
+          <>
+            <p className="pointer-events-none absolute bottom-3 right-3 hidden rounded-control bg-ink/70 px-2 py-1 text-meta text-paper lg:block">
+              {safeIndex + 1} / {count}
+            </p>
+
+            {/*
+             * Where you are, on a phone: a row of short dashes along the foot
+             * of the photograph, the current one longer and darker. Each is a
+             * real button with a 24px-tall target around a 3px mark, so it can
+             * be tapped as well as read — but the swipe is how most people move.
+             */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center lg:hidden">
+              <ul className="pointer-events-auto flex items-center">
+                {items.map((item, position) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => setIndex(position)}
+                      aria-label={
+                        item.kind === "video"
+                          ? "Show the product video"
+                          : `Show ${item.altText}`
+                      }
+                      aria-current={position === safeIndex ? "true" : undefined}
+                      className="flex h-6 w-7 items-center justify-center"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`block h-[3px] rounded-full transition-[width,background-color] duration-300 ease-[var(--ease-out-quint)] ${
+                          position === safeIndex ? "w-6 bg-ink" : "w-4 bg-ink/20"
+                        }`}
+                      />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
         ) : null}
+
+        {overlay}
       </div>
 
       {count > 1 ? (
-        <ul className="flex flex-wrap gap-3">
+        <ul className="hidden flex-wrap gap-3 lg:flex">
           {items.map((item, position) => (
             <li key={item.id}>
               <button
@@ -335,9 +458,9 @@ export function Gallery({
                     ? "Show the product video"
                     : `Show ${item.altText}`
                 }
-                aria-current={position === index ? "true" : undefined}
+                aria-current={position === safeIndex ? "true" : undefined}
                 className={`relative block overflow-hidden rounded-card border transition-[border-color,opacity,box-shadow] duration-150 ${
-                  position === index
+                  position === safeIndex
                     ? "border-blue-600 opacity-100 shadow-[var(--shadow-raise)]"
                     : "border-blue-300 opacity-70 hover:border-blue-500 hover:opacity-100"
                 }`}
@@ -358,7 +481,7 @@ export function Gallery({
                 )}
                 {/* The active thumbnail is marked by more than colour: a bar
                     under it, for anyone who cannot tell the borders apart. */}
-                {position === index ? (
+                {position === safeIndex ? (
                   <span
                     aria-hidden="true"
                     className="absolute inset-x-0 bottom-0 h-1 bg-blue-600"
@@ -375,13 +498,20 @@ export function Gallery({
           role="dialog"
           aria-modal="true"
           aria-label={`${title} — photographs`}
-          className="animate-fade-in fixed inset-0 z-50 flex flex-col bg-ink-deep/95 p-4 backdrop-blur"
+          className="animate-fade-in fixed inset-0 z-50 flex flex-col bg-ink-deep/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur"
           onClick={(event) => {
             // Only the ground closes it; a click on the picture does not.
             if (event.target === event.currentTarget) setOpen(false);
           }}
         >
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            {count > 1 ? (
+              <p className="text-meta tabular-nums text-paper/80">
+                {safeIndex + 1} / {count}
+              </p>
+            ) : (
+              <span />
+            )}
             <button
               ref={closeRef}
               type="button"
@@ -398,14 +528,15 @@ export function Gallery({
             onTouchStart={(event) => {
               touchStart.current = event.touches[0].clientX;
             }}
-            onTouchEnd={onTouchEnd}
+            onTouchEnd={onViewerTouchEnd}
           >
+            {/* Arrows for a mouse on a desktop only; a phone swipes. */}
             {count > 1 ? (
               <button
                 type="button"
                 onClick={() => step(-1)}
                 aria-label="Previous image"
-                className="inline-flex size-11 shrink-0 items-center justify-center rounded-control bg-paper/10 text-paper hover:bg-paper/20"
+                className="hidden size-11 shrink-0 items-center justify-center rounded-control bg-paper/10 text-paper hover:bg-paper/20 lg:inline-flex"
               >
                 <span aria-hidden="true">‹</span>
               </button>
@@ -425,7 +556,7 @@ export function Gallery({
                 type="button"
                 onClick={() => step(1)}
                 aria-label="Next image"
-                className="inline-flex size-11 shrink-0 items-center justify-center rounded-control bg-paper/10 text-paper hover:bg-paper/20"
+                className="hidden size-11 shrink-0 items-center justify-center rounded-control bg-paper/10 text-paper hover:bg-paper/20 lg:inline-flex"
               >
                 <span aria-hidden="true">›</span>
               </button>
@@ -433,41 +564,53 @@ export function Gallery({
           </div>
 
           {count > 1 ? (
-            <ul className="mt-4 flex flex-wrap justify-center gap-2">
-              {items.map((item, position) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    onClick={() => setIndex(position)}
-                    aria-label={
-                      item.kind === "video"
-                        ? "Show the product video"
-                        : `Show ${item.altText}`
-                    }
-                    aria-current={position === index ? "true" : undefined}
-                    className={`block overflow-hidden rounded-control border ${
-                      position === index
-                        ? "border-paper"
-                        : "border-transparent opacity-60 hover:opacity-100"
+            <>
+              <ul className="mt-4 hidden flex-wrap justify-center gap-2 lg:flex">
+                {items.map((item, position) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => setIndex(position)}
+                      aria-label={
+                        item.kind === "video"
+                          ? "Show the product video"
+                          : `Show ${item.altText}`
+                      }
+                      aria-current={position === safeIndex ? "true" : undefined}
+                      className={`block overflow-hidden rounded-control border ${
+                        position === safeIndex
+                          ? "border-paper"
+                          : "border-transparent opacity-60 hover:opacity-100"
+                      }`}
+                    >
+                      {item.kind === "video" ? (
+                        <span className="flex size-14 items-center justify-center bg-paper/10 text-paper">
+                          <IconPlay size={18} />
+                        </span>
+                      ) : (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={item.url}
+                          alt=""
+                          loading="lazy"
+                          className="size-14 object-cover"
+                        />
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p aria-hidden="true" className="mt-4 flex justify-center gap-1.5 lg:hidden">
+                {items.map((item, position) => (
+                  <span
+                    key={item.id}
+                    className={`block h-1.5 rounded-full transition-[width,background-color] duration-300 ${
+                      position === safeIndex ? "w-4 bg-paper" : "w-1.5 bg-paper/35"
                     }`}
-                  >
-                    {item.kind === "video" ? (
-                      <span className="flex size-14 items-center justify-center bg-paper/10 text-paper">
-                        <IconPlay size={18} />
-                      </span>
-                    ) : (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
-                        src={item.url}
-                        alt=""
-                        loading="lazy"
-                        className="size-14 object-cover"
-                      />
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
+                  />
+                ))}
+              </p>
+            </>
           ) : null}
         </div>
       ) : null}

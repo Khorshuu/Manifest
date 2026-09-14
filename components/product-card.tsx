@@ -110,7 +110,9 @@ export function ProductCard({
         </h3>
 
         {product.summary ? (
-          <p className="line-clamp-1 text-[0.75rem] leading-snug text-ink/70">
+          /* Off on a phone: two cards across leave room for the name and
+             the price, and a clipped half-sentence under them helps no one. */
+          <p className="hidden text-[0.75rem] leading-snug text-ink/70 sm:line-clamp-1">
             {product.summary}
           </p>
         ) : null}

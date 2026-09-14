@@ -42,6 +42,8 @@ import {
   listApprovedReviews,
 } from "@/lib/reviews";
 import { Gallery } from "./gallery";
+import { LivePrice } from "./live-price";
+import { PhotoActions } from "./photo-actions";
 import { ProductInfoTabs } from "./info-tabs";
 import { Journey } from "@/components/journey";
 import { RecommendationSection } from "@/components/recommendation-section";
@@ -236,6 +238,31 @@ export default async function ProductPage({
   const boxContents = Array.isArray(product.boxContents)
     ? (product.boxContents as string[])
     : [];
+  /*
+   * Two lines under the name on a phone: the first key feature, or the start
+   * of the description as plain text — the same source the catalogue card's
+   * one-liner uses.
+   */
+  const summarySource =
+    bullets.find((line) => line.trim() !== "") ??
+    (product.descriptionHtml
+      ? product.descriptionHtml
+          .replace(/<[^>]*>/g, " ")
+          .replace(/&[a-z]+;/gi, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+      : "");
+  const summary = summarySource || null;
+
+  const STATUS_LABELS: Record<string, string> = {
+    in_stock: "In stock",
+    preorder_open: "Preorder open",
+    preorder_closed: "Preorder closed",
+    coming_soon: "Coming soon",
+    discontinued: "Discontinued",
+  };
+  const statusLabel = STATUS_LABELS[product.status] ?? null;
+
   const warranty = (product.warranty as ProductWarranty | null) ?? null;
   const compliance = (product.compliance as ProductCompliance | null) ?? null;
   const details = (product.details as ProductDetails | null) ?? null;
@@ -372,7 +399,7 @@ export default async function ProductPage({
   ]);
 
   return (
-    <div className="mx-auto w-full max-w-[1280px] px-4 py-8 md:px-6">
+    <div className="mx-auto w-full max-w-[1280px] px-4 pb-8 pt-0 md:px-6 md:pt-8">
       <script
         type="application/ld+json"
         // Serialised server-side from our own data, never from user input.
@@ -394,8 +421,13 @@ export default async function ProductPage({
         </p>
       ) : null}
 
-      <nav aria-label="Breadcrumb">
-        <ol className="flex flex-wrap items-center gap-2 text-meta text-ink/70">
+      {/* Off on a phone, where the photograph starts the page edge to edge and
+          its Back button does the breadcrumb's job (D-047). The structured
+          breadcrumb above is unaffected. */}
+      <nav aria-label="Breadcrumb" className="hidden md:block">
+        {/* One line on a phone that scrolls rather than wrapping, so a deep
+            shelf does not push the photograph down. */}
+        <ol className="-mx-4 flex items-center gap-2 overflow-x-auto whitespace-nowrap px-4 text-meta text-ink/70 [scrollbar-width:none] md:mx-0 md:flex-wrap md:px-0">
           <li>
             <Link href="/" className="hover:underline">
               Home
@@ -415,11 +447,25 @@ export default async function ProductPage({
         </ol>
       </nav>
 
-      <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-10">
+      <div className="grid gap-4 md:mt-4 md:gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-10">
         <Gallery
           title={product.title}
           slug={product.slug}
           videoUrl={product.videoUrl}
+          overlay={
+            <PhotoActions
+              title={product.title}
+              backHref={
+                breadcrumb.at(-1)
+                  ? `/categories/${breadcrumb.at(-1)!.slug}`
+                  : "/search"
+              }
+              variantIds={pickerVariants.map((variant) => variant.id)}
+              savedVariantIds={savedVariantIds}
+              signedIn={Boolean(user)}
+              returnTo={`/products/${product.slug}`}
+            />
+          }
           images={product.images.map((image) => ({
             id: image.id,
             url: image.url,
@@ -429,14 +475,40 @@ export default async function ProductPage({
 
         <div className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
           <div>
+            {/* The phone's heading, after the owner's reference (D-047): a
+                small status pill, the name with its price beside it, and two
+                lines saying what the thing is. A desktop keeps the price in
+                the buy box and none of the rest. */}
+            {statusLabel ? (
+              <p className="mb-2 w-fit rounded-full bg-blue-50 px-2.5 py-1 text-[0.6875rem] font-semibold text-ink/80 lg:hidden">
+                {statusLabel}
+              </p>
+            ) : null}
             {product.brand ? (
               <p className="text-[0.75rem] font-semibold uppercase tracking-[0.1em] text-ink/70">
                 {product.brand}
               </p>
             ) : null}
-            <h1 className="mt-1 text-[1.375rem] font-bold leading-tight tracking-[-0.015em] text-ink md:text-[1.625rem]">
-              {product.title}
-            </h1>
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="mt-0.5 min-w-0 text-[1.1875rem] font-bold leading-snug tracking-[-0.01em] text-ink sm:text-[1.375rem] sm:leading-tight md:mt-1 md:text-[1.625rem]">
+                {product.title}
+              </h1>
+              <div className="pt-1 lg:hidden">
+                <LivePrice
+                  variants={pickerVariants.map((variant) => ({
+                    id: variant.id,
+                    priceBdt: variant.priceBdt,
+                    listPriceBdt: variant.listPriceBdt,
+                    discountPercent: variant.discountPercent,
+                  }))}
+                />
+              </div>
+            </div>
+            {summary ? (
+              <p className="mt-1.5 line-clamp-2 text-meta text-ink/70 lg:hidden">
+                {summary}
+              </p>
+            ) : null}
             {rating.count > 0 ? (
               <a href="#reviews" className="mt-1 inline-block text-meta text-blue-600 hover:underline">
                 {rating.average} out of 5 · {rating.count} review{rating.count === 1 ? "" : "s"}
@@ -485,7 +557,7 @@ export default async function ProductPage({
        * promise (what is in the box, the warranty, safety) and stays its own
        * section, each still rendering nothing when it has nothing to say.
        */}
-      <div className="mt-10 flex min-w-0 flex-col gap-10">
+      <div className="mt-8 flex min-w-0 flex-col gap-8 md:mt-10 md:gap-10">
         <ProductInfoTabs
           descriptionHtml={product.descriptionHtml}
           keyFeatures={bullets}

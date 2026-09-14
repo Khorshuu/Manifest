@@ -21,9 +21,11 @@ const HANDSHAKE_MAX_AGE_SECONDS = 10 * 60;
 
 export async function GET(request: Request) {
   const config = googleConfig();
-  // Not configured is not an error a visitor should see explained: the button
-  // that reaches here is not rendered either.
-  if (!config) return new NextResponse("Not found", { status: 404 });
+  // The button is shown even without credentials (D-050), so a visitor who
+  // follows it lands on the sign-in page with a reason, not a 404.
+  if (!config) {
+    return NextResponse.redirect(new URL("/login?error=google-unavailable", siteUrl()));
+  }
 
   const url = new URL(request.url);
   const next = safeNext(url.searchParams.get("next"));

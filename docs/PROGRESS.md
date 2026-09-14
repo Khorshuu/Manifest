@@ -2301,6 +2301,14 @@ What was wrong, found by inspection:
   an unverified address is refused.
 - `[x]` Google is off unless `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are
   set — the button is not rendered and both routes answer 404.
+  **Superseded by D-050:** the button is now always shown; unconfigured, the
+  dialog explains in place and `/api/auth/google/start` redirects to
+  `/login?error=google-unavailable`.
+- `[x]` **D-050 — dialog redesign.** Centred (it had been pinned top-left by
+  the CSS reset), with badge, greeting, sliding tab highlight, spring entrance,
+  fade-and-sink exit, backdrop blur, tab-switch slide, error shake, and
+  click-outside to close. Still UNVERIFIED as a real Google sign-in: no
+  credentials exist.
 
 ### Verified
 
@@ -2632,3 +2640,300 @@ in any recent commit. Those specs were brought up to date this round.
   investigated.
 - `[!]` Pinch zoom and the iOS keyboard opening from the search icon are
   UNVERIFIED on a real device.
+
+## Mobile shopping experience pass (D-046)
+
+The owner asked for the whole customer-facing shop to work like a shopping app
+on phones and tablets without changing the desktop.
+
+- `[x]` **Product gallery swipes.** One scroll-snap track holds every
+  photograph. Below `lg` it is swiped, with dot buttons under it and no arrow
+  buttons, in the page or in the full-screen viewer. Pinch zoom in the viewer
+  is kept. The frame is capped at 62svh. From `lg` the thumbnails drive the
+  same track and the desktop looks as before.
+- `[x]` **Product page on a phone.** Smaller title. Breadcrumb on one scrolling
+  line. Price, availability and batch meter above the option chips. A long
+  description folds behind "Read more". Recommendations are a sideways shelf
+  below `sm`.
+- `[x]` **Wishlist on the product page** is a heart that fills when saved (was a
+  star).
+- `[x]` **Cart on a phone.** Compact rows. A "Due now + Checkout" bar at the
+  foot of the screen while the summary is still below the screen; it hides
+  once the summary's own button is visible.
+- `[x]` **Footer** lists fold below `md`. **Listing headings** are 24px on a
+  phone; card descriptions are hidden below `sm`.
+- `[x]` **Safe areas work.** Root viewport is now `viewport-fit=cover`; before,
+  every `env(safe-area-inset-*)` read zero. Landscape notch padding on `body`.
+- `[x]` **Found and fixed during the pass:** the new recommendation rail let
+  the cards' `sr-only` text escape the scroller, so a real phone laid the
+  product page out ~507px wide and zoomed out. The rail is positioned now.
+- `[x]` **Stale specs brought up to date** in `acceptance.spec.ts`: the candy box
+  has several options and none is preselected (D-043), the phone buys from the
+  sticky bar, the header's sign-in dialog has its own Email field, and the admin
+  order list is cards plus a table. The label check now names the control.
+  `checkout.spec.ts` picks the visible Checkout link.
+
+Not changed: home hero and showcase keep D-045 (no carousel). Search overlay,
+filter sheet, category drawer and account pages were already mobile-shaped
+from the previous two rounds and were not reworked.
+
+### Verified
+
+- Typecheck and lint clean; unit suite 855 pass, 2 skipped.
+- Browser, emulated phone with touch (`isMobile`): layout width equals screen
+  width, no sideways scroll, on product, cart, search, login and home at 360,
+  390, 430, 768 and 1024. Desktop product and cart at 1024 and 1280 visually
+  unchanged.
+- Playwright, both profiles: `product-detail`, `experience`, `storefront`,
+  `checkout`, `accessibility`, `filters` passed in the first run (the only 11
+  failures were all in `acceptance.spec.ts`); `acceptance.spec.ts` then 16 of 16
+  passed after the stale locators were fixed.
+
+### Not verified
+
+- `[!]` No reference image reached the session; the design follows the brief's
+  words.
+- `[!]` Swipe feel, momentum and the safe-area spacing are UNVERIFIED on a real
+  iPhone or Android device; Chromium emulation only.
+- `[ ]` The full end-to-end suite was not re-run; only the specs above.
+
+## Phone product page and cart after the owner's reference (D-047)
+
+The owner showed the reference they meant: a shopping-app product screen and
+cart. Rebuilt below `lg` to match it; the desktop is unchanged.
+
+- `[x]` **Product photograph edge to edge** with round Back, Share and heart
+  buttons on it, and short dashes marking the position. No breadcrumb on a
+  phone.
+- `[x]` **Heading:** status pill, name with the price beside it (follows the
+  chosen option, "From" until one is chosen), two lines about the product.
+- `[x]` **Buy bar:** option button plus Add to cart. The option button opens a
+  bottom sheet of options with prices or "Full". Add to cart with nothing
+  chosen opens the same sheet and adds on the choice. "Added" for two seconds
+  after adding. Buy now is desktop-only now.
+- `[x]` **Heart** saves the chosen option; with none chosen it asks and opens the
+  option sheet. Share uses the phone's share sheet, or copies the link.
+- `[x]` **Cart rows** are slim slips on a pale ground: photo, name, option
+  opposite, line total and a small stepper. At quantity one the minus is a bin;
+  a row also swipes left to show a bin.
+- `[x]` **Checkout bar** (Due now + Checkout) fixed to the foot of a phone
+  screen for the whole visit; the summary's own button is desktop-only.
+- `[x]` A page with a fixed bottom bar pads the body, so the footer is never
+  under the bar.
+- `[x]` Specs updated for the new phone buttons: `experience.spec.ts` (the bar's
+  button is "Add to cart"), `checkout.spec.ts` (the visible price, since the
+  phone row hides the "each" line).
+
+### Verified
+
+- Typecheck clean; lint clean after one fix (router navigation for sign-in).
+- Browser, emulated phone with touch at 390: layout width equals screen width
+  on the product page and cart; option sheet opens, choosing and adding works,
+  the bar shows "Added", the cart count rises; a real touch drag (CDP touch
+  events) slides a cart row open to its bin. Desktop product page and cart at
+  1280, and the tablet cart at 768, checked by eye.
+- Playwright, both profiles — `product-detail`, `experience`, `storefront`,
+  `checkout`, `acceptance`, `accessibility`, `orders`, `filters`: 143 passed,
+  4 skipped, 7 failed on the first run. The two phone checkout failures were the
+  test reading the now-hidden "each" price; fixed. On re-running the other five
+  plus those two, 6 passed. The last, desktop "a shopper reaches a product from
+  the home page", timed out on the product page's loading state under the load
+  of the full run and passed twice when run on its own.
+
+### Not verified
+
+- `[!]` Swipe feel, the share sheet and the safe-area spacing are UNVERIFIED
+  on a real phone.
+- `[ ]` The full end-to-end suite was not re-run.
+
+## Phone product page: header waits until the photograph is scrolled (D-048)
+
+- `[x]` Below `lg`, on product pages, the header is hidden while the photograph is
+  at the top, slides down once about two fifths of it has scrolled away, and
+  tucks away again back at the top. Focus inside it brings it back. Desktop and
+  other routes unchanged.
+
+Verified: typecheck and lint clean. Browser — phone 390 and tablet 768:
+header off-screen and transparent at the top with the photograph at y=0,
+showing after scrolling, hidden again at the top, shown on keyboard focus;
+home and cart unaffected; desktop product page still sticky and visible.
+Playwright, mobile profile — `product-detail`, `experience`, `storefront`,
+`accessibility`: 39 passed, 2 skipped.
+
+Not verified: `[!]` the slide on a real phone, including how it behaves while
+iOS Safari's own toolbar collapses.
+
+## Photo buttons transparent; header fix on slow product pages
+
+- `[x]` Back, Share and heart on the phone's product photograph have no disc
+  behind them now (owner's request). A faint pale halo on the icon keeps it
+  readable, and a press still darkens the round tap target briefly.
+- `[x]` **Fixed:** a product page that rendered its loading state first left
+  the header showing over the photograph, because the header checked for the
+  photograph before it existed and nothing checked again without a scroll. It
+  now watches for the photograph to arrive (D-048).
+
+Verified: typecheck and lint clean. Browser, phone 390: icons readable on the
+headphones, AirPods and iPhone 18 photographs; header hidden at the top both on
+a direct load and after tapping a card in a listing. End-to-end specs not
+re-run for this change (styling, plus one client-side check).
+
+## Product image upload with a crop editor (D-049)
+
+- `[x]` **Upload area** in the admin product editor's Media section and in the
+  setup wizard: drop images or browse, several at once. JPEG, PNG, WebP or AVIF,
+  up to 40MB each; anything else is refused with its file name.
+- `[x]` **Crop editor** opens for each file in turn ("Image 2 of 5"):
+  - Ratio buttons 4:5 (default, "Product"), 1:1, 3:4, 2:3, 16:9, 4:3, 3:2 and
+    Custom (Width × Height, shows "Aspect ratio: 4:5", refuses blanks, zero,
+    negatives and shapes beyond 10:1). Switching ratio reframes immediately.
+  - Drag to position, wheel or pinch to zoom, zoom slider with − and +, Show
+    whole image, Fill frame, Centre, Reset, Rotate left and right, arrow keys
+    and +/− on the crop area.
+  - Empty space filled with the colour at the image's own edge, or white.
+  - Preview of the saved product image and of the square catalogue card.
+  - "Saved as 1600 × 2000 px", or the original's own size when it is smaller —
+    nothing is enlarged. Nothing is stretched.
+  - Description field (required for new images), Cancel/Skip and Add.
+- `[x]` **Upright photos:** EXIF orientation is honoured when decoding.
+- `[x]` **Thumbnails** show the image uncropped in a 4:5 box with its real ratio
+  badge and a Primary badge on the first gallery image, and Edit, Replace,
+  Make main, Describe, Move up, Move down and Delete. Drag to reorder still works.
+- `[x]` **Edit** re-crops a saved image and **Replace** swaps in a new file; both
+  keep the image's place and description. The old file is kept, since past
+  orders may show it.
+- `[x]` Server: `replaceImageId` on the existing upload route, and
+  `replaceProductImage` in `lib/catalog/media.ts`. No schema change; existing
+  images untouched.
+
+### Verified
+
+- Typecheck and lint clean. Unit tests: `image-crop` (new, geometry) and
+  `media` (six new replace tests) 50 passed. Full unit suite: 56 files, 883
+  passed, 2 skipped (one file failed once while the dev server was starting
+  alongside it, and passed on re-run).
+- Browser, dev server, staff account, 1440px: a batch of four — portrait JPG,
+  landscape PNG, square WEBP, and a JPG stored sideways with EXIF orientation 6
+  — each opened, cropped and uploaded (201). 4:5 default saved 1600 × 2000;
+  1:1 2000 × 2000; Custom 1200 × 1500 read "4:5", 16 × 9 read "16:9" and saved
+  2000 × 1125; "0" refused; a 1500px square saved at 1500 × 1500. Zoom buttons
+  and drag moved the crop. The sideways JPG decoded upright (1200 × 2000).
+  Thumbnails read 4:5, 16:9, 1:1, 4:5 with Primary on the first. Move down and
+  Make main reordered; Edit re-cropped the main image to 1:1 (200, "Photograph
+  updated."); Replace swapped the second (200); Delete removed the last. Every
+  image address served 200 as image/webp. A .txt file was refused. No console
+  errors. The editor fits at 820 and 390 with its save button reachable.
+- Storefront preview of that product at 1280 and 390: the cropped images load
+  through the image optimiser; an existing product's images still load.
+- Playwright `media` and `wizard`, both profiles: 24 passed, 2 failed on the
+  first run (desktop "a customer cannot upload/remove product media", timed
+  out in a fetch under load); both passed on re-run.
+- Found and fixed during testing: freeing a decoded image while its editor was
+  still on screen broke the batch after the second image.
+
+### Not verified / to know
+
+- `[!]` A test product "Crop Test v13ejd" (draft, three images) was left in the
+  development database by the browser check.
+- `[!]` Pinch zoom in the editor and a real camera JPEG on a real device are
+  UNVERIFIED; touch pinch cannot be produced in emulation.
+- `[ ]` Storefront frames unchanged: catalogue cards and the desktop gallery are
+  square and fill their box, so a 4:5 image is trimmed a little at top and
+  bottom there (the editor's card preview shows it). Switching them to 4:5 is
+  the owner's call.
+
+## Phone product photo buttons: white, and Back as a chevron
+
+- `[x]` Back on the product photograph is a left chevron (a drawn
+  `IconChevronLeft`, not a typed "<"). Back, Share and the heart are white,
+  with a soft dark shadow on the stroke so they stay readable on a pale studio
+  photograph; a saved heart still fills red.
+
+Verified: typecheck and lint clean; captured at 390px on the headphones and
+AirPods pages (both pale backgrounds).
+
+## Phone: The Route cards scroll sideways
+
+- `[x]` On a phone (below `sm`) the four stages under "How this one reaches you"
+  are one sideways row that settles on a card, with the next card showing at
+  the edge. From `sm` they are the 2-across and 4-across grid as before. The
+  row is positioned so nothing in it can widen the page (D-046).
+
+Verified: lint clean. Browser — 390px with touch emulation: the row is a
+horizontal scroller (cards at 16, 307, 598, 890px), the page layout stays
+390px wide, and scrolling moves exactly one card. 768px shows the two-column
+grid and 1280px the four-column grid, unchanged.
+
+## Phone: Buy now is back on the product buy bar
+
+- `[x]` The phone's bar is now Option, Add to cart and Buy now (D-047 amended).
+  Buy now with no option chosen opens "Choose an option to buy"; choosing goes
+  to checkout. A single-option product goes straight to checkout. The option
+  button reads "Option" until one is chosen, so it fits at 360px.
+
+Verified: typecheck and lint clean. Browser at 360 and 390 with touch: all
+three buttons fit with no clipped text and no sideways scroll; Buy now opened
+the sheet and choosing Midnight Black reached /checkout; Buy now on the
+single-option syrup reached /checkout. Playwright, mobile profile —
+`experience`, `storefront`, `checkout`: 29 passed, 2 skipped.
+
+## Phone: The Route fits one screen, all four stages side by side
+
+- `[x]` Below `sm` the "How this one reaches you" section is compact: smaller
+  heading, the four stages as small cards in one row (icon, number, title — the
+  sentence under each is kept for tablet and desktop), and the dates in a tight
+  two-column block. It replaces the sideways-scrolling row from the previous
+  round. Tablet and desktop unchanged.
+
+Verified: lint clean. Browser with touch at 360 and 390: the whole section is
+287px tall, all four cards fully on screen in one row (about 78–85px wide
+each), no sideways scroll. 768 still the two-column grid, 1280 the
+four-column grid.
+
+## Phone search as a small card; Browse by kind as small tiles (D-051)
+
+- `[x]` **Search on a phone** no longer takes the whole screen. The header's
+  search icon opens a compact card near the top of the screen — the field, a
+  close button and the suggestions underneath (capped at about 58% of the
+  screen, scrolling inside). The page behind dims and stays put; the close
+  button, a tap outside or Escape closes it. Desktop unchanged.
+- `[x]` **Browse by kind** is a row of equal small tiles (photograph, name, live
+  count) instead of a large lead tile and tall grid. Phone: one sideways row,
+  about three tiles to a screen. Tablet: five across. Desktop: a grid of tiles
+  about nine rem wide. Smaller heading; the link reads "See all".
+- `[x]` `search.spec.ts` phone test updated: the search opens as a card less
+  than half the screen tall and closes with "Close search".
+
+### Verified
+
+- Typecheck and lint clean.
+- Browser, phone 390 with touch: the card sits 8px from the top, 366 × 115px
+  with the field focused; typing "head" showed five suggestions in a 434px card;
+  Close and a tap on the dimmed page both closed it; no page errors, no sideways
+  scroll.
+- Browse by kind: 390px — 234px tall, tiles 111px wide in a sideways row;
+  640, 768 and 1024px — five tiles in one row, 244–288px tall; 1280px — one row
+  of 144px tiles, 279px tall.
+- Playwright `search.spec.ts`, both profiles: 22 passed, 2 skipped. (The first
+  attempt never started: an old server still held port 3000.)
+
+## Browse by kind redesigned as image-led cards (D-051 amended)
+
+- `[x]` Tablet and desktop: a feature card for the first shelf beside four
+  smaller cards. Phone: a sideways row of portrait cards. Each card: the whole
+  photograph in a rounded frame over a blurred copy of itself, and a frosted
+  label strip with name, count and arrow.
+
+Verified: typecheck and lint clean; home page captured at 390, 768 and 1280
+with touch emulation below desktop — no sideways scroll, no page errors, every
+product shown whole (not cropped) and the label never covering it.
+
+## Browse by kind on a phone matches the desktop board
+
+- `[x]` Below `sm` the category section is the same board as desktop — feature
+  card plus a two-by-two — instead of a sideways row. Small cards show the name
+  only, on up to two lines; the feature card shows name, count and arrow.
+
+Verified: typecheck and lint clean. Browser with touch at 360, 390 and 430:
+section about 313px tall, every category name fully visible (checked for
+clipping), no sideways scroll, no page errors; 1280 unchanged.

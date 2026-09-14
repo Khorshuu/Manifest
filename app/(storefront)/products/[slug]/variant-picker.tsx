@@ -1,13 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button, LinkButton } from "@/components/button";
 import { CapacityMeter } from "@/components/capacity-meter";
 import { Countdown } from "@/components/countdown";
 import {
   IconAlert,
   IconCheck,
+  IconChevronDown,
+  IconClose,
   IconMinus,
   IconPlus,
   IconSeal,
@@ -62,6 +64,12 @@ export type PickerVariant = {
   depositPercent: number | null;
 };
 
+/** What the option sheet was opened for: to choose, or to choose and add. */
+type SheetIntent = "choose" | "cart" | "buy";
+
+/** Below `lg` — where the sticky bar and the option sheet exist. */
+const PHONE = "(max-width: 1023.98px)";
+
 /**
  * Choosing a variant changes price, availability, and the arrival window.
  * Everything a shopper is committing to is stated on this panel — what they
@@ -96,14 +104,41 @@ export function VariantPicker({
   const [pending, setPending] = useState<"cart" | "buy" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<SheetIntent | null>(null);
+  /** The phone bar's own "Added" moment, a couple of seconds long. */
+  const [justAdded, setJustAdded] = useState(false);
+  const sheetTitleId = useId();
+  const sheetCloseRef = useRef<HTMLButtonElement>(null);
+
+  const selected = variants.find((v) => v.id === selectedId) ?? null;
+
+  /** Choose an option, and tell the gallery, price and heart about it. */
+  function choose(variant: PickerVariant) {
+    setSelectedId(variant.id);
+    window.dispatchEvent(
+      new CustomEvent("product:variant-selected", {
+        detail: { imageUrl: variant.imageUrl, variantId: variant.id },
+      }),
+    );
+  }
 
   /**
    * Add to cart, and for Buy now go straight on to checkout. Both send an
    * identifier and a quantity only: the server prices the line, so the buy
    * button cannot be used to name its own price.
+   *
+   * `choice` is passed by the option sheet, which chooses and adds in one tap
+   * and so cannot wait for the chosen state to arrive.
    */
-  async function addToCart(intent: "cart" | "buy") {
-    if (!selected) {
+  async function addToCart(intent: "cart" | "buy", choice?: PickerVariant) {
+    const target = choice ?? selected;
+    if (!target) {
+      // A phone asks with the option sheet; a desktop, with a sentence beside
+      // the chips that are already in view.
+      if (window.matchMedia(PHONE).matches) {
+        setSheet(intent);
+        return;
+      }
       setMessage(null);
       setError("Please select a variant before continuing.");
       return;
@@ -116,7 +151,7 @@ export function VariantPicker({
     const response = await fetch("/api/cart", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ variantId: selected.id, quantity }),
+      body: JSON.stringify({ variantId: target.id, quantity }),
     });
 
     const body = await response.json().catch(() => ({}));
@@ -137,10 +172,47 @@ export function VariantPicker({
 
     setPending(null);
     setMessage("Added to your cart.");
+    setJustAdded(true);
     router.refresh();
   }
 
-  const selected = variants.find((v) => v.id === selectedId) ?? null;
+  // The heart on the photograph asks for an option by opening the sheet.
+  useEffect(() => {
+    const onNeedOption = () => setSheet("choose");
+    window.addEventListener("product:need-option", onNeedOption);
+    return () => window.removeEventListener("product:need-option", onNeedOption);
+  }, []);
+
+  // The bar is fixed to the foot of a phone screen; the page makes room.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.bottomBar = "true";
+    return () => {
+      delete root.dataset.bottomBar;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!justAdded) return;
+    const timer = window.setTimeout(() => setJustAdded(false), 2200);
+    return () => window.clearTimeout(timer);
+  }, [justAdded]);
+
+  useEffect(() => {
+    if (!sheet) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSheet(null);
+    };
+    document.addEventListener("keydown", onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    sheetCloseRef.current?.focus();
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [sheet]);
+
   /** What the panel prices before a choice is made: the cheapest option. */
   const cheapest = variants.reduce<PickerVariant | null>(
     (lowest, variant) =>
@@ -193,48 +265,151 @@ export function VariantPicker({
   return (
     <div className="flex flex-col gap-6">
       {/*
-        On a phone the buy button is otherwise far below the fold once the
-        options, countdown and details are stacked. This keeps it in reach
-        without duplicating any of the logic — it drives the same handler.
+        The phone's buy bar (D-047): which option, Add to cart and Buy now.
+        The option button opens a sheet of every option; pressing either buy
+        button with none chosen opens the same sheet, and choosing there adds
+        straight away — and for Buy now goes on to checkout. It drives the same
+        handler as the desktop buttons. Buy now came back at the owner's
+        request, so the phone has both ways to buy, as the desktop does.
       */}
-      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-blue-300 bg-paper/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:hidden">
-        <div className="min-w-0">
-          <p className="truncate text-meta text-ink/70">
-            {selected ? selected.label : "Choose an option"}
-          </p>
-          <p className="text-body font-semibold tabular-nums text-ink">
-            {selected ? "" : "From "}
-            {formatBdt(dueNow)}
-          </p>
-        </div>
-        {/* Both actions stay reachable on a phone: Buy now is the one most
-            people want, so it takes the width it needs and Add to cart
-            becomes the quieter of the two. */}
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
+      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 border-t border-blue-300 bg-paper/95 pb-[max(0.625rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-2.5 shadow-[0_-8px_24px_-16px_rgb(18_35_63/0.35)] backdrop-blur lg:hidden">
+        {variants.length > 1 ? (
+          <button
             type="button"
-            variant="secondary"
-            size="sm"
-            disabled={blocked || pending !== null}
-            onClick={() => addToCart("cart")}
+            onClick={() => setSheet("choose")}
+            aria-haspopup="dialog"
+            className="inline-flex min-h-11 min-w-0 max-w-[34%] shrink-0 items-center gap-1 rounded-control border border-blue-300 bg-paper px-2.5 text-meta font-semibold text-ink transition-colors active:scale-[0.985] active:bg-blue-50"
           >
-            {pending === "cart" ? "Adding…" : "Add"}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={blocked || pending !== null}
-            onClick={() => addToCart("buy")}
-          >
-            {unavailableReason ? "Unavailable" : pending === "buy" ? "…" : "Buy now"}
-          </Button>
-        </div>
+            <span className="truncate">
+              {selected ? selected.label : "Option"}
+            </span>
+            <IconChevronDown size={16} className="shrink-0 text-ink/70" />
+          </button>
+        ) : (
+          <div className="min-w-0 shrink-0">
+            <p className="text-[0.75rem] text-ink/70">
+              {shown.paymentMode === "deposit" && shown.depositPercent
+                ? "Due now"
+                : "Price"}
+            </p>
+            <p className="text-body font-bold tabular-nums text-ink">
+              {formatBdt(dueNow)}
+            </p>
+          </div>
+        )}
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-w-0 flex-1 whitespace-nowrap px-2 text-meta min-[400px]:px-3"
+          disabled={blocked || pending !== null}
+          onClick={() => addToCart("cart")}
+        >
+          {unavailableReason ? (
+            "Unavailable"
+          ) : pending === "cart" ? (
+            "Adding…"
+          ) : justAdded ? (
+            <>
+              <IconCheck size={16} className="animate-stamp" />
+              Added
+            </>
+          ) : (
+            "Add to cart"
+          )}
+        </Button>
+        <Button
+          type="button"
+          className="min-w-0 flex-1 whitespace-nowrap px-2 text-meta min-[400px]:px-3"
+          disabled={blocked || pending !== null}
+          onClick={() => addToCart("buy")}
+        >
+          {pending === "buy" ? "Buying…" : "Buy now"}
+        </Button>
       </div>
-      {/* Room for the bar, so it never covers the last line of the page. */}
-      <div
-        aria-hidden="true"
-        className="h-[calc(4rem+env(safe-area-inset-bottom))] lg:hidden"
-      />
+
+      {sheet ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={sheetTitleId}
+          className="fixed inset-0 z-[60] lg:hidden"
+        >
+          <div
+            aria-hidden="true"
+            onClick={() => setSheet(null)}
+            className="animate-fade-in absolute inset-0 bg-ink/40"
+          />
+          <div className="animate-sheet-up absolute inset-x-0 bottom-0 max-h-[80dvh] overflow-y-auto overscroll-contain rounded-t-[var(--radius-media)] bg-paper px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2.5 shadow-[var(--shadow-float)]">
+            <div aria-hidden="true" className="mx-auto h-1 w-10 rounded-full bg-ink/15" />
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p id={sheetTitleId} className="font-display text-h3 text-ink">
+                {sheet === "cart"
+                  ? "Choose an option to add"
+                  : sheet === "buy"
+                    ? "Choose an option to buy"
+                    : "Choose your option"}
+              </p>
+              <button
+                ref={sheetCloseRef}
+                type="button"
+                onClick={() => setSheet(null)}
+                className="-mr-2 inline-flex size-11 items-center justify-center rounded-control text-ink/70 hover:bg-blue-50"
+              >
+                <IconClose size={20} />
+                <span className="sr-only">Close options</span>
+              </button>
+            </div>
+
+            <ul className="mt-1">
+              {variants.map((variant) => {
+                const full =
+                  variant.isClosed ||
+                  (variant.remaining !== null && variant.remaining <= 0);
+                const chosen = variant.id === selectedId;
+                return (
+                  <li key={variant.id} className="border-b border-blue-200 last:border-0">
+                    <button
+                      type="button"
+                      aria-pressed={chosen}
+                      onClick={() => {
+                        const intent = sheet;
+                        choose(variant);
+                        setSheet(null);
+                        if ((intent === "cart" || intent === "buy") && !full) {
+                          addToCart(intent, variant);
+                        }
+                      }}
+                      className="flex min-h-14 w-full items-center justify-between gap-3 text-left"
+                    >
+                      <span
+                        className={`flex min-w-0 items-center gap-2.5 text-body ${
+                          chosen ? "font-semibold text-blue-600" : "text-ink"
+                        } ${full ? "opacity-60" : ""}`}
+                      >
+                        <span className="inline-flex size-5 shrink-0 items-center justify-center">
+                          {chosen ? <IconCheck size={18} /> : null}
+                        </span>
+                        <span className="truncate">{variant.label}</span>
+                      </span>
+                      <span className="shrink-0 text-right text-meta tabular-nums">
+                        {full ? (
+                          <span className="font-semibold text-stamp-red-text">
+                            {variant.isClosed ? "Closed" : "Full"}
+                          </span>
+                        ) : (
+                          <span className="font-semibold text-ink">
+                            {formatBdt(variant.priceBdt)}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      ) : null}
 
       {/*
        * The buy box, as one object.
@@ -243,8 +418,12 @@ export function VariantPicker({
        * and it was previously a column of loose rows separated by hairlines —
        * indistinguishable from the description further down the page. Giving
        * it a surface is what tells a shopper where the shop is on this page.
+       *
+       * On a phone it drops the surface and sits on the page under a hairline,
+       * as in the owner's reference: the name and price are already stated
+       * above it, and the buying itself happens in the bar (D-047).
        */}
-      <div className="flex flex-col gap-3.5 rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)]">
+      <div className="flex flex-col gap-3.5 rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)] max-lg:gap-3 max-lg:rounded-none max-lg:border-x-0 max-lg:border-b-0 max-lg:border-blue-200 max-lg:px-0 max-lg:pb-0 max-lg:pt-4 max-lg:shadow-none">
       {variants.length > 1 ? (
         <fieldset className="flex flex-col gap-2">
           <legend className="text-meta font-medium text-ink">Choose an option</legend>
@@ -271,13 +450,7 @@ export function VariantPicker({
                     name="variant"
                     value={variant.id}
                     checked={chosen}
-                    onChange={() => {
-                      setSelectedId(variant.id);
-                      // The gallery shows this variant's own photo, if it has one.
-                      window.dispatchEvent(
-                        new CustomEvent("product:variant-selected", { detail: { imageUrl: variant.imageUrl } }),
-                      );
-                    }}
+                    onChange={() => choose(variant)}
                     className="sr-only"
                   />
                   {chosen ? (
@@ -294,9 +467,14 @@ export function VariantPicker({
         </fieldset>
       ) : null}
 
-      <div className="flex flex-col gap-1">
+      {/* On a phone the price and availability come first, straight under
+          the title, and the option chips follow; a desktop keeps options
+          first, where the whole box is in view beside the photograph. */}
+      <div className="flex flex-col gap-1 max-lg:-order-2">
         <div className="flex flex-wrap items-baseline gap-2.5">
-          <p className="text-[1.625rem] font-extrabold leading-none tracking-[-0.02em] tabular-nums text-ink">
+          {/* The figure itself is beside the title on a phone (LivePrice), so
+              here it is only the saving that remains. */}
+          <p className="text-[1.625rem] font-extrabold leading-none tracking-[-0.02em] tabular-nums text-ink max-lg:hidden">
             {/* "From" until an option is chosen: the figure is the cheapest
                 one, and stating it flatly would misprice the others. */}
             {selected ? null : (
@@ -311,7 +489,7 @@ export function VariantPicker({
               {/* The regular price is stated as what it was, not implied by a
                   struck-through number alone — a screen reader reads a
                   line-through as nothing at all. */}
-              <p className="text-body tabular-nums text-ink/70 line-through">
+              <p className="text-body tabular-nums text-ink/70 line-through max-lg:hidden">
                 <span className="sr-only">Regular price </span>
                 {formatBdt(shown.listPriceBdt)}
               </p>
@@ -332,7 +510,7 @@ export function VariantPicker({
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2.5">
+      <div className="flex flex-wrap items-center gap-2.5 max-lg:-order-1">
         <StatusBadge
           tone={
             unavailableReason
@@ -373,11 +551,13 @@ export function VariantPicker({
         thing, everywhere.
       */}
       {shown.fulfillmentMode === "preorder" ? (
-        <CapacityMeter
-          remaining={shown.remaining}
-          total={shown.capacity}
-          showLabel={false}
-        />
+        <div className="max-lg:-order-1">
+          <CapacityMeter
+            remaining={shown.remaining}
+            total={shown.capacity}
+            showLabel={false}
+          />
+        </div>
       ) : null}
 
       <dl className="flex flex-col gap-1 text-meta empty:hidden">
@@ -508,15 +688,18 @@ export function VariantPicker({
 
       {/* Keyed on the option, so switching options shows that option's own
           saved state rather than carrying the last one's. A wishlist entry is
-          an option, so there is nothing to save until one is chosen. */}
+          an option, so there is nothing to save until one is chosen. On a
+          phone the heart on the photograph does this instead. */}
       {selected ? (
-        <WishlistButton
-          key={selected.id}
-          variantId={selected.id}
-          initiallySaved={savedVariantIds.includes(selected.id)}
-          signedIn={signedIn}
-          returnTo={returnTo}
-        />
+        <div className="hidden lg:block">
+          <WishlistButton
+            key={selected.id}
+            variantId={selected.id}
+            initiallySaved={savedVariantIds.includes(selected.id)}
+            signedIn={signedIn}
+            returnTo={returnTo}
+          />
+        </div>
       ) : null}
       </div>
     </div>

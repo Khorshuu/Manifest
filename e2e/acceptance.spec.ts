@@ -27,15 +27,34 @@ async function signIn(page: Page, email: string) {
 
 async function addCandyToCart(page: Page) {
   await page.goto("/products/seasonal-candy-variety-box");
-  const added = page.waitForResponse(
-    (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Add to cart" }).click();
-  await added;
+  /*
+   * The box has several options and none is chosen for the shopper (D-043),
+   * so one is chosen here first — the first that is not full. The button is
+   * the panel's "Add to cart" on a desktop and the sticky bar's "Add" on a
+   * phone. Retried, because a click before hydration has no handler.
+   */
+  await expect(async () => {
+    const option = page
+      .locator("label:has(input[name=variant])")
+      .filter({ hasNotText: "Full" })
+      .first();
+    await option.click();
+    const added = page.waitForResponse(
+      (r) => r.url().includes("/api/cart") && r.request().method() === "POST",
+      { timeout: 5000 },
+    );
+    await page
+      .getByRole("button", { name: /^(Add to cart|Add)$/ })
+      .filter({ visible: true })
+      .first()
+      .click();
+    await added;
+  }).toPass({ timeout: 45_000 });
 }
 
 async function fillGuestForm(page: Page, email: string) {
-  await page.getByLabel("Email", { exact: true }).fill(email);
+  // Scoped to the page body: the header's sign-in dialog has an Email field.
+  await page.locator("main").getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Recipient name").fill("A Shopper");
   await page.getByLabel("Phone for delivery").fill("+8801700000000");
   await page.getByLabel("Address", { exact: true }).fill("12 Example Road");
@@ -113,7 +132,11 @@ test("acceptance 4: a price change is surfaced before payment", async ({
 
   // And a line that can no longer be bought blocks checkout with a reason
   // rather than failing silently at payment.
-  await expect(page.getByRole("link", { name: "Checkout" })).toBeVisible();
+  // The summary's link, and on a phone the sticky bar's once the summary is
+  // out of view (D-046) — either is the way on.
+  await expect(
+    page.getByRole("link", { name: "Checkout" }).filter({ visible: true }).first(),
+  ).toBeVisible();
 });
 
 /**
@@ -138,7 +161,12 @@ test("acceptance 5: staff advance an order through every stage", async ({
 
   await signIn(page, "staff@example.com");
   await page.goto("/admin/orders");
-  await page.getByRole("link", { name: orderNumber }).click();
+  // Cards on a phone, a table from `md`: click whichever is showing.
+  await page
+    .getByRole("link", { name: orderNumber })
+    .filter({ visible: true })
+    .first()
+    .click();
   await page.waitForURL((url) => url.pathname.startsWith("/admin/orders/"));
 
   const stages = [
@@ -183,7 +211,10 @@ test("acceptance 7: a shopper asks to cancel, and staff approve it", async ({
   await page.goto("/checkout");
 
   const savedOption = page.getByRole("radio", { name: "Use a saved address" });
-  await page.getByLabel("Email", { exact: true }).fill("customer@example.com");
+  await page
+    .locator("main")
+    .getByLabel("Email", { exact: true })
+    .fill("customer@example.com");
   if ((await savedOption.count()) === 0) {
     await page.getByLabel("Recipient name").fill("A Shopper");
     await page.getByLabel("Phone for delivery").fill("+8801700000000");
@@ -217,9 +248,16 @@ test("acceptance 7: a shopper asks to cancel, and staff approve it", async ({
   // Staff see it waiting, with the shopper's own words.
   await signIn(page, "staff@example.com");
   await page.goto("/admin/orders?status=cancellation_requested");
-  await expect(page.getByText("Ordered the wrong size")).toBeVisible();
+  // The list is cards on a phone and a table from `md`; one is showing.
+  await expect(
+    page.getByText("Ordered the wrong size").filter({ visible: true }).first(),
+  ).toBeVisible();
 
-  await page.getByRole("link", { name: orderNumber }).click();
+  await page
+    .getByRole("link", { name: orderNumber })
+    .filter({ visible: true })
+    .first()
+    .click();
   const resolved = page.waitForResponse(
     (r) => r.url().includes("/api/orders/") && r.request().method() === "POST",
   );
@@ -254,17 +292,20 @@ test("acceptance 8: the key pages meet the structural accessibility rules", asyn
     const unlabelled = await page.evaluate(() =>
       Array.from(
         document.querySelectorAll("input, select, textarea"),
-      ).filter((control) => {
-        const element = control as HTMLInputElement;
-        if (element.type === "hidden") return false;
-        const labelled =
-          element.labels?.length ||
-          element.getAttribute("aria-label") ||
-          element.getAttribute("aria-labelledby");
-        return !labelled;
-      }).length,
+      )
+        .filter((control) => {
+          const element = control as HTMLInputElement;
+          if (element.type === "hidden") return false;
+          const labelled =
+            element.labels?.length ||
+            element.getAttribute("aria-label") ||
+            element.getAttribute("aria-labelledby");
+          return !labelled;
+        })
+        // Named in the failure, so it says which control rather than how many.
+        .map((control) => control.outerHTML.slice(0, 160)),
     );
-    expect(unlabelled, `${path} has unlabelled controls`).toBe(0);
+    expect(unlabelled, `${path} has unlabelled controls`).toEqual([]);
   }
 });
 

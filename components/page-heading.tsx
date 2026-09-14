@@ -30,10 +30,12 @@ export function PageHeading({
           {eyebrow}
         </p>
 
-        <h1 className="mt-2 font-display text-h1 text-ink">{title}</h1>
+        {/* A phone's heading is a label for the page, not a poster: 24px
+            leaves the content, not the title, as the first screen. */}
+        <h1 className="mt-1.5 font-display text-[1.5rem] leading-tight text-ink sm:mt-2 sm:text-h1">{title}</h1>
 
         {summary ? (
-          <div className="mt-2 max-w-[58ch] text-body text-ink/70">
+          <div className="mt-1.5 max-w-[58ch] text-meta text-ink/70 sm:mt-2 sm:text-body">
             {summary}
           </div>
         ) : null}

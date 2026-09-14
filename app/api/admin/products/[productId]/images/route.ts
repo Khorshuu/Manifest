@@ -7,6 +7,7 @@ import {
   makeProductImagePrimary,
   removeProductImage,
   reorderProductImage,
+  replaceProductImage,
   setProductImageOrder,
   updateProductImageAltText,
 } from "@/lib/catalog";
@@ -55,6 +56,30 @@ export async function POST(
     }
 
     const data = Buffer.from(await file.arrayBuffer());
+
+    /*
+     * A replacement for an existing image — the crop editor's Replace and
+     * Edit (D-049). The image keeps its place; a blank description keeps the
+     * one it had.
+     */
+    const replaceImageId = form.get("replaceImageId");
+    if (typeof replaceImageId === "string" && replaceImageId !== "") {
+      if (!z.string().uuid().safeParse(replaceImageId).success) {
+        return NextResponse.json(
+          { error: "That image was not found." },
+          { status: 400 },
+        );
+      }
+
+      const image = await replaceProductImage(user, productId, replaceImageId, {
+        data,
+        originalName: file.name,
+        contentType: file.type,
+        altText,
+      });
+
+      return NextResponse.json({ image }, { status: 200 });
+    }
 
     const image = await addProductImage(user, productId, {
       data,

@@ -35,7 +35,7 @@ export function GoogleButton({
 }
 
 /** Google's mark, at the colours their branding guidelines require. */
-function GoogleMark() {
+export function GoogleMark() {
   return (
     <svg viewBox="0 0 18 18" width={18} height={18} aria-hidden="true" className="shrink-0">
       <path
@@ -59,11 +59,11 @@ function GoogleMark() {
 }
 
 /** A rule with "or" in the middle, between Google and the email form. */
-export function AuthDivider() {
+export function AuthDivider({ label = "or" }: { label?: string }) {
   return (
     <div className="flex items-center gap-3" aria-hidden="true">
       <span className="h-px flex-1 bg-ink/12" />
-      <span className="text-meta text-ink/70">or</span>
+      <span className="text-meta text-ink/70">{label}</span>
       <span className="h-px flex-1 bg-ink/12" />
     </div>
   );

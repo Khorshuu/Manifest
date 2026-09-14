@@ -22,6 +22,7 @@ import {
   MediaError,
   removeProductImage,
   reorderProductImage,
+  replaceProductImage,
 } from "@/lib/catalog";
 import {
   LocalMediaProvider,
@@ -374,5 +375,136 @@ describe("choosing the main photograph", () => {
     await expect(makeProductImagePrimary(customer, image.id)).rejects.toThrow(
       AuthorizationError,
     );
+  });
+});
+
+/** Replace and Edit in the crop editor (D-049). */
+describe("replacing a photograph", () => {
+  it("swaps the file in place, keeping its position and description", async () => {
+    const product = await seedProduct();
+    const first = await addProductImage(staff, product.id, {
+      data: PNG,
+      originalName: "one.png",
+      contentType: "image/png",
+      altText: "First",
+    });
+    const second = await addProductImage(staff, product.id, {
+      data: PNG,
+      originalName: "two.png",
+      contentType: "image/png",
+      altText: "Second",
+    });
+
+    const replaced = await replaceProductImage(staff, product.id, second.id, {
+      data: JPEG,
+      originalName: "two-cropped.jpg",
+      contentType: "image/jpeg",
+      altText: "  ",
+    });
+
+    expect(replaced.id).toBe(second.id);
+    expect(replaced.sortOrder).toBe(1);
+    expect(replaced.altText).toBe("Second");
+    expect(replaced.url).not.toBe(second.url);
+    expect(replaced.url).toMatch(/\.jpg$/);
+
+    const images = await listProductImages(product.id);
+    expect(images.map((image) => image.id)).toEqual([first.id, second.id]);
+  });
+
+  it("takes a new description when one is given", async () => {
+    const product = await seedProduct();
+    const image = await addProductImage(staff, product.id, {
+      data: PNG,
+      originalName: "one.png",
+      contentType: "image/png",
+      altText: "Old words",
+    });
+
+    const replaced = await replaceProductImage(staff, product.id, image.id, {
+      data: PNG,
+      originalName: "one.png",
+      contentType: "image/png",
+      altText: "New words",
+    });
+
+    expect(replaced.altText).toBe("New words");
+  });
+
+  /** Past orders may still show the earlier address. */
+  it("leaves the previous file in storage", async () => {
+    const product = await seedProduct();
+    const image = await addProductImage(staff, product.id, {
+      data: PNG,
+      originalName: "one.png",
+      contentType: "image/png",
+      altText: "Kept",
+    });
+    const before = (await readdir(uploadDir)).length;
+
+    await replaceProductImage(staff, product.id, image.id, {
+      data: JPEG,
+      originalName: "one.jpg",
+      contentType: "image/jpeg",
+    });
+
+    const files = await readdir(uploadDir);
+    expect(files.length).toBe(before + 1);
+    expect(files).toContain(image.url.split("/").pop());
+  });
+
+  it("refuses an image that belongs to another product", async () => {
+    const product = await seedProduct();
+    const other = await seedProduct();
+    const image = await addProductImage(staff, other.id, {
+      data: PNG,
+      originalName: "one.png",
+      contentType: "image/png",
+      altText: "Elsewhere",
+    });
+
+    await expect(
+      replaceProductImage(staff, product.id, image.id, {
+        data: PNG,
+        originalName: "one.png",
+        contentType: "image/png",
+      }),
+    ).rejects.toThrow(MediaError);
+  });
+
+  it("refuses a customer", async () => {
+    const product = await seedProduct();
+    const image = await addProductImage(staff, product.id, {
+      data: PNG,
+      originalName: "one.png",
+      contentType: "image/png",
+      altText: "Mine",
+    });
+
+    await expect(
+      replaceProductImage(customer, product.id, image.id, {
+        data: PNG,
+        originalName: "one.png",
+        contentType: "image/png",
+      }),
+    ).rejects.toThrow(AuthorizationError);
+  });
+
+  it("refuses a file that is not an image", async () => {
+    const product = await seedProduct();
+    const image = await addProductImage(staff, product.id, {
+      data: PNG,
+      originalName: "one.png",
+      contentType: "image/png",
+      altText: "Mine",
+    });
+
+    await expect(
+      replaceProductImage(staff, product.id, image.id, {
+        data: Buffer.from("#!/bin/sh\necho pwned\n"),
+        originalName: "one.png",
+        contentType: "image/png",
+      }),
+    ).rejects.toThrow();
   });
 });

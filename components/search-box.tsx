@@ -257,16 +257,6 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
     };
   }, [trimmed, typing]);
 
-  // A full-screen search should not scroll the page underneath it.
-  useEffect(() => {
-    if (!overlay) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [overlay]);
-
   const current = typing && answer?.term === trimmed ? answer : null;
 
   const sections: Section[] = useMemo(() => {
@@ -588,10 +578,22 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
 
   return (
     <>
-      {/* On a phone: an icon in the header that opens the full search. It is
-          gone while that search is open, and from `md` up, where the field
-          itself sits in the header. */}
-      {overlay ? null : (
+      {/* On a phone: an icon in the header that opens the search as a small
+          card at the top of the screen, like the desktop field and its
+          dropdown (owner's request — it used to take the whole screen). The
+          icon is gone while the card is open, and from `md` up, where the
+          field itself sits in the header. */}
+      {overlay ? (
+        /* The page behind dims slightly; tapping it closes the search. */
+        <div
+          aria-hidden="true"
+          onClick={() => {
+            close();
+            inputRef.current?.blur();
+          }}
+          className="animate-fade-in fixed inset-0 z-[69] bg-ink/25 md:hidden"
+        />
+      ) : (
         <button
           type="button"
           aria-label="Open search"
@@ -612,11 +614,11 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
       }}
       className={
         overlay
-          ? "animate-search-pop fixed inset-0 z-[70] flex flex-col bg-paper px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
+          ? "animate-search-pop fixed inset-x-3 top-[max(0.5rem,env(safe-area-inset-top))] z-[70] rounded-card border border-blue-300 bg-paper p-2 text-ink shadow-[var(--shadow-float)]"
           : /* Below `md` the field stays rendered but out of sight rather
                than `hidden`: the header icon focuses it inside the same tap,
                which is the only way iOS will raise the keyboard, and that
-               focus is what opens the full search. */
+               focus is what opens the search card. */
             "relative max-md:pointer-events-none max-md:absolute max-md:size-px max-md:overflow-hidden max-md:opacity-0 md:ml-auto md:w-64 lg:w-80 xl:w-[26rem]"
       }
     >
@@ -660,9 +662,7 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
             }
             aria-describedby={hintId}
             placeholder={
-              narrow && !overlay
-                ? "Search products"
-                : "Search products, brands or SKUs"
+              narrow ? "Search products" : "Search products, brands or SKUs"
             }
             value={term}
             onChange={(event) => {
@@ -729,13 +729,14 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
         {overlay ? (
           <button
             type="button"
+            aria-label="Close search"
             onClick={() => {
               close();
               inputRef.current?.blur();
             }}
-            className="inline-flex min-h-11 shrink-0 items-center rounded-control px-2 text-body font-medium text-blue-600"
+            className="inline-flex size-11 shrink-0 items-center justify-center rounded-control text-ink/70 transition-colors hover:bg-blue-50 hover:text-ink"
           >
-            Cancel
+            <IconClose size={18} />
           </button>
         ) : null}
       </div>
@@ -757,7 +758,7 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
           onMouseDown={(event) => event.preventDefault()}
           className={
             overlay
-              ? "mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+              ? "mt-2 max-h-[min(24rem,58dvh)] overflow-y-auto overscroll-contain border-t border-blue-200"
               : "animate-rise absolute right-0 top-full z-40 mt-2 w-full overflow-hidden rounded-card border border-blue-300 bg-paper text-ink shadow-[var(--shadow-float)] md:w-[30rem] md:max-w-[calc(100vw-2rem)]"
           }
         >
@@ -788,7 +789,7 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
               id={listId}
               role="listbox"
               aria-label="Search suggestions"
-              className={overlay ? "pb-2" : "max-h-[min(28rem,70vh)] overflow-y-auto py-1"}
+              className={overlay ? "py-1" : "max-h-[min(28rem,70vh)] overflow-y-auto py-1"}
             >
               {sections.map((section) => (
                 <div
@@ -822,7 +823,7 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
           ) : null}
 
           {overlay && !typing && ordered.length === 0 ? (
-            <p className="px-1 py-4 text-body text-ink/70">
+            <p className="px-2 py-3 text-meta text-ink/70">
               Search by product name, brand, SKU or category.
             </p>
           ) : null}
