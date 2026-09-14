@@ -30,7 +30,7 @@ async function main() {
   const catalog = await import("../../lib/catalog");
   const { discover } = await import("../../lib/catalog/discovery");
   const { suggestSearch } = await import("../../lib/search/suggest");
-  const { listProductsForAdmin } = await import("../../lib/catalog/products");
+  const { searchProductsForAdmin } = await import("../../lib/catalog/products");
   const { searchOrdersForStaff } = await import("../../lib/orders/transitions");
   const { listCustomersWithOrders } = await import("../../lib/admin/customers");
   const admin = await import("../../lib/admin");
@@ -132,9 +132,24 @@ async function main() {
       admin.getCatalogCounts(actor),
     ]),
   );
-  await measure("admin: products list", () => listProductsForAdmin(actor, { includeArchived: true }));
+  await measure("admin: products list, page 1 (server-paged)", () => searchProductsForAdmin(actor, { pageSize: 50 }));
+  await measure("admin: products list, low stock by price", () =>
+    searchProductsForAdmin(actor, { stock: "low", sort: "price_asc", pageSize: 50 }),
+  );
+  await measure("admin: products list, search", () => searchProductsForAdmin(actor, { q: "wireless", pageSize: 50 }));
   await measure("admin: orders page 1", () => searchOrdersForStaff(actor, { limit: 50 }));
-  await measure("admin: orders deep page", () => searchOrdersForStaff(actor, { limit: 50, offset: 49_950 }));
+  // Newest-first pages by keyset (lib/orders), so the deep page is reached
+  // with a real cursor; an offset would be ignored and measure page one.
+  const [deep] = (await db.execute(
+    sql`select placed_at, id from orders order by placed_at desc, id desc offset 49950 limit 1`,
+  )) as unknown as { placed_at: string; id: string }[];
+  if (deep) {
+    const after = { placedAt: new Date(deep.placed_at), id: deep.id };
+    await measure("admin: orders 1,000 pages deep (keyset)", () => searchOrdersForStaff(actor, { limit: 50, after }));
+  }
+  await measure("admin: orders by total, deep page (offset)", () =>
+    searchOrdersForStaff(actor, { limit: 50, offset: 49_950, sort: "total_desc" }),
+  );
   await measure("admin: orders search", () => searchOrdersForStaff(actor, { q: "scale123", limit: 50 }));
   await measure("admin: customers page 1", () => listCustomersWithOrders(actor, { limit: 50 }));
   await measure("admin: orders CSV export", () => exportOrdersCsv(actor));

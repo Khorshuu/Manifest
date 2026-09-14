@@ -57,7 +57,12 @@ const ORDER_CSV_HEADERS = [
   "Tracking reference",
 ];
 
-const EXPORT_BATCH = 1000;
+/**
+ * Rows per round trip. A thousand made 100,000 orders cost 201 queries and
+ * twice the time of the old single read; five thousand keeps memory bounded
+ * (a batch is well under a megabyte of CSV) with a fifth of the round trips.
+ */
+const EXPORT_BATCH = 5000;
 
 /**
  * Every order as CSV, streamed.
