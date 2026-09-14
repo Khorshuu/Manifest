@@ -15,7 +15,8 @@ import { users } from "./users";
 export const NOTIFICATION_CHANNELS = ["email", "sms"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
-export const NOTIFICATION_STATUSES = ["queued", "sent", "failed"] as const;
+/** `sending`: claimed by one delivery run, so no other run sends it too. */
+export const NOTIFICATION_STATUSES = ["queued", "sending", "sent", "failed"] as const;
 export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
 
 /**
@@ -55,6 +56,8 @@ export const notifications = pgTable(
       .notNull()
       .defaultNow(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    /** When a delivery run claimed it; a stale claim is recovered as failed. */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
   },
   (table) => [
     unique("notifications_dedupe_key_unique").on(table.dedupeKey),
@@ -64,7 +67,7 @@ export const notifications = pgTable(
     ),
     check(
       "notifications_status_check",
-      sql`${table.status} in ('queued', 'sent', 'failed')`,
+      sql`${table.status} in ('queued', 'sending', 'sent', 'failed')`,
     ),
     index("notifications_status_created_idx").on(
       table.status,

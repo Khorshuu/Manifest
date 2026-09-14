@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { notifications, orders, payments, users } from "@/db/schema";
 import {
@@ -111,25 +111,42 @@ export type DeliveryReport = {
  */
 export const MAX_DELIVERY_ATTEMPTS = 5;
 
+/** A claim older than this belongs to a run that died; the message is retried. */
+export const DELIVERY_CLAIM_MINUTES = 10;
+
 /**
  * Delivers what is waiting: queued messages, and failed ones with attempts
- * left. Safe to call repeatedly and safe to call concurrently with itself —
- * the worst case is a message delivered twice rather than not at all, and a
- * failure keeps its reason on the row for staff rather than reaching the
- * customer.
+ * left. Safe to call repeatedly and concurrently with itself.
+ *
+ * Each message is claimed (`sending`) with FOR UPDATE SKIP LOCKED before the
+ * provider is called, so two runs at once — the scheduled job and a request's
+ * background drain — never send the same message. Before, both could read the
+ * same queued row and the customer heard twice. A run that dies after claiming
+ * leaves the row `sending`; the next run past DELIVERY_CLAIM_MINUTES marks that
+ * attempt failed so it is retried.
  */
 export async function deliverQueuedNotifications(
   limit = 50,
 ): Promise<DeliveryReport> {
-  const queued = await db
-    .select({
-      id: notifications.id,
-      channel: notifications.channel,
-      recipient: notifications.recipient,
-      subject: notifications.subject,
-      body: notifications.body,
-      attempts: notifications.attempts,
+  const now = new Date();
+
+  await db
+    .update(notifications)
+    .set({
+      status: "failed",
+      attempts: sql`${notifications.attempts} + 1`,
+      error: "Delivery did not finish.",
+      claimedAt: null,
     })
+    .where(
+      and(
+        eq(notifications.status, "sending"),
+        lt(notifications.claimedAt, new Date(now.getTime() - DELIVERY_CLAIM_MINUTES * 60_000)),
+      ),
+    );
+
+  const due = db
+    .select({ id: notifications.id })
     .from(notifications)
     .where(
       and(
@@ -147,7 +164,21 @@ export async function deliverQueuedNotifications(
       ),
     )
     .orderBy(asc(notifications.createdAt))
-    .limit(limit);
+    .limit(limit)
+    .for("update", { skipLocked: true });
+
+  const queued = await db
+    .update(notifications)
+    .set({ status: "sending", claimedAt: now })
+    .where(inArray(notifications.id, due))
+    .returning({
+      id: notifications.id,
+      channel: notifications.channel,
+      recipient: notifications.recipient,
+      subject: notifications.subject,
+      body: notifications.body,
+      attempts: notifications.attempts,
+    });
 
   const report: DeliveryReport = { attempted: queued.length, sent: 0, failed: 0 };
   const provider = getNotificationProvider();
@@ -169,6 +200,7 @@ export async function deliverQueuedNotifications(
           sentAt: new Date(),
           attempts: message.attempts + 1,
           error: null,
+          claimedAt: null,
         })
         .where(eq(notifications.id, message.id));
 
@@ -185,6 +217,7 @@ export async function deliverQueuedNotifications(
           status: "failed",
           attempts: message.attempts + 1,
           error: reason,
+          claimedAt: null,
         })
         .where(eq(notifications.id, message.id));
 

@@ -1195,3 +1195,32 @@ oversell a batch that has since filled.
 **Why 30 minutes.** Long enough for a bKash/Nagad/card flow including an OTP
 and a retry; short enough that a launch-day batch is not held hostage by
 abandoned carts. The owner can change the setting without a deploy.
+
+## D-053 — Background work runs from a Postgres job table, triggered on a schedule
+
+**Context.** Expiring unpaid orders, delivering customer messages, reconciling
+payments, rebuilding search rows and releasing SKU holds all have to happen
+whether or not anyone is using the site. Until now they ran either inside a
+shopper's request (fire-and-forget, which a serverless host may freeze) or in
+one sweep a day, because Vercel's Hobby plan only allows a daily cron.
+
+**Decision.** A `jobs` table is the queue. Work is enqueued inside the
+transaction that causes it where that matters, claimed with
+`FOR UPDATE SKIP LOCKED`, retried with exponential backoff, and moved to
+`dead` after its attempt limit so a person can see it and retry it. Recurring
+work is enqueued per time slot with a dedupe key, so two triggers in the same
+minute schedule it once. `/api/cron/jobs` (bearer `CRON_SECRET`) schedules what
+is due and runs jobs until it nears its time budget.
+
+No new service: it is the database the application already depends on, and the
+queue is visible to the same queries and backups as the orders it serves.
+A managed queue (QStash, Inngest) was considered and left for later; the
+handlers do not depend on how they are triggered.
+
+**Assumption for the owner — how often it is triggered.** The expiry window is
+30 minutes, so the trigger must run at least every few minutes in production.
+Vercel Hobby cannot do that. Until the hosting plan is decided the daily
+Vercel cron stays, and production needs one of: Vercel Pro cron every minute,
+or any external scheduler (for example a GitHub Actions schedule or
+cron-job.org) calling `/api/cron/jobs` with the secret every 1–5 minutes. This
+is recorded as BLOCKED on hosting, not guessed.

@@ -1,5 +1,5 @@
-import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { isAuthorisedScheduler } from "@/lib/cron-auth";
 import { headers } from "next/headers";
 import { toErrorResponse } from "@/lib/api-error";
 import { deleteExpiredSessions } from "@/lib/auth/session";
@@ -27,25 +27,10 @@ export const dynamic = "force-dynamic";
 /** How many messages one run will attempt. Bounded so a run cannot hang. */
 const BATCH_SIZE = 100;
 
-function authorised(header: string | null): boolean {
-  const secret = process.env.CRON_SECRET;
-
-  // No secret configured means the endpoint is closed, not open. An
-  // unauthenticated job runner that anyone can trigger is worse than none.
-  if (!secret || secret.length === 0) return false;
-  if (!header) return false;
-
-  const expected = Buffer.from(`Bearer ${secret}`);
-  const actual = Buffer.from(header);
-
-  if (expected.length !== actual.length) return false;
-  return timingSafeEqual(expected, actual);
-}
-
 async function run() {
   const headerList = await headers();
 
-  if (!authorised(headerList.get("authorization"))) {
+  if (!isAuthorisedScheduler(headerList.get("authorization"))) {
     // Deliberately identical whether the secret is unset, missing or wrong:
     // the response says nothing about which.
     return NextResponse.json({ error: "Not authorised." }, { status: 401 });
