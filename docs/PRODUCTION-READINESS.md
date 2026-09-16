@@ -141,7 +141,7 @@ D layout/expectation mismatch · E test infrastructure/timing · F unknown.
 | Orders CSV export (100k) | 960 ms, 8 MB string in memory | 1.9 s streamed, 41 batches, bounded memory |
 | Query plan: orders page 1 | 202 ms (hash aggregate over 200k lines) | 0.44 ms |
 | Query plan: 1,000 pages deep | 42 ms, sort to disk | 0.02 ms |
-| 9.1 | Listing read model | NOT STARTED |
+| 9.1 | Listing read model — VERIFIED: `product_listing_stats` (migration 0026) holds units sold, approved review count and rating average, recomputed exactly (never incremented) by statement-level triggers on order status changes, order-line inserts/deletes and review inserts/updates/deletes; backfilled on migration (52 s for 5,000 products / 100,000 orders). `salesUnitsSql`, `ratingAverageSql`, `reviewCountSql` read it. Price, discount and buyable-now stay read-time (clock-dependent). `tests/listing-stats.test.ts`: consistency with a fresh aggregate through placed→paid→refunded, line add/remove, bulk status change, review approve/reject/delete, backfill; best-selling and rating sort order identical to sorting from source rows. Measured: whole catalogue best-selling 532 → 25 ms; shelf best-selling 153 → 77 ms; search 82 → 46 ms. Not improved: filtered shelf 267 ms — its cost is attribute/spec matching in facets, not history aggregation; left for a later measured pass. | VERIFIED |
 | 10.1 | Cache Components, tag invalidation in `lib/` | NOT STARTED |
 | 11.1 | Image derivative pipeline + orphan cleanup | NOT STARTED |
 | 12.1 | Client payload ≤170 KB gzip; compact variant payload | NOT STARTED |

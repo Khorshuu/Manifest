@@ -112,7 +112,8 @@ describe("running", () => {
 
   it("requeues a failure with backoff, then dead-letters it at the attempt limit", async () => {
     await enqueueJob({ kind: "flaky", maxAttempts: 2 });
-    let clock = new Date("2026-09-15T10:00:00Z");
+    // Anchored to the real clock: a job enqueued now defaults to run now.
+    let clock = new Date(Date.now() + 1000);
     const handlers = {
       flaky: async () => {
         throw new Error("provider unavailable");

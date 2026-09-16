@@ -26,6 +26,7 @@ import {
   productSearchJoin,
   publicProductWhere,
   ratingAverageSql,
+  reviewCountSql,
   salesUnitsSql,
   whereFor,
   type ProductFilters,
@@ -266,8 +267,7 @@ async function orderFor(
     case "rating":
       return [
         sql`${ratingAverageSql} desc nulls last`,
-        desc(sql`(select count(*) from reviews rv
-          where rv.product_id = ${products.id} and rv.status = 'approved')`),
+        desc(reviewCountSql),
         ...relevance,
         ...newest,
       ];

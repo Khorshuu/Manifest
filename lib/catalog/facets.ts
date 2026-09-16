@@ -104,20 +104,30 @@ export const buyableNowSql = sql`exists (
     )
 )`;
 
-/** Units sold on orders that were paid for and not unwound. */
+/**
+ * Units sold on orders that were paid for and not unwound.
+ *
+ * Read from the listing read model (migration 0026), which triggers keep equal
+ * to the order lines it summarises. Summing order history per product on every
+ * listing cost 532 ms for the whole catalogue sorted by best selling at
+ * 100,000 orders; this is one primary-key lookup per product.
+ */
 export const salesUnitsSql = sql`coalesce((
-  select sum(oi.quantity) from order_items oi
-  join orders o on o.id = oi.order_id
-  join product_variants sv on sv.id = oi.variant_id
-  where sv.product_id = ${products.id}
-    and o.status not in ('placed', 'cancelled', 'refunded')
+  select pls.units_sold from product_listing_stats pls
+  where pls.product_id = ${products.id}
 ), 0)`;
 
-/** Average approved rating, or null when nobody has reviewed it. */
+/** Average approved rating, or null when nobody has reviewed it (migration 0026). */
 export const ratingAverageSql = sql`(
-  select avg(rv.rating) from reviews rv
-  where rv.product_id = ${products.id} and rv.status = 'approved'
+  select pls.rating_avg from product_listing_stats pls
+  where pls.product_id = ${products.id}
 )`;
+
+/** Approved reviews, from the same read model; 0 when there are none. */
+export const reviewCountSql = sql`coalesce((
+  select pls.review_count from product_listing_stats pls
+  where pls.product_id = ${products.id}
+), 0)`;
 
 /** The deepest discount running now, as a percentage; null when none is. */
 export const discountSql = sql`(
