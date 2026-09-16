@@ -3,7 +3,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   findCategoryPath,
-  getCategoryTree,
   getPublicProductBySlug,
   getPublicVariants,
   listRecommendations,
@@ -58,6 +57,7 @@ import {
 } from "@/lib/account/recently-viewed";
 import { listProductCardsByIds } from "@/lib/catalog/storefront";
 import { serverInstant } from "@/lib/clock";
+import { cachedCategoryTree, cachedProductContent } from "@/lib/catalog/cached";
 
 /*
  * Cache Components (DECISIONS.md D-054): allowed to block while this route is
@@ -79,13 +79,29 @@ async function canPreview(
   return can(await getCurrentUser(), "catalog.manage");
 }
 
+/** The same bundle as cachedProductContent, read fresh, for staff previews. */
+async function uncachedProductContent(slug: string) {
+  const product = await getPublicProductBySlug(slug, { includeUnpublished: true });
+  if (!product) return null;
+  const [suggested, sameShelf, rating, reviews, breakdown] = await Promise.all([
+    listRecommendations(product.id, 4),
+    listRelatedProducts(product.id, product.categoryId, 8),
+    getProductRating(product.id),
+    listApprovedReviews(product.id),
+    getRatingBreakdown(product.id),
+  ]);
+  return { product, suggested, sameShelf, rating, reviews, breakdown };
+}
+
 export async function generateMetadata({
   params,
   searchParams,
 }: PageProps<"/products/[slug]">): Promise<Metadata> {
   const { slug } = await params;
   const preview = await canPreview(searchParams);
-  const product = await getPublicProductBySlug(slug, { includeUnpublished: preview });
+  const product = preview
+    ? await getPublicProductBySlug(slug, { includeUnpublished: true })
+    : (await cachedProductContent(slug))?.product;
 
   if (!product) return { title: "Product not found" };
 
@@ -112,34 +128,24 @@ export default async function ProductPage({
 }: PageProps<"/products/[slug]">) {
   const { slug } = await params;
   const preview = await canPreview(searchParams);
-  const product = await getPublicProductBySlug(slug, { includeUnpublished: preview });
-  if (!product) notFound();
+  /*
+   * The listing, its reviews and its recommendation rows are the same for
+   * every shopper and cached (D-054). A staff preview reads the database
+   * directly, since a draft must never enter a shared cache. The variants —
+   * live price, places left, whether the window is open — are always read per
+   * request below.
+   */
+  const content = preview
+    ? await uncachedProductContent(slug)
+    : await cachedProductContent(slug);
+  if (!content) notFound();
+  const { product, suggested, sameShelf, rating, reviews, breakdown } = content;
   const isLive =
     (PUBLIC_STATUSES as readonly string[]).includes(product.status);
 
-  const [
-    variants,
-    tree,
-    suggested,
-    sameShelf,
-    rating,
-    reviews,
-    breakdown,
-    user,
-    serverNow,
-  ] = await Promise.all([
+  const [variants, tree, user, serverNow] = await Promise.all([
     getPublicVariants(product.id),
-    getCategoryTree(),
-    // Scored against what the catalogue records about both products — see
-    // lib/catalog/recommendations.ts. Never a random draw.
-    listRecommendations(product.id, 4),
-    // Deliberately more than the row shows: whatever the recommendations
-    // already used is dropped below, and a short row would otherwise appear
-    // for a well-stocked shelf.
-    listRelatedProducts(product.id, product.categoryId, 8),
-    getProductRating(product.id),
-    listApprovedReviews(product.id),
-    getRatingBreakdown(product.id),
+    cachedCategoryTree(),
     getCurrentUser(),
     // The countdown renders from this rather than the browser clock — see
     // lib/clock.ts.

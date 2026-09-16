@@ -5,11 +5,8 @@ import { AuthDialog } from "@/components/auth-dialog";
 import { HeaderShell } from "@/components/header-shell";
 import { IconCart, IconHeart } from "@/components/icons";
 import { SearchBox, SearchBoxFallback } from "@/components/search-box";
-import {
-  collectSubtreeIds,
-  countPublicProductsByCategory,
-  getCategoryTree,
-} from "@/lib/catalog";
+import { collectSubtreeIds } from "@/lib/catalog";
+import { cachedCategoryCounts, cachedCategoryTree } from "@/lib/catalog/cached";
 import { getCurrentUser, isStaff } from "@/lib/auth";
 import { isGoogleSignInEnabled } from "@/lib/auth/google";
 import { countCartItems } from "@/lib/cart";
@@ -26,8 +23,10 @@ import { findCartId } from "@/lib/cart/session";
  */
 export async function SiteHeader() {
   const [tree, counts, user, cartId] = await Promise.all([
-    getCategoryTree(),
-    countPublicProductsByCategory(),
+    // The menu is the same for everyone: cached, and dropped when staff change
+    // the catalogue (D-054). The visitor and their cart are read per request.
+    cachedCategoryTree(),
+    cachedCategoryCounts(),
     getCurrentUser(),
     findCartId(),
   ]);
@@ -39,7 +38,7 @@ export async function SiteHeader() {
    */
   const rollUp = (category: (typeof tree)[number]) =>
     collectSubtreeIds(category).reduce(
-      (total, id) => total + (counts.get(id) ?? 0),
+      (total, id) => total + (counts[id] ?? 0),
       0,
     );
 

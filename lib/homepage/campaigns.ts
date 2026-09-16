@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { siteSettings } from "@/db/schema";
@@ -231,14 +231,20 @@ async function convertLegacy(): Promise<CampaignSettings> {
  * Reads all five slots. Never throws: a stored value that no longer parses
  * degrades to empty slots, because the front page must render.
  */
-export async function getCampaignSettings(): Promise<CampaignSettings> {
-  const [row] = await db
+export async function getCampaignSettings(
+  /* eslint-disable-next-line @typescript-eslint/no-explicit-any -- the base
+     database or an open transaction */
+  executor: any = db,
+  /** Used when nothing is stored yet, instead of converting the old keys here. */
+  whenMissing?: CampaignSettings,
+): Promise<CampaignSettings> {
+  const [row] = await executor
     .select({ valueJson: siteSettings.valueJson })
     .from(siteSettings)
     .where(eq(siteSettings.key, CAMPAIGNS_SETTING_KEY))
     .limit(1);
 
-  if (!row) return convertLegacy();
+  if (!row) return whenMissing ?? convertLegacy();
 
   const parsed = campaignsSchema.safeParse(
     (row.valueJson as { value?: unknown } | undefined)?.value,
@@ -308,15 +314,39 @@ export class CampaignError extends Error {
   }
 }
 
+/**
+ * Changes the stored slides as one serialized read-change-write.
+ *
+ * Every slide lives in one settings row, and each edit used to read the row,
+ * change its slot, and write every slot back. Two edits at once — two staff,
+ * or one person's upload racing their own save — each wrote back what they had
+ * read, and the later write silently erased the earlier change. Now the read
+ * happens inside the transaction, behind an advisory lock on the key (the row
+ * may not exist yet, so there is nothing to lock with FOR UPDATE), and the
+ * change is applied to what is actually stored.
+ *
+ * `change` may throw a CampaignError; nothing is written then.
+ */
 async function writeCampaigns(
   actor: SessionUser,
-  next: CampaignSettings,
-): Promise<CampaignSettings> {
-  // Re-validated on the way in, so nothing unparseable can be stored and
-  // later silently discarded by the reader.
-  const value = campaignsSchema.parse(next);
+  change: (current: CampaignSettings) => CampaignSettings,
+): Promise<{ previous: CampaignSettings; value: CampaignSettings }> {
+  /*
+   * The conversion from the older homepage keys reads other settings and
+   * products through the shared connection, so it runs before the transaction:
+   * inside it, on a single-connection database, it would wait on itself. Only
+   * the stored row is read under the lock.
+   */
+  const unstored = await getCampaignSettings();
 
   return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${CAMPAIGNS_SETTING_KEY}, 0))`);
+
+    const current = await getCampaignSettings(tx, unstored);
+    // Re-validated on the way in, so nothing unparseable can be stored and
+    // later silently discarded by the reader.
+    const value = campaignsSchema.parse(change(current));
+
     const [before] = await tx
       .select({ valueJson: siteSettings.valueJson })
       .from(siteSettings)
@@ -346,7 +376,7 @@ async function writeCampaigns(
       tx,
     );
 
-    return value;
+    return { previous: current, value };
   });
 }
 
@@ -410,9 +440,10 @@ export async function updateCampaign(
     throw new CampaignError(parsed.error.issues[0]?.message ?? "Check the values.");
   }
 
-  const current = await getCampaignSettings();
-  const slide = current.slides[index];
   const { showcase: tilePatches, ...fields } = parsed.data;
+
+  const { value } = await writeCampaigns(staff, (current) => {
+  const slide = current.slides[index];
 
   const showcase = slide.showcase.map((item, tile) => {
     const next = { ...item, ...(tilePatches?.[tile] ?? {}) };
@@ -436,7 +467,9 @@ export async function updateCampaign(
 
   const slides = [...current.slides];
   slides[index] = next;
-  return writeCampaigns(staff, { slides });
+  return { slides };
+  });
+  return value;
 }
 
 /** Moves a slide one place earlier or later in the slider. */
@@ -449,12 +482,14 @@ export async function moveCampaign(
   const index = slotIndex(slot);
   const target = direction === "up" ? index - 1 : index + 1;
 
-  const current = await getCampaignSettings();
-  if (target < 0 || target >= CAMPAIGN_SLOTS) return current;
+  if (target < 0 || target >= CAMPAIGN_SLOTS) return getCampaignSettings();
 
-  const slides = [...current.slides];
-  [slides[index], slides[target]] = [slides[target], slides[index]];
-  return writeCampaigns(staff, { slides });
+  const { value } = await writeCampaigns(staff, (current) => {
+    const slides = [...current.slides];
+    [slides[index], slides[target]] = [slides[target], slides[index]];
+    return { slides };
+  });
+  return value;
 }
 
 export type ImageTarget = { kind: "hero" } | { kind: "tile"; tile: number };
@@ -506,18 +541,18 @@ export async function setCampaignImage(
   const index = slotIndex(slot);
   if (target.kind === "tile") tileIndex(target.tile);
 
-  const current = await getCampaignSettings();
-  const previous = readImage(current.slides[index], target);
-
-  // Size and format are established by the provider from the bytes.
+  // Size and format are established by the provider from the bytes. Uploaded
+  // before the lock, so a slow upload never holds up another edit.
   const stored = await getMediaProvider().upload(input);
 
-  const slides = [...current.slides];
-  slides[index] = withImage(slides[index], target, { url: stored.url, key: stored.key });
-  const next = await writeCampaigns(staff, { slides });
+  const { previous, value } = await writeCampaigns(staff, (current) => {
+    const slides = [...current.slides];
+    slides[index] = withImage(slides[index], target, { url: stored.url, key: stored.key });
+    return { slides };
+  });
 
-  await releaseImage(previous, next);
-  return next;
+  await releaseImage(readImage(previous.slides[index], target), value);
+  return value;
 }
 
 /** Removes a hero or tile image. Removing a hero switches its slide off. */
@@ -529,13 +564,12 @@ export async function clearCampaignImage(
   const staff = requirePermission(actor, "homepage.manage");
   const index = slotIndex(slot);
 
-  const current = await getCampaignSettings();
-  const previous = readImage(current.slides[index], target);
+  const { previous, value } = await writeCampaigns(staff, (current) => {
+    const slides = [...current.slides];
+    slides[index] = withImage(slides[index], target, null);
+    return { slides };
+  });
 
-  const slides = [...current.slides];
-  slides[index] = withImage(slides[index], target, null);
-  const next = await writeCampaigns(staff, { slides });
-
-  await releaseImage(previous, next);
-  return next;
+  await releaseImage(readImage(previous.slides[index], target), value);
+  return value;
 }

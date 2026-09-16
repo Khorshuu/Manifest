@@ -8,14 +8,13 @@ import { PageHeading } from "@/components/page-heading";
 import { getCurrentUser } from "@/lib/auth";
 import {
   collectSubtreeIds,
-  discover,
   findCategoryPathBySlug,
-  getCategoryTree,
   hasActiveFilters,
   listingHref,
   subtreeCount,
   type CategoryNode,
 } from "@/lib/catalog";
+import { cachedCategoryTree, cachedDiscover, discoveryKey } from "@/lib/catalog/cached";
 import { logSearch } from "@/lib/search/analytics";
 import { recordSearchHistory } from "@/lib/search/history";
 import { cleanQuery } from "@/lib/search/normalize";
@@ -50,16 +49,18 @@ export default async function SearchPage({
   searchParams,
 }: PageProps<"/search">) {
   const params = await searchParams;
-  const tree = await getCategoryTree();
+  const tree = await cachedCategoryTree();
 
   const categorySlug = typeof params.category === "string" ? params.category : "";
   const categoryPath = categorySlug ? findCategoryPathBySlug(tree, categorySlug) : [];
   const categoryNode = categoryPath.at(-1);
 
-  const result = await discover({
-    params,
-    categoryIds: categoryNode ? collectSubtreeIds(categoryNode) : undefined,
-  });
+  // Cached per query and filter set, shared by every shopper (D-054). Logging
+  // the search and the visitor's history stay per request, below.
+  const result = await cachedDiscover(
+    discoveryKey(params),
+    categoryNode ? collectSubtreeIds(categoryNode) : undefined,
+  );
 
   const filtered = hasActiveFilters(result.filters) || Boolean(categoryNode);
 

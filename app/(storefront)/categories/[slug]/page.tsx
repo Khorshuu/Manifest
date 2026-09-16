@@ -6,13 +6,12 @@ import type { CategoryFacetView } from "@/components/filter-panel";
 import { PageHeading } from "@/components/page-heading";
 import {
   collectSubtreeIds,
-  discover,
   findCategoryPath,
   getCategoryBySlug,
-  getCategoryTree,
   listingHref,
   subtreeCount,
 } from "@/lib/catalog";
+import { cachedCategoryTree, cachedDiscover, discoveryKey } from "@/lib/catalog/cached";
 
 /*
  * Cache Components (DECISIONS.md D-054): allowed to block while this route is
@@ -53,7 +52,7 @@ export default async function CategoryPage({
   const category = await getCategoryBySlug(slug);
   if (!category) notFound();
 
-  const tree = await getCategoryTree();
+  const tree = await cachedCategoryTree();
   const path = findCategoryPath(tree, category.id);
   const node = path.at(-1);
   // A category page includes everything beneath it, not only direct children.
@@ -64,7 +63,8 @@ export default async function CategoryPage({
   const { q: _ignored, ...listingParams } = query;
   void _ignored;
 
-  const result = await discover({ params: listingParams, categoryIds });
+  // Cached per shelf and filter set, shared by every shopper (D-054).
+  const result = await cachedDiscover(discoveryKey(listingParams), categoryIds);
 
   const counts = result.facets.categoryCounts;
   const parent = path.length > 1 ? path.at(-2) : undefined;

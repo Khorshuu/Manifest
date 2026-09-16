@@ -7,14 +7,12 @@ import { IconCalendar, IconSeal, IconTag } from "@/components/icons";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { ProductCard } from "@/components/product-card";
 import { Ticker } from "@/components/ticker";
+import { collectSubtreeIds } from "@/lib/catalog";
 import {
-  collectSubtreeIds,
-  countPublicProductsByCategory,
-  getCategoryTree,
-  pickCategoryImages,
-  listClosingSoon,
-  listProductCards,
-} from "@/lib/catalog";
+  cachedCategoryCounts,
+  cachedCategoryTree,
+  cachedHomeData,
+} from "@/lib/catalog/cached";
 import { serverInstant } from "@/lib/clock";
 import { getLiveCampaigns, type LiveCampaign } from "@/lib/homepage";
 import { formatBdt } from "@/lib/money";
@@ -33,23 +31,18 @@ export const metadata: Metadata = {
 
 
 export default async function HomePage() {
-  const [
-    campaigns,
-    closingSoon,
-    newest,
-    tree,
-    categoryCounts,
-    serverNow,
-    categoryImages,
-  ] = await Promise.all([
+  // Catalogue data is cached and shared (D-054); the campaigns and the server
+  // clock the countdowns run from are read per request.
+  const [home, campaigns, tree, counts, serverNow] = await Promise.all([
+    cachedHomeData(),
     getLiveCampaigns(),
-    listClosingSoon(8),
-    listProductCards({ sort: "newest", limit: 20 }),
-    getCategoryTree(),
-    countPublicProductsByCategory(),
+    cachedCategoryTree(),
+    cachedCategoryCounts(),
     serverInstant(),
-    pickCategoryImages(),
   ]);
+  const { closingSoon, newest } = home;
+  const categoryCounts = new Map(Object.entries(counts));
+  const categoryImages = new Map(Object.entries(home.categoryImages));
 
   /*
    * With no campaign switched on — a new shop, or every slide turned off —

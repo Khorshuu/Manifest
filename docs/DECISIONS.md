@@ -1260,3 +1260,22 @@ they are cached helpers with a lifetime and tags instead.
 **Behaviour to know.** Client-side navigation now keeps recently visited
 routes mounted (React `<Activity>`), so form state survives going back. The
 full end-to-end suite passed with this on.
+
+**Amended (Step B).** Invalidation runs after the transaction commits, not
+from inside it: `db.transaction` queues work registered through
+`runAfterCommit`, runs it once the commit succeeds and before the caller
+returns, and drops it on rollback. Invalidating from inside the transaction let
+a request that arrived before the commit re-cache the old rows.
+
+One race remains and is accepted: a storefront request already computing a
+cache entry from pre-commit rows can store its result after the invalidation.
+That entry is then behind until its lifetime lapses — about a minute for
+listings and product content. For that reason the homepage campaigns, which
+staff check straight after saving, are read per request (one small row), and
+nothing a shopper pays or reserves against is ever cached.
+
+**Defect found on the way.** All five homepage slides live in one settings
+row, and every edit read it, changed a slot and wrote every slot back. Five
+simultaneous edits to five different slides kept one. Writes are now one
+serialized read-change-write under an advisory lock
+(`tests/homepage-concurrency.test.ts`).

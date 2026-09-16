@@ -1,6 +1,7 @@
 import type { PgTransaction } from "drizzle-orm/pg-core";
-import { db } from "@/db";
+import { db, runAfterCommit } from "@/db";
 import { auditLog } from "@/db/schema";
+import { invalidateForAudit } from "@/lib/cache";
 
 export type AuditAction =
   | "user.role_changed"
@@ -67,4 +68,9 @@ export async function recordAudit(
     beforeJson: entry.before === undefined ? null : entry.before,
     afterJson: entry.after === undefined ? null : entry.after,
   });
+
+  // Cached storefront data this change affects (lib/cache.ts, D-054), once
+  // the transaction has committed, so no request can re-cache the old rows.
+  const invalidate = () => invalidateForAudit(entry.entityType);
+  if (!runAfterCommit(invalidate)) invalidate();
 }
