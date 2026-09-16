@@ -14,7 +14,8 @@ import {
 import { Panel } from "@/components/panel";
 import { ProductArt } from "@/components/product-art";
 import { formatBdt } from "@/lib/money";
-import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/providers/payment";
+// The types module only: the provider index reads server configuration.
+import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/providers/payment/types";
 
 export type CheckoutSummary = {
   subtotalBdt: number;

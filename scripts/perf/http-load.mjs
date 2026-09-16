@@ -49,7 +49,16 @@ async function hit(path) {
 
 const scripts = new Map();
 async function javascriptWeight(html) {
-  const sources = [...new Set([...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((match) => match[1]))];
+  // `noModule` scripts are the legacy polyfills: browsers that run modules
+  // never download them, so counting them overstated every page by ~39 KB.
+  const sources = [
+    ...new Set(
+      [...html.matchAll(/<script([^>]*)>/g)]
+        .filter((match) => !/\bnomodule\b/i.test(match[1]))
+        .map((match) => /src="([^"]+)"/.exec(match[1])?.[1])
+        .filter(Boolean),
+    ),
+  ];
   let gz = 0;
   for (const source of sources) {
     if (!scripts.has(source)) {

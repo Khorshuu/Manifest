@@ -493,6 +493,38 @@ input[type="radio"] {
   box-shadow: var(--shadow-lift);
 }
 
+/*
+ * A cart row leaving (components/presence-list.ts). It slides away while its
+ * height collapses through the grid track, so the rows below close the gap
+ * instead of jumping; the negative margin takes back the list's gap. Replaced
+ * Framer Motion here to keep the cart inside its JavaScript budget.
+ */
+.cart-row {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 280ms var(--ease-out-quint),
+    opacity 280ms var(--ease-out-quint),
+    margin 280ms var(--ease-out-quint),
+    transform 220ms var(--ease-out-quint),
+    box-shadow 220ms var(--ease-out-quint),
+    border-color 220ms var(--ease-out-quint);
+}
+
+.cart-row.cart-row-leaving {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateX(-24px);
+  margin-top: -1rem;
+  border-width: 0;
+}
+
+@media (max-width: 639.98px) {
+  .cart-row.cart-row-leaving {
+    margin-top: -0.5rem;
+  }
+}
+
 /* The rail's scrollbar, so a horizontal scroller does not carry the operating
    system's grey bar across a designed surface. */
 .rail::-webkit-scrollbar {

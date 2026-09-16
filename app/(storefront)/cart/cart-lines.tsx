@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { ProductArt } from "@/components/product-art";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { usePresenceList } from "@/components/presence-list";
 import { LinkButton } from "@/components/button";
 import {
   IconAlert,
@@ -142,6 +142,9 @@ function SwipeRow({
   );
 }
 
+/** How long a removed row takes to leave; matches `.cart-row-leaving` in globals.css. */
+const ROW_EXIT_MS = 280;
+
 export function CartLines({
   lines,
   subtotalBdt,
@@ -156,7 +159,6 @@ export function CartLines({
   /** Save for later keeps the item on the account's wishlist. */
   signedIn?: boolean;
 }) {
-  const reduce = useReducedMotion();
   const router = useRouter();
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -214,6 +216,7 @@ export function CartLines({
   }, []);
 
   const balance = subtotalBdt - dueNowBdt;
+  const rows = usePresenceList(lines, (line) => line.itemId, ROW_EXIT_MS);
 
   return (
     <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-12">
@@ -221,28 +224,21 @@ export function CartLines({
         {/* On a phone the rows sit on a pale ground, edge to edge, as white
             slips with a little space between them (D-047). */}
         <ul className="flex flex-col gap-4 max-sm:-mx-4 max-sm:gap-2 max-sm:bg-paper-raised max-sm:px-3 max-sm:py-3">
-          <AnimatePresence initial={false}>
-            {lines.map((line) => {
+          {rows.map(({ item: line, key, entering, leaving }) => {
               const busy = pending === line.itemId;
               const max = line.available ?? 99;
               const isPreorder = line.fulfillmentMode === "preorder";
 
               return (
-                <motion.li
-                  key={line.itemId}
-                  layout={reduce ? false : "position"}
-                  initial={reduce ? false : { opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={
-                    reduce
-                      ? { opacity: 0 }
-                      : { opacity: 0, x: -24, height: 0, marginBottom: 0 }
-                  }
-                  transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-                  className={`lift overflow-hidden rounded-card border bg-paper shadow-[var(--shadow-raise)] max-sm:shadow-none ${
+                <li
+                  key={key}
+                  inert={leaving}
+                  aria-hidden={leaving || undefined}
+                  className={`cart-row lift overflow-hidden rounded-card border bg-paper shadow-[var(--shadow-raise)] max-sm:shadow-none ${
                     line.problem ? "border-stamp-red" : "border-blue-300 max-sm:border-transparent"
-                  } ${busy ? "opacity-70" : ""}`}
+                  } ${busy ? "opacity-70" : ""} ${entering ? "animate-rise" : ""} ${leaving ? "cart-row-leaving" : ""}`}
                 >
+                  <div className="min-h-0">
                   <SwipeRow disabled={busy} onRemove={() => change(line.itemId, 0)}>
                   {/*
                    * On a phone, a slip in three columns — photograph; name and
@@ -445,10 +441,10 @@ export function CartLines({
                     </div>
                   </div>
                   </SwipeRow>
-                </motion.li>
+                  </div>
+                </li>
               );
             })}
-          </AnimatePresence>
         </ul>
 
         <div aria-live="polite">
