@@ -123,10 +123,24 @@ D layout/expectation mismatch · E test infrastructure/timing · F unknown.
 | # | Item | Status |
 | --- | --- | --- |
 | 6.1 | Unpaid-order expiry (30 min default, D-052) — VERIFIED: `lib/orders/expiry.ts`, setting `orders.unpaid_hold_minutes`; `tests/order-expiry.test.ts` 8/8 (expiry, stock return, repeat sweep, inside window, paid, COD, moved-on, setting); real Postgres G1 (5 concurrent sweepers × 20 orders → each once), G2 (expiry vs capture → confirmed or cancelled-with-refund-note, reserved matches), G3 (released places vs 30 checkouts → no oversell). Runs from the maintenance sweep until the job runner lands. | VERIFIED |
-| 7.1 | Durable job runner | NOT STARTED |
-| 8.1 | Justified indexes (EXPLAIN verified) | NOT STARTED |
-| 8.2 | Server-side / keyset pagination in admin | NOT STARTED |
-| 8.3 | Streamed / background CSV export | NOT STARTED |
+| 7.1 | Durable job runner (D-053) — VERIFIED: `lib/jobs/runner.ts`, `lib/jobs/registry.ts`, `/api/cron/jobs`, `/api/admin/jobs`, migration 0024. `tests/jobs.test.ts` (dedupe, per-slot scheduling, run once, not-yet-due, backoff then dead-letter, unknown kind, stale-worker recovery, owner-only retry, delivery claims); real Postgres: 6 workers × 60 jobs → each once, 5 drains × 30 messages → each sent once. **Frequent trigger BLOCKED on hosting plan** (Vercel Hobby cron is daily). | VERIFIED |
+| 8.1 | Justified indexes — VERIFIED with `EXPLAIN ANALYZE` on `manifest_scale` (migration 0025): `orders (placed_at DESC, id DESC)` and `orders (status, placed_at DESC, id DESC)` added, `orders_status_idx` dropped as redundant. Measured and **not** added: trigram indexes for order search (planner did not use them for the seven-column `OR`); `sessions (expires_at)` and `cart_items (variant_id)` (no evidence at current volumes). | VERIFIED |
+| 8.2 | Server-side / keyset pagination in admin — VERIFIED: orders by keyset cursor for newest/oldest (offset kept for total sorts), customers page-first with per-row totals, products filtered/sorted/counted/paged in SQL. Tests: `tests/admin-order-list.test.ts` (every order once through ties, back-paging, filters/search, total sorts, cursor validation), `tests/admin-product-list.test.ts` (counts, status/inventory/category/search filters, sorts, paging clamp, thumbnails, access); customer-spend and admin-ops suites unchanged and passing; products page checked in a browser. | VERIFIED |
+| 8.3 | Streamed CSV export — VERIFIED: keyset batches of 5,000 streamed to the response; string wrapper kept for callers and tests. Background export job not built: 100,000 orders stream in 1.9 s, inside a request budget. | VERIFIED |
+
+### Phase 8 measurements (`manifest_scale`: 5,000 products, 18,731 variants, 20,001 users, 100,000 orders; median of 7 warm runs, one machine, database on the same host)
+
+| Path | Audit baseline | After |
+| --- | ---: | ---: |
+| Admin orders page 1 | 278 ms | 17 ms |
+| Admin orders 1,000 pages deep | 369 ms (offset) | 10 ms (keyset) |
+| Admin orders by total, deep page | — | 124 ms (offset, rarely used) |
+| Admin orders search | 193 ms | 50 ms |
+| Admin customers page 1 | 49 ms | 7 ms |
+| Admin products list | 195–220 ms, all 5,000 rows to the browser | 33 ms, 50 rows |
+| Orders CSV export (100k) | 960 ms, 8 MB string in memory | 1.9 s streamed, 41 batches, bounded memory |
+| Query plan: orders page 1 | 202 ms (hash aggregate over 200k lines) | 0.44 ms |
+| Query plan: 1,000 pages deep | 42 ms, sort to disk | 0.02 ms |
 | 9.1 | Listing read model | NOT STARTED |
 | 10.1 | Cache Components, tag invalidation in `lib/` | NOT STARTED |
 | 11.1 | Image derivative pipeline + orphan cleanup | NOT STARTED |
