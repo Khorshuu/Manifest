@@ -38,7 +38,9 @@ export type AuditAction =
   | "search.synonym_created"
   | "search.synonym_updated"
   | "search.synonym_deleted"
-  | "search.reindexed";
+  | "search.reindexed"
+  /** A product option or its values: added, removed, reordered. */
+  | "attribute.updated";
 
 export type AuditEntry = {
   actorUserId: string;

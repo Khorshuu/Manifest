@@ -36,6 +36,7 @@ export function invalidateForAudit(entityType: string): void {
       invalidateCatalog([CACHE_TAGS.categories, CACHE_TAGS.listing, CACHE_TAGS.productPages, CACHE_TAGS.homepage]);
       return;
     case "product":
+    case "attribute":
     case "variant":
     case "review":
     case "search_synonym":

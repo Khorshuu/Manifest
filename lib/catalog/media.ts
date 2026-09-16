@@ -211,7 +211,7 @@ export async function updateProductImageAltText(
   imageId: string,
   altText: string,
 ) {
-  requirePermission(actor, "catalog.manage");
+  const staff = requirePermission(actor, "catalog.manage");
 
   const text = altText.trim();
   if (text.length === 0) {
@@ -227,6 +227,15 @@ export async function updateProductImageAltText(
     .returning();
 
   if (!updated) throw new MediaError("That image no longer exists.");
+
+  // The description is on the product page; the audit entry drops its cached copy.
+  await recordAudit({
+    actorUserId: staff.id,
+    action: "product.updated",
+    entityType: "product",
+    entityId: updated.productId,
+    after: { imageAltText: updated.id },
+  });
 
   return updated;
 }
@@ -315,7 +324,7 @@ export async function reorderProductImage(
   imageId: string,
   direction: "up" | "down",
 ) {
-  requirePermission(actor, "catalog.manage");
+  const staff = requirePermission(actor, "catalog.manage");
 
   const [image] = await db
     .select()
@@ -345,5 +354,16 @@ export async function reorderProductImage(
       .update(productImages)
       .set({ sortOrder: image.sortOrder })
       .where(eq(productImages.id, other.id));
+
+    await recordAudit(
+      {
+        actorUserId: staff.id,
+        action: "product.updated",
+        entityType: "product",
+        entityId: image.productId,
+        after: { imageMoved: image.id, direction },
+      },
+      tx,
+    );
   });
 }

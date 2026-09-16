@@ -8,6 +8,7 @@ import {
   variantOptionValues,
 } from "@/db/schema";
 import { removeVariant } from "./variants";
+import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import type { AttributeInputPayload } from "@/lib/validation/catalog";
@@ -59,7 +60,7 @@ export async function createAttribute(
   /** The owning product. Null creates a legacy shared option (tests only). */
   productId: string | null = null,
 ) {
-  requirePermission(actor, "catalog.manage");
+  const staff = requirePermission(actor, "catalog.manage");
 
   return db.transaction(async (tx) => {
     const [attribute] = await tx
@@ -77,6 +78,7 @@ export async function createAttribute(
       );
     }
 
+    await auditAttribute(staff.id, attribute.id, { created: attribute.name }, tx);
     return attribute;
   });
 }
@@ -86,7 +88,7 @@ export async function addAttributeValue(
   attributeId: string,
   value: string,
 ) {
-  requirePermission(actor, "catalog.manage");
+  const staff = requirePermission(actor, "catalog.manage");
 
   const [{ nextOrder }] = await db
     .select({
@@ -100,6 +102,7 @@ export async function addAttributeValue(
     .values({ attributeId, value, sortOrder: nextOrder })
     .returning();
 
+  await auditAttribute(staff.id, attributeId, { valueAdded: value });
   return created;
 }
 
@@ -111,7 +114,7 @@ export async function deleteAttributeValue(
   actor: SessionUser | null,
   valueId: string,
 ) {
-  requirePermission(actor, "catalog.manage");
+  const staff = requirePermission(actor, "catalog.manage");
 
   const [{ inUse }] = await db
     .select({ inUse: sql<number>`count(*)::int` })
@@ -124,14 +127,18 @@ export async function deleteAttributeValue(
     );
   }
 
-  await db.delete(attributeValues).where(eq(attributeValues.id, valueId));
+  const [removed] = await db
+    .delete(attributeValues)
+    .where(eq(attributeValues.id, valueId))
+    .returning({ attributeId: attributeValues.attributeId, value: attributeValues.value });
+  if (removed) await auditAttribute(staff.id, removed.attributeId, { valueRemoved: removed.value });
 }
 
 export async function deleteAttribute(
   actor: SessionUser | null,
   attributeId: string,
 ) {
-  requirePermission(actor, "catalog.manage");
+  const staff = requirePermission(actor, "catalog.manage");
 
   const [{ inUse }] = await db
     .select({ inUse: sql<number>`count(*)::int` })
@@ -149,6 +156,7 @@ export async function deleteAttribute(
       .delete(attributeValues)
       .where(eq(attributeValues.attributeId, attributeId));
     await tx.delete(attributes).where(eq(attributes.id, attributeId));
+    await auditAttribute(staff.id, attributeId, { deleted: true }, tx);
   });
 }
 
@@ -223,7 +231,7 @@ export async function createProductOption(
   productId: string,
   input: { name: string; values: string[] },
 ) {
-  requirePermission(actor, "catalog.manage");
+  const staff = requirePermission(actor, "catalog.manage");
   const name = input.name.trim();
   if (!name) throw new ProductOptionError("Name the option — Color, Size, Capacity.");
 
@@ -260,6 +268,7 @@ export async function createProductOption(
     await tx
       .insert(productAttributes)
       .values({ productId, attributeId: attribute.id, sortOrder: Number(next) });
+    await auditAttribute(staff.id, attribute.id, { created: name, productId, values }, tx);
     return attribute;
   });
 }
@@ -270,10 +279,10 @@ export async function createProductOption(
  * rather than deleted, and the value stays on record for it.
  */
 export async function removeProductOptionValue(actor: SessionUser | null, valueId: string) {
-  requirePermission(actor, "catalog.manage");
+  const staff = requirePermission(actor, "catalog.manage");
 
   const [row] = await db
-    .select({ productId: attributes.productId })
+    .select({ productId: attributes.productId, attributeId: attributes.id, value: attributeValues.value })
     .from(attributeValues)
     .innerJoin(attributes, eq(attributes.id, attributeValues.attributeId))
     .where(eq(attributeValues.id, valueId));
@@ -305,6 +314,7 @@ export async function removeProductOptionValue(actor: SessionUser | null, valueI
   if (Number(still) === 0) {
     await db.delete(attributeValues).where(eq(attributeValues.id, valueId));
   }
+  await auditAttribute(staff.id, row.attributeId, { valueRemoved: row.value, productId: row.productId, deleted, archived });
   return { deleted, archived };
 }
 
@@ -318,7 +328,7 @@ export async function removeProductOption(
   productId: string,
   attributeId: string,
 ) {
-  requirePermission(actor, "catalog.manage");
+  const staff = requirePermission(actor, "catalog.manage");
 
   const [attribute] = await db
     .select({ id: attributes.id, productId: attributes.productId })
@@ -354,6 +364,7 @@ export async function removeProductOption(
     await db.delete(attributeValues).where(eq(attributeValues.attributeId, attributeId));
     await db.delete(attributes).where(eq(attributes.id, attributeId));
   }
+  await auditAttribute(staff.id, attributeId, { removedFromProduct: productId, deleted, archived });
   return { deleted, archived };
 }
 
@@ -376,7 +387,7 @@ export async function setProductAttributes(
   productId: string,
   attributeIds: string[],
 ) {
-  requirePermission(actor, "catalog.manage");
+  const staff = requirePermission(actor, "catalog.manage");
 
   await db.transaction(async (tx) => {
     /*
@@ -412,5 +423,33 @@ export async function setProductAttributes(
         })),
       );
     }
+
+    await recordAudit(
+      {
+        actorUserId: staff.id,
+        action: "product.updated",
+        entityType: "product",
+        entityId: productId,
+        after: { attributeIds: finalIds },
+      },
+      tx,
+    );
   });
+}
+
+/**
+ * Records an option change. Options, their values and their order show on
+ * product pages and in listing filters, so the audit entry is also what drops
+ * the cached copies of those (lib/cache.ts, D-054).
+ */
+async function auditAttribute(
+  actorUserId: string,
+  attributeId: string,
+  after: Record<string, unknown>,
+  executor?: Parameters<typeof recordAudit>[1],
+) {
+  await recordAudit(
+    { actorUserId, action: "attribute.updated", entityType: "attribute", entityId: attributeId, after },
+    executor,
+  );
 }
