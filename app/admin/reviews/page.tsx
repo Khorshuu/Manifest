@@ -6,8 +6,13 @@ import { StatusBadge } from "@/components/status-badge";
 import { ModerationControls } from "./moderation-controls";
 import { requireAdminPage } from "@/lib/auth/admin-page";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Reviews" };
-export const dynamic = "force-dynamic";
 
 const FILTERS = [
   { value: "pending", label: "Pending" },

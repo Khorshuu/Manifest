@@ -36,6 +36,12 @@ import {
   getSeoPulseOverview,
 } from "@/lib/seo-pulse";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 /** Flattens the tree into indented options, so nesting is visible in a select. */
 function flatten(nodes: CategoryNode[]): { id: string; label: string }[] {
   return nodes.flatMap((node) => [
@@ -84,7 +90,6 @@ const SECTION_ALIASES: Record<string, string> = {
 };
 
 export const metadata: Metadata = { title: "Product" };
-export const dynamic = "force-dynamic";
 
 /**
  * The product editor (D-039, D-040): the facts on the left in the order they

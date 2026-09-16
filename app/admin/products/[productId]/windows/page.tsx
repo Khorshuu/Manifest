@@ -7,8 +7,13 @@ import { countWaitlistByProduct } from "@/lib/preorder";
 import { WindowControls } from "./window-controls";
 import { requireAdminPage } from "@/lib/auth/admin-page";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Preorder windows" };
-export const dynamic = "force-dynamic";
 
 /**
  * Opening, extending and closing the preorder window on each variant.

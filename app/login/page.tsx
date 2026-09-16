@@ -6,6 +6,12 @@ import { AuthDivider, GoogleButton } from "@/components/google-button";
 import { getCurrentUser } from "@/lib/auth";
 import { LoginForm } from "./login-form";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = {
   title: "Sign in",
 };

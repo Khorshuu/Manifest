@@ -5,7 +5,12 @@ import { getCurrentUser, isStaff } from "@/lib/auth";
 import { getTwoFactorStatus } from "@/lib/auth/two-factor";
 import { TwoFactorPanel } from "./two-factor-panel";
 
-export const dynamic = "force-dynamic";
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 
 export const metadata: Metadata = {
   title: "Security",

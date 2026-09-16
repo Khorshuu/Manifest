@@ -3,6 +3,12 @@ import { Figtree } from "next/font/google";
 import "./globals.css";
 import { organisationJsonLd, siteUrl } from "@/lib/seo";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 /**
  * One typeface for the whole shop.
  *

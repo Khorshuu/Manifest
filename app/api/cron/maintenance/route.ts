@@ -22,7 +22,6 @@ import { releaseExpiredSkuReservations } from "@/lib/catalog/sku";
  * and most other schedulers send.
  */
 
-export const dynamic = "force-dynamic";
 
 /** How many messages one run will attempt. Bounded so a run cannot hang. */
 const BATCH_SIZE = 100;

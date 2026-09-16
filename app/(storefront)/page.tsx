@@ -19,13 +19,18 @@ import { serverInstant } from "@/lib/clock";
 import { getLiveCampaigns, type LiveCampaign } from "@/lib/homepage";
 import { formatBdt } from "@/lib/money";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = {
   title: "Preorder American goods, delivered in Bangladesh",
   description:
     "Preorder niche American products at a fixed landed price — shipping and customs duty included — with a stated arrival window.",
 };
 
-export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const [

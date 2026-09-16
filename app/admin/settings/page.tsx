@@ -4,8 +4,13 @@ import { isSuperAdmin } from "@/lib/auth";
 import { SettingRow } from "./setting-row";
 import { requireAdminPage } from "@/lib/auth/admin-page";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Settings" };
-export const dynamic = "force-dynamic";
 
 export default async function AdminSettingsPage() {
   const user = await requireAdminPage("settings.manage");

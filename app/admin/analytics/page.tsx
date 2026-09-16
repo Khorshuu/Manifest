@@ -18,8 +18,13 @@ import { formatBdt } from "@/lib/money";
 import { BarChart, Delta, ShareBar, shortDay } from "../charts";
 import { ORDER_STATUS_LABELS } from "../order-status";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Analytics" };
-export const dynamic = "force-dynamic";
 
 const PERIODS = [7, 30, 90] as const;
 

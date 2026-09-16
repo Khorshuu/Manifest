@@ -4,6 +4,12 @@ import { PageHeading } from "@/components/page-heading";
 import { Panel } from "@/components/panel";
 import { getSetting } from "@/lib/admin/settings";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = {
   title: "Help, shipping and refunds",
   description:

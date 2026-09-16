@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { NextResponse } from "next/server";
+import { connection, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { safeNext } from "@/components/auth-shell";
 import {
@@ -14,12 +14,16 @@ import { siteUrl } from "@/lib/seo";
  * short-lived http-only cookies, so the callback can prove that the response
  * it receives belongs to the request this browser made.
  */
-export const dynamic = "force-dynamic";
 
 /** Long enough to sign in with, short enough not to sit around. */
 const HANDSHAKE_MAX_AGE_SECONDS = 10 * 60;
 
 export async function GET(request: Request) {
+  // Per request, always. Whether Google is configured is decided when the
+  // request arrives, not when the app is built: under Cache Components a
+  // handler that reads nothing first is prerendered, and the build-time
+  // "not configured" answer would be served forever.
+  await connection();
   const config = googleConfig();
   // The button is shown even without credentials (D-050), so a visitor who
   // follows it lands on the sign-in page with a reason, not a 404.

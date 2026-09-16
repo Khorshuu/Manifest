@@ -9,8 +9,13 @@ import { ReindexButton } from "./reindex-button";
 import { SynonymManager } from "./synonym-manager";
 import { requireAdminPage } from "@/lib/auth/admin-page";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Search" };
-export const dynamic = "force-dynamic";
 
 const PERIODS = [7, 30, 90] as const;
 

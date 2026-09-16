@@ -11,7 +11,12 @@ import { getBalanceState, getGuestOrder } from "@/lib/orders";
 import { formatBdt } from "@/lib/money";
 import { formatDate } from "@/lib/format";
 
-export const dynamic = "force-dynamic";
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 
 export const metadata: Metadata = {
   title: "Track your order",

@@ -19,8 +19,13 @@ import { formatShortDate } from "@/lib/format";
 import { BarChart, Delta, ShareBar, shortDay } from "./charts";
 import { ORDER_STATUS_LABELS, orderStatusTone } from "./order-status";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Overview" };
-export const dynamic = "force-dynamic";
 
 /**
  * The business at a glance.

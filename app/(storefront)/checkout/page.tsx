@@ -13,7 +13,12 @@ import { findCartId } from "@/lib/cart/session";
 import { codAllowed } from "@/lib/orders";
 import { CheckoutForm } from "./checkout-form";
 
-export const dynamic = "force-dynamic";
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 
 export const metadata: Metadata = {
   title: "Checkout",

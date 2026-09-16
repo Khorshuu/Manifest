@@ -5,8 +5,13 @@ import { PERMISSIONS, ROLE_DETAILS, ROLE_PERMISSIONS, STAFF_ROLES } from "@/lib/
 import { requireAdminPage } from "@/lib/auth/admin-page";
 import { StaffManager } from "./staff-manager";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Staff" };
-export const dynamic = "force-dynamic";
 
 /** Plain names for the permission table, in the order the admin nav uses. */
 const PERMISSION_LABELS: Record<(typeof PERMISSIONS)[number], string> = {

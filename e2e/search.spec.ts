@@ -152,7 +152,7 @@ test("staff can hide a product from search without unpublishing it", async ({
   page,
 }) => {
   await signIn(page, "staff@example.com");
-  await page.goto("/admin/products");
+  await page.goto("/admin/products?q=Maple%20Pecan");
   await page
     .getByRole("link", { name: "Maple Pecan Coffee Beans", exact: true })
     .click();
@@ -173,7 +173,7 @@ test("staff can hide a product from search without unpublishing it", async ({
 
   // Put it back for everyone else.
   await page.goBack();
-  await page.goto("/admin/products");
+  await page.goto("/admin/products?q=Maple%20Pecan");
   await page
     .getByRole("link", { name: "Maple Pecan Coffee Beans", exact: true })
     .click();

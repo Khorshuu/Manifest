@@ -12,7 +12,6 @@ import { runDueJobs, scheduleRecurringJobs } from "@/lib/jobs/runner";
  * deduplicated per slot and jobs are claimed with SKIP LOCKED.
  */
 
-export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 async function run() {

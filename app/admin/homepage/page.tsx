@@ -4,8 +4,13 @@ import { getCampaignSettings } from "@/lib/homepage";
 import { HomepageEditor } from "./homepage-editor";
 import { listCategoryTreeForLinks } from "./link-options";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Homepage" };
-export const dynamic = "force-dynamic";
 
 /**
  * Homepage settings: the promotional campaigns.

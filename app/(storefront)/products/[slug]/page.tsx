@@ -59,7 +59,12 @@ import {
 import { listProductCardsByIds } from "@/lib/catalog/storefront";
 import { serverInstant } from "@/lib/clock";
 
-export const dynamic = "force-dynamic";
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 
 /**
  * Staff preview: `?preview=1` lets someone with catalogue access see a draft

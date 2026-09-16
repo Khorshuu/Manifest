@@ -1224,3 +1224,39 @@ Vercel cron stays, and production needs one of: Vercel Pro cron every minute,
 or any external scheduler (for example a GitHub Actions schedule or
 cron-job.org) calling `/api/cron/jobs` with the secret every 1–5 minutes. This
 is recorded as BLOCKED on hosting, not guessed.
+
+## D-054 — Cache Components, adopted route by route; only shared catalogue data is cached
+
+**Context.** Every storefront page was `force-dynamic` and re-read the
+catalogue per request: one production process served 11–40 requests/second
+on catalogue pages with 20 concurrent shoppers (INITIAL_TECHNICAL_AUDIT.md).
+This version of Next.js replaces route-segment caching with Cache Components
+(`use cache`, `cacheLife`, `cacheTag`), and `force-dynamic` is an error once
+it is on.
+
+**Decision.** `cacheComponents` is on. Every page and layout started with
+`instant = false` (allowed to block), so nothing changed behaviour on the day
+it was switched on; routes lose that line as they are converted. Only data
+that is the same for every shopper and changes when staff change it is
+cached: the category tree and counts, product cards and listings, product
+detail, popular searches, the sitemap, homepage campaigns. Never cached:
+sessions, carts, wishlists, recently viewed, checkout, and the live price,
+capacity and closing time a shopper is about to act on — those stay
+per-request and stream in `<Suspense>`.
+
+Invalidation lives in `lib/cache.ts`: tags are named once, and the `lib/`
+functions that change customer-visible catalogue data call
+`invalidateCatalog` beside their audit write, so no route can forget.
+Invalidation uses `expire: 0` — staff who publish expect to see it on their
+next look.
+
+**Found while switching it on.** A GET route handler that reads no request
+data is prerendered at build under this model. The Google sign-in routes
+returned "not configured" at build and would have kept saying so after
+credentials were added; they now call `connection()`. Popular searches and
+the sitemap read the database with no request data and would have frozen;
+they are cached helpers with a lifetime and tags instead.
+
+**Behaviour to know.** Client-side navigation now keeps recently visited
+routes mounted (React `<Activity>`), so form state survives going back. The
+full end-to-end suite passed with this on.

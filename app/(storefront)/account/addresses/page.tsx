@@ -6,7 +6,12 @@ import { getCurrentUser } from "@/lib/auth";
 import { listAddresses, MAX_ADDRESSES } from "@/lib/account";
 import { AddressBook } from "./address-book";
 
-export const dynamic = "force-dynamic";
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 
 export const metadata: Metadata = {
   title: "Your addresses",

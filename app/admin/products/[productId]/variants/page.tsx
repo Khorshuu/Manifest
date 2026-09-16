@@ -6,8 +6,13 @@ import { requireAdminPage } from "@/lib/auth/admin-page";
 import { loadVariantManager } from "./manager-props";
 import { VariantMatrix } from "./variant-matrix";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Variants" };
-export const dynamic = "force-dynamic";
 
 /**
  * The variants manager on its own page. The same manager is section 3 of the

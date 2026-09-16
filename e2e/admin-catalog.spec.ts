@@ -22,16 +22,16 @@ test("staff sees the seeded catalog with live variant counts", async ({
 }) => {
   await signIn(page, "staff@example.com");
   await page.goto("/admin/products");
-
   await expect(
     page.getByRole("heading", { name: "Products", level: 1 }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Seasonal Candy Variety Box", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Studio Reference Headphones", exact: true }),
-  ).toBeVisible();
+
+  // The list pages 50 at a time and other tests add products, so each seeded
+  // product is found by searching for it.
+  for (const name of ["Seasonal Candy Variety Box", "Studio Reference Headphones"]) {
+    await page.goto(`/admin/products?q=${encodeURIComponent(name)}`);
+    await expect(page.getByRole("link", { name, exact: true }).first()).toBeVisible();
+  }
 });
 
 /** The category tree, as whichever of its two shapes is on screen. */
@@ -96,7 +96,7 @@ test("a staff member adds a product and it appears in the list", async ({
   // Creating opens the product editor.
   await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
 
-  await page.goto("/admin/products");
+  await page.goto(`/admin/products?q=${encodeURIComponent(title)}`);
   await expect(page.getByRole("link", { name: title, exact: true })).toBeVisible();
 });
 

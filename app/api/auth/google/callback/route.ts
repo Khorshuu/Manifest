@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { connection, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { safeNext } from "@/components/auth-shell";
 import { signInWithGoogle } from "@/lib/auth/accounts";
@@ -14,7 +14,6 @@ import {
 } from "@/lib/auth/session";
 import { siteUrl } from "@/lib/seo";
 
-export const dynamic = "force-dynamic";
 
 const HANDSHAKE_COOKIES = [
   "google_oauth_state",
@@ -23,6 +22,11 @@ const HANDSHAKE_COOKIES = [
 ] as const;
 
 export async function GET(request: Request) {
+  // Per request, always. Whether Google is configured is decided when the
+  // request arrives, not when the app is built: under Cache Components a
+  // handler that reads nothing first is prerendered, and the build-time
+  // "not configured" answer would be served forever.
+  await connection();
   const config = googleConfig();
   if (!config) return new NextResponse("Not found", { status: 404 });
 

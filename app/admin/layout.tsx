@@ -10,6 +10,12 @@ import {
 import { AdminNav } from "./admin-nav";
 import { LogoutButton } from "./logout-button";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 /**
  * Each section with the permission that opens it. The page checks the same
  * permission itself, and so does every `lib/` function behind it — this list

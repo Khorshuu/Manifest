@@ -9,8 +9,13 @@ import { countOutboxByStatus, listOutbox } from "@/lib/notifications";
 import { DrainButton } from "./drain-button";
 import { MarkReadButton } from "./mark-read-button";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Notifications" };
-export const dynamic = "force-dynamic";
 
 const KIND_LABELS: Record<InboxKind, string> = {
   new_order: "Order",

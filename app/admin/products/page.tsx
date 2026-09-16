@@ -15,8 +15,13 @@ import {
 } from "./filters";
 import { ProductTable } from "./product-table";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Products" };
-export const dynamic = "force-dynamic";
 
 /** Products per page. */
 const PAGE_SIZE = 50;

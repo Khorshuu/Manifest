@@ -9,7 +9,12 @@ import { PageHeading } from "@/components/page-heading";
 import { getCurrentUser } from "@/lib/auth";
 import { listOrderSummariesForUser } from "@/lib/orders";
 
-export const dynamic = "force-dynamic";
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 
 export const metadata: Metadata = {
   title: "Your orders",

@@ -12,8 +12,13 @@ import { AttributeManager } from "./attribute-manager";
 import { CategoryForm } from "./category-form";
 import { CategoryTree, type TreeNode } from "./category-tree";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Categories" };
-export const dynamic = "force-dynamic";
 
 function flatten(nodes: CategoryNode[]): { id: string; label: string }[] {
   return nodes.flatMap((node) => [

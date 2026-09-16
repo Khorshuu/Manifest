@@ -17,8 +17,13 @@ import { BalancePanel } from "./balance-panel";
 import { OrderActions } from "./order-actions";
 import { ShippingPanel } from "./shipping-panel";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Order" };
-export const dynamic = "force-dynamic";
 
 export default async function AdminOrderPage({
   params,

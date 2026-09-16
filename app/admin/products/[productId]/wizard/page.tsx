@@ -33,8 +33,13 @@ import {
   getSeoPulseOverview,
 } from "@/lib/seo-pulse";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Product setup" };
-export const dynamic = "force-dynamic";
 
 function flatten(nodes: CategoryNode[]): { id: string; label: string }[] {
   return nodes.flatMap((node) => [

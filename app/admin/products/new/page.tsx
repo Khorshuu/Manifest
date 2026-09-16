@@ -5,8 +5,13 @@ import { requireAdminPage } from "@/lib/auth/admin-page";
 import { getCategoryTree, type CategoryNode } from "@/lib/catalog";
 import { ProductForm } from "./product-form";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Add product" };
-export const dynamic = "force-dynamic";
 
 /** Flattens the tree into indented options, so nesting is visible in a select. */
 function flatten(nodes: CategoryNode[]): { id: string; label: string }[] {

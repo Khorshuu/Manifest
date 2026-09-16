@@ -5,7 +5,12 @@ import { requireAdminPage } from "@/lib/auth/admin-page";
 import { formatShortDate } from "@/lib/format";
 import { formatBdt } from "@/lib/money";
 
-export const dynamic = "force-dynamic";
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 
 export const metadata: Metadata = { title: "Customers" };
 

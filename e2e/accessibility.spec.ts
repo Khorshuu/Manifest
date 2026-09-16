@@ -171,7 +171,8 @@ test.describe("admin", () => {
    */
   test("preorder windows", async ({ page }) => {
     await signIn(page, "staff@example.com");
-    await page.goto("/admin/products");
+    // Searched for: other tests add products, and the list shows 50 a page.
+    await page.goto("/admin/products?q=Studio%20Reference%20Headphones");
     await page
       // Exact: the row also carries a storefront link whose name includes
       // the product title.

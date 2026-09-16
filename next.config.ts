@@ -57,6 +57,12 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  /*
+   * Cache Components (DECISIONS.md D-054): data is dynamic unless a function
+   * opts into "use cache", and routes prerender a static shell with per-request
+   * parts streamed in. Enabled route by route behind `instant = false`.
+   */
+  cacheComponents: true,
   // A version header tells an attacker what to look up.
   poweredByHeader: false,
   /*

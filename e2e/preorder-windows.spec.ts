@@ -147,7 +147,8 @@ test("capacity cannot be set below what is already reserved", async ({
   await signIn(page, "staff@example.com");
 
   // The seeded headphones have a variant deliberately at full capacity.
-  await page.goto("/admin/products");
+  // Searched for: other tests add products, and the list shows 50 a page.
+  await page.goto("/admin/products?q=Studio%20Reference%20Headphones");
   await page.getByRole("link", { name: "Studio Reference Headphones", exact: true }).click();
   await page.getByRole("link", { name: "Preorder windows" }).click();
 

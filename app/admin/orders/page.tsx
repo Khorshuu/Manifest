@@ -8,8 +8,13 @@ import { formatShortDate } from "@/lib/format";
 import { ORDER_STATUSES, type OrderStatus } from "@/db/schema";
 import { ORDER_STATUS_LABELS, orderStatusTone, paymentLabel } from "../order-status";
 
+/*
+ * Cache Components (DECISIONS.md D-054): allowed to block while this route is
+ * converted to cached data plus streamed per-request parts.
+ */
+export const instant = false;
+
 export const metadata: Metadata = { title: "Orders" };
-export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
 
