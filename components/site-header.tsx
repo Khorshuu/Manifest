@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { AccountMenu } from "@/components/account-menu";
 import { AuthDialog } from "@/components/auth-dialog";
 import { HeaderShell } from "@/components/header-shell";
-import { IconCart, IconHeart } from "@/components/icons";
+import { IconCart, IconHeart, IconUser } from "@/components/icons";
 import { SearchBox, SearchBoxFallback } from "@/components/search-box";
 import { collectSubtreeIds } from "@/lib/catalog";
 import { cachedCategoryCounts, cachedCategoryTree } from "@/lib/catalog/cached";
@@ -20,17 +20,17 @@ import { findCartId } from "@/lib/cart/session";
  * first name, never the email address, which would put a private identifier
  * on every screen someone might share. An account with no name on record
  * reads "Account".
+ *
+ * The menu is the same for everyone: cached, and dropped when staff change the
+ * catalogue (D-054). Who is signed in and what is in their cart are read per
+ * request inside Suspense boundaries, so no page waits on them and nothing
+ * about one visitor can be rendered into a shared entry.
  */
 export async function SiteHeader() {
-  const [tree, counts, user, cartId] = await Promise.all([
-    // The menu is the same for everyone: cached, and dropped when staff change
-    // the catalogue (D-054). The visitor and their cart are read per request.
+  const [tree, counts] = await Promise.all([
     cachedCategoryTree(),
     cachedCategoryCounts(),
-    getCurrentUser(),
-    findCartId(),
   ]);
-  const cartCount = cartId ? await countCartItems(cartId) : 0;
 
   /*
    * The whole catalogue, two levels deep, with live counts. A top-level shelf
@@ -55,16 +55,6 @@ export async function SiteHeader() {
     })),
   }));
 
-  const firstName = user?.firstName?.trim().split(/\s+/)[0]?.slice(0, 20) || null;
-  const accountLabel = user ? (firstName ?? "Account") : "Sign in";
-
-  // The wishlist is account-only (D-031): a guest goes through sign-in and is
-  // brought straight back to it.
-  const wishlistHref = user ? "/account/wishlist" : "/login?next=/account/wishlist";
-
-  const item =
-    "inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 font-semibold transition-colors hover:bg-[color:var(--head-ghost)]";
-
   return (
     <HeaderShell
       sections={sections}
@@ -74,57 +64,109 @@ export async function SiteHeader() {
          * searches it holds.
          */
         <Suspense fallback={<SearchBoxFallback />}>
-          <SearchBox key={user ? "signed-in" : "guest"} signedIn={Boolean(user)} />
+          <HeaderSearch />
         </Suspense>
       }
       actions={
-        <div className="flex shrink-0 items-center gap-0.5 text-meta sm:gap-1.5">
-          {isStaff(user) ? (
-            <Link href="/admin" className={`hidden sm:inline-flex ${item}`}>
-              Admin
-            </Link>
-          ) : null}
-
-          {user ? (
-            <AccountMenu label={accountLabel} isStaff={isStaff(user)} />
-          ) : (
-            /*
-             * Signing in happens over the page rather than on a page of its
-             * own (D-042). /login and /register are untouched and still serve
-             * every server-side redirect.
-             */
-            <AuthDialog
-              googleEnabled={isGoogleSignInEnabled()}
-              label={accountLabel}
-              triggerClassName={item}
-            />
-          )}
-
-          <Link href={wishlistHref} className={item}>
-            <IconHeart size={18} className="shrink-0" />
-            <span className="sr-only sm:not-sr-only">Wishlist</span>
-          </Link>
-
-          <Link href="/cart" className={item}>
-            <IconCart size={18} className="shrink-0" />
-            <span className="sr-only sm:not-sr-only">Cart</span>
-            {cartCount > 0 ? (
-              /* Keyed on the count so it stamps each time it changes —
-                 the confirmation that an item really landed. */
-              <span
-                key={cartCount}
-                aria-hidden="true"
-                className="animate-stamp inline-flex min-w-5 items-center justify-center rounded-card bg-brass px-1 font-bold tabular-nums text-ink"
-              >
-                {cartCount}
-              </span>
-            ) : null}
-            <span className="sr-only">
-              {cartCount === 1 ? ", 1 item" : `, ${cartCount} items`}
-            </span>
-          </Link>
-        </div>
+        /*
+         * The fallback is what a guest with an empty cart sees, which is most
+         * visitors, so for them nothing moves when the real actions arrive.
+         */
+        <Suspense fallback={<ActionLinks user={null} cartCount={0} placeholder />}>
+          <HeaderActions />
+        </Suspense>
       }
     />
+  );
+}
+
+async function HeaderSearch() {
+  const user = await getCurrentUser();
+  return <SearchBox key={user ? "signed-in" : "guest"} signedIn={Boolean(user)} />;
+}
+
+async function HeaderActions() {
+  const [user, cartId] = await Promise.all([getCurrentUser(), findCartId()]);
+  const cartCount = cartId ? await countCartItems(cartId) : 0;
+  return <ActionLinks user={user} cartCount={cartCount} />;
+}
+
+const item =
+  "inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 font-semibold transition-colors hover:bg-[color:var(--head-ghost)]";
+
+function ActionLinks({
+  user,
+  cartCount,
+  placeholder = false,
+}: {
+  user: Awaited<ReturnType<typeof getCurrentUser>>;
+  cartCount: number;
+  /**
+   * The Suspense fallback. It carries no sign-in dialog: while the page
+   * streams, the fallback and the real header are both in the document for a
+   * moment, and two dialogs would repeat the same form ids, which ties each
+   * label to the wrong input. A plain link to /login looks the same.
+   */
+  placeholder?: boolean;
+}) {
+  const firstName = user?.firstName?.trim().split(/\s+/)[0]?.slice(0, 20) || null;
+  const accountLabel = user ? (firstName ?? "Account") : "Sign in";
+
+  // The wishlist is account-only (D-031): a guest goes through sign-in and is
+  // brought straight back to it.
+  const wishlistHref = user ? "/account/wishlist" : "/login?next=/account/wishlist";
+
+  return (
+    <div className="flex shrink-0 items-center gap-0.5 text-meta sm:gap-1.5">
+      {isStaff(user) ? (
+        <Link href="/admin" className={`hidden sm:inline-flex ${item}`}>
+          Admin
+        </Link>
+      ) : null}
+
+      {user ? (
+        <AccountMenu label={accountLabel} isStaff={isStaff(user)} />
+      ) : placeholder ? (
+        <Link href="/login" className={item}>
+          <IconUser size={18} className="shrink-0" />
+          <span className="max-w-[9ch] truncate max-[419px]:sr-only sm:max-w-[12ch]">{accountLabel}</span>
+        </Link>
+      ) : (
+        /*
+         * Signing in happens over the page rather than on a page of its
+         * own (D-042). /login and /register are untouched and still serve
+         * every server-side redirect.
+         */
+        <AuthDialog
+          googleEnabled={isGoogleSignInEnabled()}
+          label={accountLabel}
+          triggerClassName={item}
+        />
+      )}
+
+      <Link href={wishlistHref} className={item}>
+        <IconHeart size={18} className="shrink-0" />
+        <span className="sr-only sm:not-sr-only">Wishlist</span>
+      </Link>
+
+      <Link href="/cart" className={item}>
+        <IconCart size={18} className="shrink-0" />
+        <span className="sr-only sm:not-sr-only">Cart</span>
+        {cartCount > 0 ? (
+          /* Keyed on the count so it stamps each time it changes —
+             the confirmation that an item really landed. */
+          <span
+            key={cartCount}
+            aria-hidden="true"
+            className="animate-stamp inline-flex min-w-5 items-center justify-center rounded-card bg-brass px-1 font-bold tabular-nums text-ink"
+          >
+            {cartCount}
+          </span>
+        ) : null}
+        <span className="sr-only">
+          {cartCount === 1 ? ", 1 item" : `, ${cartCount} items`}
+        </span>
+      </Link>
+    </div>
   );
 }

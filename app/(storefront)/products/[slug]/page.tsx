@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { cacheLife, cacheTag } from "next/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -60,8 +62,12 @@ import { serverInstant } from "@/lib/clock";
 import { cachedCategoryTree, cachedProductContent } from "@/lib/catalog/cached";
 
 /*
- * Cache Components (DECISIONS.md D-054): allowed to block while this route is
- * converted to cached data plus streamed per-request parts.
+ * Cache Components (DECISIONS.md D-054). The listing's own content — the
+ * description, specifications, what is in the box, warranty, compliance and
+ * lifestyle photography — is rendered once per product and cached
+ * (CachedDetailSections below). The buy box is not: price, places left and
+ * whether the window is open are read per request, as are the visitor's saved
+ * items, review eligibility and recently viewed.
  */
 export const instant = false;
 
@@ -246,9 +252,6 @@ export default async function ProductPage({
   const bullets = Array.isArray(product.bulletFeatures)
     ? (product.bulletFeatures as string[])
     : [];
-  const boxContents = Array.isArray(product.boxContents)
-    ? (product.boxContents as string[])
-    : [];
   /*
    * Two lines under the name on a phone: the first key feature, or the start
    * of the description as plain text — the same source the catalogue card's
@@ -273,108 +276,6 @@ export default async function ProductPage({
     discontinued: "Discontinued",
   };
   const statusLabel = STATUS_LABELS[product.status] ?? null;
-
-  const warranty = (product.warranty as ProductWarranty | null) ?? null;
-  const compliance = (product.compliance as ProductCompliance | null) ?? null;
-  const details = (product.details as ProductDetails | null) ?? null;
-
-  /*
-   * The specifications table, assembled from four sources in the order a
-   * shopper reads them: the facts every listing has, then what the category
-   * asks of its products, then the advanced block, then anything typed by
-   * hand. Every row here has a value — a blank is dropped rather than shown
-   * as a dash, which is what keeps the table honest on a thin listing.
-   */
-  const storedAttributes =
-    (product.attributeValues as Record<string, string | string[]> | null) ?? {};
-  const attributeDefinitions = await getAttributeDefinitionsByIds(
-    Object.keys(storedAttributes),
-  );
-
-  /*
-   * Two lists, not one. Anything measurable goes to the Measurements tab and
-   * the rest to Specification, so neither tab repeats the other (D-043).
-   */
-  const DETAIL_LABELS: [keyof ProductDetails, string][] = [
-    ["manufacturer", "Manufacturer"],
-    ["modelName", "Model"],
-    ["modelNumber", "Model number"],
-    ["manufacturerPartNumber", "Part number"],
-    ["material", "Material"],
-    ["color", "Colour"],
-    ["compatibility", "Compatibility"],
-    ["specialFeatures", "Special features"],
-    ["intendedUse", "Intended use"],
-    ["careInstructions", "Care instructions"],
-    ["releaseDate", "Released"],
-  ];
-
-  const MEASUREMENT_LABELS: [keyof ProductDetails, string][] = [
-    ["size", "Size"],
-    ["dimensions", "Product dimensions"],
-    ["itemWeight", "Item weight"],
-    ["packageDimensions", "Package dimensions"],
-    ["packageWeight", "Package weight"],
-    ["unitCount", "Unit count"],
-    ["unitType", "Unit type"],
-  ];
-
-  const specs: SpecRow[] = [
-    ...(product.brand ? [{ label: "Brand", value: product.brand }] : []),
-    ...attributeDefinitions
-      .map((definition) => {
-        const value = storedAttributes[definition.id];
-        return value === undefined
-          ? null
-          : {
-              label: definition.name,
-              value: formatAttributeValue(definition, value),
-            };
-      })
-      .filter((row): row is SpecRow => row !== null),
-    ...(details
-      ? DETAIL_LABELS.map(([key, label]) => {
-          const value = details[key];
-          return value ? { label, value: String(value) } : null;
-        }).filter((row): row is SpecRow => row !== null)
-      : []),
-    ...(Array.isArray(product.specTable)
-      ? (product.specTable as SpecRow[]).filter(
-          (row) => row.label?.trim() && row.value?.trim(),
-        )
-      : []),
-    ...(compliance?.countryOfOrigin
-      ? [{ label: "Country of origin", value: compliance.countryOfOrigin }]
-      : []),
-    ...(product.identifierValue && product.identifierType
-      ? [
-          {
-            label: product.identifierType.toUpperCase(),
-            value: product.identifierValue,
-          },
-        ]
-      : []),
-  ];
-
-  /*
-   * Measurements come only from what staff recorded — the measurement rows on
-   * the listing and the measurable fields of the advanced block. Nothing is
-   * derived or estimated, so the tab is absent on a listing that has none
-   * rather than showing a table of guesses.
-   */
-  const measurements: SpecRow[] = [
-    ...(Array.isArray(product.measurements)
-      ? (product.measurements as SpecRow[]).filter(
-          (row) => row.label?.trim() && row.value?.trim(),
-        )
-      : []),
-    ...(details
-      ? MEASUREMENT_LABELS.map(([key, label]) => {
-          const value = details[key];
-          return value ? { label, value: String(value) } : null;
-        }).filter((row): row is SpecRow => row !== null)
-      : []),
-  ];
 
   // Built from the values rendered below, so the two cannot drift apart.
   const cheapest = pickerVariants.reduce<(typeof pickerVariants)[number] | null>(
@@ -568,31 +469,11 @@ export default async function ProductPage({
        * promise (what is in the box, the warranty, safety) and stays its own
        * section, each still rendering nothing when it has nothing to say.
        */}
-      <div className="mt-8 flex min-w-0 flex-col gap-8 md:mt-10 md:gap-10">
-        <ProductInfoTabs
-          descriptionHtml={product.descriptionHtml}
-          keyFeatures={bullets}
-          specifications={specs}
-          measurements={measurements}
-        />
-
-        <BoxContents items={boxContents} />
-
-        <Warranty warranty={warranty} />
-
-        <Compliance compliance={compliance} />
-      </div>
-
-      <div className="mt-12">
-        <LifestyleBand
-          title={product.title}
-          images={product.lifestyleImages.map((image) => ({
-            id: image.id,
-            url: image.url,
-            altText: image.altText,
-          }))}
-        />
-      </div>
+      {preview ? (
+        <DetailSections product={product} />
+      ) : (
+        <CachedDetailSections slug={product.slug} />
+      )}
 
       <ReviewsSection
         productId={product.id}
@@ -641,5 +522,165 @@ export default async function ProductPage({
         arrivesTo={variants[0]?.estimatedArrivalTo ?? null}
       />
     </div>
+  );
+}
+
+type PublicProduct = NonNullable<Awaited<ReturnType<typeof getPublicProductBySlug>>>;
+
+/**
+ * The listing's content sections, shared by every shopper (D-054). Rendered
+ * once per product and kept until staff change the catalogue, which saves
+ * building the specification table and the description on every request.
+ */
+async function CachedDetailSections({ slug }: { slug: string }) {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(CACHE_TAGS.productPages, CACHE_TAGS.listing);
+
+  const content = await cachedProductContent(slug);
+  if (!content) return null;
+  cacheTag(CACHE_TAGS.product(content.product.id));
+  return <DetailSections product={content.product} />;
+}
+
+/** The sections themselves; a staff preview renders them uncached. */
+async function DetailSections({ product }: { product: PublicProduct }) {
+  const bullets = Array.isArray(product.bulletFeatures)
+    ? (product.bulletFeatures as string[])
+    : [];
+  const boxContents = Array.isArray(product.boxContents)
+    ? (product.boxContents as string[])
+    : [];
+
+  const warranty = (product.warranty as ProductWarranty | null) ?? null;
+  const compliance = (product.compliance as ProductCompliance | null) ?? null;
+  const details = (product.details as ProductDetails | null) ?? null;
+
+  /*
+   * The specifications table, assembled from four sources in the order a
+   * shopper reads them: the facts every listing has, then what the category
+   * asks of its products, then the advanced block, then anything typed by
+   * hand. Every row here has a value — a blank is dropped rather than shown
+   * as a dash, which is what keeps the table honest on a thin listing.
+   */
+  const storedAttributes =
+    (product.attributeValues as Record<string, string | string[]> | null) ?? {};
+  const attributeDefinitions = await getAttributeDefinitionsByIds(
+    Object.keys(storedAttributes),
+  );
+
+  /*
+   * Two lists, not one. Anything measurable goes to the Measurements tab and
+   * the rest to Specification, so neither tab repeats the other (D-043).
+   */
+  const DETAIL_LABELS: [keyof ProductDetails, string][] = [
+    ["manufacturer", "Manufacturer"],
+    ["modelName", "Model"],
+    ["modelNumber", "Model number"],
+    ["manufacturerPartNumber", "Part number"],
+    ["material", "Material"],
+    ["color", "Colour"],
+    ["compatibility", "Compatibility"],
+    ["specialFeatures", "Special features"],
+    ["intendedUse", "Intended use"],
+    ["careInstructions", "Care instructions"],
+    ["releaseDate", "Released"],
+  ];
+
+  const MEASUREMENT_LABELS: [keyof ProductDetails, string][] = [
+    ["size", "Size"],
+    ["dimensions", "Product dimensions"],
+    ["itemWeight", "Item weight"],
+    ["packageDimensions", "Package dimensions"],
+    ["packageWeight", "Package weight"],
+    ["unitCount", "Unit count"],
+    ["unitType", "Unit type"],
+  ];
+
+  const specs: SpecRow[] = [
+    ...(product.brand ? [{ label: "Brand", value: product.brand }] : []),
+    ...attributeDefinitions
+      .map((definition) => {
+        const value = storedAttributes[definition.id];
+        return value === undefined
+          ? null
+          : {
+              label: definition.name,
+              value: formatAttributeValue(definition, value),
+            };
+      })
+      .filter((row): row is SpecRow => row !== null),
+    ...(details
+      ? DETAIL_LABELS.map(([key, label]) => {
+          const value = details[key];
+          return value ? { label, value: String(value) } : null;
+        }).filter((row): row is SpecRow => row !== null)
+      : []),
+    ...(Array.isArray(product.specTable)
+      ? (product.specTable as SpecRow[]).filter(
+          (row) => row.label?.trim() && row.value?.trim(),
+        )
+      : []),
+    ...(compliance?.countryOfOrigin
+      ? [{ label: "Country of origin", value: compliance.countryOfOrigin }]
+      : []),
+    ...(product.identifierValue && product.identifierType
+      ? [
+          {
+            label: product.identifierType.toUpperCase(),
+            value: product.identifierValue,
+          },
+        ]
+      : []),
+  ];
+
+  /*
+   * Measurements come only from what staff recorded — the measurement rows on
+   * the listing and the measurable fields of the advanced block. Nothing is
+   * derived or estimated, so the tab is absent on a listing that has none
+   * rather than showing a table of guesses.
+   */
+  const measurements: SpecRow[] = [
+    ...(Array.isArray(product.measurements)
+      ? (product.measurements as SpecRow[]).filter(
+          (row) => row.label?.trim() && row.value?.trim(),
+        )
+      : []),
+    ...(details
+      ? MEASUREMENT_LABELS.map(([key, label]) => {
+          const value = details[key];
+          return value ? { label, value: String(value) } : null;
+        }).filter((row): row is SpecRow => row !== null)
+      : []),
+  ];
+
+  return (
+    <>
+        <div className="mt-8 flex min-w-0 flex-col gap-8 md:mt-10 md:gap-10">
+          <ProductInfoTabs
+            descriptionHtml={product.descriptionHtml}
+            keyFeatures={bullets}
+            specifications={specs}
+            measurements={measurements}
+          />
+
+          <BoxContents items={boxContents} />
+
+          <Warranty warranty={warranty} />
+
+          <Compliance compliance={compliance} />
+        </div>
+
+        <div className="mt-12">
+          <LifestyleBand
+            title={product.title}
+            images={product.lifestyleImages.map((image) => ({
+              id: image.id,
+              url: image.url,
+              altText: image.altText,
+            }))}
+          />
+        </div>
+    </>
   );
 }

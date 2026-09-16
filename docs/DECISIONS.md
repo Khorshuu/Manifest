@@ -1280,6 +1280,42 @@ simultaneous edits to five different slides kept one. Writes are now one
 serialized read-change-write under an advisory lock
 (`tests/homepage-concurrency.test.ts`).
 
+**Amended (10.1 completion).**
+
+- *Rendered output, not only data.* The category shelf, search results, the
+  homepage's catalogue half and the product page's content sections are
+  `use cache` components keyed by normalized public parameters (a slug, a
+  sorted filter key). Each takes only strings, never a request, session or
+  cookie. Measured on `manifest_scale`, one Node process, 20 concurrent
+  clients, 100 and 200 requests, same machine: root category 41 → 51–53
+  req/s, leaf category 50 → 56–64, search 50 → 57–61, homepage 64 → 67–72;
+  product page 55 → 51–53 (no gain: its cost is the live buy box and HTML
+  generation, not the cached sections); first byte unchanged at 15–50 ms p50.
+  Serial render time stayed near 45 ms, because most of it is turning the
+  payload into HTML, which a component cache does not skip. Kept because the
+  gain on listings is repeatable and the change is small.
+- *The layout no longer waits for the visitor.* Who is signed in and what is
+  in their cart stream in behind Suspense boundaries in the header, with the
+  guest header as the fallback. The root and storefront layouts no longer opt
+  out of instant navigation; pages still do (`instant = false`), because
+  each reads request data at its top level.
+- *Invalidation gaps closed.* Option and option-value changes, photograph
+  descriptions and photograph reordering changed what shoppers see without an
+  audit entry, so nothing expired. They now record one
+  (`tests/cache-invalidation.test.ts`).
+- *Unknown category.* It renders the not-found page with `noindex` and a 200
+  status, because the route streams behind its loading skeleton. Unchanged by
+  this work.
+- *Serverless.* Entries live in the default in-memory handler. On a
+  long-running Node process every request shares them; on a serverless host
+  each instance has its own, so hit rates there will be lower than measured
+  here. `use cache: remote` (a platform-provided shared handler) would fix
+  that at the cost of a network lookup. It is left for the hosting decision
+  (D-053, Phase 21) rather than guessed at now.
+- *The earlier 106 req/s root-category figure* (recorded when data caching
+  landed) did not reproduce: the same build measured 41 req/s at the start of
+  this work. The ledger carries the re-measured baseline.
+
 ## D-055 — Uploaded images are re-encoded on the server; files are deleted by a reference sweep
 
 **Context.** The crop editor frames and compresses photographs in the browser

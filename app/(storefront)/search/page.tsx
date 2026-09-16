@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cacheLife, cacheTag } from "next/cache";
 import { after } from "next/server";
 import { DiscoveryResults } from "@/components/discovery-results";
 import type { CategoryFacetView } from "@/components/filter-panel";
 import { NoResults } from "@/components/no-results";
 import { PageHeading } from "@/components/page-heading";
 import { getCurrentUser } from "@/lib/auth";
+import { CACHE_TAGS } from "@/lib/cache";
 import {
   collectSubtreeIds,
   findCategoryPathBySlug,
@@ -15,14 +17,17 @@ import {
   type CategoryNode,
 } from "@/lib/catalog";
 import { cachedCategoryTree, cachedDiscover, discoveryKey } from "@/lib/catalog/cached";
+import type { SearchParamsRecord } from "@/lib/catalog/filter-params";
 import { logSearch } from "@/lib/search/analytics";
 import { recordSearchHistory } from "@/lib/search/history";
 import { cleanQuery } from "@/lib/search/normalize";
 import { currentVisitorHash, isPrefetchRequest } from "@/lib/search/visitor";
 
 /*
- * Cache Components (DECISIONS.md D-054): allowed to block while this route is
- * converted to cached data plus streamed per-request parts.
+ * Cache Components (DECISIONS.md D-054). The results are the same for everyone
+ * who asks the same question, so they are rendered once per query and filter
+ * set and cached (SearchResults below). What is about the visitor — counting
+ * the search, their search history — happens per request, after the response.
  */
 export const instant = false;
 
@@ -45,24 +50,32 @@ function flatten(nodes: CategoryNode[]): CategoryNode[] {
   return nodes.flatMap((node) => [node, ...flatten(node.children)]);
 }
 
-export default async function SearchPage({
-  searchParams,
-}: PageProps<"/search">) {
-  const params = await searchParams;
+/** The search a set of parameters describes, from cached data only. */
+async function resolveSearch(listingKey: string) {
+  const params = Object.fromEntries(
+    JSON.parse(listingKey) as [string, string | string[]][],
+  ) as SearchParamsRecord;
   const tree = await cachedCategoryTree();
 
   const categorySlug = typeof params.category === "string" ? params.category : "";
   const categoryPath = categorySlug ? findCategoryPathBySlug(tree, categorySlug) : [];
   const categoryNode = categoryPath.at(-1);
 
-  // Cached per query and filter set, shared by every shopper (D-054). Logging
-  // the search and the visitor's history stay per request, below.
   const result = await cachedDiscover(
-    discoveryKey(params),
+    listingKey,
     categoryNode ? collectSubtreeIds(categoryNode) : undefined,
   );
-
   const filtered = hasActiveFilters(result.filters) || Boolean(categoryNode);
+
+  return { params, tree, categoryPath, categoryNode, result, filtered };
+}
+
+export default async function SearchPage({
+  searchParams,
+}: PageProps<"/search">) {
+  const listingKey = discoveryKey(await searchParams);
+  // A cache hit: the same entry the results below render from.
+  const { result, filtered } = await resolveSearch(listingKey);
 
   /*
    * Counting the search, after the page has gone. Only the first page of an
@@ -94,6 +107,22 @@ export default async function SearchPage({
       }
     }
   }
+
+  return <SearchResults listingKey={listingKey} />;
+}
+
+/**
+ * The rendered results, shared by everyone asking the same question (D-054).
+ * Caching the output rather than only the query saves rendering every card
+ * and filter on every request. Expired with the listing and the category tree.
+ */
+async function SearchResults({ listingKey }: { listingKey: string }) {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(CACHE_TAGS.listing, CACHE_TAGS.categories);
+
+  const { params, tree, categoryPath, categoryNode, result, filtered } =
+    await resolveSearch(listingKey);
 
   const counts = result.facets.categoryCounts;
   const parent = categoryPath.length > 1 ? categoryPath.at(-2) : undefined;

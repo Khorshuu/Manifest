@@ -3,11 +3,10 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 
 /*
- * Cache Components (DECISIONS.md D-054): allowed to block while this route is
- * converted to cached data plus streamed per-request parts.
+ * Cache Components (DECISIONS.md D-054): the layout does not block. The menu
+ * is cached; the visitor and their cart stream in behind Suspense boundaries
+ * in the header. Pages decide for themselves whether they may block.
  */
-export const instant = false;
-
 
 export default function StorefrontLayout({
   children,

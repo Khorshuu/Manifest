@@ -2937,3 +2937,22 @@ product shown whole (not cropped) and the label never covering it.
 Verified: typecheck and lint clean. Browser with touch at 360, 390 and 430:
 section about 313px tall, every category name fully visible (checked for
 clipping), no sideways scroll, no page errors; 1280 unchanged.
+
+## Production readiness: Cache Components finished (10.1)
+
+- `[x]` Rendered output of the category shelf, search results, the homepage's
+  catalogue half and the product page's content sections is cached and shared;
+  the visitor, their cart, campaigns, live prices and places left stay per
+  request. Full map in `ARCHITECTURE.md`; decision in D-054 (amended).
+- `[x]` Staff changes to product options, option values, photograph
+  descriptions and photograph order now expire the cached pages; before, the
+  storefront kept the old version for up to a cache lifetime.
+- `[x]` The header no longer holds every page while it looks up the visitor.
+
+Verified: unit suite 1,014 passed; production end-to-end 440 passed, 0 failed;
+new isolation test confirms a guest never receives a signed-in customer's name,
+email or cart count from a cached page. Listings serve 20–28% more requests per
+second on the scale dataset; the product page and homepage barely changed.
+
+Not verified: behaviour on a serverless host, where each instance keeps its own
+cache (see D-054). An unknown category still answers 200 with a not-found page.

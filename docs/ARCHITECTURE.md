@@ -109,8 +109,25 @@ SEO Pulse follows the same pattern with two interfaces in `lib/seo-pulse/provide
 
 ## Rendering strategy
 
-- Category and product pages are server-rendered with revalidation on catalog change, for SEO and largest-contentful-paint budget.
+- Cache Components is on (`cacheComponents: true`, DECISIONS.md D-054). Shared catalogue data and the rendered output built only from it are cached with `use cache`; everything about the visitor, and everything a shopper pays or reserves against, is read per request. Pages are server-rendered per request around those cached pieces.
 - Cart, checkout, account, and admin pages are dynamic per request — they show per-user state and must never be cached across users.
+
+### Caching map
+
+Cache entries live in the default in-memory handler of the Node.js process. Tags are in `lib/cache.ts` (`CACHE_TAGS`). Staff mutations record an audit entry, and `recordAudit` expires the tags for that entity type after the transaction commits (`invalidateForAudit`, `runAfterCommit` in `db/index.ts`). `tests/cache-invalidation.test.ts` covers each staff change a shopper can see.
+
+| Route | Cached (key → tags, lifetime) | Per request | Notes |
+|---|---|---|---|
+| Storefront layout | Menu: `cachedCategoryTree` (no args → categories, hours), `cachedCategoryCounts` (→ categories, listing, minutes) | Signed-in user, cart count, search-box history — in `<Suspense>` inside `SiteHeader` | The fallback is the guest header, so most visitors see no change when it resolves. |
+| `/` | `HomeCatalogue` rendered output (no args → listing, categories, minutes): shelves bento, new arrivals, assurances; `cachedHomeData` | Campaign slides (`getLiveCampaigns`), server clock for the closing rail | Campaigns stay live because staff check the homepage straight after saving (lost-update and race notes in D-054). |
+| `/categories/[slug]` | `CategoryShelf` rendered output (slug + normalized filter key → listing, categories, minutes); `cachedDiscover` | Slug check against the cached tree | Unknown slug renders not-found with `noindex`; status is 200 because the route streams behind `loading.tsx`. |
+| `/search` | `SearchResults` rendered output (normalized parameter key → listing, categories, minutes); `cachedDiscover` | Search logging and the visitor's search history, run with `after()` | The key space is open-ended (free-text queries); the in-memory LRU bounds memory. |
+| `/products/[slug]` | `cachedProductContent` (slug → productPages, listing, `product:<id>`, minutes): listing, reviews, rating, recommendation rows; `CachedDetailSections` rendered output (slug → same tags): description, specifications, box, warranty, compliance, lifestyle photos | Variants (price, places left, window state), server clock, the visitor, saved variants, review eligibility, recently viewed | A staff preview (`?preview=1`) reads and renders uncached, so drafts never enter a shared entry. |
+| `/sitemap.xml` | Whole output (no args → listing, categories, hours) | — | |
+| `/api/search/popular` | Whole output (no args → search inspiration, minutes) | — | |
+| `/cart`, `/checkout`, `/account/*`, `/orders/lookup`, `/login`, `/register`, `/admin/*` | Nothing | Everything | |
+
+What is deliberately stale for up to a cache lifetime (minutes): places-left figures and closing badges on listing cards and the homepage rail, and sales and rating figures in sorts. Shopper orders do not expire the catalogue, or every checkout would empty it. The product page's buy box, the cart and checkout always read live capacity and price, and checkout re-checks both inside its transaction.
 - Client components are limited to interaction: variant selectors, quantity steppers, the admin product wizard's step navigation. They call route handlers; they never compute a price or a total themselves.
 
 ## Data access

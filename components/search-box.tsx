@@ -852,11 +852,13 @@ export function SearchBoxFallback() {
     </a>
     <div className="relative hidden md:ml-auto md:block md:w-64 lg:w-80 xl:w-[26rem]">
       <form action="/search" role="search" aria-label="Search the catalogue" className="relative">
-        <label htmlFor="site-search" className="sr-only">
+        {/* Its own id: while the page streams, this and the real search box
+            are both in the document for a moment. */}
+        <label htmlFor="site-search-fallback" className="sr-only">
           Search products
         </label>
         <input
-          id="site-search"
+          id="site-search-fallback"
           name="q"
           type="search"
           placeholder="Search products, brands or SKUs"

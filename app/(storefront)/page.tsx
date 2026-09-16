@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cacheLife, cacheTag } from "next/cache";
 import Link from "next/link";
 import { CampaignSlider } from "@/components/campaign-slider";
 import { CategoryBento } from "@/components/category-bento";
@@ -7,6 +8,7 @@ import { IconCalendar, IconSeal, IconTag } from "@/components/icons";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { ProductCard } from "@/components/product-card";
 import { Ticker } from "@/components/ticker";
+import { CACHE_TAGS } from "@/lib/cache";
 import { collectSubtreeIds } from "@/lib/catalog";
 import {
   cachedCategoryCounts,
@@ -18,8 +20,10 @@ import { getLiveCampaigns, type LiveCampaign } from "@/lib/homepage";
 import { formatBdt } from "@/lib/money";
 
 /*
- * Cache Components (DECISIONS.md D-054): allowed to block while this route is
- * converted to cached data plus streamed per-request parts.
+ * Cache Components (DECISIONS.md D-054). The shelves, new arrivals and the
+ * assurances are rendered once and cached (HomeCatalogue below). The campaign
+ * slides are read per request, because staff look at the homepage straight
+ * after switching one on, and so is the server clock the countdowns run from.
  */
 export const instant = false;
 
@@ -31,18 +35,12 @@ export const metadata: Metadata = {
 
 
 export default async function HomePage() {
-  // Catalogue data is cached and shared (D-054); the campaigns and the server
-  // clock the countdowns run from are read per request.
-  const [home, campaigns, tree, counts, serverNow] = await Promise.all([
+  const [home, campaigns, serverNow] = await Promise.all([
     cachedHomeData(),
     getLiveCampaigns(),
-    cachedCategoryTree(),
-    cachedCategoryCounts(),
     serverInstant(),
   ]);
   const { closingSoon, newest } = home;
-  const categoryCounts = new Map(Object.entries(counts));
-  const categoryImages = new Map(Object.entries(home.categoryImages));
 
   /*
    * With no campaign switched on — a new shop, or every slide turned off —
@@ -80,15 +78,6 @@ export default async function HomePage() {
           ]
         : [];
 
-  /*
-   * The row of new arrivals leaves out what the closing rail already carries,
-   * so the page does not say the same thing twice.
-   */
-  const railSlugs = new Set(closingSoon.map((product) => product.slug));
-  const arrivals = newest
-    .filter((product) => !railSlugs.has(product.slug))
-    .slice(0, 10);
-
   const priceLabel = (value: number | null) =>
     value === null ? "Price to be confirmed" : formatBdt(value);
 
@@ -104,32 +93,6 @@ export default async function HomePage() {
     remaining: product.remainingCapacity,
     total: product.totalCapacity,
   }));
-
-  /*
-   * A top-level shelf holds nothing directly — the products are filed in its
-   * children — so both the count and the photograph are rolled up from the
-   * whole subtree rather than read off the parent row.
-   */
-  const bentoCategories = tree.slice(0, 5).map((category) => {
-    const subtree = collectSubtreeIds(category);
-    const image = subtree.map((id) => categoryImages.get(id)).find(Boolean);
-
-    return {
-      id: category.id,
-      name: category.name,
-      slug: category.slug,
-      children: category.children.map((child) => ({
-        id: child.id,
-        name: child.name,
-      })),
-      productCount: subtree.reduce(
-        (total, id) => total + (categoryCounts.get(id) ?? 0),
-        0,
-      ),
-      imageUrl: image?.url ?? null,
-      imageAlt: image?.altText ?? "",
-    };
-  });
 
   /*
    * The strip under the campaigns. Every line is a fact about this shop: the
@@ -163,6 +126,66 @@ export default async function HomePage() {
 
       <ClosingRail items={railItems} serverNow={serverNow} />
 
+      <HomeCatalogue />
+    </div>
+  );
+}
+
+/**
+ * The catalogue half of the homepage, the same for every visitor: rendered
+ * once and expired with the listing and the category tree (D-054).
+ */
+async function HomeCatalogue() {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(CACHE_TAGS.listing, CACHE_TAGS.categories);
+
+  const [home, tree, counts] = await Promise.all([
+    cachedHomeData(),
+    cachedCategoryTree(),
+    cachedCategoryCounts(),
+  ]);
+  const { closingSoon, newest } = home;
+  const categoryCounts = new Map(Object.entries(counts));
+  const categoryImages = new Map(Object.entries(home.categoryImages));
+
+  /*
+   * The row of new arrivals leaves out what the closing rail already carries,
+   * so the page does not say the same thing twice.
+   */
+  const railSlugs = new Set(closingSoon.map((product) => product.slug));
+  const arrivals = newest
+    .filter((product) => !railSlugs.has(product.slug))
+    .slice(0, 10);
+
+  /*
+   * A top-level shelf holds nothing directly — the products are filed in its
+   * children — so both the count and the photograph are rolled up from the
+   * whole subtree rather than read off the parent row.
+   */
+  const bentoCategories = tree.slice(0, 5).map((category) => {
+    const subtree = collectSubtreeIds(category);
+    const image = subtree.map((id) => categoryImages.get(id)).find(Boolean);
+
+    return {
+      id: category.id,
+      name: category.name,
+      slug: category.slug,
+      children: category.children.map((child) => ({
+        id: child.id,
+        name: child.name,
+      })),
+      productCount: subtree.reduce(
+        (total, id) => total + (categoryCounts.get(id) ?? 0),
+        0,
+      ),
+      imageUrl: image?.url ?? null,
+      imageAlt: image?.altText ?? "",
+    };
+  });
+
+  return (
+    <>
       <div className="surface-paper border-b border-ink/10 py-12">
         <CategoryBento categories={bentoCategories} />
       </div>
@@ -203,7 +226,7 @@ export default async function HomePage() {
       </section>
 
       <Assurances />
-    </div>
+    </>
   );
 }
 

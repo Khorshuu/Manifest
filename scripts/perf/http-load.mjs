@@ -7,6 +7,7 @@
  *
  * For each path: one warm-up request, 10 serial requests, then `--requests`
  * requests shared across `--concurrency` clients. Reports p50/p95/p99,
+ * first byte (headers, which arrive with a streamed page's shell),
  * requests per second, error rate (non-2xx/3xx or network failure), HTML size
  * raw and gzipped, and first-load JavaScript (every <script src> on the page,
  * gzipped). With --db it samples pg_stat_activity during the concurrent phase
@@ -40,10 +41,12 @@ async function hit(path) {
   const started = performance.now();
   try {
     const response = await fetch(base + path, { redirect: "manual" });
+    // Headers arrive with the first flushed bytes: for a streamed page, the shell.
+    const firstByteMs = performance.now() - started;
     const body = await response.text();
-    return { ok: response.status < 400, status: response.status, ms: performance.now() - started, body };
+    return { ok: response.status < 400, status: response.status, ms: performance.now() - started, firstByteMs, body };
   } catch {
-    return { ok: false, status: 0, ms: performance.now() - started, body: "" };
+    return { ok: false, status: 0, ms: performance.now() - started, firstByteMs: 0, body: "" };
   }
 }
 
@@ -85,6 +88,7 @@ for (const path of paths) {
   }
 
   const concurrent = [];
+  const firstBytes = [];
   let errors = 0;
   let peakConnections = 0;
   let sampling = Boolean(sampler);
@@ -104,6 +108,7 @@ for (const path of paths) {
         remaining -= 1;
         const result = await hit(path);
         concurrent.push(result.ms);
+        firstBytes.push(result.firstByteMs);
         if (!result.ok) errors += 1;
       }
     }),
@@ -120,6 +125,8 @@ for (const path of paths) {
     p50: Math.round(percentile(concurrent, 50)),
     p95: Math.round(percentile(concurrent, 95)),
     p99: Math.round(percentile(concurrent, 99)),
+    firstByteP50: Math.round(percentile(firstBytes, 50)),
+    firstByteP95: Math.round(percentile(firstBytes, 95)),
     rps: Number((concurrent.length / seconds).toFixed(1)),
     errorRate: Number((errors / concurrent.length).toFixed(3)),
     htmlKb: Math.round(Buffer.byteLength(sample.body) / 1024),
@@ -131,7 +138,7 @@ for (const path of paths) {
 
   if (!asJson) {
     console.log(
-      `${path.padEnd(36)} ${row.status} serial p50 ${row.serialP50}ms | c=${concurrency} p50 ${row.p50} p95 ${row.p95} p99 ${row.p99}ms ${row.rps} req/s err ${(row.errorRate * 100).toFixed(1)}% | html ${row.htmlKb}KB (${row.htmlGzipKb} gz)` +
+      `${path.padEnd(36)} ${row.status} serial p50 ${row.serialP50}ms | c=${concurrency} p50 ${row.p50} p95 ${row.p95} p99 ${row.p99}ms first byte p50 ${row.firstByteP50} p95 ${row.firstByteP95}ms ${row.rps} req/s err ${(row.errorRate * 100).toFixed(1)}% | html ${row.htmlKb}KB (${row.htmlGzipKb} gz)` +
         (row.js ? ` | js ${row.js.gzipKb}KB gz in ${row.js.files}` : "") +
         (row.peakConnections === null ? "" : ` | db conns ≤${row.peakConnections}`),
     );

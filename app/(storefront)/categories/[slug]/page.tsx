@@ -4,18 +4,24 @@ import { notFound } from "next/navigation";
 import { DiscoveryResults } from "@/components/discovery-results";
 import type { CategoryFacetView } from "@/components/filter-panel";
 import { PageHeading } from "@/components/page-heading";
+import { cacheLife, cacheTag } from "next/cache";
+import { CACHE_TAGS } from "@/lib/cache";
 import {
   collectSubtreeIds,
-  findCategoryPath,
-  getCategoryBySlug,
+  findCategoryPathBySlug,
   listingHref,
   subtreeCount,
 } from "@/lib/catalog";
 import { cachedCategoryTree, cachedDiscover, discoveryKey } from "@/lib/catalog/cached";
+import type { SearchParamsRecord } from "@/lib/catalog/filter-params";
 
 /*
- * Cache Components (DECISIONS.md D-054): allowed to block while this route is
- * converted to cached data plus streamed per-request parts.
+ * Cache Components (DECISIONS.md D-054). Nothing on a shelf is about the
+ * visitor, so the whole rendered listing is cached per shelf and filter set
+ * (CategoryShelf below). The slug is checked against the cached category
+ * tree first, so an unknown shelf renders the not-found page. Because the
+ * route streams behind its loading skeleton, that page arrives with a 200
+ * status and a noindex robots tag rather than a 404 status.
  */
 export const instant = false;
 
@@ -25,7 +31,7 @@ export async function generateMetadata({
   searchParams,
 }: PageProps<"/categories/[slug]">): Promise<Metadata> {
   const { slug } = await params;
-  const category = await getCategoryBySlug(slug);
+  const category = findCategoryPathBySlug(await cachedCategoryTree(), slug).at(-1);
   if (!category) return { title: "Category not found" };
 
   // A category is a landing page; the same category filtered, sorted or on
@@ -49,22 +55,38 @@ export default async function CategoryPage({
   const { slug } = await params;
   const query = await searchParams;
 
-  const category = await getCategoryBySlug(slug);
-  if (!category) notFound();
-
-  const tree = await cachedCategoryTree();
-  const path = findCategoryPath(tree, category.id);
-  const node = path.at(-1);
-  // A category page includes everything beneath it, not only direct children.
-  const categoryIds = node ? collectSubtreeIds(node) : [category.id];
+  if (findCategoryPathBySlug(await cachedCategoryTree(), slug).length === 0) notFound();
 
   // A category page is a listing with its shelf fixed. It takes no search
   // words — the search box goes to /search — so a stray `q` is ignored.
   const { q: _ignored, ...listingParams } = query;
   void _ignored;
 
-  // Cached per shelf and filter set, shared by every shopper (D-054).
-  const result = await cachedDiscover(discoveryKey(listingParams), categoryIds);
+  return <CategoryShelf slug={slug} listingKey={discoveryKey(listingParams)} />;
+}
+
+/**
+ * The rendered shelf, shared by every shopper who asks for the same shelf and
+ * filters (D-054). Caching the output rather than only the query saves the
+ * render of every card on every request. Expired with the listing and the
+ * category tree when staff change either.
+ */
+async function CategoryShelf({ slug, listingKey }: { slug: string; listingKey: string }) {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(CACHE_TAGS.listing, CACHE_TAGS.categories);
+
+  const tree = await cachedCategoryTree();
+  const path = findCategoryPathBySlug(tree, slug);
+  const category = path.at(-1);
+  // Checked by the page; a shelf deleted between the two reads renders empty.
+  if (!category) return null;
+  const node = category;
+  // A category page includes everything beneath it, not only direct children.
+  const categoryIds = collectSubtreeIds(node);
+  const listingParams = Object.fromEntries(JSON.parse(listingKey) as [string, string | string[]][]) as SearchParamsRecord;
+
+  const result = await cachedDiscover(listingKey, categoryIds);
 
   const counts = result.facets.categoryCounts;
   const parent = path.length > 1 ? path.at(-2) : undefined;
