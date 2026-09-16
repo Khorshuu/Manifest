@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { del, put } from "@vercel/blob";
+import { normalizeImage } from "@/lib/images/normalize";
 import {
   extensionFor,
   validateUpload,
@@ -36,14 +37,18 @@ export class BlobMediaProvider implements MediaProvider {
   }
 
   async upload(input: UploadInput): Promise<StoredMedia> {
-    const contentType = validateUpload(input);
+    // Size and format first, from the bytes; then decoded and written afresh,
+    // so what is stored is always a clean WebP (lib/images/normalize.ts).
+    validateUpload(input);
+    const image = await normalizeImage(input.data);
+    const contentType = image.contentType;
     const extension = extensionFor(contentType)!;
 
     // Generated, never taken from the browser: a supplied name can carry path
     // separators, traversal, or a second extension.
     const key = `${this.prefix}/${randomUUID()}.${extension}`;
 
-    const stored = await put(key, input.data, {
+    const stored = await put(key, image.data, {
       access: "public",
       contentType,
       // The key is already unique, and a suffix would make it unpredictable
@@ -56,7 +61,10 @@ export class BlobMediaProvider implements MediaProvider {
       url: stored.url,
       key: stored.pathname,
       contentType,
-      bytes: input.data.length,
+      bytes: image.data.length,
+      width: image.width,
+      height: image.height,
+      sha256: image.sha256,
     };
   }
 

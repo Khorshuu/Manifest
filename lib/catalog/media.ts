@@ -92,7 +92,8 @@ export async function addProductImage(
  *
  * The previous file is left in storage on purpose. Orders, carts and variants
  * record an image's address when they are made, and deleting it here would
- * blank the thumbnail on an order placed last month.
+ * blank the thumbnail on an order placed last month. The media sweep deletes
+ * it once nothing points at it (D-055).
  */
 export async function replaceProductImage(
   actor: SessionUser | null,
@@ -245,10 +246,8 @@ export async function removeProductImage(
 
   await db.delete(productImages).where(eq(productImages.id, imageId));
 
-  // The row is what the site reads, so it goes first; a file left behind is
-  // untidy, a row pointing at a deleted file is a broken page.
-  const key = image.url.split("/").pop();
-  if (key) await getMediaProvider().delete(key).catch(() => undefined);
+  // The file stays. Orders placed with this photograph recorded its address,
+  // so it is deleted by the media sweep once nothing points at it (D-055).
 
   await recordAudit({
     actorUserId: staff.id,

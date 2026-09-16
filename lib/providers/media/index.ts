@@ -1,3 +1,4 @@
+import { withMediaRegistry } from "@/lib/media/registry";
 import { BlobMediaProvider } from "./blob";
 import { LocalMediaProvider } from "./local";
 import type { MediaProvider } from "./types";
@@ -15,9 +16,12 @@ let instance: MediaProvider | undefined;
  * because the local provider silently cannot work on a serverless host, and an
  * upload failing at the moment a photograph is added is a poor way to find
  * that out.
+ *
+ * Every upload through it is recorded, so the sweep can later delete files
+ * nothing points at (lib/media/registry.ts, D-055).
  */
 export function getMediaProvider(): MediaProvider {
-  instance ??= createProvider();
+  instance ??= withMediaRegistry(createProvider());
   return instance;
 }
 

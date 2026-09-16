@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { normalizeImage } from "@/lib/images/normalize";
 import {
   extensionFor,
   validateUpload,
@@ -41,7 +42,11 @@ export class LocalMediaProvider implements MediaProvider {
   }
 
   async upload(input: UploadInput): Promise<StoredMedia> {
-    const contentType = validateUpload(input);
+    // Size and format first, from the bytes; then decoded and written afresh,
+    // so what is stored is always a clean WebP (lib/images/normalize.ts).
+    validateUpload(input);
+    const image = await normalizeImage(input.data);
+    const contentType = image.contentType;
     const extension = extensionFor(contentType)!;
 
     // The filename is generated, never taken from the browser: a supplied name
@@ -50,13 +55,16 @@ export class LocalMediaProvider implements MediaProvider {
 
     await mkdir(this.directory, { recursive: true });
     // turbopackIgnore: the directory is configuration, not a traced import.
-    await writeFile(join(/*turbopackIgnore: true*/ this.directory, key), input.data);
+    await writeFile(join(/*turbopackIgnore: true*/ this.directory, key), image.data);
 
     return {
       url: `${this.publicPath}/${key}`,
       key,
       contentType,
-      bytes: input.data.length,
+      bytes: image.data.length,
+      width: image.width,
+      height: image.height,
+      sha256: image.sha256,
     };
   }
 

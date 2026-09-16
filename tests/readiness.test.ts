@@ -7,6 +7,7 @@
  * priceless, pictureless listing in front of a shopper.
  */
 import { eq } from "drizzle-orm";
+import sharp from "sharp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { productVariants, products, users } from "@/db/schema";
 import { AuthorizationError } from "@/lib/auth/authorize";
@@ -43,10 +44,12 @@ const customer: SessionUser = {
   role: "customer",
 };
 
-const PNG = Buffer.concat([
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  Buffer.alloc(64, 1),
-]);
+/** A decodable image: stored uploads are re-encoded (lib/images/normalize.ts). */
+const PNG = await sharp({
+  create: { width: 8, height: 10, channels: 3, background: { r: 0, g: 0, b: 0 } },
+})
+  .png()
+  .toBuffer();
 
 let categoryId = "";
 

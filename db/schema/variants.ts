@@ -211,7 +211,10 @@ export const variantImages = pgTable(
     altText: text("alt_text").notNull(),
     sortOrder: integer("sort_order").notNull().default(0),
   },
-  (table) => [index("variant_images_variant_id_idx").on(table.variantId)],
+  (table) => [
+    index("variant_images_variant_id_idx").on(table.variantId),
+    index("variant_images_url_idx").on(table.url),
+  ],
 );
 
 export const waitlistEntries = pgTable(

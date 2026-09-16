@@ -118,6 +118,9 @@ export const orderItems = pgTable(
   (table) => [
     check("order_items_quantity_check", sql`${table.quantity} > 0`),
     index("order_items_order_id_idx").on(table.orderId),
+    index("order_items_image_url_snapshot_idx")
+      .on(table.imageUrlSnapshot)
+      .where(sql`${table.imageUrlSnapshot} is not null`),
   ],
 );
 

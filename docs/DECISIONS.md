@@ -1279,3 +1279,43 @@ row, and every edit read it, changed a slot and wrote every slot back. Five
 simultaneous edits to five different slides kept one. Writes are now one
 serialized read-change-write under an advisory lock
 (`tests/homepage-concurrency.test.ts`).
+
+## D-055 — Uploaded images are re-encoded on the server; files are deleted by a reference sweep
+
+**Context.** The crop editor frames and compresses photographs in the browser
+(D-049), but the server stored whatever bytes arrived once the signature
+matched. A request that skipped the editor could store a 40-megapixel original,
+a photograph carrying its GPS position in EXIF, a CMYK file that renders wrongly,
+or an image with arbitrary bytes appended. Separately, removing a product
+photograph deleted its file at once, although order lines record the address of
+the photograph they were bought with — so the thumbnail on a past order went
+blank.
+
+**Decision.**
+
+- Every upload through the media provider is decoded with sharp and written
+  afresh (`lib/images/normalize.ts`). Decoding is refused above 40 megapixels,
+  checked from the header before the bitmap is allocated. EXIF orientation is
+  applied to the pixels; colour is converted to sRGB; no metadata is copied;
+  the result is a single WebP (quality 85) no longer than 2,400px on its long
+  edge, never enlarged. A file that cannot be decoded cleanly is refused.
+- Responsive derivatives are not generated or stored. Every storefront
+  photograph already renders through `next/image`, which produces the widths a
+  device asks for from the stored master and caches them. Storing our own
+  derivative set would duplicate that and require a custom loader.
+- Every stored file is recorded in `media_objects` (key, provider, URL, bytes,
+  dimensions, SHA-256). A recurring job (`media.sweep_unreferenced`, hourly)
+  deletes a file once no product image, variant image, order line or site
+  setting refers to it and it is more than 24 hours old. Each file is claimed
+  by deleting its row with the reference check repeated in the same statement,
+  so concurrent sweeps never double-delete and a newly referenced file is left
+  alone; if storage refuses the delete, the row is restored for the next sweep.
+- Removing or replacing a product photograph no longer deletes the file. The
+  homepage hero and campaign images still delete a replaced file immediately:
+  nothing else can refer to them.
+
+**Consequences.** Uploads cost a few hundred milliseconds of CPU on the server.
+Stored images are always `.webp`. Files uploaded before migration 0027 are not
+in the registry and are never swept; they are few and all referenced by
+existing rows. The sweep runs only as often as the job trigger does, which is
+still subject to the hosting-plan decision in D-053.

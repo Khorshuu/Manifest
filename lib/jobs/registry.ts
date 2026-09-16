@@ -1,9 +1,11 @@
 import { deleteExpiredSessions } from "@/lib/auth/session";
 import { releaseExpiredSkuReservations } from "@/lib/catalog/sku";
 import { deliverQueuedNotifications } from "@/lib/notifications";
+import { sweepUnreferencedMedia } from "@/lib/media/registry";
 import { expireUnpaidOrders } from "@/lib/orders/expiry";
 import { reconcilePayments } from "@/lib/payments/reconcile";
 import { pruneRateLimits } from "@/lib/rate-limit";
+import { getMediaProvider } from "@/lib/providers/media";
 import { pruneSearchLogs } from "@/lib/search/analytics";
 import { processSearchQueue } from "@/lib/search/maintenance";
 import { pruneFinishedJobs, type JobHandlers, type RecurringJob } from "./runner";
@@ -14,7 +16,8 @@ import { pruneFinishedJobs, type JobHandlers, type RecurringJob } from "./runner
  * Each handler is idempotent on its own terms, which is what lets the runner
  * retry freely: expiry re-checks each order under a row lock, delivery claims
  * each message before sending, reconciliation goes through the guarded
- * capture path, and the pruning jobs delete by age.
+ * capture path, the pruning jobs delete by age, and the media sweep claims
+ * each file by deleting its row under the same reference check.
  */
 export const JOB_HANDLERS: JobHandlers = {
   "orders.expire_unpaid": async () => {
@@ -32,6 +35,7 @@ export const JOB_HANDLERS: JobHandlers = {
     const finishedJobs = await pruneFinishedJobs();
     return { rateLimits, searchLogs, finishedJobs };
   },
+  "media.sweep_unreferenced": () => sweepUnreferencedMedia(getMediaProvider()),
 };
 
 export const RECURRING_JOBS: RecurringJob[] = [
@@ -41,4 +45,5 @@ export const RECURRING_JOBS: RecurringJob[] = [
   { kind: "search.process_queue", everyMinutes: 10 },
   { kind: "catalog.release_sku_holds", everyMinutes: 15 },
   { kind: "maintenance.prune", everyMinutes: 60 },
+  { kind: "media.sweep_unreferenced", everyMinutes: 60 },
 ];

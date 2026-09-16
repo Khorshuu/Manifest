@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import sharp from "sharp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { productImages, users } from "@/db/schema";
 import { AuthorizationError } from "@/lib/auth/authorize";
@@ -47,16 +48,14 @@ const customer: SessionUser = {
   role: "customer",
 };
 
-/** A minimal but genuine PNG: the signature plus a byte of payload. */
-const PNG = Buffer.concat([
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  Buffer.alloc(64, 1),
-]);
-
-const JPEG = Buffer.concat([
-  Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
-  Buffer.alloc(64, 1),
-]);
+/**
+ * Genuine, decodable images: every stored file is decoded and re-encoded
+ * (lib/images/normalize.ts), so a signature followed by padding is refused.
+ */
+const picture = () =>
+  sharp({ create: { width: 40, height: 50, channels: 3, background: { r: 200, g: 120, b: 40 } } });
+const PNG = await picture().png().toBuffer();
+const JPEG = await picture().jpeg().toBuffer();
 
 beforeAll(async () => {
   harness = await createTestDatabase();
@@ -193,7 +192,10 @@ describe("storing a file", () => {
       contentType: "image/png",
     });
 
-    expect(stored.key).toMatch(/^[0-9a-f-]{36}\.png$/);
+    // Stored as the re-encoded WebP, whatever arrived.
+    expect(stored.key).toMatch(/^[0-9a-f-]{36}\.webp$/);
+    expect(stored.contentType).toBe("image/webp");
+    expect(stored).toMatchObject({ width: 40, height: 50 });
     expect(stored.key).not.toContain("passwd");
     expect(stored.url).toBe(`/uploads/${stored.key}`);
 
@@ -308,7 +310,8 @@ describe("attaching media to a product", () => {
     expect(images[0].altText).toBe("Second");
   });
 
-  it("removes the row and the file together", async () => {
+  /** Past orders recorded the address; the media sweep deletes it later (D-055). */
+  it("removes the row and leaves the file for the sweep", async () => {
     const product = await seedProduct();
 
     const created = await addProductImage(staff, product.id, {
@@ -329,7 +332,7 @@ describe("attaching media to a product", () => {
       .where(eq(productImages.id, created.id));
 
     expect(rows).toHaveLength(0);
-    expect(await readdir(uploadDir)).not.toContain(key);
+    expect(await readdir(uploadDir)).toContain(key);
   });
 
   it("refuses a customer removing an image", async () => {
@@ -406,7 +409,7 @@ describe("replacing a photograph", () => {
     expect(replaced.sortOrder).toBe(1);
     expect(replaced.altText).toBe("Second");
     expect(replaced.url).not.toBe(second.url);
-    expect(replaced.url).toMatch(/\.jpg$/);
+    expect(replaced.url).toMatch(/\.webp$/);
 
     const images = await listProductImages(product.id);
     expect(images.map((image) => image.id)).toEqual([first.id, second.id]);

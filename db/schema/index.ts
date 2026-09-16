@@ -12,3 +12,4 @@ export * from "./rate-limits";
 export * from "./search";
 export * from "./sku";
 export * from "./seo-pulse";
+export * from "./media";

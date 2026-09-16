@@ -167,6 +167,7 @@ export const productImages = pgTable(
   },
   (table) => [
     index("product_images_product_id_idx").on(table.productId),
+    index("product_images_url_idx").on(table.url),
     check(
       "product_images_kind_check",
       sql`${table.kind} in ('gallery', 'lifestyle')`,

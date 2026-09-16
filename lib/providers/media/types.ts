@@ -13,6 +13,10 @@ export type StoredMedia = {
   key: string;
   contentType: string;
   bytes: number;
+  /** Set by the real providers, which store a re-encoded image (D-055). */
+  width?: number;
+  height?: number;
+  sha256?: string;
 };
 
 export type UploadInput = {
