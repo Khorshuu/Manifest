@@ -14,6 +14,8 @@ export const instant = false;
 
 export const metadata: Metadata = {
   title: "Sign in",
+  // Not a landing page, like registration.
+  robots: { index: false },
 };
 
 /**

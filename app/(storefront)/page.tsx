@@ -31,6 +31,8 @@ export const metadata: Metadata = {
   title: "Preorder American goods, delivered in Bangladesh",
   description:
     "Preorder niche American products at a fixed landed price — shipping and customs duty included — with a stated arrival window.",
+  // Campaign and tracking parameters are the same page.
+  alternates: { canonical: "/" },
 };
 
 

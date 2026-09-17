@@ -3023,3 +3023,10 @@ Not verified: real iPhones and Android devices.
 - `[x]` New tests for the sign-in pop-up (create account, sign out, wrong password, sign in) and for Google sign-in refusing forged returns.
 
 Verified: unit and full end-to-end suites pass.
+
+## Production readiness: search engines (19.1)
+
+- `[x]` Every public page type checked for title, description, one main heading, canonical address, social title, language and mobile viewport.
+- `[x]` The home page now tells search engines its canonical address, and the sign-in page is kept out of search results.
+
+Verified: SEO end-to-end tests pass.
