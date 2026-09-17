@@ -77,6 +77,18 @@ async function seedProduct(title = "Studio headphones") {
 }
 
 describe("partial product saves", () => {
+  /** Staff-typed description HTML is rendered raw to shoppers (D-057). */
+  it("stores only the description formatting the editor offers", async () => {
+    const { product } = await seedProduct();
+
+    await updateProduct(staff, product.id, {
+      descriptionHtml: '<p onclick="steal()">Good</p><script>alert(1)</script><a href="javascript:x()">bad</a>',
+    });
+
+    const saved = await getProductForAdmin(staff, product.id);
+    expect(saved?.descriptionHtml).toBe('<p>Good</p><a rel="nofollow noopener noreferrer">bad</a>');
+  });
+
   it("leaves fields the caller did not send alone", async () => {
     const { product } = await seedProduct();
 

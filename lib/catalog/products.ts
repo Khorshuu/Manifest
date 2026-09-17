@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
+import { sanitizeRichText } from "@/lib/html/rich-text";
 import {
   categories,
   productImages,
@@ -573,6 +574,13 @@ function columnsFrom(
   const copy = <K extends keyof ProductPatchPayload>(key: K) => {
     if (input[key] !== undefined) columns[key as string] = input[key];
   };
+  // Staff write descriptions as HTML; only the formatting the editor offers is
+  // kept, so a description cannot carry a script to shoppers (D-057).
+  const sanitiseDescription = () => {
+    if (typeof input.descriptionHtml === "string") {
+      columns.descriptionHtml = sanitizeRichText(input.descriptionHtml) || null;
+    }
+  };
 
   (
     [
@@ -603,6 +611,7 @@ function columnsFrom(
       "unpublishAt",
     ] as const
   ).forEach(copy);
+  sanitiseDescription();
 
   return columns;
 }

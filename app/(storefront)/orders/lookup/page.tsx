@@ -10,6 +10,8 @@ import { Panel } from "@/components/panel";
 import { getBalanceState, getGuestOrder } from "@/lib/orders";
 import { formatBdt } from "@/lib/money";
 import { formatDate } from "@/lib/format";
+import { getEnv } from "@/lib/env";
+import { allowAttempt, clientAddress } from "@/lib/http/throttle";
 
 /*
  * Cache Components (DECISIONS.md D-054): allowed to block while this route is
@@ -30,9 +32,15 @@ export default async function OrderLookupPage({
   const orderNumber = typeof params.order === "string" ? params.order : "";
   const email = typeof params.email === "string" ? params.email : "";
 
-  // Both are required: an order number alone must not reveal an order.
+  // Both are required: an order number alone must not reveal an order. Order
+  // numbers run in sequence, so lookups per address are capped to stop anyone
+  // pairing guessed numbers with a known email.
+  const allowed =
+    orderNumber && email
+      ? await allowAttempt(`order-lookup:ip:${await clientAddress()}`, getEnv().ORDER_LOOKUP_RATE_LIMIT_PER_IP, 60 * 60 * 1000)
+      : true;
   const order =
-    orderNumber && email ? await getGuestOrder(orderNumber, email) : null;
+    orderNumber && email && allowed ? await getGuestOrder(orderNumber, email) : null;
   const balance = order ? await getBalanceState(order.id) : null;
   const searched = Boolean(orderNumber && email);
 
@@ -74,7 +82,16 @@ export default async function OrderLookupPage({
       </Panel>
 
       <div aria-live="polite" className="mt-10">
-        {searched && !order ? (
+        {searched && !allowed ? (
+          <EmptyState
+            icon={<IconAlert size={26} />}
+            title="Too many lookups"
+            body="This address has looked up a lot of orders in the last hour. Try again later, or sign in to see orders placed with your account."
+            action={{ href: "/account", label: "Your account" }}
+          />
+        ) : null}
+
+        {searched && allowed && !order ? (
           <EmptyState
             icon={<IconAlert size={26} />}
             title="We could not find that order"

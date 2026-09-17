@@ -14,6 +14,17 @@
  * When SITE_URL is absent, the deployment's own host is the next best answer,
  * so a first deploy still has a valid origin before the variable is set.
  */
+/**
+ * Structured data for a `<script type="application/ld+json">` element.
+ *
+ * JSON.stringify leaves "<" alone, so a product title or description containing
+ * "</script>" would end the element early and turn the rest into page markup.
+ * Escaping "<" keeps the JSON identical to a parser and inert to HTML.
+ */
+export function jsonLdScript(data: unknown): string {
+  return JSON.stringify(data).replace(/</g, "\\u003c");
+}
+
 export function siteUrl(): string {
   const configured = process.env.SITE_URL?.trim();
   if (configured) return configured.replace(/\/$/, "");

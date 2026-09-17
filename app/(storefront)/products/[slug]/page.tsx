@@ -31,7 +31,8 @@ import {
   type SpecRow,
 } from "./detail-sections";
 import { formatArrivalWindow, formatDate } from "@/lib/format";
-import { breadcrumbJsonLd, productJsonLd } from "@/lib/seo";
+import { breadcrumbJsonLd, jsonLdScript, productJsonLd } from "@/lib/seo";
+import { sanitizeRichText } from "@/lib/html/rich-text";
 import { getProductRating } from "@/lib/catalog";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/auth/authorize";
@@ -315,11 +316,11 @@ export default async function ProductPage({
       <script
         type="application/ld+json"
         // Serialised server-side from our own data, never from user input.
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        dangerouslySetInnerHTML={{ __html: jsonLdScript(structuredData) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbData) }}
+        dangerouslySetInnerHTML={{ __html: jsonLdScript(breadcrumbData) }}
       />
 
       {preview && !isLive ? (
@@ -662,7 +663,8 @@ async function DetailSections({ product }: { product: PublicProduct }) {
     <>
         <div className="mt-8 flex min-w-0 flex-col gap-8 md:mt-10 md:gap-10">
           <ProductInfoTabs
-            descriptionHtml={product.descriptionHtml}
+            // Sanitised again here for rows stored before saves were (D-057).
+            descriptionHtml={product.descriptionHtml ? sanitizeRichText(product.descriptionHtml) : null}
             keyFeatures={bullets}
             specifications={specs}
             measurements={measurements}

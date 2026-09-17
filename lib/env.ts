@@ -27,6 +27,15 @@ const schema = z.object({
    */
   SEARCH_SUGGEST_LIMIT: z.coerce.number().int().positive().default(40),
   SEARCH_CLICK_LIMIT: z.coerce.number().int().positive().default(30),
+  /**
+   * Hourly ceilings on public writes (lib/http/throttle.ts). Checkout matters
+   * most: an unpaid order holds its preorder places for the unpaid window, so
+   * unlimited orders from one address could empty a batch.
+   */
+  CHECKOUT_RATE_LIMIT_PER_IP: z.coerce.number().int().positive().default(20),
+  CHECKOUT_RATE_LIMIT_PER_EMAIL: z.coerce.number().int().positive().default(10),
+  REGISTER_RATE_LIMIT_PER_IP: z.coerce.number().int().positive().default(10),
+  ORDER_LOOKUP_RATE_LIMIT_PER_IP: z.coerce.number().int().positive().default(30),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PAYMENT_PROVIDER: z.enum(["mock", "sslcommerz"]).default("mock"),
   SHIPPING_PROVIDER: z.enum(["mock", "courier"]).default("mock"),

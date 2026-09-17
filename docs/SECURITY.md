@@ -2,10 +2,10 @@
 
 ## Authentication
 
-- Passwords hashed with argon2id. No password, hash salt, or reset token is ever logged.
-- Sessions are opaque tokens in `sessions`, referenced by a signed, HTTP-only, `Secure`, `SameSite=Lax` cookie. No JWT holding role or identity claims client-side — every request re-reads the session row, so revoking a session (logout everywhere, role change) takes effect immediately rather than waiting for a token to expire.
-- Password reset tokens are single-use, expire in one hour, and are invalidated the moment they're used or a new one is issued.
-- Login and password-reset endpoints are rate-limited per IP and per account.
+- Passwords hashed with argon2id. No password or hash is ever logged.
+- Sessions are opaque random tokens (32 bytes) held in an HTTP-only, `SameSite=Lax` cookie, `Secure` in production; the `sessions` table stores only their SHA-256. The cookie is not signed — it needs no signature, because it carries no claims, only a random token that means nothing without the row. No JWT holding role or identity claims client-side — every request re-reads the session row, so revoking a session (logout everywhere, role change) takes effect immediately rather than waiting for a token to expire.
+- **Password reset is not built.** A customer who forgets their password can sign in with Google if their account uses a verified Google address; otherwise staff must help. When it is built, tokens should be single-use, short-lived and rate limited like sign-in (PRODUCTION-READINESS 20.1).
+- Sign-in is rate limited per IP and per account (see Implementation notes below).
 
 ## Two-factor authentication
 
@@ -39,13 +39,13 @@ Any account may turn it on at `/account/security`; the page recommends it in as 
 
 ## Payments
 
-- No card number, CVV, or wallet credential ever reaches the application server — SSLCommerz's hosted flow collects them directly. The application only ever holds a `provider_ref` and a status.
-- Payment webhooks verify the provider's signature before any order-status mutation is applied, and are idempotent on the provider's event id — a replayed or duplicated webhook call must not double-confirm a payment or double-release capacity.
+- **No real payment provider is connected yet** (PRODUCTION-READINESS 24.1, blocked on credentials); payments run through the mock provider. The provider interface is built so that a hosted flow (SSLCommerz, bKash, Nagad) collects card and wallet details itself: the application holds only a `provider_ref`, amounts and a status.
+- Payment webhooks (`/api/webhooks/payments/[provider]`) verify an HMAC-SHA256 signature over the timestamp and body, reject stale timestamps, and are idempotent on the provider's event id — implemented and tested for the mock provider; each real provider must supply its own verification — a replayed or duplicated webhook call must not double-confirm a payment or double-release capacity.
 - Refunds are issued through the same provider abstraction and always produce a `payments` row of `kind = 'refund'`, never a silent balance adjustment on the order alone.
 
 ## Data protection
 
-- Secrets (database URL, SSLCommerz keys, session signing key, SMS/email provider keys) live in environment variables, never committed, documented by name (not value) in `.env.example`.
+- Secrets (database URL, `SESSION_SECRET`, `PAYMENT_WEBHOOK_SECRET`, `CRON_SECRET`, Google and future provider keys) live in environment variables, never committed, documented by name (not value) in `.env.example`.
 - `cost_price_usd`, computed margins, and internal admin notes are excluded at the query layer from any function that serves a customer-facing response — see [BUSINESS_LOGIC.md](BUSINESS_LOGIC.md) pricing section.
 - Business-critical records (`products`, `product_variants`, `orders`, `users`) are soft-deleted (`archived_at`), never hard-deleted, so an order placed against an archived product still resolves correctly in order history.
 - A user's personal data can be anonymized on request (name, email, phone, address text replaced) while the `orders` and `payments` rows that reference them are retained, satisfying deletion requests without breaking financial record-keeping obligations.
@@ -56,8 +56,10 @@ Any account may turn it on at `/account/security`; the page recommends it in as 
 
 ## Transport and headers
 
-- HTTPS enforced at the hosting layer; the app assumes it is always served over TLS and sets `Secure` on all cookies accordingly.
-- Standard security headers (`Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy`, `Strict-Transport-Security`) are set at the framework/edge config level, not per-route.
+- HTTPS is enforced at the hosting layer. Cookies are `Secure` in production (not in local development, which runs over plain HTTP), and production sends `Strict-Transport-Security`.
+- `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy` and, in production, `Strict-Transport-Security` are set for every response in `next.config.ts`.
+- **Content-Security-Policy on pages** comes from `proxy.ts`, with a fresh nonce per response: `script-src 'self' 'nonce-…' 'strict-dynamic'`, no `'unsafe-inline'` or `'unsafe-eval'` for scripts in production, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`. Styles allow `'unsafe-inline'` because the design uses style attributes, which a nonce cannot cover; styles cannot execute code. For the nonce to reach every script, every page is rendered for its request (`connection()` in the root layout, D-057). API responses, built assets and uploads get a static policy that allows no scripts. `e2e/csp.spec.ts` fails on any violation across the storefront, checkout and admin.
+- **Cross-site request protection**: `proxy.ts` refuses (403) any API request other than GET/HEAD/OPTIONS whose `Origin` is another host, or that the browser marks `Sec-Fetch-Site: cross-site`. This is in addition to the `SameSite=Lax` session cookie. Payment webhooks and `/api/cron/*` are exempt: they are called by servers, carry no cookie, and authenticate with a signature or shared secret.
 
 ## Open questions
 

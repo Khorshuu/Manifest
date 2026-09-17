@@ -4,6 +4,8 @@ import { toErrorResponse } from "@/lib/api-error";
 import { EmailTakenError, PhoneTakenError, register } from "@/lib/auth/accounts";
 import { SESSION_COOKIE_NAME, sessionCookieOptions } from "@/lib/auth/session";
 import { registerSchema } from "@/lib/validation/auth";
+import { getEnv } from "@/lib/env";
+import { clientAddress, throttle } from "@/lib/http/throttle";
 
 export async function POST(request: Request) {
   const parsed = registerSchema.safeParse(
@@ -15,6 +17,13 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  const limited = await throttle(
+    [[`register:ip:${await clientAddress()}`, getEnv().REGISTER_RATE_LIMIT_PER_IP]],
+    60 * 60 * 1000,
+    "Too many new accounts from here in a short time.",
+  );
+  if (limited) return limited;
 
   try {
     const { session, user } = await register(parsed.data);

@@ -73,6 +73,10 @@ export default defineConfig({
             // user agent), so the public search ceilings are raised too.
             SEARCH_SUGGEST_LIMIT: "100000",
             SEARCH_CLICK_LIMIT: "100000",
+            CHECKOUT_RATE_LIMIT_PER_IP: "100000",
+            CHECKOUT_RATE_LIMIT_PER_EMAIL: "100000",
+            REGISTER_RATE_LIMIT_PER_IP: "100000",
+            ORDER_LOOKUP_RATE_LIMIT_PER_IP: "100000",
           }
         : {}),
     },

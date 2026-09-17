@@ -3030,3 +3030,15 @@ Verified: unit and full end-to-end suites pass.
 - `[x]` The home page now tells search engines its canonical address, and the sign-in page is kept out of search results.
 
 Verified: SEO end-to-end tests pass.
+
+## Production readiness: security pass (20.1)
+
+- `[x]` The browser now runs only scripts the site itself rendered for that page (strict content security policy).
+- `[x]` Requests from other websites that try to change things in a shopper's account are refused.
+- `[x]` Product descriptions can no longer carry hidden scripts; only paragraphs, headings, lists, bold, italic and links are kept.
+- `[x]` Limits on how many orders, new accounts and order lookups one address can make in an hour, so nobody can fill a preorder batch with fake unpaid orders.
+- `[x]` The security document now says only what really exists.
+
+Verified: unit and full end-to-end suites pass; pages are no slower.
+
+Not built: "forgot password". A customer who forgets their password cannot reset it yet (needs an email provider).

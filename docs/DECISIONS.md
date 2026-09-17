@@ -1391,3 +1391,43 @@ real function and then sets the status — a fixture shortcut, not an applicatio
 path. The schedule runs only as often as the job trigger does (D-053). A listing
 whose date passed while unfinished stays a draft until it is finished and the
 next run publishes it.
+
+## D-057 — Nonce CSP with every page rendered per request; cross-site and rate limits at the edge; description HTML sanitised
+
+**Context.** The production Content-Security-Policy allowed `'unsafe-inline'`
+scripts, so an injected script element would have run. Nothing checked the
+origin of cookie-authenticated API writes beyond the `SameSite=Lax` cookie.
+Staff-typed description HTML was stored and rendered unsanitised, and JSON-LD
+was serialised without escaping `<`. Only sign-in, two-factor and the
+newsletter were rate limited.
+
+**Decision.**
+
+- `proxy.ts` issues a fresh nonce per page response:
+  `script-src 'self' 'nonce-…' 'strict-dynamic'`, no `'unsafe-inline'` or
+  `'unsafe-eval'` for scripts in production. Styles keep `'unsafe-inline'`,
+  because the design uses style attributes, which a nonce cannot cover, and
+  styles cannot run code.
+- Next.js can put the nonce only on scripts it renders for the request. Pages
+  whose shell was prerendered at build (static routes with a loading skeleton,
+  such as /search and /cart) sent scripts with no nonce, and the browser
+  refused them. The root layout therefore calls `connection()`: every page
+  shell renders per request. Cached catalogue data and rendered sections are
+  `use cache` entries and stay cached. Measured on `manifest_scale`, one
+  process, 20 clients: no loss — root category 58 req/s, leaf 71, search 67,
+  product 62, home 72, cart 175, help 166 (all at or above the Phase 10.1
+  figures).
+- `proxy.ts` refuses (403) API writes whose Origin is another host or that the
+  browser marks cross-site; webhooks and the scheduler are exempt.
+- Public writes are rate limited per hour in PostgreSQL: checkout 20 per
+  address and 10 per email (an unpaid order holds preorder places), sign-up 10
+  per address, guest order lookup 30 per address. All configurable
+  (`CHECKOUT_RATE_LIMIT_PER_IP` and neighbours).
+- Description HTML is sanitised with `sanitize-html` (a parser, not regular
+  expressions) to the formatting the editor offers — on save and again at
+  render for rows stored earlier. JSON-LD escapes `<`.
+
+**Consequences.** A page can no longer be served from a build-time shell; the
+measurements above show no throughput cost on this workload. Any future inline
+script must be rendered by Next.js (to receive the nonce), not written into
+HTML by hand. Password reset remains unbuilt and is documented as such.

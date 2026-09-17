@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Figtree } from "next/font/google";
+import { connection } from "next/server";
 import "./globals.css";
-import { organisationJsonLd, siteUrl } from "@/lib/seo";
+import { jsonLdScript, organisationJsonLd, siteUrl } from "@/lib/seo";
 
 /**
  * One typeface for the whole shop.
@@ -51,7 +52,20 @@ export const viewport: Viewport = {
   themeColor: "#ffffff",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+/*
+ * Every page is rendered for its request (docs/SECURITY.md, D-057).
+ *
+ * The Content-Security-Policy gives each response a fresh nonce (proxy.ts),
+ * and Next.js can only put it on scripts it renders for that request. A page
+ * shell prerendered at build — any static route with a loading skeleton, such
+ * as /search or /cart — carried scripts with no nonce, and the browser refused
+ * them. Cached catalogue data and rendered sections are unaffected: they are
+ * `use cache` entries, not prerendered shells.
+ */
+export const instant = false;
+
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  await connection();
   return (
     <html
       lang="en"
@@ -61,7 +75,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify(organisationJsonLd()),
+            __html: jsonLdScript(organisationJsonLd()),
           }}
         />
         {children}

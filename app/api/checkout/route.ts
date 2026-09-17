@@ -6,6 +6,10 @@ import { findCartId } from "@/lib/cart/session";
 import { toErrorResponse } from "@/lib/api-error";
 import { placeOrder } from "@/lib/orders";
 import { placeOrderSchema } from "@/lib/validation/cart";
+import { getEnv } from "@/lib/env";
+import { clientAddress, throttle } from "@/lib/http/throttle";
+
+const HOUR = 60 * 60 * 1000;
 
 export async function POST(request: Request) {
   const parsed = placeOrderSchema.safeParse(
@@ -18,6 +22,19 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  // Placing an order holds preorder places until it is paid or expires, so the
+  // number of orders one address or email can place in an hour is capped.
+  const env = getEnv();
+  const limited = await throttle(
+    [
+      [`checkout:ip:${await clientAddress()}`, env.CHECKOUT_RATE_LIMIT_PER_IP],
+      [`checkout:email:${parsed.data.email.toLowerCase()}`, env.CHECKOUT_RATE_LIMIT_PER_EMAIL],
+    ],
+    HOUR,
+    "Too many orders from here in a short time.",
+  );
+  if (limited) return limited;
 
   try {
     const user = await getCurrentUser();
