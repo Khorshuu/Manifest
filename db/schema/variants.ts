@@ -197,7 +197,10 @@ export const variantOptionValues = pgTable(
       .notNull()
       .references(() => attributeValues.id),
   },
-  (table) => [primaryKey({ columns: [table.variantId, table.attributeId] })],
+  (table) => [
+    primaryKey({ columns: [table.variantId, table.attributeId] }),
+    index("variant_option_values_attribute_value_id_idx").on(table.attributeValueId),
+  ],
 );
 
 export const variantImages = pgTable(

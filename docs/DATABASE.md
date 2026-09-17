@@ -509,3 +509,9 @@ title and price the row already kept. `option_summary_snapshot` existed but was
 never written; it is now. All four are null on orders placed before this
 migration, and every screen treats null as "not recorded" rather than showing
 a placeholder.
+
+## Indexes added for admin at scale (PRODUCTION-READINESS 14.1)
+
+- `audit_log (created_at DESC, id DESC)` replaces `audit_log (created_at)`: the log is paged by keyset on that pair, because entries written in one transaction share a timestamp.
+- `audit_log (action, created_at DESC, id DESC)`: the log filtered by action, and the distinct action list read by skipping along it.
+- `variant_option_values (attribute_value_id)`: counting and checking variants per option value (279 → 3 ms for a 250-value product).

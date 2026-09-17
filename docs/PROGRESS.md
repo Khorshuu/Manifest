@@ -2972,3 +2972,13 @@ main content in 1.0–1.6 s, nothing shifts, taps respond in under 100 ms. Unit 
 and full end-to-end suite pass.
 
 Not verified: real phones, iPhones, and photos served from Vercel Blob.
+
+## Production readiness: admin with lots of data (14.1)
+
+- `[x]` Opening a product with hundreds of variants in the admin went from about a third of a second to 60 ms.
+- `[x]` The order list could skip an order that arrived in the same thousandth of a second as the last one on a page. Fixed.
+- `[x]` The audit log could show an entry twice or miss one when paging, because changes saved together share a time. It now pages with Newer and Older and never skips.
+
+Verified with 100,000 orders, 20,000 customers and 50,000 audit entries: every admin page answers in 13–200 ms. Unit and admin end-to-end tests pass.
+
+Not verified: millions of rows.

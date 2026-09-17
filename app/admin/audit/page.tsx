@@ -2,15 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   countAuditEntries,
+  decodeAuditCursor,
   listAuditActions,
-  listAuditEntries,
+  listAuditPage,
 } from "@/lib/admin";
 import { formatDate } from "@/lib/format";
 import { requireAdminPage } from "@/lib/auth/admin-page";
 
 /*
- * Cache Components (DECISIONS.md D-054): allowed to block while this route is
- * converted to cached data plus streamed per-request parts.
+ * Cache Components (DECISIONS.md D-054): live staff data, read per request.
  */
 export const instant = false;
 
@@ -40,21 +40,28 @@ export default async function AdminAuditPage({
 }: PageProps<"/admin/audit">) {
   const params = await searchParams;
   const action = typeof params.action === "string" ? params.action : undefined;
-  const page = Math.max(1, Number(params.page) || 1);
+  const after = decodeAuditCursor(params.after);
+  const before = after ? undefined : decodeAuditCursor(params.before);
 
   const user = await requireAdminPage("audit.view");
 
-  const [entries, actions, total] = await Promise.all([
-    listAuditEntries(user, {
-      action,
-      limit: PAGE_SIZE,
-      offset: (page - 1) * PAGE_SIZE,
-    }),
+  /*
+   * Newer and Older by keyset (PRODUCTION-READINESS 14.1): the log only grows,
+   * and a numbered page deep into it cost a scan of every entry before it.
+   */
+  const [{ entries, nextCursor, previousCursor }, actions, total] = await Promise.all([
+    listAuditPage(user, { action, limit: PAGE_SIZE, after, before }),
     listAuditActions(user),
     countAuditEntries(user, { action }),
   ]);
 
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageHref = (cursor: { after?: string; before?: string }) => {
+    const query = new URLSearchParams();
+    if (action) query.set("action", action);
+    if (cursor.after) query.set("after", cursor.after);
+    if (cursor.before) query.set("before", cursor.before);
+    return `/admin/audit?${query.toString()}`;
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -137,25 +144,25 @@ export default async function AdminAuditPage({
         </ul>
       )}
 
-      {pageCount > 1 ? (
-        <nav aria-label="Pagination" className="flex gap-3">
-          {page > 1 ? (
+      {previousCursor || nextCursor ? (
+        <nav aria-label="Pagination" className="flex flex-wrap items-center gap-3">
+          {previousCursor ? (
             <Link
-              href={`/admin/audit?${action ? `action=${action}&` : ""}page=${page - 1}`}
+              href={pageHref({ before: previousCursor })}
               className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
             >
-              Previous
+              Newer
             </Link>
           ) : null}
           <span className="inline-flex min-h-11 items-center text-meta text-ink/70">
-            Page {page} of {pageCount}
+            {total.toLocaleString("en-GB")} {total === 1 ? "entry" : "entries"}
           </span>
-          {page < pageCount ? (
+          {nextCursor ? (
             <Link
-              href={`/admin/audit?${action ? `action=${action}&` : ""}page=${page + 1}`}
+              href={pageHref({ after: nextCursor })}
               className="inline-flex items-center justify-center gap-2 rounded-control font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.985] active:duration-75 min-h-11 px-4 text-body border border-blue-300 bg-paper text-blue-600 hover:border-blue-500 hover:bg-blue-50 hover:shadow-[var(--shadow-raise)]"
             >
-              Next
+              Older
             </Link>
           ) : null}
         </nav>

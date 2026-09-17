@@ -24,7 +24,8 @@
  * Cold by default: every run is a fresh browser context with an empty cache.
  * --warm loads the page once in the context before measuring, so the second
  * load is what a returning visitor gets. --variant puts one of that variant in
- * the cart first, so /cart and /checkout show a real line.
+ * the cart first, so /cart and /checkout show a real line. --login email:password
+ * signs in first, for staff pages.
  *
  * Lab figures are not field data. They compare a change against the same page
  * before it, on the same machine.
@@ -96,6 +97,14 @@ async function measure(path) {
   });
   const page = await context.newPage();
 
+  if (args.login) {
+    const [email, ...rest] = args.login.split(":");
+    const response = await page.request.post(`${base}/api/auth/login`, {
+      data: { email, password: rest.join(":") },
+      headers: { origin: base },
+    });
+    if (!response.ok()) throw new Error(`could not sign in: ${response.status()}`);
+  }
   if (args.variant) {
     const response = await page.request.post(`${base}/api/cart`, {
       data: { variantId: args.variant, quantity: 1 },

@@ -105,6 +105,35 @@ describe("keyset paging", () => {
     expect(seen).toEqual(expectedNewest().map((order) => order.id));
   });
 
+  /**
+   * The database keeps microseconds; a JavaScript Date keeps milliseconds. A
+   * cursor built from the Date skipped an order placed in the same millisecond
+   * as the last one on a page but a few microseconds earlier.
+   */
+  it("does not skip orders placed within the same millisecond as a page boundary", async () => {
+    await harness.client.exec(`
+      update orders set placed_at = timestamptz '2026-09-01 12:00:00.123456+00' where order_number = 'ORD-2026-000001';
+      update orders set placed_at = timestamptz '2026-09-01 12:00:00.123200+00' where order_number = 'ORD-2026-000002';
+      update orders set placed_at = timestamptz '2026-09-01 12:00:00.123100+00' where order_number = 'ORD-2026-000003';
+    `);
+    const all = await searchOrdersForStaff(staff, { sort: "newest", limit: 50 });
+
+    for (const sort of ["newest", "oldest"] as const) {
+      const expected = sort === "newest" ? all.orders.map((o) => o.id) : [...all.orders].reverse().map((o) => o.id);
+      for (const limit of [1, 2, 3]) {
+        const seen: string[] = [];
+        let after: string | null = null;
+        for (let guard = 0; guard < 30; guard += 1) {
+          const page = await searchOrdersForStaff(staff, { sort, limit, after: after ? decodeOrderCursor(after) : undefined });
+          seen.push(...page.orders.map((order) => order.id));
+          after = page.nextCursor;
+          if (!after) break;
+        }
+        expect(seen, `${sort}, ${limit} per page`).toEqual(expected);
+      }
+    }
+  });
+
   it("walks oldest first the same way", async () => {
     const { seen } = await walk("oldest");
     expect(seen).toEqual(expectedNewest().reverse().map((order) => order.id));

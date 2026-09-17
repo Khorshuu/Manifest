@@ -24,6 +24,7 @@
     "perf:bench": "tsx scripts/perf/bench.ts",
     "perf:http": "node scripts/perf/http-load.mjs",
     "perf:vitals": "node scripts/perf/vitals.mjs",
+    "perf:admin": "tsx scripts/perf/admin-load.ts",
     "vercel-build": "tsx db/migrate.ts && next build"
   },
   "dependencies": {

@@ -720,10 +720,19 @@ export async function searchOrdersForStaff(
   const cursor = keyset ? (query.before ?? query.after) : undefined;
   const descending = keyset ? (sort === "newest") !== backwards : sort === "total_desc";
 
-  const cursorCondition = cursor
+  /*
+   * Compared against the cursor row's own stored values, not the timestamp the
+   * cursor carries: the column keeps microseconds and a Date keeps
+   * milliseconds, so the rounded value skipped any order placed later in the
+   * same millisecond as the page boundary. The id alone locates the row.
+   */
+  const boundary = cursor
+    ? sql`(select b.placed_at, b.id from orders b where b.id = ${cursor.id}::uuid)`
+    : undefined;
+  const cursorCondition = boundary
     ? descending
-      ? sql`(${orders.placedAt}, ${orders.id}) < (${cursor.placedAt.toISOString()}::timestamptz, ${cursor.id}::uuid)`
-      : sql`(${orders.placedAt}, ${orders.id}) > (${cursor.placedAt.toISOString()}::timestamptz, ${cursor.id}::uuid)`
+      ? sql`(${orders.placedAt}, ${orders.id}) < ${boundary}`
+      : sql`(${orders.placedAt}, ${orders.id}) > ${boundary}`
     : undefined;
 
   const orderBy = keyset
