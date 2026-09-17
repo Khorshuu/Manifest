@@ -4,12 +4,16 @@ import { getCurrentUser } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import { addVariant } from "@/lib/catalog";
 import { addVariantSchema } from "@/lib/validation/variants";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /** Adds one variant to a product by hand. */
 export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/products/[productId]/variants">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
   if (!z.string().uuid().safeParse(productId).success) {
     return NextResponse.json({ error: "That product was not found." }, { status: 404 });

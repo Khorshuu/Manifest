@@ -3,6 +3,7 @@ import { z } from "zod";
 import { toErrorResponse } from "@/lib/api-error";
 import { getCurrentUser } from "@/lib/auth";
 import { CAMPAIGN_SLOTS, moveCampaign, updateCampaign } from "@/lib/homepage";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /**
  * The homepage campaigns, managed by staff with `homepage.manage`.
@@ -29,6 +30,9 @@ const bodySchema = z.discriminatedUnion("action", [
 ]);
 
 export async function PATCH(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
 
   if (!parsed.success) {

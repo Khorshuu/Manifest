@@ -8,6 +8,7 @@ import {
   NotReadyError,
   publishProduct,
 } from "@/lib/catalog";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 const publishSchema = z
   .object({
@@ -30,6 +31,9 @@ export async function GET(
   _request: Request,
   context: RouteContext<"/api/admin/products/[productId]/publish">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
 
   if (!z.string().uuid().safeParse(productId).success) {
@@ -51,6 +55,9 @@ export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/products/[productId]/publish">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
 
   if (!z.string().uuid().safeParse(productId).success) {

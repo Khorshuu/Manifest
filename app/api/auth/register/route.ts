@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { EmailTakenError, register } from "@/lib/auth/accounts";
+import { toErrorResponse } from "@/lib/api-error";
+import { EmailTakenError, PhoneTakenError, register } from "@/lib/auth/accounts";
 import { SESSION_COOKIE_NAME, sessionCookieOptions } from "@/lib/auth/session";
 import { registerSchema } from "@/lib/validation/auth";
 
@@ -24,9 +25,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ user }, { status: 201 });
   } catch (error) {
-    if (error instanceof EmailTakenError) {
+    if (error instanceof EmailTakenError || error instanceof PhoneTakenError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
-    throw error;
+    return toErrorResponse(error);
   }
 }

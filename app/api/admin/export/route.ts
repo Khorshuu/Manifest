@@ -6,12 +6,16 @@ import {
   exportPreordersCsv,
   streamOrdersCsv,
 } from "@/lib/admin";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /**
  * CSV downloads. The report is chosen by query string, and each one re-checks
  * the caller's role inside lib/ — the margin report is super-admin only.
  */
 export async function GET(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const report = new URL(request.url).searchParams.get("report") ?? "orders";
 
   try {

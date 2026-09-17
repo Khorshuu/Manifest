@@ -3014,3 +3014,12 @@ Needs your decision: the publish check insists every preorder has a place limit 
 Verified: unit and full end-to-end suites pass.
 
 Not verified: real iPhones and Android devices.
+
+## Production readiness: sign-in and account checks (18.1)
+
+- `[x]` Every admin action now refuses customers and signed-out visitors before looking at what they sent; a test checks all of them automatically.
+- `[x]` Signed-out visitors opening admin or account pages get a proper redirect to sign in.
+- `[x]` Signing up with a mobile number that is already used now says so instead of failing with a server error.
+- `[x]` New tests for the sign-in pop-up (create account, sign out, wrong password, sign in) and for Google sign-in refusing forged returns.
+
+Verified: unit and full end-to-end suites pass.

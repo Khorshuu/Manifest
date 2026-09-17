@@ -10,6 +10,7 @@ import {
   authenticate,
   CredentialsError,
   EmailTakenError,
+  PhoneTakenError,
   register,
 } from "@/lib/auth/accounts";
 import { validateSessionToken } from "@/lib/auth/session";
@@ -80,6 +81,14 @@ describe("register", () => {
   it("refuses a second account on the same email", async () => {
     await register(credentials);
     await expect(register(credentials)).rejects.toThrow(EmailTakenError);
+  }, 30_000);
+
+  /** Used to surface as an unhandled database error: a 500 at sign-up. */
+  it("refuses a second account on the same mobile number, and says so", async () => {
+    await register({ ...credentials, phone: "+8801711111111" });
+    await expect(
+      register({ ...credentials, email: "someone-else@example.com", phone: "+8801711111111" }),
+    ).rejects.toThrow(PhoneTakenError);
   }, 30_000);
 });
 

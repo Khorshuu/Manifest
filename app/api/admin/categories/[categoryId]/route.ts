@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { deleteCategory, updateCategory } from "@/lib/catalog";
 import { toErrorResponse } from "@/lib/api-error";
 import { categoryInputSchema } from "@/lib/validation/catalog";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /**
  * Renaming, re-parenting and removing one category. Permission, the cycle
@@ -13,6 +14,9 @@ export async function PATCH(
   request: Request,
   { params }: RouteContext<"/api/admin/categories/[categoryId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { categoryId } = await params;
   const parsed = categoryInputSchema.safeParse(
     await request.json().catch(() => null),
@@ -38,6 +42,9 @@ export async function DELETE(
   _request: Request,
   { params }: RouteContext<"/api/admin/categories/[categoryId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { categoryId } = await params;
 
   try {

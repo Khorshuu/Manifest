@@ -4,6 +4,7 @@ import { toErrorResponse } from "@/lib/api-error";
 import { getCurrentUser } from "@/lib/auth";
 import { deleteSynonym, updateSynonym } from "@/lib/search/synonyms";
 import { synonymInputSchema } from "@/lib/validation/search";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 function badId() {
   return NextResponse.json(
@@ -16,6 +17,9 @@ export async function PATCH(
   request: Request,
   context: RouteContext<"/api/admin/search/synonyms/[synonymId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { synonymId } = await context.params;
   if (!z.string().uuid().safeParse(synonymId).success) return badId();
 
@@ -45,6 +49,9 @@ export async function DELETE(
   _request: Request,
   context: RouteContext<"/api/admin/search/synonyms/[synonymId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { synonymId } = await context.params;
   if (!z.string().uuid().safeParse(synonymId).success) return badId();
 

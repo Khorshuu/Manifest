@@ -10,6 +10,7 @@ import {
   type ImageTarget,
 } from "@/lib/homepage";
 import { MAX_UPLOAD_BYTES } from "@/lib/providers/media";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /**
  * Hero and showcase-tile images for one campaign slide.
@@ -30,6 +31,9 @@ function toTarget(input: z.infer<typeof targetSchema>): ImageTarget | null {
 }
 
 export async function POST(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   try {
     const user = await getCurrentUser();
 
@@ -38,7 +42,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "That file is too large." }, { status: 413 });
     }
 
-    const form = await request.formData();
+    // A body that is not a form is a bad request, not a server error.
+    const form = await request.formData().catch(() => null);
+    if (!form) {
+      return NextResponse.json({ error: "Send the photograph as a form upload." }, { status: 400 });
+    }
     const parsed = targetSchema.safeParse({
       slot: form.get("slot"),
       target: form.get("target"),
@@ -67,6 +75,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const parsed = targetSchema.safeParse(await request.json().catch(() => null));
   const target = parsed.success ? toTarget(parsed.data) : null;
 

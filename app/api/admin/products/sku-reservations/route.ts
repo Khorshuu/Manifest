@@ -3,6 +3,7 @@ import { z } from "zod";
 import { toErrorResponse } from "@/lib/api-error";
 import { getCurrentUser } from "@/lib/auth";
 import { reserveSku } from "@/lib/catalog/sku";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /**
  * Reserves a SKU for the Add Product form, or renews the one the form already
@@ -14,6 +15,9 @@ const bodySchema = z
   .strict();
 
 export async function POST(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return NextResponse.json({ error: "Check the request." }, { status: 400 });

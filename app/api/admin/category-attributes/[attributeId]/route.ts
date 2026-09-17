@@ -7,11 +7,15 @@ import {
   updateCategoryAttribute,
 } from "@/lib/catalog";
 import { categoryAttributeInputSchema } from "@/lib/validation/catalog";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 export async function PATCH(
   request: Request,
   context: RouteContext<"/api/admin/category-attributes/[attributeId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { attributeId } = await context.params;
 
   if (!z.string().uuid().safeParse(attributeId).success) {
@@ -49,6 +53,9 @@ export async function DELETE(
   _request: Request,
   context: RouteContext<"/api/admin/category-attributes/[attributeId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { attributeId } = await context.params;
 
   if (!z.string().uuid().safeParse(attributeId).success) {

@@ -4,6 +4,7 @@ import { toErrorResponse } from "@/lib/api-error";
 import { getCurrentUser } from "@/lib/auth";
 import { closePreorder, extendPreorder, openPreorder } from "@/lib/preorder";
 import { preorderWindowSchema } from "@/lib/validation/preorder";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /**
  * Opening, extending and closing one variant's preorder window.
@@ -19,6 +20,9 @@ export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/variants/[variantId]/window">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { variantId } = await context.params;
 
   if (!z.string().uuid().safeParse(variantId).success) {

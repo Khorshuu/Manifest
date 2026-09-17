@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
+import { databaseConstraint, isUniqueViolation } from "@/lib/db-errors";
 import { oauthAccounts, users } from "@/db/schema";
 import { hashPassword, verifyPassword } from "./password";
 import { createSession } from "./session";
@@ -14,6 +15,15 @@ export class CredentialsError extends Error {
     // wrong, so the response cannot be used to enumerate registered accounts.
     super("That email and password combination is not correct.");
     this.name = "CredentialsError";
+  }
+}
+
+export class PhoneTakenError extends Error {
+  readonly status = 409;
+
+  constructor() {
+    super("An account with that mobile number already exists.");
+    this.name = "PhoneTakenError";
   }
 }
 
@@ -105,6 +115,12 @@ export async function register(
 
   const passwordHash = await hashPassword(input.password);
 
+  /*
+   * The unique constraints are the authority: the email check above does not
+   * cover a mobile number already on an account, nor two sign-ups with one
+   * email at the same moment. Either used to reach the shopper as a server
+   * error.
+   */
   const [created] = await db
     .insert(users)
     .values({
@@ -115,7 +131,15 @@ export async function register(
       passwordHash,
       role: "customer",
     })
-    .returning({ id: users.id, email: users.email, role: users.role });
+    .returning({ id: users.id, email: users.email, role: users.role })
+    .catch((error: unknown) => {
+      if (isUniqueViolation(error)) {
+        const constraint = databaseConstraint(error) ?? "";
+        if (constraint.includes("phone")) throw new PhoneTakenError();
+        if (constraint.includes("email")) throw new EmailTakenError();
+      }
+      throw error;
+    });
 
   const session = await createSession(created.id);
 

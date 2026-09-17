@@ -3,8 +3,12 @@ import { getCurrentUser } from "@/lib/auth";
 import { createCategory } from "@/lib/catalog";
 import { toErrorResponse } from "@/lib/api-error";
 import { categoryInputSchema } from "@/lib/validation/catalog";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 export async function POST(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const parsed = categoryInputSchema.safeParse(
     await request.json().catch(() => null),
   );

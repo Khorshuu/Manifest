@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import { exportCsv, exportHtml, exportJson, getSeoPulseRun } from "@/lib/seo-pulse";
 import { seoPulseExportFormat } from "@/lib/validation/seo-pulse";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 const TYPES = {
   json: "application/json; charset=utf-8",
@@ -19,6 +20,9 @@ export async function GET(
   request: Request,
   context: RouteContext<"/api/admin/seo-pulse/runs/[runId]/export">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { runId } = await context.params;
   const format = seoPulseExportFormat.safeParse(
     new URL(request.url).searchParams.get("format") ?? "json",

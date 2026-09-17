@@ -12,6 +12,7 @@ import {
   updateProductImageAltText,
 } from "@/lib/catalog";
 import { MAX_UPLOAD_BYTES } from "@/lib/providers/media";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /**
  * Product media upload.
@@ -24,6 +25,9 @@ export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/products/[productId]/images">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
 
   if (!z.string().uuid().safeParse(productId).success) {
@@ -44,7 +48,11 @@ export async function POST(
       );
     }
 
-    const form = await request.formData();
+    // A body that is not a form is a bad request, not a server error.
+    const form = await request.formData().catch(() => null);
+    if (!form) {
+      return NextResponse.json({ error: "Send the photograph as a form upload." }, { status: 400 });
+    }
     const file = form.get("file");
     const altText = String(form.get("altText") ?? "");
     // Anything but the literal "lifestyle" is the gallery: an unknown value
@@ -127,6 +135,9 @@ export async function PATCH(
   request: Request,
   context: RouteContext<"/api/admin/products/[productId]/images">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
 
   if (!z.string().uuid().safeParse(productId).success) {

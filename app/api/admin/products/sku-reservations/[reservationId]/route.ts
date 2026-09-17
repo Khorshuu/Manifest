@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/api-error";
 import { getCurrentUser } from "@/lib/auth";
 import { releaseSkuReservation } from "@/lib/catalog/sku";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /**
  * Releases the SKU an abandoned Add Product form was holding. Only its own
@@ -11,6 +12,9 @@ export async function DELETE(
   _request: Request,
   { params }: RouteContext<"/api/admin/products/sku-reservations/[reservationId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { reservationId } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(reservationId)) {
     return NextResponse.json({ error: "Check the request." }, { status: 400 });

@@ -11,11 +11,15 @@ import {
   updateProduct,
 } from "@/lib/catalog";
 import { productPatchSchema } from "@/lib/validation/catalog";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 export async function PATCH(
   request: Request,
   context: RouteContext<"/api/admin/products/[productId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
 
   if (!z.string().uuid().safeParse(productId).success) {
@@ -54,6 +58,9 @@ export async function DELETE(
   _request: Request,
   context: RouteContext<"/api/admin/products/[productId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
   if (!z.string().uuid().safeParse(productId).success) {
     return NextResponse.json({ error: "That product was not found." }, { status: 400 });
@@ -70,6 +77,9 @@ export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/products/[productId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
 
   if (!z.string().uuid().safeParse(productId).success) {

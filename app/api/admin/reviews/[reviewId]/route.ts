@@ -4,11 +4,15 @@ import { toErrorResponse } from "@/lib/api-error";
 import { getCurrentUser } from "@/lib/auth";
 import { moderateReview } from "@/lib/reviews";
 import { moderationSchema } from "@/lib/validation/reviews";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/reviews/[reviewId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { reviewId } = await context.params;
 
   if (!z.string().uuid().safeParse(reviewId).success) {

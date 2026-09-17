@@ -4,12 +4,16 @@ import { getCurrentUser } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import { applySeoPulse, SeoPulseError } from "@/lib/seo-pulse";
 import { seoPulseApplySchema } from "@/lib/validation/seo-pulse";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /** Applies the recommendations staff reviewed, refusing silent overwrites. */
 export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/products/[productId]/seo-pulse/apply">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
   if (!z.string().uuid().safeParse(productId).success) {
     return NextResponse.json({ error: "That product was not found." }, { status: 404 });

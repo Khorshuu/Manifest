@@ -3,8 +3,12 @@ import { getCurrentUser } from "@/lib/auth";
 import { createProduct } from "@/lib/catalog";
 import { toErrorResponse } from "@/lib/api-error";
 import { productInputSchema } from "@/lib/validation/catalog";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 export async function POST(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const parsed = productInputSchema.safeParse(
     await request.json().catch(() => null),
   );

@@ -4,12 +4,16 @@ import { getCurrentUser } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import { addAttributeValue } from "@/lib/catalog";
 import { attributeValueSchema } from "@/lib/validation/variants";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /** Adds a value — "Teal" — to an option. */
 export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/attributes/[attributeId]/values">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { attributeId } = await context.params;
   const parsed = attributeValueSchema.safeParse(await request.json().catch(() => null));
   if (!z.string().uuid().safeParse(attributeId).success || !parsed.success) {

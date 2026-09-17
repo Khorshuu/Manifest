@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import { getSeoPulseOverview, runSeoPulse } from "@/lib/seo-pulse";
 import { seoPulseRunSchema } from "@/lib/validation/seo-pulse";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /** A run waits on external providers and an AI model; allow it time. */
 export const maxDuration = 120;
@@ -13,6 +14,9 @@ export async function GET(
   _request: Request,
   context: RouteContext<"/api/admin/products/[productId]/seo-pulse">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
   if (!z.string().uuid().safeParse(productId).success) {
     return NextResponse.json({ error: "That product was not found." }, { status: 404 });
@@ -34,6 +38,9 @@ export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/products/[productId]/seo-pulse">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
   if (!z.string().uuid().safeParse(productId).success) {
     return NextResponse.json({ error: "That product was not found." }, { status: 404 });

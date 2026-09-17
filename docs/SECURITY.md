@@ -167,3 +167,8 @@ The limiter fails open if the database will not answer. Signing in needs the dat
   one of four fixed keys, and the page maps those to its own wording.
 - Sign-in with Google is unavailable unless both credentials are configured:
   the button is not rendered and both routes answer 404.
+
+## Admin API boundary (PRODUCTION-READINESS 18.1)
+
+- Every handler under `app/api/admin` calls `refuseNonStaff()` (lib/auth/api-guard.ts) before reading the request: a signed-out caller gets 401 and a customer 403, whatever they sent. Each `lib/` function still enforces its own permission for staff roles. `e2e/admin-boundary.spec.ts` discovers every admin handler and page from the filesystem and checks both refusals, so a new route is covered automatically.
+- `proxy.ts` redirects requests to `/admin` and `/account` that carry no session cookie with a 307 to sign in. It is an optimistic check (cookie presence only, no database); the pages' own session and role checks are authoritative.

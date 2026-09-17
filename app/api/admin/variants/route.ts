@@ -6,9 +6,13 @@ import {
   bulkVariantUpdateSchema,
   generateVariantsSchema,
 } from "@/lib/validation/variants";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /** Generates the missing combinations for a product. */
 export async function POST(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const parsed = generateVariantsSchema.safeParse(
     await request.json().catch(() => null),
   );
@@ -36,6 +40,9 @@ export async function POST(request: Request) {
 
 /** Applies one change across many variants. */
 export async function PATCH(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const parsed = bulkVariantUpdateSchema.safeParse(
     await request.json().catch(() => null),
   );

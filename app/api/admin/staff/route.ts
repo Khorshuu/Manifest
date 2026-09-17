@@ -4,6 +4,7 @@ import { getCurrentUser, STAFF_ROLES } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import { changeRole, createStaffAccount } from "@/lib/admin";
 import { STAFF_PASSWORD_MIN } from "@/lib/admin/staff";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 const createSchema = z
   .object({
@@ -29,6 +30,9 @@ const roleSchema = z
   .strict();
 
 export async function POST(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const parsed = createSchema.safeParse(
     await request.json().catch(() => null),
   );
@@ -51,6 +55,9 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const parsed = roleSchema.safeParse(await request.json().catch(() => null));
 
   if (!parsed.success) {

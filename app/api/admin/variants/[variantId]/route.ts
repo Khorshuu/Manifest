@@ -4,12 +4,16 @@ import { toErrorResponse } from "@/lib/api-error";
 import { getCurrentUser } from "@/lib/auth";
 import { removeVariant, restoreVariant, setVariantImage, updateVariant } from "@/lib/catalog";
 import { variantUpdateSchema } from "@/lib/validation/variants";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /** One variant's price, capacity, window and payment terms. */
 export async function PATCH(
   request: Request,
   context: RouteContext<"/api/admin/variants/[variantId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { variantId } = await context.params;
 
   if (!z.string().uuid().safeParse(variantId).success) {
@@ -52,6 +56,9 @@ export async function DELETE(
   _request: Request,
   context: RouteContext<"/api/admin/variants/[variantId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { variantId } = await context.params;
   if (!z.string().uuid().safeParse(variantId).success) {
     return NextResponse.json({ error: "That variant was not found." }, { status: 400 });
@@ -69,6 +76,9 @@ export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/variants/[variantId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { variantId } = await context.params;
   const parsed = z
     .discriminatedUnion("action", [

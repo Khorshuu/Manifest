@@ -3,6 +3,7 @@ import { z } from "zod";
 import { toErrorResponse } from "@/lib/api-error";
 import { updateSetting } from "@/lib/admin";
 import { getCurrentUser } from "@/lib/auth";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 const bodySchema = z
   .object({
@@ -15,6 +16,9 @@ const bodySchema = z
 
 /** Super admin only, enforced in updateSetting rather than here. */
 export async function PATCH(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
 
   if (!parsed.success) {

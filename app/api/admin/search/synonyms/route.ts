@@ -3,8 +3,12 @@ import { toErrorResponse } from "@/lib/api-error";
 import { getCurrentUser } from "@/lib/auth";
 import { createSynonym, listSynonyms } from "@/lib/search/synonyms";
 import { synonymInputSchema } from "@/lib/validation/search";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 export async function GET() {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   try {
     const synonyms = await listSynonyms(await getCurrentUser());
     return NextResponse.json({ synonyms });
@@ -14,6 +18,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const parsed = synonymInputSchema.safeParse(
     await request.json().catch(() => null),
   );

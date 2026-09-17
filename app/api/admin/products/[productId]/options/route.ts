@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import { createProductOption } from "@/lib/catalog";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 const optionSchema = z
   .object({
@@ -16,6 +17,9 @@ export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/products/[productId]/options">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId } = await context.params;
   const parsed = optionSchema.safeParse(await request.json().catch(() => null));
   if (!z.string().uuid().safeParse(productId).success || !parsed.success) {

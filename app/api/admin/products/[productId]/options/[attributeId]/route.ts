@@ -3,12 +3,16 @@ import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import { removeProductOption } from "@/lib/catalog";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /** Removes a variant group from this product, and the variants built on it. */
 export async function DELETE(
   _request: Request,
   context: RouteContext<"/api/admin/products/[productId]/options/[attributeId]">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { productId, attributeId } = await context.params;
   if (!z.string().uuid().safeParse(productId).success || !z.string().uuid().safeParse(attributeId).success) {
     return NextResponse.json({ error: "That option was not found." }, { status: 400 });

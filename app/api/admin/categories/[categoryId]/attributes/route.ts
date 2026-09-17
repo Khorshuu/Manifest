@@ -9,6 +9,7 @@ import {
   resolveCategoryAttributes,
 } from "@/lib/catalog";
 import { categoryAttributeInputSchema } from "@/lib/validation/catalog";
+import { refuseNonStaff } from "@/lib/auth/api-guard";
 
 /**
  * The specifications a category asks its products for.
@@ -21,6 +22,9 @@ export async function GET(
   request: Request,
   context: RouteContext<"/api/admin/categories/[categoryId]/attributes">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { categoryId } = await context.params;
 
   if (!z.string().uuid().safeParse(categoryId).success) {
@@ -51,6 +55,9 @@ export async function POST(
   request: Request,
   context: RouteContext<"/api/admin/categories/[categoryId]/attributes">,
 ) {
+  const refused = await refuseNonStaff();
+  if (refused) return refused;
+
   const { categoryId } = await context.params;
 
   if (!z.string().uuid().safeParse(categoryId).success) {
