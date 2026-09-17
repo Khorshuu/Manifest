@@ -216,6 +216,37 @@ the full end-to-end suite on both profiles, the budgets, and
 Every database address in CI is the service container and every secret is a
 test value; the workflows cannot reach production data.
 
+### Protecting `main`
+
+Once both CI jobs have passed on GitHub at least once (GitHub only offers a
+check as required after it has run), require them before merging to `main`:
+Settings → Branches → add a rule (or ruleset) for `main` with "Require a pull
+request before merging", "Require status checks to pass" with
+**Typecheck, lint, unit and integration tests** and
+**Production build, targeted end-to-end tests, budgets**, "Require branches to
+be up to date", and "Do not allow bypassing". With the GitHub CLI, as a
+repository administrator:
+
+```sh
+gh api -X PUT repos/Khorshuu/Manifest/branches/main/protection --input - <<'JSON'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": [
+      "Typecheck, lint, unit and integration tests",
+      "Production build, targeted end-to-end tests, budgets"
+    ]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": { "required_approving_review_count": 0 },
+  "restrictions": null
+}
+JSON
+```
+
+The nightly and scheduler workflows are not required checks: they do not run
+on pull requests.
+
 ### Performance budgets
 
 `npm run perf:budget -- --base http://localhost:3000 [--paths "/,/cart"] [--js 170] [--html 60]`
