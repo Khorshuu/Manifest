@@ -3068,3 +3068,9 @@ Needs you: an error-tracking account (for example Sentry) if you want alerts whe
 - `[ ]` Not yet seen running on GitHub — nothing has been pushed from this branch.
 
 Needs you: push the branch to see the first run, and turn on branch protection in the repository settings if merges should wait for the checks.
+
+## Production readiness: final load test (26.1)
+
+- `[x]` Load-tested the finished code on this machine with a copy holding 5,000 products and 100,000 orders: 20 and 50 shoppers at once, no errors on any page, and the database never used more than its 10 allowed connections.
+- `[x]` At 50 shoppers at once, catalogue pages answered within about 1.2 seconds (95% of requests); the cart and help pages within half a second.
+- `[ ]` Not tested on the real hosting (Vercel and Neon). That needs a staging deployment.
