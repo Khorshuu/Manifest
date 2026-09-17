@@ -9,7 +9,8 @@ import { addToCart, fillGuestCheckout } from "./helpers/cart";
  * that no session, however privileged, is a substitute for it.
  */
 
-const SECRET = "test-cron-secret";
+/** The local test server's secret, or the staging deployment's (E2E_REMOTE). */
+const SECRET = process.env.E2E_CRON_SECRET ?? "test-cron-secret";
 
 async function signIn(page: Page, email: string) {
   // Any route with an origin will do, and the home page is the heaviest one in

@@ -37,10 +37,16 @@ const percentile = (values, p) => {
   return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];
 };
 
+/* A Vercel deployment behind Deployment Protection (staging) needs the
+   automation bypass secret on every request (docs/STAGING.md). */
+const headers = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+  ? { "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET }
+  : {};
+
 async function hit(path) {
   const started = performance.now();
   try {
-    const response = await fetch(base + path, { redirect: "manual" });
+    const response = await fetch(base + path, { redirect: "manual", headers });
     // Headers arrive with the first flushed bytes: for a streamed page, the shell.
     const firstByteMs = performance.now() - started;
     const body = await response.text();
@@ -65,7 +71,7 @@ async function javascriptWeight(html) {
   let gz = 0;
   for (const source of sources) {
     if (!scripts.has(source)) {
-      const text = await (await fetch(new URL(source, base))).text();
+      const text = await (await fetch(new URL(source, base), { headers })).text();
       scripts.set(source, gzipSync(text).length);
     }
     gz += scripts.get(source);

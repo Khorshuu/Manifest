@@ -3096,3 +3096,10 @@ Needs you: push the branch to see the first run, and turn on branch protection i
 - `[x]` What is sent is stripped of customer details (no emails, phone numbers, cookies or passwords) — checked by sending to a stand-in for Sentry on this machine.
 - `[ ]` Not connected to a real Sentry project: needs your Sentry account (DSN), and alert rules set up there.
 - `[ ]` Errors that happen only in a shopper's browser are not captured, to keep pages fast.
+
+## Staging validation (prepared)
+
+- `[x]` `docs/STAGING.md` is the step-by-step checklist for the final check on Vercel + Neon, with a sign-off table.
+- `[x]` The browser tests, load test and page-size check can now run against a deployed staging site.
+- `[x]` Fixed a dangerous gap: the script that resets the test database would have deleted any database it was pointed at. It now refuses anything not clearly a test database, and refuses remote servers unless told explicitly.
+- `[ ]` Nothing has been run on real staging yet — needs your Vercel, Neon and Sentry access.

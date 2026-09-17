@@ -15,6 +15,21 @@ const testDatabaseUrl = adminUrl.replace(/\/[^/]*$/, `/${databaseName}`);
  */
 const isProduction = process.env.E2E_PRODUCTION === "1";
 
+/**
+ * E2E_REMOTE runs the suite against an already deployed site — staging on
+ * Vercel (docs/STAGING.md) — instead of starting a server. The suite creates
+ * accounts and places orders, so it is only for a disposable staging
+ * deployment whose database was prepared by e2e/prepare-db.ts, never for
+ * production.
+ */
+const isRemote = process.env.E2E_REMOTE === "1";
+if (isRemote) {
+  const host = new URL(baseURL).hostname;
+  if (!process.env.E2E_BASE_URL || host === "localhost" || host === "127.0.0.1") {
+    throw new Error("E2E_REMOTE=1 needs E2E_BASE_URL set to the deployed staging address.");
+  }
+}
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -39,57 +54,68 @@ export default defineConfig({
   use: {
     baseURL,
     trace: "on-first-retry",
+    // Staging behind Vercel Deployment Protection (docs/STAGING.md).
+    ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+      ? {
+          extraHTTPHeaders: {
+            "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+            "x-vercel-set-bypass-cookie": "true",
+          },
+        }
+      : {}),
   },
   projects: [
     { name: "mobile", use: { ...devices["Pixel 7"] } },
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
   ],
-  webServer: {
-    command: isProduction ? "npm run start" : "npm run dev",
-    url: baseURL,
-    env: {
-      // The port the base URL names, so the suite can run on another port
-      // (E2E_BASE_URL=http://localhost:3200) while the development server
-      // stays up on 3000.
-      PORT: new URL(baseURL).port || "3000",
-      // Login throttling is real behaviour, but a suite that signs in on every
-      // spec would trip it. Disabled for the test server only; the flag is
-      // ignored entirely when NODE_ENV is production.
-      RATE_LIMIT_DISABLED: "1",
-      // The suite gets its own database, so it never writes into the
-      // developer catalog.
-      DATABASE_URL: testDatabaseUrl,
-      // A known secret, so the scheduled sweep can be exercised the way a real
-      // scheduler calls it.
-      CRON_SECRET: "test-cron-secret",
-      ...(isProduction
-        ? {
-            NODE_ENV: "production",
-            // The bypass is ignored in production by design, so the suite
-            // raises the configured ceiling rather than asking for a backdoor.
-            LOGIN_RATE_LIMIT_PER_IP: "100000",
-            LOGIN_RATE_LIMIT_PER_ACCOUNT: "100000",
-            // Every browser in the suite is one "visitor" (same address, same
-            // user agent), so the public search ceilings are raised too.
-            SEARCH_SUGGEST_LIMIT: "100000",
-            SEARCH_CLICK_LIMIT: "100000",
-            CHECKOUT_RATE_LIMIT_PER_IP: "100000",
-            CHECKOUT_RATE_LIMIT_PER_EMAIL: "100000",
-            REGISTER_RATE_LIMIT_PER_IP: "100000",
-            ORDER_LOOKUP_RATE_LIMIT_PER_IP: "100000",
-          }
-        : {}),
-    },
-    /*
-     * Three minutes for the dev server to answer.
-     *
-     * It was one, and on a cold `.next` — the first run after a broad change —
-     * the server was still compiling when the suite gave up, which reads as a
-     * failed run rather than as a slow start.
-     */
-    timeout: isProduction ? 120_000 : 180_000,
-    // The dev server must pick up that DATABASE_URL, so never reuse one that
-    // is already running against the development database.
-    reuseExistingServer: false,
-  },
+  webServer: isRemote
+    ? undefined
+    : {
+        command: isProduction ? "npm run start" : "npm run dev",
+        url: baseURL,
+        env: {
+          // The port the base URL names, so the suite can run on another port
+          // (E2E_BASE_URL=http://localhost:3200) while the development server
+          // stays up on 3000.
+          PORT: new URL(baseURL).port || "3000",
+          // Login throttling is real behaviour, but a suite that signs in on every
+          // spec would trip it. Disabled for the test server only; the flag is
+          // ignored entirely when NODE_ENV is production.
+          RATE_LIMIT_DISABLED: "1",
+          // The suite gets its own database, so it never writes into the
+          // developer catalog.
+          DATABASE_URL: testDatabaseUrl,
+          // A known secret, so the scheduled sweep can be exercised the way a real
+          // scheduler calls it.
+          CRON_SECRET: "test-cron-secret",
+          ...(isProduction
+            ? {
+                NODE_ENV: "production",
+                // The bypass is ignored in production by design, so the suite
+                // raises the configured ceiling rather than asking for a backdoor.
+                LOGIN_RATE_LIMIT_PER_IP: "100000",
+                LOGIN_RATE_LIMIT_PER_ACCOUNT: "100000",
+                // Every browser in the suite is one "visitor" (same address, same
+                // user agent), so the public search ceilings are raised too.
+                SEARCH_SUGGEST_LIMIT: "100000",
+                SEARCH_CLICK_LIMIT: "100000",
+                CHECKOUT_RATE_LIMIT_PER_IP: "100000",
+                CHECKOUT_RATE_LIMIT_PER_EMAIL: "100000",
+                REGISTER_RATE_LIMIT_PER_IP: "100000",
+                ORDER_LOOKUP_RATE_LIMIT_PER_IP: "100000",
+              }
+            : {}),
+        },
+        /*
+         * Three minutes for the dev server to answer.
+         *
+         * It was one, and on a cold `.next` — the first run after a broad change —
+         * the server was still compiling when the suite gave up, which reads as a
+         * failed run rather than as a slow start.
+         */
+        timeout: isProduction ? 120_000 : 180_000,
+        // The dev server must pick up that DATABASE_URL, so never reuse one that
+        // is already running against the development database.
+        reuseExistingServer: false,
+      },
 });

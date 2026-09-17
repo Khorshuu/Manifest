@@ -24,6 +24,12 @@ const paths = option(
   "/,/categories/candy-chocolate,/search?q=candy,/products/seasonal-candy-variety-box,/cart,/login",
 ).split(",");
 
+/* A Vercel deployment behind Deployment Protection (staging) needs the
+   automation bypass secret on every request (docs/STAGING.md). */
+const headers = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+  ? { "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET }
+  : {};
+
 const scripts = new Map();
 
 async function javascriptKb(html) {
@@ -38,7 +44,7 @@ async function javascriptKb(html) {
   let bytes = 0;
   for (const source of sources) {
     if (!scripts.has(source)) {
-      const response = await fetch(new URL(source, base));
+      const response = await fetch(new URL(source, base), { headers });
       scripts.set(source, gzipSync(await response.text()).length);
     }
     bytes += scripts.get(source);
@@ -48,7 +54,7 @@ async function javascriptKb(html) {
 
 let failed = false;
 for (const path of paths) {
-  const response = await fetch(base + path);
+  const response = await fetch(base + path, { headers });
   const html = await response.text();
   const js = await javascriptKb(html);
   const htmlKb = Math.round(gzipSync(html).length / 1024);

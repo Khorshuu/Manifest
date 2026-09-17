@@ -2,6 +2,7 @@ import "../lib/load-env";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { migratePostgres } from "../db/migrator";
+import { assertDisposableTestDatabase } from "../db/scratch-guard";
 import * as schema from "../db/schema";
 import { seed } from "../db/seed";
 
@@ -19,6 +20,9 @@ async function prepareDatabase() {
     "postgres://postgres:postgres@127.0.0.1:5432/postgres";
   const databaseName = process.env.E2E_DATABASE_NAME ?? "preorder_e2e";
   const testUrl = adminUrl.replace(/\/[^/]*$/, `/${databaseName}`);
+
+  // This drops the database. Refuse anything that is not plainly a test one.
+  assertDisposableTestDatabase(adminUrl, databaseName);
 
   const admin = postgres(adminUrl, { max: 1, onnotice: () => {} });
   // Drop any connections left by an interrupted run, or the drop will block.

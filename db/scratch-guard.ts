@@ -57,3 +57,47 @@ export function assertScratchDatabase(
 
   return { host, database };
 }
+
+const TEST_NAME = /(^|_)(e2e|test)(_|$)/i;
+const NEVER_DROPPED = new Set(["postgres", "neondb", "template0", "template1"]);
+
+/**
+ * The same caution for the end-to-end suite's database, which
+ * `e2e/prepare-db.ts` drops and recreates on every run. The name must say it
+ * is a test database, the process must not be production, and a database on
+ * another machine (a disposable Neon branch for staging) needs
+ * E2E_ALLOW_REMOTE_DATABASE=1.
+ */
+export function assertDisposableTestDatabase(
+  adminUrl: string | undefined,
+  databaseName: string,
+  env: Record<string, string | undefined> = process.env,
+): ScratchTarget {
+  if (!adminUrl) throw new UnsafeDatabaseError("no connection string was given.");
+
+  let parsed: URL;
+  try {
+    parsed = new URL(adminUrl);
+  } catch {
+    throw new UnsafeDatabaseError("the connection string could not be parsed.");
+  }
+
+  if (env.NODE_ENV === "production" || env.VERCEL_ENV === "production") {
+    throw new UnsafeDatabaseError("the process is running as production.");
+  }
+
+  if (NEVER_DROPPED.has(databaseName.toLowerCase()) || !TEST_NAME.test(databaseName) || !/^[a-z0-9_]+$/i.test(databaseName)) {
+    throw new UnsafeDatabaseError(
+      `"${databaseName}" is not named as a test database (use letters, digits and underscores, containing _e2e or _test).`,
+    );
+  }
+
+  const host = parsed.hostname;
+  if (!LOCAL_HOSTS.has(host) && env.E2E_ALLOW_REMOTE_DATABASE !== "1") {
+    throw new UnsafeDatabaseError(
+      `"${host}" is not this machine. Set E2E_ALLOW_REMOTE_DATABASE=1 only for a disposable staging branch.`,
+    );
+  }
+
+  return { host, database: databaseName };
+}
