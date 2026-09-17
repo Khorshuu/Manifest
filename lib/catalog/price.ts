@@ -16,6 +16,17 @@ import { productVariants } from "@/db/schema";
  */
 
 /** For queries built with the drizzle table objects. */
+/**
+ * What a shopper is told when a variant has no price above zero.
+ *
+ * A zero price would be charged as zero, so such a variant is not on sale
+ * however it came to be live — published before the publish check existed, a
+ * price cleared later, a sale price of nothing. The cart refuses it, flags it
+ * if it is already there, and placing an order re-checks inside the
+ * transaction.
+ */
+export const NOT_ON_SALE_MESSAGE = "This item is not on sale yet.";
+
 export const effectivePriceSql: SQL<number> = sql<number>`(case
   when ${productVariants.salePriceBdt} is not null
    and (${productVariants.saleStartsAt} is null or ${productVariants.saleStartsAt} <= now())

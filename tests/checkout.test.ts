@@ -275,6 +275,24 @@ describe("cart problems", () => {
     );
   });
 
+  /** A variant with no price is not on sale: it would be charged as nothing. */
+  it("refuses to add a variant priced at zero", async () => {
+    const variant = await seedVariant({ priceBdt: 0 });
+    const cartId = await cartFor();
+
+    await expect(addToCart(cartId, variant.id, 1)).rejects.toThrow(/not on sale/i);
+  });
+
+  it("flags a line whose price was taken to zero after it was added", async () => {
+    const variant = await seedVariant();
+    const cartId = await cartWith(variant.id);
+    await harness.db.update(productVariants).set({ priceBdt: 0 }).where(eq(productVariants.id, variant.id));
+
+    const view = await getCartView(cartId);
+    expect(view.lines[0].problem).toMatch(/not on sale/i);
+    expect(view.hasProblems).toBe(true);
+  });
+
   it("refuses to add to a closed preorder", async () => {
     const variant = await seedVariant({
       preorderClosesAt: new Date(Date.now() - HOUR),
@@ -514,6 +532,26 @@ describe("placing an order", () => {
     await expect(place(cartId, "cod-ok", "cod")).resolves.toMatchObject({
       reused: false,
     });
+  });
+
+  /**
+   * The authoritative check, inside the transaction: a price taken to zero
+   * between the cart and the order must not become an order for nothing.
+   */
+  it("refuses to place an order for a variant priced at zero, and holds nothing", async () => {
+    const variant = await seedVariant();
+    const cartId = await cartWith(variant.id);
+    await harness.db.update(productVariants).set({ priceBdt: 0 }).where(eq(productVariants.id, variant.id));
+
+    await expect(place(cartId, "zero-price")).rejects.toThrow(CheckoutError);
+
+    const [after] = await harness.db
+      .select({ reserved: productVariants.preorderReserved })
+      .from(productVariants)
+      .where(eq(productVariants.id, variant.id));
+    expect(after.reserved).toBe(0);
+    const placed = await harness.db.select().from(orders).where(eq(orders.idempotencyKey, "zero-price"));
+    expect(placed).toHaveLength(0);
   });
 
   it("refuses an empty cart", async () => {

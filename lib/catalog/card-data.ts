@@ -97,10 +97,12 @@ export async function loadCardAggregates(
       productId: productVariants.productId,
       /* The price as charged, so a card and the product page it opens cannot
          quote different figures for the same variant. */
-      minPrice: sql<number>`min(${effectivePriceSql})::int`,
+      /* Only variants with a price above zero: an unpriced one is not on sale
+         (NOT_ON_SALE_MESSAGE), and a card reading "BDT 0" is a false offer. */
+      minPrice: sql<number>`min(${effectivePriceSql}) filter (where ${effectivePriceSql} > 0)::int`,
       /* The regular price of whichever variant is cheapest right now, so the
          saving shown is against that variant and not against a dearer one. */
-      listPrice: sql<number>`(array_agg(${productVariants.priceBdt} order by ${effectivePriceSql} asc))[1]::int`,
+      listPrice: sql<number>`(array_agg(${productVariants.priceBdt} order by ${effectivePriceSql} asc) filter (where ${effectivePriceSql} > 0))[1]::int`,
       outOfStock: sql<boolean>`bool_and(
         ${productVariants.fulfillmentMode} = 'in_stock'
         and ${productVariants.stockQuantity} is not null
@@ -135,9 +137,10 @@ export async function loadCardAggregates(
   for (const variant of variants) {
     const entry = result.get(variant.productId);
     if (!entry) continue;
-    entry.fromPriceBdt = Number(variant.minPrice);
-    const listPrice = Number(variant.listPrice);
-    if (Number.isFinite(listPrice) && listPrice > entry.fromPriceBdt) {
+    // No priced variant: no price to quote, and the card says so.
+    entry.fromPriceBdt = variant.minPrice === null ? null : Number(variant.minPrice);
+    const listPrice = variant.listPrice === null ? NaN : Number(variant.listPrice);
+    if (entry.fromPriceBdt !== null && Number.isFinite(listPrice) && listPrice > entry.fromPriceBdt) {
       entry.listPriceBdt = listPrice;
       const off = Math.round(((listPrice - entry.fromPriceBdt) / listPrice) * 100);
       entry.discountPercent = off > 0 ? off : null;

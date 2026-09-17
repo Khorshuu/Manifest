@@ -30,6 +30,17 @@ export const SKU_HOLD_MS = 2 * 60 * 60 * 1000;
 const GENERATION_LOCK = 734_205_118;
 
 /**
+ * Serialises choosing an SKU, across every connection, until the transaction
+ * commits. Choosing one reads the SKUs in use and then inserts, so two
+ * transactions that read before either inserts pick the same one. Product SKU
+ * reservations and generated variant SKUs share the lock: both draw on the
+ * same unique space.
+ */
+export async function lockSkuAllocation(tx: { execute: typeof db.execute }) {
+  await tx.execute(sql`select pg_advisory_xact_lock(${GENERATION_LOCK})`);
+}
+
+/**
  * How SKUs look. One place, so the format can later be derived from the
  * product (brand, category, specifications) without touching the reservation
  * rules: a strategy only has to turn a number into a SKU and back.
@@ -160,7 +171,7 @@ export async function reserveSku(
     }
 
     // One generation at a time, across every connection, until commit.
-    await tx.execute(sql`select pg_advisory_xact_lock(${GENERATION_LOCK})`);
+    await lockSkuAllocation(tx);
     await releaseExpiredSkuReservations(tx);
 
     const sku = await nextFreeSku(tx, strategy);

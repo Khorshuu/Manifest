@@ -201,11 +201,12 @@ const popularitySql = sql`(
   + case when ${products.createdAt} > now() - interval '30 days' then 4 else 0 end
 )`;
 
-/** The cheapest purchasable variant, as charged. */
+/** The cheapest purchasable variant, as charged. Unpriced variants are not on sale. */
 const fromPriceSql = sql`(
   select min(${sql.raw(effectivePriceExpression())}) from product_variants v
   where v.product_id = ${products.id}
     and v.is_enabled = true and v.archived_at is null
+    and ${sql.raw(effectivePriceExpression())} > 0
 )`;
 
 /**
@@ -403,6 +404,8 @@ export async function getPublicVariants(productId: string) {
         eq(productVariants.productId, productId),
         eq(productVariants.isEnabled, true),
         isNull(productVariants.archivedAt),
+        // Not offered without a price: it could not be bought (NOT_ON_SALE_MESSAGE).
+        sql`${effectivePriceSql} > 0`,
       ),
     )
     .orderBy(asc(effectivePriceSql));
@@ -465,17 +468,22 @@ export async function listRelatedProducts(
 
 /** Open preorders closing soonest — the homepage's trending row. */
 export async function listClosingSoon(limit = 4): Promise<ProductCard[]> {
+  /*
+   * The next window still open on each listing. A window that has already
+   * shut is not "closing soon": the rail used to list those first, with a
+   * Preorder link to a buy box that refuses them.
+   */
+  const nextClose = sql`(
+    select min(v.preorder_closes_at) from product_variants v
+    where v.product_id = ${products.id}
+      and v.is_enabled = true and v.archived_at is null
+      and v.preorder_closes_at > now()
+  )`;
   const rows = await db
     .select(productColumns)
     .from(products)
-    .where(and(publicProductWhere, eq(products.status, "preorder_open")))
-    .orderBy(
-      asc(sql`(
-        select min(v.preorder_closes_at) from product_variants v
-        where v.product_id = ${products.id}
-          and v.is_enabled = true and v.archived_at is null
-      )`),
-    )
+    .where(and(publicProductWhere, eq(products.status, "preorder_open"), sql`${nextClose} is not null`))
+    .orderBy(asc(nextClose))
     .limit(limit);
 
   return toCards(rows);

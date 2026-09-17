@@ -2992,3 +2992,14 @@ Not verified: millions of rows.
 Verified: unit suite and full end-to-end suite pass.
 
 Not verified: the five-minute schedule on the live host — it runs as often as the job trigger (see D-053).
+
+## Production readiness: storefront pass (16.1)
+
+- `[x]` A product option with no price (BDT 0) can no longer be put in the cart or ordered. Such options are hidden from the product page, and product cards no longer show "BDT 0". The Optoma projector on the site has two options priced at 0 — they are now hidden until they get a price.
+- `[x]` "Windows closing soon" on the homepage no longer shows windows that have already closed.
+- `[x]` Adding variant groups to two similarly named products at the same moment could fail with "That already exists". Fixed.
+- `[x]` Checked the header, account dashboard, search, homepage campaign and product cards against the brief — already in place.
+
+Verified: unit and full end-to-end suites pass.
+
+Needs your decision: the publish check insists every preorder has a place limit and a closing date, but checkout still sells a preorder without them as unlimited. Tell me which rule you want.

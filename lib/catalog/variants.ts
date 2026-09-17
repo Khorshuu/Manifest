@@ -16,6 +16,7 @@ import {
   wishlistItems,
 } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
+import { lockSkuAllocation } from "./sku";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import {
@@ -226,6 +227,9 @@ export async function generateVariants(
     .where(eq(products.id, productId));
 
   await db.transaction(async (tx) => {
+    // Held until commit, so a concurrent generation for a product with the
+    // same slug prefix cannot choose the same SKUs (lockSkuAllocation).
+    await lockSkuAllocation(tx);
     // Read the SKUs already in use once, rather than querying per combination.
     const takenSkus = new Set(
       (
@@ -311,6 +315,7 @@ async function createSingleVariant(
   if (!product) throw new Error("That product no longer exists.");
 
   await db.transaction(async (tx) => {
+    await lockSkuAllocation(tx);
     const takenSkus = new Set(
       (await tx.select({ sku: productVariants.sku }).from(productVariants)).map(
         (row) => row.sku,
@@ -754,6 +759,7 @@ export async function addVariant(
     }
 
     const label = options.map((option) => option.value).join(" / ") || "Single variant";
+    await lockSkuAllocation(tx);
     const taken = new Set(
       (await tx.select({ sku: productVariants.sku }).from(productVariants)).map((row) => row.sku),
     );

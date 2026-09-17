@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { effectivePriceSql } from "@/lib/catalog/price";
+import { effectivePriceSql, NOT_ON_SALE_MESSAGE } from "@/lib/catalog/price";
 import {
   loadVariantOptions,
   summariseOptions,
@@ -204,6 +204,8 @@ export async function getCartView(cartId: string): Promise<CartView> {
       problem = "This item is no longer sold.";
     } else if (row.isClosed) {
       problem = "This preorder has closed.";
+    } else if (row.unitPriceBdt <= 0) {
+      problem = NOT_ON_SALE_MESSAGE;
     } else if (available !== null && available <= 0) {
       problem =
         row.fulfillmentMode === "preorder"
@@ -293,6 +295,7 @@ export async function addToCart(
       isClosed: sql<boolean>`(${productVariants.preorderClosesAt} is not null
         and ${productVariants.preorderClosesAt} <= now())`,
       productArchivedAt: products.archivedAt,
+      priceBdt: effectivePriceSql,
     })
     .from(productVariants)
     .innerJoin(products, eq(productVariants.productId, products.id))
@@ -307,6 +310,10 @@ export async function addToCart(
 
   if (variant.isClosed) {
     throw new VariantUnavailableError("That preorder has closed.");
+  }
+
+  if (Number(variant.priceBdt) <= 0) {
+    throw new VariantUnavailableError(NOT_ON_SALE_MESSAGE);
   }
 
   const available =

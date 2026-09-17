@@ -1,6 +1,6 @@
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { effectivePriceSql } from "@/lib/catalog/price";
+import { effectivePriceSql, NOT_ON_SALE_MESSAGE } from "@/lib/catalog/price";
 import {
   loadVariantOptions,
   summariseOptions,
@@ -227,6 +227,13 @@ export async function placeOrder(
         .orderBy(asc(cartItems.addedAt), asc(cartItems.id));
 
       if (lines.length === 0) throw new CheckoutError("Your cart is empty.");
+
+      // The price read inside this transaction decides: a line with nothing to
+      // charge is not an order for nothing (NOT_ON_SALE_MESSAGE).
+      const unpriced = lines.find((line) => Number(line.priceBdt) <= 0);
+      if (unpriced) {
+        throw new CheckoutError(`${unpriced.title}: ${NOT_ON_SALE_MESSAGE}`);
+      }
 
       if (input.method === "cod" && !codAllowed(lines)) {
         throw new CheckoutError(
