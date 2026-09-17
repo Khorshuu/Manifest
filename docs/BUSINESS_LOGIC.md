@@ -176,3 +176,9 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - Applying never publishes, prices, stocks, re-files, archives or deletes anything. Photograph alt text written by SEO Pulse is marked "Needs manual review" because SEO Pulse cannot see the image.
 - Synonyms become a site-wide entry only when ticked, only for staff with `search.manage`, and an existing entry for the same term is never changed.
 - Downloads: JSON (everything), CSV (one row per finding, with `data_type` research/analysis) and a readable HTML report.
+
+## Publishing (D-056)
+
+- A listing reaches a status shoppers can see only through the publish check: a category, at least one photograph, something to buy, a price on every variant on sale, and a capacity and closing date on every preorder. The check runs for the Publish button, for any save that moves an unpublished listing to a public status, and for publish dates.
+- New listings are drafts. A live listing can change between public statuses without being checked again.
+- Publish and unpublish dates are applied every five minutes by `catalog.apply_publish_schedule`, on behalf of the staff member who last edited the listing while they still have catalogue access.

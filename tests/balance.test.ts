@@ -19,7 +19,7 @@ import {
 import { AuthorizationError } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { addToCart, getOrCreateCart, newCartToken } from "@/lib/cart";
-import { createCategory, createProduct } from "@/lib/catalog";
+import { createCategory } from "@/lib/catalog";
 import { setBackgroundDeliveryForTesting } from "@/lib/notifications";
 import {
   BalanceError,
@@ -38,6 +38,7 @@ import {
   setNotificationProviderForTesting,
 } from "@/lib/providers/notification";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -104,7 +105,7 @@ async function depositOrder() {
     name: `Cat ${suffix}`,
     slug: `cat-${suffix}`,
   });
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: `Product ${suffix}`,
     categoryId: category.id,
     status: "preorder_open",

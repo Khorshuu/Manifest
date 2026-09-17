@@ -18,7 +18,6 @@ import {
   countProducts,
   createCategory,
   createCategoryAttribute,
-  createProduct,
   discover,
   listFacets,
   listProductCards,
@@ -27,6 +26,7 @@ import {
   updateProduct,
 } from "@/lib/catalog";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -78,7 +78,7 @@ async function seed(options: {
   prices?: number[];
   sale?: number;
 }) {
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: options.title,
     categoryId: options.categoryId,
     status: "preorder_open",

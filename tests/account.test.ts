@@ -35,7 +35,7 @@ import {
   updateAddress,
 } from "@/lib/account";
 import { addToCart, getOrCreateCart, newCartToken } from "@/lib/cart";
-import { createCategory, createProduct } from "@/lib/catalog";
+import { createCategory } from "@/lib/catalog";
 import { setBackgroundDeliveryForTesting } from "@/lib/notifications";
 import { placeOrder } from "@/lib/orders";
 import {
@@ -43,6 +43,7 @@ import {
   setPaymentProviderForTesting,
 } from "@/lib/providers/payment";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -90,7 +91,7 @@ beforeEach(async () => {
 async function makeVariant(stockQuantity = 10) {
   const suffix = Math.random().toString(36).slice(2, 8);
   const category = await createCategory(staff, { name: `Cat ${suffix}`, slug: `cat-${suffix}` });
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: `Product ${suffix}`,
     categoryId: category.id,
     status: "in_stock",

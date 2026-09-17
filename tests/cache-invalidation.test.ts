@@ -26,7 +26,6 @@ import { addToCart, getOrCreateCart } from "@/lib/cart";
 import {
   addAttributeValue,
   createCategory,
-  createProduct,
   createProductOption,
   listProductOptions,
   removeProductOptionValue,
@@ -39,6 +38,7 @@ import {
   updateVariant,
 } from "@/lib/catalog";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 const owner: SessionUser = { id: "", email: "owner@example.com", role: "super_admin" };
@@ -67,7 +67,7 @@ beforeEach(async () => {
 
   const category = await createCategory(owner, { name: "Snacks", slug: "snacks" });
   categoryId = category.id;
-  const product = await createProduct(owner, { title: "Candy box", categoryId, status: "preorder_open" });
+  const product = await createProductForTest(owner, { title: "Candy box", categoryId, status: "preorder_open" });
   productId = product.id;
   const [variant] = await harness.db
     .insert(productVariants)

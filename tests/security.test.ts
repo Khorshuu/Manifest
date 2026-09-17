@@ -21,7 +21,6 @@ import { addToCart, getOrCreateCart, newCartToken } from "@/lib/cart";
 import {
   archiveProduct,
   createCategory,
-  createProduct,
   getPublicProductBySlug,
   getPublicVariants,
   updateVariant,
@@ -32,6 +31,7 @@ import {
   setPaymentProviderForTesting,
 } from "@/lib/providers/payment";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -100,7 +100,7 @@ async function seedProduct(overrides: { costPriceUsd?: number } = {}) {
     name: `Cat ${suffix}`,
     slug: `cat-${suffix}`,
   });
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: `Product ${suffix}`,
     categoryId: category.id,
     status: "preorder_open",
@@ -148,7 +148,7 @@ describe("a customer cannot reach staff capability", () => {
     });
 
     await expect(
-      createProduct(customer, { title: "Sneaky", categoryId: category.id }),
+      createProductForTest(customer, { title: "Sneaky", categoryId: category.id }),
     ).rejects.toThrow(AuthorizationError);
   });
 

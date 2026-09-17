@@ -15,3 +15,4 @@ export * from "./filter-params";
 export * from "./discovery";
 export * from "./readiness";
 export * from "./product-lifecycle";
+export * from "./schedule";

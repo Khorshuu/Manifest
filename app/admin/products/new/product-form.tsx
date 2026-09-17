@@ -99,7 +99,6 @@ export function ProductForm({ categories }: { categories: CategoryOption[] }) {
         skuReservationId: hold?.id ?? undefined,
         descriptionHtml: form.get("descriptionHtml") || undefined,
         bulletFeatures: bullets.length > 0 ? bullets : undefined,
-        status: form.get("status"),
       }),
     });
 
@@ -185,22 +184,15 @@ export function ProductForm({ categories }: { categories: CategoryOption[] }) {
         hint={skuHint}
       />
 
-      <div className="flex flex-col gap-2">
-        <label htmlFor="status" className="text-meta font-medium text-ink">
-          Status
-        </label>
-        <select
-          id="status"
-          name="status"
-          defaultValue="draft"
-          className="min-h-11 rounded-control border border-blue-300 bg-paper px-3 text-body text-ink"
-        >
-          <option value="draft">Draft — not visible to shoppers</option>
-          <option value="coming_soon">Coming soon</option>
-          <option value="preorder_open">Preorder open</option>
-          <option value="in_stock">In stock</option>
-        </select>
-      </div>
+      {/*
+       * No status here: a new listing is saved as a draft and goes live from
+       * the editor once it has a photograph and something priced to buy
+       * (D-056). A status control on this form could only ever be refused.
+       */}
+      <p className="text-meta text-ink/70">
+        Saved as a draft, not visible to shoppers. You publish it from the next
+        screen once it has a photograph and something priced to buy.
+      </p>
 
       <div className="flex flex-col gap-2">
         <label

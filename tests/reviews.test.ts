@@ -12,7 +12,7 @@ import { addresses, auditLog, productVariants, reviews, users } from "@/db/schem
 import { AuthorizationError } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { addToCart, getOrCreateCart, newCartToken } from "@/lib/cart";
-import { createCategory, createProduct, getProductRating } from "@/lib/catalog";
+import { createCategory, getProductRating } from "@/lib/catalog";
 import { setBackgroundDeliveryForTesting } from "@/lib/notifications";
 import { advanceOrder, confirmPayment, placeOrder } from "@/lib/orders";
 import {
@@ -31,6 +31,7 @@ import {
   submitReview,
 } from "@/lib/reviews";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -110,7 +111,7 @@ async function buyProduct(deliverThrough: boolean) {
     name: `Cat ${suffix}`,
     slug: `cat-${suffix}`,
   });
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: `Product ${suffix}`,
     categoryId: category.id,
     status: "in_stock",

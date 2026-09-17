@@ -11,10 +11,10 @@ import { productRelated, productVariants, users } from "@/db/schema";
 import type { SessionUser } from "@/lib/auth/session";
 import {
   createCategory,
-  createProduct,
   listRecommendations,
 } from "@/lib/catalog";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -55,7 +55,7 @@ async function seed(options: {
   tags?: string[];
   priceBdt?: number;
 }) {
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: options.title,
     categoryId: options.categoryId,
     brand: options.brand,
@@ -160,7 +160,7 @@ describe("recommendations", () => {
 
   it("cannot recommend a draft", async () => {
     const subject = await seed({ title: "Pour-over Kettle", categoryId: coffeeId });
-    await createProduct(staff, {
+    await createProductForTest(staff, {
       title: "Unpublished Grinder",
       categoryId: coffeeId,
       status: "draft",

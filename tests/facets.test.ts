@@ -19,7 +19,6 @@ import type { SessionUser } from "@/lib/auth/session";
 import {
   countProducts,
   createCategory,
-  createProduct,
   hasActiveFilters,
   listFacets,
   listProductCards,
@@ -27,6 +26,7 @@ import {
   suggestSearch,
 } from "@/lib/catalog";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -105,7 +105,7 @@ async function seedProduct(options: {
   reserved?: number;
   values?: string[];
 }) {
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: options.title,
     categoryId,
     brand: options.brand,
@@ -427,7 +427,7 @@ describe("autosuggest", () => {
 
   /** A draft is not public, so it cannot be suggested either. */
   it("never suggests a draft product", async () => {
-    await createProduct(staff, {
+    await createProductForTest(staff, {
       title: "Secret drop",
       categoryId,
       status: "draft",

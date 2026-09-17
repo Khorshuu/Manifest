@@ -23,7 +23,6 @@ import {
   archiveProduct,
   createCategory,
   createCategoryAttribute,
-  createProduct,
   deleteCategoryAttribute,
   listProductCards,
   updateCategory,
@@ -36,6 +35,7 @@ import {
   searchIndexStatus,
 } from "@/lib/search/maintenance";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -68,7 +68,7 @@ beforeEach(async () => {
 });
 
 async function seed(title: string) {
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title,
     categoryId,
     status: "preorder_open",

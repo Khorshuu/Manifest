@@ -17,7 +17,6 @@ import {
   CategoryAttributeError,
   createCategory,
   createCategoryAttribute,
-  createProduct,
   deleteCategoryAttribute,
   DuplicateSkuError,
   discountPercent,
@@ -33,6 +32,7 @@ import {
   validateAttributeValues,
 } from "@/lib/catalog";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -72,7 +72,7 @@ beforeEach(async () => {
 
 async function seedProduct(title = "Studio headphones") {
   const category = await createCategory(staff, { name: "Audio", slug: "audio" });
-  const product = await createProduct(staff, { title, categoryId: category.id });
+  const product = await createProductForTest(staff, { title, categoryId: category.id });
   return { category, product };
 }
 
@@ -124,14 +124,14 @@ describe("partial product saves", () => {
 describe("product SKUs", () => {
   it("refuses a SKU another product already carries", async () => {
     const { category } = await seedProduct();
-    await createProduct(staff, {
+    await createProductForTest(staff, {
       title: "First",
       categoryId: category.id,
       sku: "HP-001",
     });
 
     await expect(
-      createProduct(staff, {
+      createProductForTest(staff, {
         title: "Second",
         categoryId: category.id,
         sku: "HP-001",
@@ -141,7 +141,7 @@ describe("product SKUs", () => {
 
   it("lets a product keep its own SKU on a later save", async () => {
     const { category } = await seedProduct();
-    const created = await createProduct(staff, {
+    const created = await createProductForTest(staff, {
       title: "First",
       categoryId: category.id,
       sku: "HP-001",
@@ -155,9 +155,9 @@ describe("product SKUs", () => {
   it("allows any number of products with no SKU at all", async () => {
     const { category } = await seedProduct();
 
-    await createProduct(staff, { title: "A", categoryId: category.id });
+    await createProductForTest(staff, { title: "A", categoryId: category.id });
     await expect(
-      createProduct(staff, { title: "B", categoryId: category.id }),
+      createProductForTest(staff, { title: "B", categoryId: category.id }),
     ).resolves.toBeDefined();
   });
 });
@@ -493,7 +493,9 @@ describe("gallery and lifestyle imagery", () => {
     expect(admin?.images).toHaveLength(1);
     expect(admin?.lifestyleImages).toHaveLength(1);
 
-    await updateProduct(staff, product.id, { status: "in_stock" });
+    // Live without a priced variant: set directly, since the publish check
+    // (D-056) would refuse it and this test is about what shoppers see.
+    await harness.db.update(products).set({ status: "in_stock" }).where(eq(products.id, product.id));
     const shopper = await getPublicProductBySlug(product.slug);
 
     expect(shopper?.images).toHaveLength(1);

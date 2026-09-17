@@ -37,13 +37,14 @@ import { AuthorizationError } from "@/lib/auth/authorize";
 import { createSession, validateSessionToken } from "@/lib/auth/session";
 import type { SessionUser } from "@/lib/auth/session";
 import { addToCart, getOrCreateCart, newCartToken } from "@/lib/cart";
-import { createCategory, createProduct } from "@/lib/catalog";
+import { createCategory } from "@/lib/catalog";
 import { advanceOrder, placeOrder } from "@/lib/orders";
 import {
   MockPaymentProvider,
   setPaymentProviderForTesting,
 } from "@/lib/providers/payment";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -112,7 +113,7 @@ async function placeTestOrder(price = 500_00, quantity = 2) {
     name: `Cat ${suffix}`,
     slug: `cat-${suffix}`,
   });
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: `Product ${suffix}`,
     categoryId: category.id,
     status: "preorder_open",

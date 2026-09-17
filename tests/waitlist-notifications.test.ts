@@ -16,10 +16,11 @@ import {
   waitlistEntries,
 } from "@/db/schema";
 import type { SessionUser } from "@/lib/auth/session";
-import { createCategory, createProduct } from "@/lib/catalog";
+import { createCategory } from "@/lib/catalog";
 import { composeWaitlistMessage } from "@/lib/notifications";
 import { openPreorder, releaseCapacityStandalone } from "@/lib/preorder";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -53,7 +54,7 @@ async function fullVariantWithQueue(waiting: string[], capacity = 2) {
     name: `Cat ${suffix}`,
     slug: `cat-${suffix}`,
   });
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: `Product ${suffix}`,
     categoryId: category.id,
     status: "preorder_open",

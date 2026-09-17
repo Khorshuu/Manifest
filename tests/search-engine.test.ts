@@ -12,7 +12,6 @@ import { auditLog, productVariants, products, users } from "@/db/schema";
 import type { SessionUser } from "@/lib/auth/session";
 import {
   createCategory,
-  createProduct,
   discover,
   getPublicProductBySlug,
   listProductCards,
@@ -23,6 +22,7 @@ import { suggest, suggestSearch } from "@/lib/search/suggest";
 import { SynonymError, createSynonym } from "@/lib/search/synonyms";
 import { synonymInputSchema } from "@/lib/validation/search";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -76,7 +76,7 @@ async function seed(options: {
   costPriceUsd?: number;
   status?: "preorder_open" | "draft";
 }) {
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: options.title,
     categoryId: options.categoryId ?? electronicsId,
     brand: options.brand,

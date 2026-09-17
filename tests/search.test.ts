@@ -19,12 +19,12 @@ import {
 import type { SessionUser } from "@/lib/auth/session";
 import {
   createCategory,
-  createProduct,
   listProductCards,
   suggestSearch,
   toTsQuery,
 } from "@/lib/catalog";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -69,7 +69,7 @@ async function seed(options: {
   tags?: string[];
   priceBdt?: number;
 }) {
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: options.title,
     categoryId: options.categoryId ?? electronicsId,
     brand: options.brand,
@@ -185,7 +185,7 @@ describe("what a search matches", () => {
   });
 
   it("never returns a draft", async () => {
-    await createProduct(staff, {
+    await createProductForTest(staff, {
       title: "Secret drop",
       categoryId: electronicsId,
       descriptionHtml: "<p>Tactile switches.</p>",

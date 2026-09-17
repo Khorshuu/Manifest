@@ -187,6 +187,26 @@ export async function getReadinessSummary(
 }
 
 /**
+ * Refuses with the reasons unless every required check passes.
+ *
+ * The one gate in front of a status shoppers can see. `publishProduct` runs
+ * it, and so does an ordinary save that moves an unpublished listing to a
+ * public status (lib/catalog/products.ts), so no route — the editor, the
+ * create form, the API — can put an unfinished listing live (D-056).
+ */
+export async function assertReadyToPublish(actor: SessionUser | null, productId: string) {
+  const checks = await getReadiness(actor, productId);
+  const failing = checks.filter((check) => check.required && !check.passed);
+
+  if (failing.length > 0) {
+    throw new NotReadyError(
+      failing.map((check) => check.label.toLowerCase()),
+      failing,
+    );
+  }
+}
+
+/**
  * Publishes, or refuses with the reasons. The same check runs here as the
  * wizard shows, so the screen and the rule cannot disagree.
  */
@@ -201,15 +221,7 @@ export async function publishProduct(
     throw new NotReadyError([`${status} is not a status shoppers can see`]);
   }
 
-  const checks = await getReadiness(actor, productId);
-  const failing = checks.filter((check) => check.required && !check.passed);
-
-  if (failing.length > 0) {
-    throw new NotReadyError(
-      failing.map((check) => check.label.toLowerCase()),
-      failing,
-    );
-  }
+  await assertReadyToPublish(actor, productId);
 
   return db.transaction(async (tx) => {
     const [before] = await tx

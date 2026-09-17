@@ -647,6 +647,18 @@ export async function createProduct(
    * The SKU the Add Product form was holding, unless staff typed another. A
    * product saved with no SKU at all still gives its hold back.
    */
+  /*
+   * A new listing has no photograph and nothing to buy, so it cannot pass the
+   * publish check: it starts as a draft (or scheduled) and goes live through
+   * publishing once it is finished (D-056).
+   */
+  if (input.status && (PUBLIC_STATUSES as readonly string[]).includes(input.status)) {
+    const { NotReadyError } = await import("./readiness");
+    throw new NotReadyError([
+      "save it as a draft first — a new listing has no photograph or anything to buy yet",
+    ]);
+  }
+
   const reservationId = input.skuReservationId ?? null;
   if (input.sku) await assertSkuIsFree(input.sku, undefined, reservationId);
 
@@ -716,6 +728,18 @@ export async function updateProduct(
     .where(eq(products.id, productId));
 
   if (!current) throw new Error("That product no longer exists.");
+
+  /*
+   * Moving an unpublished listing to a status shoppers can see is publishing,
+   * whichever screen sends it, so it runs the same check (D-056). A listing
+   * already live may change between public statuses — open to closed, say —
+   * without being checked again.
+   */
+  const isPublic = (status: string) => (PUBLIC_STATUSES as readonly string[]).includes(status);
+  if (input.status && isPublic(input.status) && !isPublic(current.status)) {
+    const { assertReadyToPublish } = await import("./readiness");
+    await assertReadyToPublish(actor, productId);
+  }
 
   if (input.sku) await assertSkuIsFree(input.sku, productId);
 

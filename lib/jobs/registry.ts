@@ -1,4 +1,5 @@
 import { deleteExpiredSessions } from "@/lib/auth/session";
+import { applyPublishSchedule } from "@/lib/catalog/schedule";
 import { releaseExpiredSkuReservations } from "@/lib/catalog/sku";
 import { deliverQueuedNotifications } from "@/lib/notifications";
 import { sweepUnreferencedMedia } from "@/lib/media/registry";
@@ -36,6 +37,7 @@ export const JOB_HANDLERS: JobHandlers = {
     return { rateLimits, searchLogs, finishedJobs };
   },
   "media.sweep_unreferenced": () => sweepUnreferencedMedia(getMediaProvider()),
+  "catalog.apply_publish_schedule": () => applyPublishSchedule(),
 };
 
 export const RECURRING_JOBS: RecurringJob[] = [
@@ -44,6 +46,7 @@ export const RECURRING_JOBS: RecurringJob[] = [
   { kind: "payments.reconcile", everyMinutes: 10 },
   { kind: "search.process_queue", everyMinutes: 10 },
   { kind: "catalog.release_sku_holds", everyMinutes: 15 },
+  { kind: "catalog.apply_publish_schedule", everyMinutes: 5 },
   { kind: "maintenance.prune", everyMinutes: 60 },
   { kind: "media.sweep_unreferenced", everyMinutes: 60 },
 ];

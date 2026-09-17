@@ -89,7 +89,6 @@ test("a staff member adds a product and it appears in the list", async ({
   const title = `Test Product ${crypto.randomUUID().slice(0, 8)}`;
   await page.getByLabel("Title").fill(title);
   await page.getByLabel("Brand").fill("Test Brand");
-  await page.getByLabel("Status").selectOption("preorder_open");
   await page.getByRole("button", { name: "Save product" }).click();
 
   // Creating drops straight into the setup wizard.

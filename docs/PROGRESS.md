@@ -2982,3 +2982,13 @@ Not verified: real phones, iPhones, and photos served from Vercel Blob.
 Verified with 100,000 orders, 20,000 customers and 50,000 audit entries: every admin page answers in 13–200 ms. Unit and admin end-to-end tests pass.
 
 Not verified: millions of rows.
+
+## Production readiness: product page and publishing (15.1)
+
+- `[x]` A product can no longer go live unfinished by picking a live status when creating it or saving it. Every route runs the same checks as the Publish button. New products are saved as drafts.
+- `[x]` "Publish on" and "Unpublish on" dates now actually happen (checked every five minutes). A product that is still unfinished on its date stays a draft and publishes once it is finished.
+- `[x]` Tested that the option a shopper picks is the one shown in the cart, at checkout and in the staff order view.
+
+Verified: unit suite and full end-to-end suite pass.
+
+Not verified: the five-minute schedule on the live host — it runs as often as the job trigger (see D-053).

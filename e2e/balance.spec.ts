@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
+/** A valid 1×1 PNG: listings need a photograph before they can be published. */
+const PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
 /**
  * Taking the balance on a deposit order, as staff drive it.
  *
@@ -73,7 +77,6 @@ async function createDepositProduct(page: Page): Promise<string> {
   const title = `Deposit Test ${crypto.randomUUID().slice(0, 8)}`;
   await page.goto("/admin/products/new");
   await page.getByLabel("Title").fill(title);
-  await page.getByLabel("Status").selectOption("preorder_open");
   await page.getByRole("button", { name: "Save product" }).click();
   // Creating opens the product editor.
   await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
@@ -119,6 +122,30 @@ async function createDepositProduct(page: Page): Promise<string> {
     ] as const,
   );
   expect(patched).toBe(200);
+
+  /*
+   * A new listing is a draft until it passes the publish check (D-056): it
+   * needs a photograph, then publishing puts it on sale.
+   */
+  const productId = productUrl.split("/").pop()!;
+  const [uploaded, published, detail] = await page.evaluate(
+    async ([id, png]) => {
+      const bytes = Uint8Array.from(atob(png), (character) => character.charCodeAt(0));
+      const data = new FormData();
+      data.append("file", new File([bytes], "product.png", { type: "image/png" }));
+      data.append("altText", "The deposit test product");
+      const upload = await fetch(`/api/admin/products/${id}/images`, { method: "POST", body: data });
+      const publish = await fetch(`/api/admin/products/${id}/publish`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "preorder_open" }),
+      });
+      return [upload.status, publish.status, await publish.text()] as const;
+    },
+    [productId, PNG_BASE64] as const,
+  );
+  expect(uploaded).toBe(201);
+  expect(published, detail).toBe(200);
 
   return variantId;
 }

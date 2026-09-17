@@ -1355,3 +1355,39 @@ Stored images are always `.webp`. Files uploaded before migration 0027 are not
 in the registry and are never swept; they are few and all referenced by
 existing rows. The sweep runs only as often as the job trigger does, which is
 still subject to the hosting-plan decision in D-053.
+
+## D-056 — One publish check for every way a listing goes live; publish dates are acted on
+
+**Context.** `publishProduct` refused a listing without a category, a
+photograph, something to buy, a price on every variant on sale, and a capacity
+and closing date on every preorder. But it was not the only way to a status
+shoppers can see: the create form offered "Preorder open" and "In stock", and
+the ordinary product save accepted any status, so a listing with no photograph
+and nothing to buy could be put live by either. Separately, the editor let staff
+set "Publish on" and "Unpublish on" dates and said a scheduled job acted on
+them; no such job existed, so a scheduled listing simply stayed a draft.
+
+**Decision.**
+
+- `assertReadyToPublish` (lib/catalog/readiness.ts) is the single gate. It runs
+  in `publishProduct` and in `updateProduct` whenever an unpublished listing
+  is given a public status. A listing already live may move between public
+  statuses (open to closed, say) without being checked again.
+- `createProduct` refuses a public status: a new listing cannot pass the check.
+  The create form no longer offers a status; a listing is saved as a draft and
+  published from the editor.
+- A recurring job (`catalog.apply_publish_schedule`, every five minutes)
+  publishes listings whose publish date has passed through the same gate, as
+  preorder-open when it has preorder variants and in stock otherwise, and
+  returns live listings to draft when their unpublish date passes. It acts on
+  behalf of the staff member who last edited the listing, and only while they
+  still have catalogue access, because the audit log records a person. Each
+  date is claimed by clearing it in a guarded update; a refused publish puts
+  the date back and is reported, and is tried again on the next run.
+
+**Consequences.** Test fixtures that created live listings directly now use
+`createProductForTest` (tests/helpers/catalog.ts), which creates through the
+real function and then sets the status — a fixture shortcut, not an application
+path. The schedule runs only as often as the job trigger does (D-053). A listing
+whose date passed while unfinished stays a draft until it is finished and the
+next run publishes it.

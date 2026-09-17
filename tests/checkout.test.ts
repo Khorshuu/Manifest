@@ -30,7 +30,7 @@ import {
   updateCartItem,
   VariantUnavailableError,
 } from "@/lib/cart";
-import { createCategory, createProduct } from "@/lib/catalog";
+import { createCategory } from "@/lib/catalog";
 import {
   CheckoutError,
   confirmPayment,
@@ -45,6 +45,7 @@ import {
 import type { SessionUser } from "@/lib/auth/session";
 import { updateSetting } from "@/lib/admin";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 let provider: MockPaymentProvider;
@@ -124,7 +125,7 @@ async function seedVariant(
     name: `Cat ${suffix}`,
     slug: `cat-${suffix}`,
   });
-  const product = await createProduct(staff, {
+  const product = await createProductForTest(staff, {
     title: `Product ${suffix}`,
     categoryId: category.id,
     status: "preorder_open",
@@ -724,7 +725,7 @@ describe("the chosen variant survives the purchase", () => {
       name: `Cat ${suffix}`,
       slug: `cat-${suffix}`,
     });
-    const product = await createProduct(staff, {
+    const product = await createProductForTest(staff, {
       title: `Sofa ${suffix}`,
       categoryId: category.id,
       status: "preorder_open",

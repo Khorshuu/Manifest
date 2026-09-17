@@ -194,11 +194,10 @@ test("a customer cannot remove product media", async ({ page }) => {
 test("an uploaded photograph reaches the storefront", async ({ page }) => {
   await signIn(page, "staff@example.com");
 
-  // A published product, so the storefront will show it.
+  // A new listing starts as a draft (D-056); the file is served either way.
   const title = `Shown ${crypto.randomUUID().slice(0, 8)}`;
   await page.goto("/admin/products/new");
   await page.getByLabel("Title").fill(title);
-  await page.getByLabel("Status").selectOption("preorder_open");
   await page.getByRole("button", { name: "Save product" }).click();
 
   // Creating opens the product editor.

@@ -25,7 +25,6 @@ import {
   collectSubtreeIds,
   createAttribute,
   createCategory,
-  createProduct,
   CycleError,
   deleteAttributeValue,
   deleteCategory,
@@ -39,6 +38,7 @@ import {
   updateProduct,
 } from "@/lib/catalog";
 import { createTestDatabase } from "./helpers/database";
+import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -99,7 +99,7 @@ describe("customer restrictions", () => {
   it("refuses a customer creating a product", async () => {
     const category = await seedCategory();
     await expect(
-      createProduct(customer, {
+      createProductForTest(customer, {
         title: "Sneaky product",
         categoryId: category.id,
       }),
@@ -209,7 +209,7 @@ describe("category tree", () => {
 
   it("a category holding products cannot be removed", async () => {
     const category = await seedCategory();
-    await createProduct(staff, { title: "Headphones", categoryId: category.id });
+    await createProductForTest(staff, { title: "Headphones", categoryId: category.id });
 
     await expect(deleteCategory(staff, category.id)).rejects.toThrow(
       CategoryInUseError,
@@ -229,7 +229,7 @@ describe("category tree", () => {
 describe("products", () => {
   it("derives a slug from the title when none is given", async () => {
     const category = await seedCategory();
-    const product = await createProduct(staff, {
+    const product = await createProductForTest(staff, {
       title: "Studio Reference Headphones",
       categoryId: category.id,
     });
@@ -238,8 +238,8 @@ describe("products", () => {
 
   it("avoids colliding with an existing slug", async () => {
     const category = await seedCategory();
-    await createProduct(staff, { title: "Headphones", categoryId: category.id });
-    const second = await createProduct(staff, {
+    await createProductForTest(staff, { title: "Headphones", categoryId: category.id });
+    const second = await createProductForTest(staff, {
       title: "Headphones",
       categoryId: category.id,
     });
@@ -248,7 +248,7 @@ describe("products", () => {
 
   it("starts as a draft, which the public query cannot see", async () => {
     const category = await seedCategory();
-    const product = await createProduct(staff, {
+    const product = await createProductForTest(staff, {
       title: "Unreleased",
       categoryId: category.id,
     });
@@ -259,7 +259,7 @@ describe("products", () => {
 
   it("becomes publicly visible once it is preorder_open", async () => {
     const category = await seedCategory();
-    const product = await createProduct(staff, {
+    const product = await createProductForTest(staff, {
       title: "Candy Box",
       categoryId: category.id,
       status: "preorder_open",
@@ -274,7 +274,7 @@ describe("products", () => {
    */
   it("archiving hides the product and its variants without deleting rows", async () => {
     const category = await seedCategory();
-    const product = await createProduct(staff, {
+    const product = await createProductForTest(staff, {
       title: "Candy Box",
       categoryId: category.id,
       status: "preorder_open",
@@ -307,7 +307,7 @@ describe("products", () => {
 
   it("restores as a draft rather than straight back on sale", async () => {
     const category = await seedCategory();
-    const product = await createProduct(staff, {
+    const product = await createProductForTest(staff, {
       title: "Candy Box",
       categoryId: category.id,
       status: "preorder_open",
@@ -323,7 +323,7 @@ describe("products", () => {
 
   it("keeps the slug stable when the title is unchanged", async () => {
     const category = await seedCategory();
-    const product = await createProduct(staff, {
+    const product = await createProductForTest(staff, {
       title: "Candy Box",
       categoryId: category.id,
     });
@@ -341,7 +341,7 @@ describe("products", () => {
 describe("audit trail", () => {
   it("records who created a product, in the same transaction", async () => {
     const category = await seedCategory();
-    const product = await createProduct(staff, {
+    const product = await createProductForTest(staff, {
       title: "Candy Box",
       categoryId: category.id,
     });
@@ -358,7 +358,7 @@ describe("audit trail", () => {
 
   it("records the before and after of an archive", async () => {
     const category = await seedCategory();
-    const product = await createProduct(staff, {
+    const product = await createProductForTest(staff, {
       title: "Candy Box",
       categoryId: category.id,
       status: "preorder_open",
@@ -412,7 +412,7 @@ describe("attributes", () => {
 
   it("refuses to delete a value a variant already uses", async () => {
     const category = await seedCategory();
-    const product = await createProduct(staff, {
+    const product = await createProductForTest(staff, {
       title: "Headphones",
       categoryId: category.id,
     });

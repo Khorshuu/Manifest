@@ -20,6 +20,7 @@ import {
   getReadinessSummary,
   NotReadyError,
   publishProduct,
+  updateProduct,
 } from "@/lib/catalog";
 import {
   LocalMediaProvider,
@@ -304,5 +305,68 @@ describe("publishing", () => {
       .where(eq(products.id, product.id));
 
     expect(row.archivedAt).toBeNull();
+  });
+});
+
+/**
+ * Every way to a status shoppers can see runs the same check. Publishing had a
+ * gate, but the ordinary product save and the create form could set
+ * "Preorder open" on a listing with no photograph and nothing to buy.
+ */
+describe("other ways to go live", () => {
+  it("refuses creating a product straight into a public status", async () => {
+    await expect(
+      createProduct(staff, { title: "Straight to live", categoryId, status: "preorder_open" }),
+    ).rejects.toThrow(NotReadyError);
+
+    const rows = await harness.db
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.title, "Straight to live"));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("still creates drafts, and scheduled listings", async () => {
+    const draft = await createProduct(staff, { title: "A draft", categoryId });
+    expect(draft.status).toBe("draft");
+    const scheduled = await createProduct(staff, { title: "Later", categoryId, status: "scheduled" });
+    expect(scheduled.status).toBe("scheduled");
+  });
+
+  it("refuses saving an unfinished draft with a public status, and names why", async () => {
+    const product = await draftProduct();
+
+    await expect(
+      updateProduct(staff, product.id, { status: "in_stock" }),
+    ).rejects.toThrow(/photograph/);
+
+    const [row] = await harness.db
+      .select({ status: products.status })
+      .from(products)
+      .where(eq(products.id, product.id));
+    expect(row.status).toBe("draft");
+  });
+
+  it("lets a finished draft go live through the ordinary save", async () => {
+    const product = await draftProduct();
+    await makeReady(product.id);
+
+    const updated = await updateProduct(staff, product.id, { status: "preorder_open" });
+    expect(updated.status).toBe("preorder_open");
+  });
+
+  it("does not re-check a listing that is already live when its public status changes", async () => {
+    const product = await draftProduct();
+    await makeReady(product.id);
+    await publishProduct(staff, product.id, "preorder_open");
+
+    const closed = await updateProduct(staff, product.id, { status: "preorder_closed" });
+    expect(closed.status).toBe("preorder_closed");
+  });
+
+  it("lets other fields of an unfinished draft be saved", async () => {
+    const product = await draftProduct();
+    const updated = await updateProduct(staff, product.id, { brand: "Hometown" });
+    expect(updated.brand).toBe("Hometown");
   });
 });
