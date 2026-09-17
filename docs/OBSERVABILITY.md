@@ -70,9 +70,22 @@ broken.
 
 ## Not in place
 
-- **Error tracking service** (grouping, alerts, release tracking). The events
-  above are structured for one, but none is connected: Sentry or an equivalent
-  needs an account and a DSN. `instrumentation.ts` is where it would be added.
+- **Error tracking in Sentry is prepared but not connected.** With
+  `SENTRY_DSN` set, `instrumentation.ts` starts the Sentry SDK on the server
+  and every `error`-level event above is also sent to Sentry, tagged with its
+  event name and request id (`lib/observability/error-reporting.ts`). Before
+  anything is sent, the log redaction runs on the fields and a second pass
+  removes the user, cookies, request bodies, query strings and every header
+  except user agent, content type and request id, and masks emails and phone
+  numbers in error messages. Personal data, local variables and performance
+  tracing are off (`SENTRY_TRACES_SAMPLE_RATE` turns tracing on). Verified
+  against a local stand-in for Sentry's ingest, from the production build: an
+  invalid `JOB_SCHEDULE` produced one event with its request id, no scheduler
+  secret and no cookie (`tests/error-reporting.test.ts` does the same in the
+  unit suite). BLOCKED on the owner's Sentry account: delivery to a real
+  project, alert rules, and source-map upload (needs `SENTRY_AUTH_TOKEN` and
+  the build plugin). Browser errors are not captured: the browser SDK would
+  push pages past the JavaScript budget.
 - **Database statement timing.** Individual query timings are not logged; use
   `pg_stat_statements` in Neon (docs/DEPLOYMENT.md).
 - **Alerting** on `level=error` or on `job.dead` needs a log drain destination.

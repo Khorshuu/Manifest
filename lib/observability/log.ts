@@ -15,7 +15,7 @@ const EMAIL = /([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,}
 /** Bangladeshi mobile numbers (01XXXXXXXXX, +8801XXXXXXXXX) and other E.164 numbers — not order numbers. */
 const PHONE = /(?:\+?880|\b0)1[3-9]\d{2}[\s-]?\d{3}[\s-]?\d{3}\b|\+\d{10,14}\b/g;
 
-function maskText(value: string): string {
+export function maskText(value: string): string {
   return value.replace(EMAIL, "$1***@$2").replace(PHONE, (match) => `***${match.slice(-3)}`);
 }
 
@@ -61,6 +61,12 @@ export async function logEvent(level: LogLevel, event: string, fields: Record<st
   if (level === "error") console.error(line);
   else if (level === "warn") console.warn(line);
   else console.info(line);
+
+  // Error-level events also go to error tracking when it is configured.
+  if (level === "error" && process.env.SENTRY_DSN) {
+    const { reportError } = await import("./error-reporting");
+    await reportError(event, { ...fields, requestId: entry.requestId });
+  }
 }
 
 /**

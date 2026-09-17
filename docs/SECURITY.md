@@ -50,6 +50,14 @@ Any account may turn it on at `/account/security`; the page recommends it in as 
 - Business-critical records (`products`, `product_variants`, `orders`, `users`) are soft-deleted (`archived_at`), never hard-deleted, so an order placed against an archived product still resolves correctly in order history.
 - A user's personal data can be anonymized on request (name, email, phone, address text replaced) while the `orders` and `payments` rows that reference them are retained, satisfying deletion requests without breaking financial record-keeping obligations.
 
+### Error tracking
+
+When `SENTRY_DSN` is set, server errors are sent to Sentry. What leaves the
+server is limited in code, not in Sentry's settings: no user, cookies, request
+bodies, query strings or headers other than user agent, content type and
+request id; sensitive field names redacted; emails and phone numbers masked in
+messages (`lib/observability/error-reporting.ts`, `tests/error-reporting.test.ts`).
+
 ## Audit
 
 - Every admin mutation writes an `audit_log` row (actor, action, entity, before/after) in the same transaction as the change, per [BUSINESS_LOGIC.md](BUSINESS_LOGIC.md). `audit_log` itself is insert-only from application code — no update or delete path exists for it.

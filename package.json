@@ -33,6 +33,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
     "@node-rs/argon2": "^2.2.0",
+    "@sentry/nextjs": "10.75.0",
     "@types/sanitize-html": "^2.16.1",
     "@vercel/blob": "^2.8.0",
     "drizzle-orm": "^0.45.2",
