@@ -162,7 +162,11 @@ test("capacity cannot be set below what is already reserved", async ({
     const r = await fetch(`/api/admin/variants/${id}/window`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "open", capacity: 0, closesAt: null }),
+      body: JSON.stringify({
+        action: "open",
+        capacity: 0,
+        closesAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      }),
     });
     return { status: r.status, body: await r.json() };
   }, variantId);

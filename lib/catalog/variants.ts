@@ -17,6 +17,8 @@ import {
 } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { lockSkuAllocation } from "./sku";
+import { isUnconfiguredPreorder } from "./price";
+import { PUBLIC_STATUSES } from "./products";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import {
@@ -566,6 +568,24 @@ export async function updateVariant(
       .set({ ...update, updatedAt: new Date() })
       .where(eq(productVariants.id, variantId))
       .returning();
+
+    /*
+     * The publish check requires a capacity and a closing date on every
+     * preorder (D-058); clearing one afterwards on a live listing would leave
+     * a published preorder shoppers cannot order. Refused here, inside the
+     * transaction, so the save changes nothing.
+     */
+    if (updated.isEnabled && !updated.archivedAt && isUnconfiguredPreorder(updated)) {
+      const [product] = await tx
+        .select({ status: products.status })
+        .from(products)
+        .where(eq(products.id, updated.productId));
+      if (product && (PUBLIC_STATUSES as readonly string[]).includes(product.status)) {
+        throw new VariantPricingError(
+          "A published preorder needs both a capacity and a closing date. Unpublish the product before clearing either.",
+        );
+      }
+    }
 
     const priceChanged =
       update.priceBdt !== undefined && update.priceBdt !== before.priceBdt;

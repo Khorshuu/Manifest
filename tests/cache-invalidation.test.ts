@@ -71,7 +71,7 @@ beforeEach(async () => {
   productId = product.id;
   const [variant] = await harness.db
     .insert(productVariants)
-    .values({ productId, sku: "CANDY-1", priceBdt: 500_00, fulfillmentMode: "preorder", preorderCapacity: 10 })
+    .values({ productId, sku: "CANDY-1", priceBdt: 500_00, fulfillmentMode: "preorder", preorderCapacity: 10, preorderClosesAt: new Date(Date.now() + 7 * 86_400_000) })
     .returning({ id: productVariants.id });
   variantId = variant.id;
   imageIds = (

@@ -137,7 +137,7 @@ export function WindowControls({
         <div className="bg-paper p-3">
           <dt className="text-meta text-ink/70">Capacity</dt>
           <dd className="mt-1 tabular-nums text-ink">
-            {variant.capacity ?? "Uncapped"}
+            {variant.capacity ?? "Not set"}
           </dd>
         </div>
         <div className="bg-paper p-3">
@@ -157,7 +157,7 @@ export function WindowControls({
       <p className="text-meta text-ink/70">
         {closesAt
           ? `${closed ? "Closed" : "Closes"} ${closesAt.toLocaleString()}`
-          : "No closing date set."}
+          : "No closing date set — shoppers cannot order until one is."}
       </p>
 
       {/* Open, or change the terms of an open window. */}
@@ -196,7 +196,7 @@ export function WindowControls({
             min={0}
             inputMode="numeric"
             defaultValue={variant.capacity ?? ""}
-            placeholder="Leave empty for no limit"
+            required
             className="min-h-11 w-56 rounded-control border border-blue-300 px-3 text-body text-ink"
           />
         </div>
@@ -212,6 +212,7 @@ export function WindowControls({
             id={`closes-${variant.id}`}
             name="closesAt"
             type="datetime-local"
+            required
             defaultValue={toLocalInput(closesAt)}
             className="min-h-11 rounded-control border border-blue-300 px-3 text-body text-ink"
           />

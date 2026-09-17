@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { productImages, productVariants, reviews } from "@/db/schema";
-import { effectivePriceSql } from "./price";
+import { effectivePriceSql, offeredVariantSql } from "./price";
 
 /**
  * Per-product aggregates for a product card, fetched for a whole page of
@@ -99,10 +99,10 @@ export async function loadCardAggregates(
          quote different figures for the same variant. */
       /* Only variants with a price above zero: an unpriced one is not on sale
          (NOT_ON_SALE_MESSAGE), and a card reading "BDT 0" is a false offer. */
-      minPrice: sql<number>`min(${effectivePriceSql}) filter (where ${effectivePriceSql} > 0)::int`,
+      minPrice: sql<number>`min(${effectivePriceSql}) filter (where ${offeredVariantSql})::int`,
       /* The regular price of whichever variant is cheapest right now, so the
          saving shown is against that variant and not against a dearer one. */
-      listPrice: sql<number>`(array_agg(${productVariants.priceBdt} order by ${effectivePriceSql} asc) filter (where ${effectivePriceSql} > 0))[1]::int`,
+      listPrice: sql<number>`(array_agg(${productVariants.priceBdt} order by ${effectivePriceSql} asc) filter (where ${offeredVariantSql}))[1]::int`,
       outOfStock: sql<boolean>`bool_and(
         ${productVariants.fulfillmentMode} = 'in_stock'
         and ${productVariants.stockQuantity} is not null

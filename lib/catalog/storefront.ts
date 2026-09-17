@@ -17,7 +17,7 @@ import {
   textArray,
   type SearchPlan,
 } from "@/lib/search/sql";
-import { effectivePriceExpression, effectivePriceSql } from "./price";
+import { effectivePriceExpression, effectivePriceSql, offeredVariantSql } from "./price";
 import { loadCardAggregates } from "./card-data";
 import {
   buyableNowSql,
@@ -404,8 +404,9 @@ export async function getPublicVariants(productId: string) {
         eq(productVariants.productId, productId),
         eq(productVariants.isEnabled, true),
         isNull(productVariants.archivedAt),
-        // Not offered without a price: it could not be bought (NOT_ON_SALE_MESSAGE).
-        sql`${effectivePriceSql} > 0`,
+        // Not offered without a price, nor as a preorder without a capacity
+        // and a closing date: neither could be bought (offeredVariantSql).
+        offeredVariantSql,
       ),
     )
     .orderBy(asc(effectivePriceSql));

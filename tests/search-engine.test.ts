@@ -91,6 +91,7 @@ async function seed(options: {
     priceBdt: options.priceBdt ?? 5_000_00,
     costPriceUsd: options.costPriceUsd ?? null,
     fulfillmentMode: "preorder",
+    preorderCapacity: 50,
     preorderClosesAt: new Date(Date.now() + 7 * 86_400_000),
   });
 

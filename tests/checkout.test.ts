@@ -301,6 +301,29 @@ describe("cart problems", () => {
 
     await expect(addToCart(cartId, variant.id, 1)).rejects.toThrow(/closed/i);
   });
+
+  /** D-058: a blank capacity or closing date is not "unlimited" or "open". */
+  it("refuses to add a preorder with no capacity or no closing date", async () => {
+    const uncapped = await seedVariant({ preorderCapacity: null });
+    const undated = await seedVariant({ preorderClosesAt: null });
+    const cartId = await cartFor();
+
+    await expect(addToCart(cartId, uncapped.id, 1)).rejects.toThrow(/not open for orders/i);
+    await expect(addToCart(cartId, undated.id, 1)).rejects.toThrow(/not open for orders/i);
+  });
+
+  it("flags a preorder line whose closing date was cleared after it was added", async () => {
+    const variant = await seedVariant();
+    const cartId = await cartWith(variant.id);
+    await harness.db
+      .update(productVariants)
+      .set({ preorderClosesAt: null })
+      .where(eq(productVariants.id, variant.id));
+
+    const view = await getCartView(cartId);
+    expect(view.lines[0].problem).toMatch(/not open for orders/i);
+    expect(view.hasProblems).toBe(true);
+  });
 });
 
 describe("guest cart merge", () => {
@@ -352,6 +375,30 @@ describe("placing an order", () => {
       idempotencyKey: key,
     });
   }
+
+  /**
+   * The locked check at placement applies D-058 itself, so a value cleared
+   * between adding to the cart and paying still stops the order, and nothing
+   * is reserved or written.
+   */
+  it("refuses a preorder whose capacity was cleared after it reached the cart", async () => {
+    const variant = await seedVariant();
+    const cartId = await cartWith(variant.id);
+    await harness.db
+      .update(productVariants)
+      .set({ preorderCapacity: null })
+      .where(eq(productVariants.id, variant.id));
+
+    await expect(place(cartId, "key-unconfigured")).rejects.toThrow(/not open for orders/i);
+
+    const written = await harness.db.select({ id: orders.id }).from(orders);
+    expect(written).toHaveLength(0);
+    const [after] = await harness.db
+      .select({ reserved: productVariants.preorderReserved })
+      .from(productVariants)
+      .where(eq(productVariants.id, variant.id));
+    expect(after.reserved).toBe(0);
+  });
 
   it("computes the total on the server and records it", async () => {
     const variant = await seedVariant({ priceBdt: 250_00 });
@@ -796,6 +843,7 @@ describe("the chosen variant survives the purchase", () => {
         fulfillmentMode: "preorder",
         preorderCapacity: 10,
         preorderReserved: 0,
+        preorderClosesAt: new Date(Date.now() + 7 * 86_400_000),
       })
       .returning({ id: productVariants.id, sku: productVariants.sku });
 

@@ -57,13 +57,17 @@ function isoDate(value: string): string | null {
 
 function stockText(variant: ManagerVariant): string {
   if (variant.fulfillmentMode === "in_stock") return `${variant.stockQuantity ?? 0} in stock`;
-  if (variant.preorderCapacity === null) return "Preorder, no limit";
+  if (variant.preorderCapacity === null) return "Preorder, no capacity set";
   return `${Math.max(0, variant.preorderCapacity - variant.preorderReserved)} of ${variant.preorderCapacity} places`;
 }
 
 function stateOf(variant: ManagerVariant): { text: string; tone: "positive" | "warning" | "negative" | "neutral" } {
   if (variant.archived) return { text: "Archived", tone: "neutral" };
   if (!variant.isEnabled) return { text: "Off", tone: "negative" };
+  // D-058: without both a capacity and a closing date shoppers cannot order it.
+  if (variant.fulfillmentMode === "preorder" && (variant.preorderCapacity === null || !variant.closesAt)) {
+    return { text: "Not orderable", tone: "warning" };
+  }
   const left =
     variant.fulfillmentMode === "in_stock"
       ? (variant.stockQuantity ?? 0)

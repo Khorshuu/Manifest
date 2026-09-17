@@ -84,6 +84,7 @@ async function seed(options: {
     sku: `SKU-${Math.random().toString(36).slice(2, 8)}`,
     priceBdt: options.priceBdt ?? 5_000_00,
     fulfillmentMode: "preorder",
+    preorderCapacity: 50,
     preorderClosesAt: new Date(Date.now() + 86_400_000),
   });
 

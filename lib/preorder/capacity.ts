@@ -1,5 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { PREORDER_NOT_OPEN_MESSAGE } from "@/lib/catalog/price";
 import { queueWaitlistNotifications } from "@/lib/notifications/waitlist";
 import { productVariants, waitlistEntries } from "@/db/schema";
 
@@ -16,7 +17,7 @@ import { productVariants, waitlistEntries } from "@/db/schema";
 export type VariantAvailability = {
   variantId: string;
   fulfillmentMode: "in_stock" | "preorder";
-  /** Null when nothing limits it: an in-stock variant, or uncapped preorder. */
+  /** Null when nothing limits it: an in-stock variant with no quantity kept. */
   remaining: number | null;
   isPurchasable: boolean;
   reason:
@@ -25,6 +26,7 @@ export type VariantAvailability = {
     | "archived"
     | "sold_out"
     | "window_closed"
+    | "not_open"
     | "out_of_stock";
 };
 
@@ -97,8 +99,10 @@ function evaluate(variant: VariantRow, now: Date): VariantAvailability {
     };
   }
 
-  if (variant.preorderCapacity === null) {
-    return { ...base, remaining: null, isPurchasable: true, reason: "available" };
+  // Without a capacity and a closing date a preorder is not open (D-058) —
+  // never treated as unlimited or open-ended.
+  if (variant.preorderCapacity === null || variant.preorderClosesAt === null) {
+    return { ...base, remaining: 0, isPurchasable: false, reason: "not_open" };
   }
 
   const remaining = Math.max(
@@ -148,6 +152,7 @@ const REASON_MESSAGES: Record<VariantAvailability["reason"], string> = {
   archived: "That item is no longer available.",
   sold_out: "That preorder is full.",
   window_closed: "That preorder has closed.",
+  not_open: PREORDER_NOT_OPEN_MESSAGE,
   out_of_stock: "That item is out of stock.",
 };
 

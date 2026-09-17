@@ -15,6 +15,7 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 ## Preorder capacity
 
 - `preorder_reserved` only ever changes inside a transaction that also locks the variant row (`SELECT ... FOR UPDATE`) and re-checks `preorder_reserved + requested_quantity <= preorder_capacity` immediately before incrementing. This is the one place in the system where a race condition has a direct financial consequence (selling a slot twice), so it is never done as a read-then-write across two separate statements.
+- A preorder with no capacity or no closing date is not open for orders: a blank is never read as unlimited or open-ended (D-058). It is not offered on the storefront, cannot be added to a cart, is flagged if already in one, and is refused at checkout; staff cannot clear either value on a published listing, and opening a window requires both.
 - A variant whose `preorder_closes_at` has passed, or whose remaining capacity is zero, cannot be added to a cart or checked out — checked at both add-to-cart time (for a fast UI response) and again inside the checkout transaction (as the authoritative check).
 - If a variant closes or sells out while sitting in an open cart, checkout does not fail silently: the line is flagged, and the shopper is offered the waitlist for that variant.
 - Cancelling a preorder order before it leaves `placed`/`payment_confirmed` releases its reserved capacity back to the variant, inside the same kind of locked transaction.

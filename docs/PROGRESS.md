@@ -3074,3 +3074,11 @@ Needs you: push the branch to see the first run, and turn on branch protection i
 - `[x]` Load-tested the finished code on this machine with a copy holding 5,000 products and 100,000 orders: 20 and 50 shoppers at once, no errors on any page, and the database never used more than its 10 allowed connections.
 - `[x]` At 50 shoppers at once, catalogue pages answered within about 1.2 seconds (95% of requests); the cart and help pages within half a second.
 - `[ ]` Not tested on the real hosting (Vercel and Neon). That needs a staging deployment.
+
+## Preorder rule: capacity and closing date required to order (D-058)
+
+- `[x]` A preorder now needs both a number of places and a closing date before anyone can order it — not just to publish. A blank no longer means "unlimited".
+- `[x]` Shoppers do not see such an option in the buy box, cannot add it to the cart, and checkout refuses it even if it was already in a cart.
+- `[x]` Staff cannot clear either value on a live listing, and opening a preorder window asks for both.
+- `[x]` The admin variant table labels such a variant "Not orderable".
+- Heads-up: on your development site the Optoma projector listing has no capacity or closing date, so it can no longer be ordered until you set them.

@@ -38,6 +38,15 @@ export async function openPreorder(
 
     if (!before) throw new PreorderWindowError("That variant no longer exists.");
 
+    // D-058: an open window has a ceiling and an end. A blank is refused
+    // rather than read as unlimited or open-ended.
+    if (options.capacity === null) {
+      throw new PreorderWindowError("Set how many places the batch has.");
+    }
+    if (options.closesAt === null) {
+      throw new PreorderWindowError("Set when ordering closes.");
+    }
+
     if (options.capacity !== null && options.capacity < before.preorderReserved) {
       throw new PreorderWindowError(
         `Capacity cannot be below the ${before.preorderReserved} slot${

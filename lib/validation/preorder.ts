@@ -22,8 +22,10 @@ export const preorderWindowSchema = z.discriminatedUnion("action", [
     .object({
       action: z.literal("open"),
       /**
-       * Null is a deliberate value, not a missing one: it means the batch has
-       * no ceiling. The form has to distinguish "uncapped" from "not stated".
+       * Both are required (D-058): a window without a ceiling can be oversold
+       * and one without a closing date never resolves. Null is accepted by the
+       * shape only so the refusal can say which one is missing
+       * (lib/preorder/lifecycle.ts).
        */
       capacity: z.number().int().min(0).max(100_000).nullable(),
       closesAt: futureDate.nullable(),

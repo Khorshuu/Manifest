@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { effectivePriceSql, NOT_ON_SALE_MESSAGE } from "@/lib/catalog/price";
+import {
+  effectivePriceSql,
+  isUnconfiguredPreorder,
+  NOT_ON_SALE_MESSAGE,
+  PREORDER_NOT_OPEN_MESSAGE,
+} from "@/lib/catalog/price";
 import {
   loadVariantOptions,
   summariseOptions,
@@ -141,6 +146,7 @@ export async function getCartView(cartId: string): Promise<CartView> {
       stockQuantity: productVariants.stockQuantity,
       preorderCapacity: productVariants.preorderCapacity,
       preorderReserved: productVariants.preorderReserved,
+      preorderClosesAt: productVariants.preorderClosesAt,
       isClosed: sql<boolean>`(${productVariants.preorderClosesAt} is not null
         and ${productVariants.preorderClosesAt} <= now())`,
     })
@@ -204,6 +210,8 @@ export async function getCartView(cartId: string): Promise<CartView> {
       problem = "This item is no longer sold.";
     } else if (row.isClosed) {
       problem = "This preorder has closed.";
+    } else if (isUnconfiguredPreorder(row)) {
+      problem = PREORDER_NOT_OPEN_MESSAGE;
     } else if (row.unitPriceBdt <= 0) {
       problem = NOT_ON_SALE_MESSAGE;
     } else if (available !== null && available <= 0) {
@@ -292,6 +300,7 @@ export async function addToCart(
       stockQuantity: productVariants.stockQuantity,
       preorderCapacity: productVariants.preorderCapacity,
       preorderReserved: productVariants.preorderReserved,
+      preorderClosesAt: productVariants.preorderClosesAt,
       isClosed: sql<boolean>`(${productVariants.preorderClosesAt} is not null
         and ${productVariants.preorderClosesAt} <= now())`,
       productArchivedAt: products.archivedAt,
@@ -310,6 +319,10 @@ export async function addToCart(
 
   if (variant.isClosed) {
     throw new VariantUnavailableError("That preorder has closed.");
+  }
+
+  if (isUnconfiguredPreorder(variant)) {
+    throw new VariantUnavailableError(PREORDER_NOT_OPEN_MESSAGE);
   }
 
   if (Number(variant.priceBdt) <= 0) {

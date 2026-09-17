@@ -98,8 +98,8 @@ export const buyableNowSql = sql`exists (
         and (v.stock_quantity is null or v.stock_quantity > 0))
       or (
         v.fulfillment_mode = 'preorder'
-        and (v.preorder_closes_at is null or v.preorder_closes_at > now())
-        and (v.preorder_capacity is null or v.preorder_reserved < v.preorder_capacity)
+        and v.preorder_closes_at > now()
+        and v.preorder_reserved < v.preorder_capacity
       )
     )
 )`;

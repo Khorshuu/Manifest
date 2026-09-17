@@ -91,7 +91,10 @@ afterAll(async () => {
   await harness.close();
 }, 60_000);
 
-async function variant(capacity: number | null) {
+/** More places than any scenario takes, so only locking is under test (D-058: no uncapped preorders). */
+const ROOMY = 1_000;
+
+async function variant(capacity: number) {
   const [row] = await harness.db
     .insert(productVariants)
     .values({
@@ -189,8 +192,8 @@ async function assertReservedMatchesOrders(variantIds: string[]) {
 
 describe.skipIf(!available)("checkout under real concurrency", () => {
   it("A: 40 two-line carts in the same order all check out", async () => {
-    const first = await variant(null);
-    const second = await variant(null);
+    const first = await variant(ROOMY);
+    const second = await variant(ROOMY);
     const attempts = await Promise.all(
       shoppers.slice(0, 40).map(async (shopper) => ({
         shopper,
@@ -215,8 +218,8 @@ describe.skipIf(!available)("checkout under real concurrency", () => {
 
     await withSlowVariantWrites(async () => {
     for (let round = 0; round < ROUNDS; round += 1) {
-      const first = await variant(null);
-      const second = await variant(null);
+      const first = await variant(ROOMY);
+      const second = await variant(ROOMY);
       const attempts = await Promise.all(
         shoppers.slice(0, 40).map(async (shopper, index) => ({
           shopper,

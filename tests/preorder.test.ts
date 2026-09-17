@@ -166,11 +166,29 @@ describe("getAvailability", () => {
     expect(availability.reason).toBe("archived");
   });
 
-  it("has no ceiling when a preorder sets no capacity", async () => {
+  // D-058: a blank is not "unlimited" or "open-ended".
+  it("does not open a preorder with no capacity", async () => {
     const variant = await seedVariant({ preorderCapacity: null });
     const availability = await getAvailability(variant.id);
-    expect(availability.remaining).toBeNull();
-    expect(availability.isPurchasable).toBe(true);
+    expect(availability.isPurchasable).toBe(false);
+    expect(availability.reason).toBe("not_open");
+  });
+
+  it("does not open a preorder with no closing date", async () => {
+    const variant = await seedVariant({ preorderClosesAt: null });
+    const availability = await getAvailability(variant.id);
+    expect(availability.isPurchasable).toBe(false);
+    expect(availability.reason).toBe("not_open");
+  });
+
+  it("refuses to reserve a place on a preorder with no capacity or closing date", async () => {
+    for (const overrides of [{ preorderCapacity: null }, { preorderClosesAt: null }]) {
+      const variant = await seedVariant(overrides);
+      await expect(reserveCapacityStandalone(variant.id, 1)).rejects.toMatchObject({
+        name: "CapacityUnavailableError",
+        reason: "not_open",
+      });
+    }
   });
 
   it("uses stock, not capacity, for an in-stock variant", async () => {
@@ -398,8 +416,18 @@ describe("preorder window", () => {
     });
 
     await expect(
-      openPreorder(staff, variant.id, { capacity: 5, closesAt: null }),
+      openPreorder(staff, variant.id, { capacity: 5, closesAt: new Date(Date.now() + HOUR) }),
     ).rejects.toThrow(PreorderWindowError);
+  });
+
+  it("refuses to open a window without a capacity or a closing date", async () => {
+    const variant = await seedVariant();
+    await expect(
+      openPreorder(staff, variant.id, { capacity: null, closesAt: new Date(Date.now() + HOUR) }),
+    ).rejects.toThrow(/how many places/);
+    await expect(
+      openPreorder(staff, variant.id, { capacity: 10, closesAt: null }),
+    ).rejects.toThrow(/when ordering closes/);
   });
 
   it("refuses a closing date in the past", async () => {

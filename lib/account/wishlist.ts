@@ -11,7 +11,11 @@ import {
 } from "@/db/schema";
 import { requireUser, type SessionUser } from "@/lib/auth";
 import { addToCart, VariantUnavailableError } from "@/lib/cart";
-import { effectivePriceSql } from "@/lib/catalog/price";
+import {
+  effectivePriceSql,
+  isUnconfiguredPreorder,
+  PREORDER_NOT_OPEN_MESSAGE,
+} from "@/lib/catalog/price";
 
 /**
  * The wishlist, and "save for later" in the cart, which is the same list.
@@ -121,6 +125,7 @@ export async function listWishlist(userId: string): Promise<WishlistEntry[]> {
       stockQuantity: productVariants.stockQuantity,
       preorderCapacity: productVariants.preorderCapacity,
       preorderReserved: productVariants.preorderReserved,
+      preorderClosesAt: productVariants.preorderClosesAt,
       isClosed: sql<boolean>`(${productVariants.preorderClosesAt} is not null
         and ${productVariants.preorderClosesAt} <= now())`,
     })
@@ -180,6 +185,8 @@ export async function listWishlist(userId: string): Promise<WishlistEntry[]> {
       problem = "No longer sold.";
     } else if (row.isClosed) {
       problem = "This preorder has closed.";
+    } else if (isUnconfiguredPreorder(row)) {
+      problem = PREORDER_NOT_OPEN_MESSAGE;
     } else if (available !== null && available <= 0) {
       problem =
         row.fulfillmentMode === "preorder"

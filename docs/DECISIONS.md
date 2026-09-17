@@ -1431,3 +1431,35 @@ newsletter were rate limited.
 measurements above show no throughput cost on this workload. Any future inline
 script must be rendered by Next.js (to receive the nonce), not written into
 HTML by hand. Password reset remains unbuilt and is documented as such.
+
+## D-058 — A preorder without a capacity and a closing date is not open for orders
+
+**Context.** The publish check (D-056) required a capacity and a closing date on
+every preorder, but the cart and checkout read a blank capacity as unlimited and
+a blank closing date as never closing. A listing published before the check,
+or one whose values were cleared afterwards, could therefore be oversold or
+stay open indefinitely. The owner decided (September 2026) that the publish
+rule wins everywhere.
+
+**Decision.**
+
+- A preorder variant is open for orders only with both values set. The rule
+  lives in `isUnconfiguredPreorder` / `offeredVariantSql`
+  (`lib/catalog/price.ts`) and in the locked availability check
+  (`lib/preorder/capacity.ts`, reason `not_open`).
+- Applied at every point a shopper could order: the buy box does not offer the
+  variant, cards do not quote its price, the "available now" filter does not
+  count it, the cart refuses to add it and flags a line already there, the
+  wishlist flags it, and placing an order refuses it inside the transaction
+  before anything is reserved.
+- Staff cannot clear either value on an enabled variant of a published listing
+  (`updateVariant`), and opening a preorder window requires both
+  (`openPreorder`). A draft can be edited freely.
+- Unlimited preorders are not supported. If they are wanted later they need an
+  explicit setting, never a blank field.
+
+**Consequences.** Existing live listings with a blank value stop taking orders
+until staff fill it in; the admin variant table labels them "Not orderable" and
+the readiness panel lists what is missing. On the development database this
+affects one listing (the Optoma projector). Tests that relied on uncapped
+preorders now give a capacity large enough never to bind.

@@ -27,6 +27,29 @@ import { productVariants } from "@/db/schema";
  */
 export const NOT_ON_SALE_MESSAGE = "This item is not on sale yet.";
 
+/**
+ * A preorder is open for orders only when it has both a capacity and a closing
+ * date (D-058). A missing value does not mean unlimited or open-ended: without
+ * a ceiling it can be oversold, and without a closing date it never resolves.
+ * The publish check requires both; this is the same rule applied wherever a
+ * shopper could otherwise order — the product page, the cart and the locked
+ * check at checkout — so a value cleared after publishing, or a listing
+ * published before the check existed, cannot be ordered either. Unlimited
+ * preorders, if ever wanted, need an explicit setting rather than a blank.
+ */
+export const PREORDER_NOT_OPEN_MESSAGE = "This preorder is not open for orders yet.";
+
+export function isUnconfiguredPreorder(variant: {
+  fulfillmentMode: string;
+  preorderCapacity: number | null;
+  preorderClosesAt: Date | null;
+}): boolean {
+  return (
+    variant.fulfillmentMode === "preorder" &&
+    (variant.preorderCapacity === null || variant.preorderClosesAt === null)
+  );
+}
+
 export const effectivePriceSql: SQL<number> = sql<number>`(case
   when ${productVariants.salePriceBdt} is not null
    and (${productVariants.saleStartsAt} is null or ${productVariants.saleStartsAt} <= now())
@@ -34,6 +57,17 @@ export const effectivePriceSql: SQL<number> = sql<number>`(case
   then ${productVariants.salePriceBdt}
   else ${productVariants.priceBdt}
 end)`;
+
+/**
+ * Whether a variant may be offered to a shopper at all: priced above zero
+ * (NOT_ON_SALE_MESSAGE) and, if a preorder, with a capacity and a closing date
+ * (PREORDER_NOT_OPEN_MESSAGE). Whether it is full or closed is decided
+ * separately, because those are shown rather than hidden.
+ */
+export const offeredVariantSql: SQL<boolean> = sql<boolean>`(${effectivePriceSql} > 0
+  and (${productVariants.fulfillmentMode} <> 'preorder'
+    or (${productVariants.preorderCapacity} is not null
+      and ${productVariants.preorderClosesAt} is not null)))`;
 
 /**
  * The same rule as a raw fragment, for the hand-written SQL that joins
