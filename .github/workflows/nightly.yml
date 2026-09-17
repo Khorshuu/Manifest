@@ -1,0 +1,83 @@
+# Slower checks once a day (PRODUCTION-READINESS 23.1): the whole end-to-end
+# suite on both browser profiles against a production build, the performance
+# budgets, and a dependency audit. Runs against a throwaway PostgreSQL service
+# with test credentials only; it never touches production data.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "30 20 * * *" # 02:30 in Dhaka
+  workflow_dispatch:
+
+env:
+  SESSION_SECRET: ci-session-secret-not-used-anywhere-real-000000
+  CRON_SECRET: ci-cron-secret
+  PAYMENT_PROVIDER: mock
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  dependency-audit:
+    name: Dependency audit (production dependencies)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Audit
+        run: npm audit --omit=dev --audit-level=high
+
+  full-e2e:
+    name: Full end-to-end suite and performance budgets
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      E2E_ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/preorder_e2e
+      E2E_PRODUCTION: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Create and seed the test database
+        run: npx tsx e2e/prepare-db.ts
+      - name: Production build
+        run: npx next build
+      - name: End-to-end suite (mobile and desktop)
+        run: npx playwright test
+      - name: Performance budgets
+        run: |
+          npx next start -p 3000 > server.log 2>&1 &
+          for attempt in $(seq 60); do curl -fs -o /dev/null http://localhost:3000/help && break; sleep 1; done
+          curl -fs -o /dev/null http://localhost:3000/help || (cat server.log && exit 1)
+          npm run perf:budget -- --base http://localhost:3000
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: test-results
+          retention-days: 14

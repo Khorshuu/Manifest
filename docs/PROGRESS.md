@@ -3059,3 +3059,12 @@ Needs you: access to the production Neon project, to confirm backups, a test res
 - `[x]` `docs/OBSERVABILITY.md` explains how to find what happened to a checkout.
 
 Needs you: an error-tracking account (for example Sentry) if you want alerts when something breaks.
+
+## Production readiness: automated checks (23.1)
+
+- `[x]` Every push and pull request on GitHub now runs the typecheck, lint, unit and concurrency tests, a production build, the most important browser tests, and a page-size budget check.
+- `[x]` A nightly run adds the full browser suite on phone and desktop and a check of dependencies for known vulnerabilities.
+- `[x]` Page weight is now enforced: a change that pushes a page's JavaScript over 170 KB (compressed) fails the check.
+- `[ ]` Not yet seen running on GitHub — nothing has been pushed from this branch.
+
+Needs you: push the branch to see the first run, and turn on branch protection in the repository settings if merges should wait for the checks.

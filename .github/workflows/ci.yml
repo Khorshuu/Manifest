@@ -1,0 +1,130 @@
+# Quality gates on every push and pull request (PRODUCTION-READINESS 23.1).
+#
+# Two jobs, so the fast checks report in a few minutes and the slower build and
+# browser tests only run once they pass. Everything runs against a throwaway
+# PostgreSQL service with test credentials; nothing here can reach production.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Test-only values. The database is the service container below.
+  SESSION_SECRET: ci-session-secret-not-used-anywhere-real-000000
+  CRON_SECRET: ci-cron-secret
+  PAYMENT_PROVIDER: mock
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  checks:
+    name: Typecheck, lint, unit and integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # The unit suite runs on in-process PGlite; the concurrency suites need a
+      # real server and create their own *_test databases on it.
+      CONCURRENCY_TEST_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit and integration tests
+        run: npx vitest run
+
+  build-and-e2e:
+    name: Production build, targeted end-to-end tests, budgets
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      E2E_ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      # The build prerenders a few database-backed routes (the sitemap).
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/preorder_e2e
+      E2E_PRODUCTION: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Cache the Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Create and seed the test database
+        run: npx tsx e2e/prepare-db.ts
+      - name: Production build
+        run: npx next build
+      - name: Targeted end-to-end tests
+        # The flows a regression would hurt most, on one browser profile. The
+        # full suite on both profiles runs nightly (nightly.yml).
+        run: >-
+          npx playwright test --project=desktop
+          e2e/checkout.spec.ts
+          e2e/variant-through-order.spec.ts
+          e2e/auth.spec.ts
+          e2e/auth-dialog.spec.ts
+          e2e/security.spec.ts
+          e2e/admin-boundary.spec.ts
+          e2e/csp.spec.ts
+          e2e/cache-isolation.spec.ts
+          e2e/seo-audit.spec.ts
+      - name: Performance budgets
+        run: |
+          npx next start -p 3000 > server.log 2>&1 &
+          for attempt in $(seq 60); do curl -fs -o /dev/null http://localhost:3000/help && break; sleep 1; done
+          curl -fs -o /dev/null http://localhost:3000/help || (cat server.log && exit 1)
+          npm run perf:budget -- --base http://localhost:3000
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: test-results
+          retention-days: 7

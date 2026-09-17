@@ -197,3 +197,31 @@ spec was added for them yet.
   LCP (read before scrolling), CLS across a scroll to the bottom, TBT, a tap's
   event duration, and bytes by type with the largest images. Lab figures, for
   before/after comparison on one machine.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request, in two jobs:
+
+1. **checks** — `npm ci`, `npm run typecheck`, `npm run lint`, `npx vitest run`.
+   A PostgreSQL 17 service container is available, so the real-PostgreSQL
+   concurrency suites run instead of skipping (`CONCURRENCY_TEST_ADMIN_URL`).
+2. **build-and-e2e** (after checks pass) — creates `preorder_e2e`, builds for
+   production, runs the targeted end-to-end specs on the desktop profile, then
+   starts the build and runs the performance budgets.
+
+`.github/workflows/nightly.yml` (daily, and by hand from the Actions tab) runs
+the full end-to-end suite on both profiles, the budgets, and
+`npm audit --omit=dev --audit-level=high`.
+
+Every database address in CI is the service container and every secret is a
+test value; the workflows cannot reach production data.
+
+### Performance budgets
+
+`npm run perf:budget -- --base http://localhost:3000 [--paths "/,/cart"] [--js 170] [--html 60]`
+fetches each page, adds up the gzipped size of every script it loads (legacy
+`nomodule` polyfills excluded) and of the HTML, and exits 1 if any page is over
+budget or answers with an error. Run it against a production build
+(`next build && next start`); the development server's bundles are far larger.
+When a change legitimately needs more JavaScript, raise the default in
+`scripts/perf/budget.mjs` in the same pull request so the increase is reviewed.
