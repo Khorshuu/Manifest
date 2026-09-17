@@ -110,7 +110,7 @@ export type KnowledgeReport = {
   verifiedWithoutClaim: number;
   families: { approved: number; suggested: number; productsAssigned: number; productsUnassigned: number };
   unmappedByReason: Record<string, number>;
-  brands: { total: number; suggested: number; similarPairs: { a: string; b: string; similarity: number }[] };
+  brands: { total: number; active: number; trustedSources: number; similarPairs: { a: string; b: string; similarity: number }[] };
   projectionMismatches: { listingId: string; fields: string[] }[];
   ok: boolean;
 };
@@ -182,7 +182,8 @@ export async function knowledgeReport(executor: Executor = db): Promise<Knowledg
     unmappedByReason: await grouped(sql`select reason as k, count(*)::int as n from pkb_unmapped_values where status = 'open' group by 1`),
     brands: {
       total: await one(sql`select count(*)::int as n from pkb_brands`),
-      suggested: await one(sql`select count(*)::int as n from pkb_brands where status = 'suggested'`),
+      active: await one(sql`select count(*)::int as n from pkb_brands where status = 'active'`),
+      trustedSources: await one(sql`select count(*)::int as n from pkb_source_registry where status = 'approved' and role <> 'blocked'`),
       // Reported for a person to judge (A-2); never merged here.
       similarPairs: (
         await queryRows<{ a: string; b: string; similarity: number }>(

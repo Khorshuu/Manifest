@@ -9,7 +9,7 @@ import {
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
-import { staffChange } from "@/lib/pkb/common";
+import { staffChange, type Executor } from "@/lib/pkb/common";
 import { syncLegacyFamilies } from "@/lib/pkb/families";
 import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import type { CategoryAttributeInputPayload } from "@/lib/validation/catalog";
@@ -190,6 +190,67 @@ export async function getAttributeDefinitionsByIds(
   return rows.map(toDefinition);
 }
 
+/**
+ * Adds one specification to a category inside the caller's transaction.
+ * Attribute discovery uses this so that accepting a proposal, extending the
+ * category and writing the value are one decision (D-073); the permission
+ * check belongs to the caller.
+ */
+export async function createCategoryAttributeIn(
+  executor: Executor,
+  actorId: string,
+  categoryId: string,
+  input: CategoryAttributeInputPayload,
+) {
+  if (
+    (input.dataType === "select" || input.dataType === "multiselect") &&
+    (input.options ?? []).length === 0
+  ) {
+    throw new CategoryAttributeError(
+      "A choice attribute needs at least one option to choose from.",
+    );
+  }
+
+  const [{ nextOrder }] = await executor
+    .select({
+      nextOrder: sql<number>`coalesce(max(${categoryAttributes.sortOrder}) + 1, 0)::int`,
+    })
+    .from(categoryAttributes)
+    .where(eq(categoryAttributes.categoryId, categoryId));
+
+  const [created] = await executor
+    .insert(categoryAttributes)
+    .values({
+      categoryId,
+      name: input.name,
+      dataType: input.dataType,
+      unit: input.unit ?? null,
+      options: input.options ?? null,
+      isRequired: input.isRequired ?? false,
+      isFilterable:
+        input.isFilterable ??
+        filterableByDefault(input.dataType as CategoryAttributeType),
+      isSearchable: input.isSearchable ?? true,
+      sortOrder: nextOrder,
+    })
+    .returning();
+
+  await recordAudit(
+    {
+      actorUserId: actorId,
+      action: "category.updated",
+      entityType: "category",
+      entityId: categoryId,
+      after: { attributeAdded: created.name, dataType: created.dataType },
+    },
+    executor,
+  );
+
+  // The category's family schema follows, as a new version (D-064).
+  await syncLegacyFamilies(executor, staffChange(actorId));
+  return created;
+}
+
 export async function createCategoryAttribute(
   actor: SessionUser | null,
   categoryId: string,
@@ -206,46 +267,7 @@ export async function createCategoryAttribute(
     );
   }
 
-  const [{ nextOrder }] = await db
-    .select({
-      nextOrder: sql<number>`coalesce(max(${categoryAttributes.sortOrder}) + 1, 0)::int`,
-    })
-    .from(categoryAttributes)
-    .where(eq(categoryAttributes.categoryId, categoryId));
-
-  return db.transaction(async (tx) => {
-    const [created] = await tx
-      .insert(categoryAttributes)
-      .values({
-        categoryId,
-        name: input.name,
-        dataType: input.dataType,
-        unit: input.unit ?? null,
-        options: input.options ?? null,
-        isRequired: input.isRequired ?? false,
-        isFilterable:
-          input.isFilterable ??
-          filterableByDefault(input.dataType as CategoryAttributeType),
-        isSearchable: input.isSearchable ?? true,
-        sortOrder: nextOrder,
-      })
-      .returning();
-
-    await recordAudit(
-      {
-        actorUserId: staff.id,
-        action: "category.updated",
-        entityType: "category",
-        entityId: categoryId,
-        after: { attributeAdded: created.name, dataType: created.dataType },
-      },
-      tx,
-    );
-
-    // The category's family schema follows, as a new version (D-064).
-    await syncLegacyFamilies(tx, staffChange(staff.id));
-    return created;
-  });
+  return db.transaction(async (tx) => createCategoryAttributeIn(tx, staff.id, categoryId, input));
 }
 
 export async function updateCategoryAttribute(

@@ -288,8 +288,6 @@ export const APPLY_FIELDS = [
   "title",
   "descriptionHtml",
   "bulletFeatures",
-  "specTable",
-  "measurements",
   "tags",
   "searchKeywords",
   "imageAlts",

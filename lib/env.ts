@@ -47,6 +47,8 @@ const schema = z.object({
   PAYMENT_PROVIDER: z.enum(["mock", "sslcommerz"]).default("mock"),
   SHIPPING_PROVIDER: z.enum(["mock", "courier"]).default("mock"),
   NOTIFICATION_PROVIDER: z.enum(["mock", "live"]).default("mock"),
+  /** Automatic source discovery for the knowledge base; none is a supported setting (A-6). */
+  PRODUCT_RESEARCH_PROVIDER: z.enum(["none"]).default("none"),
   /**
    * Shared secret the payment provider signs webhooks with. Without it every
    * webhook is refused, which is the safe failure.

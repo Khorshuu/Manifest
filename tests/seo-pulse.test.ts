@@ -12,6 +12,8 @@ import type { SessionUser } from "@/lib/auth/session";
 import { createCategory, createProduct } from "@/lib/catalog";
 import {
   applySeoPulse,
+  completeQueuedResearch,
+  getSeoPulseRun,
   exportCsv,
   exportJson,
   getSeoPulseOverview,
@@ -349,7 +351,11 @@ describe("running research", () => {
       usage: () => ({ requests: 2, costUsd: null }),
     };
     setSeoDataProviderForTesting(failing);
-    const { run } = await runSeoPulse(staff, productId, { requestKey: nextKey(), fresh: true });
+    // With a data provider configured, research runs as a job (finding F4).
+    const { run: queued } = await runSeoPulse(staff, productId, { requestKey: nextKey(), fresh: true });
+    expect(queued.status).toBe("running");
+    await completeQueuedResearch(queued.id);
+    const run = (await getSeoPulseRun(staff, queued.id))!;
     expect(run.status).toBe("completed");
     const usage = run.providerUsage.find((entry) => entry.id === "broken");
     expect(usage?.status).toBe("failed");
@@ -388,7 +394,9 @@ describe("running research", () => {
       }),
       usage: () => ({ requests: 2, costUsd: 0.01 }),
     });
-    const { run } = await runSeoPulse(staff, productId, { requestKey: nextKey(), fresh: true });
+    const { run: queued } = await runSeoPulse(staff, productId, { requestKey: nextKey(), fresh: true });
+    await completeQueuedResearch(queued.id);
+    const run = (await getSeoPulseRun(staff, queued.id))!;
     expect(run.research?.keywordMetrics[0].source).toBe("Fake provider");
     expect(run.analysis?.generator.label).toMatch(/based on collected research/);
     expect(run.analysis?.competitorObservations.length).toBeGreaterThan(0);

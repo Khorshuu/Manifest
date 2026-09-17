@@ -14,10 +14,12 @@ import {
   insertFact,
   notApplicableValue,
   readValue,
+  sameStoredValue,
   slotKey,
   updateFact,
   type FactRow,
   type FactValue,
+  type Provenance,
 } from "./store";
 import { beginListingChange, syncListingKnowledge } from "./sync";
 import { LEGACY_DETAIL_DEFINITIONS, loadDefinitions, type DefinitionRecord } from "./vocabulary";
@@ -50,6 +52,95 @@ export function effectiveFactState(fact: Pick<FactRow, "lockedAt" | "valueStatus
   return fact.verificationState as PkbVerificationState;
 }
 
+export type DecidedFactWrite = {
+  pkbProductId: string;
+  pkbVariantId: string | null;
+  definition: DefinitionRecord;
+  ordinal: number;
+  value: FactValue;
+  provenance: Provenance;
+  listings: string[];
+  actorId: string;
+  reason: string;
+  /** Replace a MANUAL or VERIFIED value that says something different. */
+  overrideDecided?: boolean;
+};
+
+/**
+ * Writes a value a person decided — typed by hand or accepted from a claim —
+ * into its slot. A locked value is refused. A MANUAL or VERIFIED value that
+ * disagrees is replaced only with an explicit override, so accepting evidence
+ * never silently overwrites what someone decided. A value the listing's
+ * columns can show stays mirrored and is written back; one they cannot stops
+ * mirroring. The caller has begun the product change and finishes it.
+ */
+export async function writeDecidedFact(tx: Executor, input: DecidedFactWrite): Promise<{ row: FactRow; existing: FactRow | undefined }> {
+  const [existing]: FactRow[] = await tx
+    .select()
+    .from(pkbFacts)
+    .where(
+      and(
+        eq(pkbFacts.pkbProductId, input.pkbProductId),
+        input.pkbVariantId ? eq(pkbFacts.pkbVariantId, input.pkbVariantId) : isNull(pkbFacts.pkbVariantId),
+        eq(pkbFacts.definitionId, input.definition.id),
+        eq(pkbFacts.ordinal, input.ordinal),
+      ),
+    );
+  if (existing?.lockedAt) throw new PkbLockedError(input.definition.label);
+  if (
+    existing &&
+    !input.overrideDecided &&
+    (existing.verificationState === "MANUAL" || existing.verificationState === "VERIFIED") &&
+    !sameStoredValue(existing, input.value)
+  ) {
+    throw new PkbError(
+      `${input.definition.label} already has a ${existing.verificationState === "MANUAL" ? "value entered by staff" : "verified value"} (${existing.rawValue ?? "not applicable"}). Confirm replacing it.`,
+      409,
+      { decidedValue: input.definition.key },
+    );
+  }
+
+  let legacyRef: string | null = null;
+  if (input.value.valueStatus !== "not_applicable" && !input.pkbVariantId) {
+    if (existing?.legacyRef) {
+      legacyRef = isProjectable(existing.legacyRef) ? existing.legacyRef : null;
+    } else if (!existing) {
+      legacyRef = await projectableRefFor(tx, input.definition, input.listings);
+    }
+  }
+
+  const value = input.value;
+  const row = existing
+    ? await updateFact(
+        tx,
+        existing,
+        {
+          valueStatus: value.valueStatus,
+          rawValue: value.rawValue,
+          rawUnit: value.rawUnit,
+          valueText: value.typed.text,
+          valueNumber: value.typed.number,
+          valueNumberMax: value.typed.numberMax,
+          valueUnit: value.typed.unit,
+          valueBoolean: value.typed.boolean,
+          valueDate: value.typed.date,
+          valueOptionId: value.typed.optionId,
+          valueBrandId: value.brandId,
+          ...input.provenance,
+          legacyRef,
+        },
+        { actorId: input.actorId, reason: input.reason },
+      )
+    : await insertFact(
+        tx,
+        { pkbProductId: input.pkbProductId, pkbVariantId: input.pkbVariantId, definitionId: input.definition.id, ordinal: input.ordinal },
+        value,
+        input.provenance,
+        { legacyRef, actorId: input.actorId, reason: input.reason },
+      );
+  return { row, existing };
+}
+
 async function listingsOf(executor: Executor, pkbProductId: string): Promise<string[]> {
   const rows: { id: string }[] = await executor
     .select({ id: products.id })
@@ -60,14 +151,14 @@ async function listingsOf(executor: Executor, pkbProductId: string): Promise<str
 }
 
 /** Locks every listing of a knowledge product, in id order, and settles waiting changes. */
-async function beginProductChange(executor: Executor, pkbProductId: string): Promise<string[]> {
+export async function beginProductChange(executor: Executor, pkbProductId: string): Promise<string[]> {
   const listings = await listingsOf(executor, pkbProductId);
   for (const id of listings) await beginListingChange(executor, id);
   return listings;
 }
 
 /** After a knowledge-native write: legacy columns follow, and the mirror agrees. */
-async function finishProductChange(executor: Executor, actorId: string, listings: string[], pkbProductId: string) {
+export async function finishProductChange(executor: Executor, actorId: string, listings: string[], pkbProductId: string) {
   for (const id of listings) {
     const { changed } = await applyProjection(executor, id, pkbProductId);
     if (changed) {
@@ -126,67 +217,20 @@ export async function setFact(actor: SessionUser | null, input: SetFactInput): P
       value.typed = { ...value.typed, brandName: null };
     }
 
-    const [existing] = await tx
-      .select()
-      .from(pkbFacts)
-      .where(
-        and(
-          eq(pkbFacts.pkbProductId, product.id),
-          input.pkbVariantId ? eq(pkbFacts.pkbVariantId, input.pkbVariantId) : isNull(pkbFacts.pkbVariantId),
-          eq(pkbFacts.definitionId, definition.id),
-          eq(pkbFacts.ordinal, ordinal),
-        ),
-      );
-    if (existing?.lockedAt) throw new PkbLockedError(definition.label);
-
     const sourceId = await createStaffEntrySource(tx, staff.id, "Entered in the knowledge base");
-    const provenance = {
-      verificationState: "MANUAL" as const,
-      origin: "MANUAL_ADMIN" as const,
-      sourceId,
-      claimId: null,
-      decidedBy: staff.id,
-      decisionPolicy: null,
-    };
-    // A value the listing's columns can show is written back there; one they
-    // cannot (not applicable, a table row, a variant option) stops mirroring.
-    let legacyRef: string | null = null;
-    if (value.valueStatus !== "not_applicable" && !input.pkbVariantId) {
-      if (existing?.legacyRef) {
-        legacyRef = isProjectable(existing.legacyRef) ? existing.legacyRef : null;
-      } else if (!existing) {
-        legacyRef = await projectableRefFor(tx, definition, listings);
-      }
-    }
-
-    const row = existing
-      ? await updateFact(
-          tx,
-          existing,
-          {
-            valueStatus: value.valueStatus,
-            rawValue: value.rawValue,
-            rawUnit: value.rawUnit,
-            valueText: value.typed.text,
-            valueNumber: value.typed.number,
-            valueNumberMax: value.typed.numberMax,
-            valueUnit: value.typed.unit,
-            valueBoolean: value.typed.boolean,
-            valueDate: value.typed.date,
-            valueOptionId: value.typed.optionId,
-            valueBrandId: value.brandId,
-            ...provenance,
-            legacyRef,
-          },
-          { actorId: staff.id, reason: "Set by hand in the knowledge base." },
-        )
-      : await insertFact(
-          tx,
-          { pkbProductId: product.id, pkbVariantId: input.pkbVariantId ?? null, definitionId: definition.id, ordinal },
-          value,
-          provenance,
-          { legacyRef, actorId: staff.id, reason: "Set by hand in the knowledge base." },
-        );
+    const { row, existing } = await writeDecidedFact(tx, {
+      pkbProductId: product.id,
+      pkbVariantId: input.pkbVariantId ?? null,
+      definition,
+      ordinal,
+      value,
+      provenance: { verificationState: "MANUAL", origin: "MANUAL_ADMIN", sourceId, claimId: null, decidedBy: staff.id, decisionPolicy: null },
+      listings,
+      actorId: staff.id,
+      reason: "Set by hand in the knowledge base.",
+      // Typing a value by hand is itself the decision to replace what was there.
+      overrideDecided: true,
+    });
 
     await recordAudit(
       {

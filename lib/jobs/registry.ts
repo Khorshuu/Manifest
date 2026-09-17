@@ -7,9 +7,11 @@ import { sweepUnreferencedMedia } from "@/lib/media/registry";
 import { expireUnpaidOrders } from "@/lib/orders/expiry";
 import { reconcilePayments } from "@/lib/payments/reconcile";
 import { pruneRateLimits } from "@/lib/rate-limit";
+import { runEnrichment } from "@/lib/pkb/enrichment";
 import { runKnowledgeSync } from "@/lib/pkb/maintenance";
 import { getMediaProvider } from "@/lib/providers/media";
 import { pruneSearchLogs } from "@/lib/search/analytics";
+import { completeQueuedResearch } from "@/lib/seo-pulse/service";
 import { processSearchQueue } from "@/lib/search/maintenance";
 import { pruneFinishedJobs, type JobHandlers, type RecurringJob } from "./runner";
 
@@ -30,8 +32,14 @@ export const JOB_HANDLERS: JobHandlers = {
   "notifications.deliver": () => deliverQueuedNotifications(100),
   "payments.reconcile": () => reconcilePayments(),
   "search.process_queue": () => processSearchQueue(),
+  // Research that calls an external provider, off the admin request path. A
+  // run that is no longer running is left untouched, so a retry is safe.
+  "seo.research_product": (payload) => completeQueuedResearch(String(payload.runId)),
   // Idempotent: a listing is re-read from its current state under its lock.
   "pkb.sync_listings": () => runKnowledgeSync(),
+  // Retrieval is slow and must not run on a staff request; a finished run is
+  // returned unchanged, so a retry cannot propose the same claims twice.
+  "pkb.enrich_product": (payload) => runEnrichment(String(payload.runId)),
   "catalog.release_sku_holds": async () => ({ released: await releaseExpiredSkuReservations() }),
   "maintenance.prune": async () => {
     const rateLimits = await pruneRateLimits();

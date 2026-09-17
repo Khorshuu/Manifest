@@ -205,3 +205,35 @@ The limiter fails open if the database will not answer. Signing in needs the dat
 
 - Every handler under `app/api/admin` calls `refuseNonStaff()` (lib/auth/api-guard.ts) before reading the request: a signed-out caller gets 401 and a customer 403, whatever they sent. Each `lib/` function still enforces its own permission for staff roles. `e2e/admin-boundary.spec.ts` discovers every admin handler and page from the filesystem and checks both refusals, so a new route is covered automatically.
 - `proxy.ts` redirects requests to `/admin` and `/account` that carry no session cookie with a 307 to sign in. It is an optimistic check (cookie presence only, no database); the pages' own session and role checks are authoritative.
+
+## Retrieving external sources (knowledge platform, D-071, D-074)
+
+The knowledge base reads pages it is pointed at. Every retrieval goes through
+`lib/pkb/net/safe-fetch.ts`, and the protections were written with the first
+line of retrieval code, not after it.
+
+- **Address policy.** `isPublicAddress` refuses loopback, link-local, private
+  and carrier-grade-NAT ranges, the cloud metadata address (169.254.169.254),
+  IPv6 unique-local and mapped equivalents. The hostname is resolved once and
+  the connection is pinned to the address that was checked, so a name that
+  answers differently on the second lookup cannot reach an internal host
+  (DNS rebinding).
+- **Protocol and port.** http and https only, ports 80 and 443 only, no
+  credentials in the URL, and a redirect from https to http is refused.
+- **Redirects** are followed by hand, at most three hops, each hop re-checked
+  against the same address policy.
+- **Limits.** A request timeout (15 s by default), a decompressed response
+  ceiling (2 MB), and a content-type allowlist checked before the body is read.
+- **Parsing is inert.** HTML is parsed with htmlparser2; no script runs, no
+  resource is fetched, no DOM is constructed. JSON-LD is size-capped before it
+  is parsed.
+- **robots.txt is obeyed** (RFC 9309, `lib/pkb/net/robots.ts`). An unreachable
+  robots.txt means nothing on that host is read. A 401, 403 or 429 is recorded
+  as a refusal with its status; nothing attempts to work around it.
+- **Nothing is bypassed.** There is no code path that ignores a block: a
+  blocked registry domain, a robots refusal and an access control all end as a
+  `refused` document row with its reason, visible on the product's intelligence
+  screen.
+- **Rights stay conservative.** A retrieved source is stored with
+  `usage_rights = internal_only` until someone decides otherwise, and provider
+  data is treated as restricted.

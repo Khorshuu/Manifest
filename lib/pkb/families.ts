@@ -759,3 +759,64 @@ export async function assignFamily(actor: SessionUser | null, pkbProductId: stri
     );
   });
 }
+
+/**
+ * Adds one attribute to a family inside the caller's transaction, as a new
+ * active version (D-073). Used by attribute discovery, so accepting a
+ * proposal and writing its value are one atomic decision. A family that
+ * mirrors a category is refused: its schema follows the category, and the
+ * caller adds the specification there instead.
+ */
+export async function addAttributeToFamily(
+  executor: Executor,
+  actorId: string,
+  familyId: string,
+  attribute: Omit<DesiredAttribute, "sortOrder"> & { sortOrder?: number },
+  note: string,
+): Promise<{ versionId: string }> {
+  const [family] = await executor.select().from(pkbFamilies).where(eq(pkbFamilies.id, familyId));
+  if (!family) throw new PkbError("That family does not exist.", 404);
+  if (family.status !== "approved") throw new PkbError("Approve the family before adding attributes to it.", 409);
+  if (family.legacyCategoryId) {
+    throw new PkbError("This family mirrors a category's specifications. Add the specification to the category instead.", 409);
+  }
+  await assertDefinitionsUsable(executor, [{ ...attribute, sortOrder: 0 }]);
+
+  const current: DesiredAttribute[] = (
+    await queryRows<{
+      definition_id: string;
+      requirement: PkbRequirement;
+      variant_defining: boolean;
+      searchable: boolean | null;
+      filterable: boolean | null;
+      seo_relevant: boolean | null;
+      group_label: string | null;
+      sort_order: number;
+    }>(
+      executor,
+      sql`select a.definition_id, a.requirement, a.variant_defining, a.searchable, a.filterable,
+                 a.seo_relevant, a.group_label, a.sort_order
+          from pkb_family_versions v
+          join pkb_family_attributes a on a.family_version_id = v.id
+          where v.family_id = ${familyId} and v.status = 'active'
+          order by a.sort_order`,
+    )
+  ).map((row) => ({
+    definitionId: row.definition_id,
+    requirement: row.requirement,
+    variantDefining: row.variant_defining,
+    searchable: row.searchable,
+    filterable: row.filterable,
+    seoRelevant: row.seo_relevant,
+    groupLabel: row.group_label,
+    sortOrder: row.sort_order,
+  }));
+
+  if (current.some((row) => row.definitionId === attribute.definitionId)) {
+    throw new PkbError("That attribute is already part of the family.", 409);
+  }
+  const sortOrder = attribute.sortOrder ?? (current.length > 0 ? Math.max(...current.map((row) => row.sortOrder)) + 1 : 0);
+  const versionId = await createDraftVersion(executor, familyId, [...current, { ...attribute, sortOrder }], actorId, note);
+  await activateVersion(executor, versionId, actorId);
+  return { versionId };
+}

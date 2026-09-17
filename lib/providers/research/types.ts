@@ -1,0 +1,42 @@
+/**
+ * Finding candidate sources for a product, from whatever mechanism the shop
+ * has (A-6). Discovery is provider-agnostic on purpose: the Brand Source
+ * Registry, staff-supplied URLs, staff-supplied documents and approved feeds
+ * all work with nothing configured, and a paid search service is one more
+ * implementation of this interface rather than a requirement.
+ *
+ * A provider that cannot answer says so. It never guesses a URL, and it never
+ * returns content it did not retrieve — inventing a plausible source would be
+ * worse than reporting that discovery is unavailable.
+ */
+
+export type ResearchQuery = {
+  /** The product as the knowledge base knows it. */
+  name: string;
+  brand: string | null;
+  modelNumbers: string[];
+  gtins: string[];
+  /** Domains the Brand Source Registry already approves for this brand. */
+  preferredDomains: string[];
+  limit: number;
+};
+
+export type ResearchCandidate = {
+  url: string;
+  title: string | null;
+  /** Why the provider believes this page is about the product, in its words. */
+  note: string | null;
+};
+
+export type ResearchResult =
+  | { status: "OK"; candidates: ResearchCandidate[] }
+  /** No provider is set up. Expected, and not an error. */
+  | { status: "NOT_CONFIGURED"; message: string }
+  /** Configured but unusable right now: quota, outage, missing credential. */
+  | { status: "UNAVAILABLE"; message: string }
+  | { status: "FAILED"; message: string };
+
+export type ProductResearchProvider = {
+  readonly key: string;
+  findSources(query: ResearchQuery): Promise<ResearchResult>;
+};

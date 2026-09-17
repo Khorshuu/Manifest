@@ -394,6 +394,15 @@ export default async function AdminProductPage({
             paid={data.paid || ai.paid}
           />
           <ReadinessBox checks={checks} />
+          <section className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-4">
+            <h2 className="text-sm font-medium text-ink">Product knowledge</h2>
+            <p className="text-[0.75rem] text-ink/65">
+              The facts behind this listing, where each came from, and anything waiting for a decision.
+            </p>
+            <Link className="text-[0.8rem] text-blue-600 hover:underline" href={`/admin/products/${product.id}/intelligence`}>
+              Open product intelligence
+            </Link>
+          </section>
         </aside>
         <div className="min-w-0 lg:order-1">
           <ProductEditor sections={sections} initialSection={initialSection} />

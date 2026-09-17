@@ -1814,3 +1814,134 @@ text.
 **Assumption for the owner (A-7).** Copied values of a duplicated listing are
 UNVERIFIED rather than MANUAL: duplicating is usually the start of a different
 product, and nobody has checked those values for it.
+
+## D-071 — Owner decisions at the start of Stage 3: legacy stays legacy, reviewed label mapping, existence is not trust, identifier history
+
+**Decided by the owner (September 2026), on assumptions A-7 to A-9 and risk R-6.**
+
+- **A-7 approved.** Migrated and copied listing facts stay unchecked (LEGACY,
+  or UNVERIFIED for a duplicated listing) until they independently satisfy the
+  verification policy with evidence and decision history. Migration never
+  produces VERIFIED.
+- **A-8 approved with controlled expansion.** Exact label, key or approved
+  alias matching remains the only automatic mapping. A reviewed mapping
+  workflow is added: staff approve that a label maps to an attribute, or is not
+  an attribute, and the decision is kept as reusable knowledge — scoped to a
+  family where the same label means different things in different families —
+  so later rows with that label map deterministically. No fuzzy matching. The
+  unmatched development rows are reviewed through this workflow.
+- **A-9 modified.** Brand existence and source trust are separate things. A
+  brand in the catalogue is valid without approval. Official product and
+  documentation domains, source preferences, manufacturer identity mappings
+  and any other trust assertion start SUGGESTED and carry no authority until an
+  approved decision or evidence supports them.
+- **R-6.** Identifier changes are auditable: previous value, new value, actor
+  or source, time and reason, in an append-only history. Invalid identifiers
+  keep their original text and are marked invalid; a check digit is never
+  corrected by guessing.
+- **Network safety.** Protections against SSRF (loopback, private and internal
+  ranges, cloud metadata endpoints, unsafe redirects, DNS rebinding), with
+  timeouts, response-size limits, protocol restrictions and safe parsing, ship
+  in the same change as the first code that retrieves an external source.
+
+## D-072 — Product resolution gates factual enrichment, and label mappings are reviewed once
+
+Enrichment only runs on a product whose identity is settled. `assessResolution`
+derives one of four states from the product's own identifiers: VERIFIED (a
+person confirmed it, and the identity signature has not changed since),
+HIGH_CONFIDENCE (a brand plus a model key or a valid GTIN, with no candidate it
+could be confused with), AMBIGUOUS (another knowledge product shares the brand
+and model key, or the identifier claims disagree) and UNRESOLVED (no brand and
+no identifier). `canEnrich` allows the first two. Asking for a run re-checks the
+state rather than trusting the stored one, and a blocked run is recorded with
+its reason instead of failing silently.
+
+Confirming an identity requires a note of at least five characters and records
+the products this one is explicitly *not* (`pkb_identity_distinctions`), because
+"this is the 256 GB, not the 512 GB" is the fact that stops the next run from
+mixing them.
+
+Labels are placed by exact match only. Anything else waits in
+`pkb_unmapped_values`, and a person either maps it to an attribute or marks it
+not an attribute; the decision is stored in `pkb_label_mappings`, scoped to a
+context (`spec_table`, `measurements`, `variant_option`, `source_document` or
+`any`) and optionally to one family, and is then applied deterministically to
+every later row with that label. Deciding queues the listings the decision
+touches, so the values are placed by the ordinary sync rather than edited in
+place. Retiring a mapping queues them again. There is no fuzzy matching (A-8).
+
+## D-073 — Attribute discovery proposes; a person decides what an attribute is
+
+A label an extraction found and nothing names becomes a row in
+`pkb_attribute_proposals`, holding the label, one example value, a guessed shape
+and the evidence. `guessShape` is a default on the review screen, never a
+reason to store anything.
+
+Three answers exist. **Add to Family** puts the attribute in the family's
+schema: for a family mirrored from a category the specification is added to the
+category (so the mirror keeps it), otherwise `addAttributeToFamily` drafts and
+activates a new family version inside the same transaction. **Product only**
+defines the attribute without touching the family. **Ignore** records that the
+label is not an attribute. Every answer writes a reusable label mapping, and an
+accepted proposal creates a claim from its evidence — so even an accepted
+proposal's value is reviewed before it becomes a fact.
+
+## D-074 — The enrichment pipeline retrieves, quotes and proposes; it never writes a fact
+
+A run is `pkb_enrichment_runs`; the work happens in the `pkb.enrich_product`
+job, never in a staff request. Sources come from three places, none of which
+requires a paid provider (A-6): approved registry entries for the product's
+trusted brands (including URL templates filled from its own identifiers), pages
+staff attached to the product, and a `ProductResearchProvider` if one is
+configured. With none configured the provider reports `NOT_CONFIGURED` and the
+run records that, rather than treating "no discovery" as "no sources exist".
+
+Every retrieval goes through `robotsAllows`/`checkRobots` and `safeFetch`: a
+blocked registry domain, a robots.txt refusal, an unreadable robots.txt, a 401,
+403 or 429, a redirect into a private address, an oversized body or a wrong
+content type is stored as a refused `pkb_source_documents` row with its reason.
+Nothing bypasses an access control.
+
+A retrieved document is only used when its own identity signals agree with the
+product's: a shared GTIN or model key is agreement, a different one of the same
+kind is disagreement, and anything weaker is `unknown`. Only `match` documents
+produce claims; the others are kept as a record and produce nothing. One value
+per slot per document, so a page repeating a specification does not corroborate
+itself.
+
+## D-075 — SEO Pulse: generated wording is proposed, an apply is one transaction, research runs as a job
+
+Three changes close the Stage 1 findings F2 to F4.
+
+- **Fill proposes generated text.** With an AI generator configured, one-click
+  Fill writes nothing: the description, key features, meta text and term lists
+  come back as `proposed` entries for field-by-field review. With the rules
+  generator, Fill still fills — every value it produces is derived from facts
+  the listing already records. The specification and measurement tables are no
+  longer written by SEO Pulse at all; they belong to the knowledge base, which
+  mirrors them with provenance (F1).
+- **An apply is atomic.** `applySeoPulse` opens one transaction and threads it
+  through `updateProduct`, `updateProductImageAltText` and `createSynonym`,
+  each of which now takes an optional executor. A failure part-way leaves the
+  listing untouched.
+- **Research runs off the request path.** When an external provider is
+  configured (`usesExternalProviders`), `runSeoPulse` records a `running` run
+  and enqueues `seo.research_product`; `completeQueuedResearch` finishes it and
+  is idempotent, so a retried job cannot overwrite a completed analysis. With
+  only the local rules generator, research still runs inline and the answer is
+  immediate.
+
+## D-076 — Review is explicit: named claims, all or nothing, and VERIFIED only under a policy
+
+Accepting, rejecting, correcting and resolving all name the claims they act on;
+there is no "apply everything". Accepting several claims writes them in one
+transaction or not at all, and two claims for one slot in a single action are
+refused rather than silently ordered.
+
+A claim becomes VERIFIED only when `evaluateVerification` finds an active
+verification policy that its evidence satisfies at that moment — by source
+type, registry role, authority tier and the number of independent sources.
+Otherwise it is accepted as UNVERIFIED with its provenance intact. A locked
+value is never replaced, and a value staff entered or verified is replaced only
+with an explicit override. A slot with conflicting claims is settled by
+choosing between them, never by overwriting one with the other.

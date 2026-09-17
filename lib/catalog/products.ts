@@ -10,7 +10,7 @@ import {
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
-import { staffChange } from "@/lib/pkb/common";
+import { staffChange, type Executor } from "@/lib/pkb/common";
 import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import { uniqueSlug } from "@/lib/slug";
 import type {
@@ -634,8 +634,8 @@ async function cleanAttributeValues(
   return validateAttributeValues(definitions, input.attributeValues);
 }
 
-export async function slugTaken(candidate: string, excludingId?: string) {
-  const rows = await db
+export async function slugTaken(candidate: string, excludingId?: string, executor: Executor = db) {
+  const rows = await executor
     .select({ id: products.id })
     .from(products)
     .where(eq(products.slug, candidate))
@@ -733,10 +733,18 @@ export async function updateProduct(
   actor: SessionUser | null,
   productId: string,
   input: ProductPatchPayload,
+  /**
+   * A transaction to write inside, when the save is one step of a larger
+   * decision — SEO Pulse's apply writes the product, its alt texts and its
+   * synonyms together, so a failure half-way leaves nothing behind (D-075).
+   * The reads are made through the same executor, so they see its writes.
+   */
+  options: { executor?: Executor } = {},
 ) {
   const staff = requirePermission(actor, "catalog.manage");
+  const reader: Executor = options.executor ?? db;
 
-  const [current] = await db
+  const [current] = await reader
     .select()
     .from(products)
     .where(eq(products.id, productId));
@@ -776,9 +784,9 @@ export async function updateProduct(
     input.slug ??
     (current.title === title
       ? current.slug
-      : await uniqueSlug(title, (c) => slugTaken(c, productId)));
+      : await uniqueSlug(title, (c) => slugTaken(c, productId, reader)));
 
-  return db.transaction(async (tx) => {
+  const save = async (tx: Executor) => {
     // Knowledge lock first, and any change another path left waiting settled,
     // so this save is credited only with what it changes (D-070).
     await beginListingChange(tx, productId);
@@ -833,7 +841,9 @@ export async function updateProduct(
     );
 
     return updated;
-  });
+  };
+
+  return options.executor ? save(options.executor) : db.transaction(save);
 }
 
 /**

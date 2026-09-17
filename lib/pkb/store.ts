@@ -4,6 +4,8 @@ import {
   pkbBrands,
   pkbFactHistory,
   pkbFacts,
+  pkbIdentifierHistory,
+  pkbIdentifiers,
   pkbSources,
   type PkbHistoryChange,
   type PkbOrigin,
@@ -212,6 +214,73 @@ export async function deleteFact(
   await executor.delete(pkbFacts).where(eq(pkbFacts.id, before.id));
 }
 
+// ------------------------------------------------------------------ identifiers
+
+export type IdentifierRow = typeof pkbIdentifiers.$inferSelect;
+
+/**
+ * Every identifier write goes through these three, so every change to a GTIN,
+ * UPC, EAN, ISBN, MPN or model number leaves an append-only history row with
+ * the previous and new value, who or what made it, and why (R-6). An invalid
+ * identifier is stored as written and marked invalid; nothing here corrects a
+ * check digit.
+ */
+async function writeIdentifierHistory(
+  executor: Executor,
+  kind: "created" | "updated" | "cleared" | "locked" | "unlocked",
+  before: IdentifierRow | null,
+  after: IdentifierRow | null,
+  options: { actorId: string | null; reason: string },
+) {
+  const row = (after ?? before)!;
+  await executor.insert(pkbIdentifierHistory).values({
+    identifierId: row.id,
+    pkbProductId: row.pkbProductId,
+    pkbVariantId: row.pkbVariantId,
+    identifierType: row.identifierType,
+    changeKind: kind,
+    before: before ? snapshot(before as unknown as FactRow) : null,
+    after: after ? snapshot(after as unknown as FactRow) : null,
+    actorUserId: options.actorId,
+    sourceId: row.sourceId,
+    reason: options.reason.slice(0, 300),
+  });
+}
+
+export async function insertIdentifier(
+  executor: Executor,
+  values: typeof pkbIdentifiers.$inferInsert,
+  options: { actorId: string | null; reason: string },
+): Promise<IdentifierRow> {
+  const [row] = await executor.insert(pkbIdentifiers).values(values).returning();
+  await writeIdentifierHistory(executor, "created", null, row, options);
+  return row;
+}
+
+export async function updateIdentifier(
+  executor: Executor,
+  before: IdentifierRow,
+  patch: Partial<IdentifierRow>,
+  options: { actorId: string | null; reason: string; kind?: "updated" | "locked" | "unlocked" },
+): Promise<IdentifierRow> {
+  const [row] = await executor
+    .update(pkbIdentifiers)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(pkbIdentifiers.id, before.id))
+    .returning();
+  await writeIdentifierHistory(executor, options.kind ?? "updated", before, row, options);
+  return row;
+}
+
+export async function deleteIdentifier(
+  executor: Executor,
+  before: IdentifierRow,
+  options: { actorId: string | null; reason: string },
+): Promise<void> {
+  await writeIdentifierHistory(executor, "cleared", before, null, options);
+  await executor.delete(pkbIdentifiers).where(eq(pkbIdentifiers.id, before.id));
+}
+
 // ------------------------------------------------------------------ brands
 
 /** The brand a written name is, by its key or an approved alias. */
@@ -228,9 +297,11 @@ export async function findBrandId(executor: Executor, name: string): Promise<str
 }
 
 /**
- * The brand a name is, created as `suggested` when nobody has recorded it.
- * Never matched loosely: "Northlake Audio" and "Northline Audio" stay two
- * brands until someone with `knowledge.manage` merges them (A-2).
+ * The brand a name is, created when nobody has recorded it. A catalogue brand
+ * is simply `active`: existing is not the same as being trusted, and trust in
+ * its sources is recorded separately in the source registry (A-9). Never
+ * matched loosely: "Northlake Audio" and "Northline Audio" stay two brands
+ * until someone with `knowledge.manage` merges them (A-2).
  */
 export async function ensureBrand(executor: Executor, name: string, attribution: Attribution): Promise<string> {
   const existing = await findBrandId(executor, name);
@@ -249,7 +320,7 @@ export async function ensureBrand(executor: Executor, name: string, attribution:
       name: clean,
       nameNormalized: key,
       slug,
-      status: "suggested",
+      status: "active",
       origin: attribution.kind === "legacy" ? "UNKNOWN_LEGACY" : "MANUAL_ADMIN",
       createdBy: attribution.kind === "legacy" ? null : attribution.actorId,
     })
@@ -258,8 +329,9 @@ export async function ensureBrand(executor: Executor, name: string, attribution:
 }
 
 /**
- * Removes suggested brands nothing refers to any more — a typo corrected in
- * the editor should not leave a brand behind. Approved brands are kept.
+ * Removes brands nothing refers to any more — a typo corrected in the editor
+ * should not leave a brand behind. A brand anyone has attached knowledge to
+ * (an alias, a registry entry, a relation, a merge) is kept.
  */
 export async function pruneUnusedBrands(executor: Executor, brandIds: string[]): Promise<void> {
   const ids = [...new Set(brandIds.filter(Boolean))];
@@ -267,10 +339,13 @@ export async function pruneUnusedBrands(executor: Executor, brandIds: string[]):
   await executor.execute(sql`
     delete from pkb_brands b
     where b.id = any(${`{${ids.join(",")}}`}::uuid[])
-      and b.status = 'suggested'
+      and b.status = 'active'
       and not exists (select 1 from pkb_facts f where f.value_brand_id = b.id)
       and not exists (select 1 from pkb_claims c where c.value_brand_id = b.id)
       and not exists (select 1 from pkb_aliases a where a.brand_id = b.id)
+      and not exists (select 1 from pkb_source_registry r where r.brand_id = b.id)
+      and not exists (select 1 from pkb_brand_relations r where r.brand_id = b.id or r.related_brand_id = b.id)
+      and not exists (select 1 from pkb_brands m where m.merged_into_id = b.id)
   `);
 }
 

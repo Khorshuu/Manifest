@@ -149,7 +149,12 @@ export const pkbBrands = pgTable("pkb_brands", {
   name: text("name").notNull(),
   nameNormalized: text("name_normalized").notNull().unique(),
   slug: text("slug").notNull().unique(),
-  status: text("status").$type<PkbReviewStatus>().notNull().default("suggested"),
+  /**
+   * Whether the brand exists in the catalogue — not whether its sources are
+   * trusted (A-9, migration 0032). Trust lives in `pkb_source_registry`.
+   */
+  status: text("status").$type<"active" | "merged" | "retired">().notNull().default("active"),
+  mergedIntoId: uuid("merged_into_id"),
   origin: text("origin").$type<PkbOrigin>().notNull(),
   createdBy: uuid("created_by").references(() => users.id),
   decidedBy: uuid("decided_by").references(() => users.id),
@@ -277,10 +282,17 @@ export const pkbProducts = pgTable(
     mergedIntoId: uuid("merged_into_id"),
     origin: text("origin").$type<PkbOrigin>().notNull(),
     createdBy: uuid("created_by").references(() => users.id),
+    resolutionCheckedAt: timestamp("resolution_checked_at", { withTimezone: true }),
+    /** { code, message, candidateIds? }[] — why the state is what it is. */
+    resolutionReasons: jsonb("resolution_reasons"),
+    resolutionDecidedBy: uuid("resolution_decided_by").references(() => users.id),
+    resolutionDecidedAt: timestamp("resolution_decided_at", { withTimezone: true }),
     ...timestamps,
   },
   (table) => [index("pkb_products_family_idx").on(table.familyId)],
 );
+
+export type PkbResolutionState = "VERIFIED" | "HIGH_CONFIDENCE" | "AMBIGUOUS" | "UNRESOLVED";
 
 export const pkbVariants = pgTable(
   "pkb_variants",
@@ -331,6 +343,8 @@ export const pkbEvidence = pgTable("pkb_evidence", {
   extractedLabel: text("extracted_label"),
   extractedValue: text("extracted_value"),
   extractedUnit: text("extracted_unit"),
+  /** The retrieved or provided document the excerpt was taken from (migration 0032). */
+  documentId: uuid("document_id"),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -552,3 +566,244 @@ export const pkbSyncQueue = pgTable("pkb_sync_queue", {
   claimedBy: text("claimed_by"),
   lastError: text("last_error"),
 });
+
+// ------------------------------------------------------------------ migration 0032
+
+export const PKB_REGISTRY_ROLES = [
+  "official_product",
+  "official_support",
+  "official_documentation",
+  "manufacturer_feed",
+  "authorized_distributor",
+  "trusted_retailer",
+  "product_database",
+  "supplier_feed",
+  "approved_secondary",
+  "blocked",
+] as const;
+export type PkbRegistryRole = (typeof PKB_REGISTRY_ROLES)[number];
+
+export type PkbTrustStatus = "suggested" | "approved" | "rejected" | "retired";
+
+/** Trusted and blocked domains and providers, per brand or for all (A-9). */
+export const pkbSourceRegistry = pgTable("pkb_source_registry", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  brandId: uuid("brand_id").references(() => pkbBrands.id, { onDelete: "cascade" }),
+  matchKind: text("match_kind").$type<"domain" | "provider">().notNull(),
+  domain: text("domain"),
+  pathPrefix: text("path_prefix"),
+  providerKey: text("provider_key"),
+  role: text("role").$type<PkbRegistryRole>().notNull(),
+  authorityTier: smallint("authority_tier"),
+  preference: smallint("preference").notNull().default(100),
+  urlTemplate: text("url_template"),
+  status: text("status").$type<PkbTrustStatus>().notNull().default("suggested"),
+  origin: text("origin").$type<PkbOrigin>().notNull(),
+  evidenceSourceId: uuid("evidence_source_id").references(() => pkbSources.id, { onDelete: "set null" }),
+  note: text("note"),
+  createdBy: uuid("created_by").references(() => users.id),
+  decidedBy: uuid("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  ...timestamps,
+});
+
+export const pkbBrandRelations = pgTable("pkb_brand_relations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  brandId: uuid("brand_id")
+    .notNull()
+    .references(() => pkbBrands.id, { onDelete: "cascade" }),
+  relatedBrandId: uuid("related_brand_id")
+    .notNull()
+    .references(() => pkbBrands.id, { onDelete: "cascade" }),
+  kind: text("kind").$type<"manufactured_by" | "subsidiary_of" | "formerly_known_as">().notNull(),
+  status: text("status").$type<PkbTrustStatus>().notNull().default("suggested"),
+  origin: text("origin").$type<PkbOrigin>().notNull(),
+  evidenceSourceId: uuid("evidence_source_id").references(() => pkbSources.id, { onDelete: "set null" }),
+  note: text("note"),
+  createdBy: uuid("created_by").references(() => users.id),
+  decidedBy: uuid("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pkbVerificationPolicies = pgTable("pkb_verification_policies", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  status: text("status").$type<"draft" | "active" | "retired">().notNull().default("draft"),
+  appliesTo: text("applies_to").$type<"fact" | "identifier" | "any">().notNull().default("any"),
+  familyId: uuid("family_id").references(() => pkbFamilies.id, { onDelete: "cascade" }),
+  definitionId: uuid("definition_id").references(() => pkbAttributeDefinitions.id, { onDelete: "cascade" }),
+  qualifyingSourceTypes: text("qualifying_source_types").array().$type<PkbSourceType[]>().notNull(),
+  registryRoles: text("registry_roles").array().$type<PkbRegistryRole[]>(),
+  maxAuthorityTier: smallint("max_authority_tier"),
+  minIndependentSources: smallint("min_independent_sources").notNull().default(1),
+  allowAiAssisted: boolean("allow_ai_assisted").notNull().default(false),
+  origin: text("origin").$type<PkbOrigin>().notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  activatedBy: uuid("activated_by").references(() => users.id),
+  activatedAt: timestamp("activated_at", { withTimezone: true }),
+  ...timestamps,
+});
+
+export const PKB_LABEL_CONTEXTS = ["spec_table", "measurements", "variant_option", "source_document", "any"] as const;
+export type PkbLabelContext = (typeof PKB_LABEL_CONTEXTS)[number];
+
+/** Reviewed, reusable decisions that a written label is (or is not) an attribute (A-8). */
+export const pkbLabelMappings = pgTable("pkb_label_mappings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  label: text("label").notNull(),
+  labelNormalized: text("label_normalized").notNull(),
+  context: text("context").$type<PkbLabelContext>().notNull(),
+  familyId: uuid("family_id").references(() => pkbFamilies.id, { onDelete: "cascade" }),
+  action: text("action").$type<"map" | "ignore">().notNull(),
+  definitionId: uuid("definition_id").references(() => pkbAttributeDefinitions.id),
+  status: text("status").$type<"approved" | "retired">().notNull().default("approved"),
+  note: text("note"),
+  decidedBy: uuid("decided_by")
+    .notNull()
+    .references(() => users.id),
+  decidedAt: timestamp("decided_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pkbIdentifierHistory = pgTable("pkb_identifier_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  identifierId: uuid("identifier_id").notNull(),
+  pkbProductId: uuid("pkb_product_id")
+    .notNull()
+    .references(() => pkbProducts.id, { onDelete: "cascade" }),
+  pkbVariantId: uuid("pkb_variant_id"),
+  identifierType: text("identifier_type").notNull(),
+  changeKind: text("change_kind").$type<"created" | "updated" | "cleared" | "locked" | "unlocked">().notNull(),
+  before: jsonb("before"),
+  after: jsonb("after"),
+  actorUserId: uuid("actor_user_id").references(() => users.id),
+  sourceId: uuid("source_id").references(() => pkbSources.id, { onDelete: "set null" }),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type PkbProviderState = {
+  provider: string;
+  status: "OK" | "NOT_CONFIGURED" | "UNAVAILABLE" | "FAILED";
+  message: string | null;
+};
+
+export const pkbEnrichmentRuns = pgTable("pkb_enrichment_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  pkbProductId: uuid("pkb_product_id")
+    .notNull()
+    .references(() => pkbProducts.id, { onDelete: "cascade" }),
+  status: text("status").$type<"queued" | "running" | "completed" | "blocked" | "failed">().notNull().default("queued"),
+  requestKey: text("request_key").notNull().unique(),
+  requestedBy: uuid("requested_by").references(() => users.id),
+  resolutionState: text("resolution_state"),
+  blockedReason: text("blocked_reason"),
+  providers: jsonb("providers").$type<PkbProviderState[]>().notNull().default([]),
+  documentsRetrieved: integer("documents_retrieved").notNull().default(0),
+  documentsRefused: integer("documents_refused").notNull().default(0),
+  claimsProposed: integer("claims_proposed").notNull().default(0),
+  conflicts: integer("conflicts").notNull().default(0),
+  proposalsCreated: integer("proposals_created").notNull().default(0),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+});
+
+export const pkbSourceDocuments = pgTable("pkb_source_documents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sourceId: uuid("source_id")
+    .notNull()
+    .references(() => pkbSources.id, { onDelete: "cascade" }),
+  pkbProductId: uuid("pkb_product_id").references(() => pkbProducts.id, { onDelete: "cascade" }),
+  runId: uuid("run_id").references(() => pkbEnrichmentRuns.id, { onDelete: "set null" }),
+  status: text("status").$type<"retrieved" | "provided" | "refused" | "failed">().notNull(),
+  refusalReason: text("refusal_reason"),
+  httpStatus: smallint("http_status"),
+  contentType: text("content_type"),
+  byteSize: integer("byte_size"),
+  sha256: text("sha256"),
+  textContent: text("text_content"),
+  structuredData: jsonb("structured_data"),
+  identityMatch: text("identity_match").$type<"match" | "mismatch" | "unknown" | "not_checked">().notNull().default("not_checked"),
+  identityNotes: jsonb("identity_notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  retrievedAt: timestamp("retrieved_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pkbAttributeProposals = pgTable("pkb_attribute_proposals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  pkbProductId: uuid("pkb_product_id")
+    .notNull()
+    .references(() => pkbProducts.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  labelNormalized: text("label_normalized").notNull(),
+  exampleValue: text("example_value").notNull(),
+  dataType: text("data_type").notNull(),
+  cardinality: text("cardinality").$type<"single" | "multiple">().notNull().default("single"),
+  unitDimension: text("unit_dimension"),
+  displayUnit: text("display_unit"),
+  searchable: boolean("searchable").notNull().default(true),
+  filterable: boolean("filterable").notNull().default(false),
+  variantDefining: boolean("variant_defining").notNull().default(false),
+  seoRelevant: boolean("seo_relevant").notNull().default(false),
+  evidenceId: uuid("evidence_id")
+    .notNull()
+    .references(() => pkbEvidence.id, { onDelete: "cascade" }),
+  status: text("status").$type<"open" | "added_to_family" | "product_only" | "ignored">().notNull().default("open"),
+  familyId: uuid("family_id").references(() => pkbFamilies.id),
+  definitionId: uuid("definition_id").references(() => pkbAttributeDefinitions.id),
+  claimId: uuid("claim_id").references(() => pkbClaims.id, { onDelete: "set null" }),
+  decidedBy: uuid("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pkbResolutionHistory = pgTable("pkb_resolution_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  pkbProductId: uuid("pkb_product_id")
+    .notNull()
+    .references(() => pkbProducts.id, { onDelete: "cascade" }),
+  fromState: text("from_state"),
+  toState: text("to_state").$type<PkbResolutionState>().notNull(),
+  reasons: jsonb("reasons"),
+  actorUserId: uuid("actor_user_id").references(() => users.id),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pkbIdentityDistinctions = pgTable(
+  "pkb_identity_distinctions",
+  {
+    productAId: uuid("product_a_id")
+      .notNull()
+      .references(() => pkbProducts.id, { onDelete: "cascade" }),
+    productBId: uuid("product_b_id")
+      .notNull()
+      .references(() => pkbProducts.id, { onDelete: "cascade" }),
+    decidedBy: uuid("decided_by")
+      .notNull()
+      .references(() => users.id),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.productAId, table.productBId] })],
+);
+
+export const pkbProductSources = pgTable(
+  "pkb_product_sources",
+  {
+    pkbProductId: uuid("pkb_product_id")
+      .notNull()
+      .references(() => pkbProducts.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => pkbSources.id, { onDelete: "cascade" }),
+    addedBy: uuid("added_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.pkbProductId, table.sourceId] })],
+);

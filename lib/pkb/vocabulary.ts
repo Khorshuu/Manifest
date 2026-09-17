@@ -8,6 +8,7 @@ import {
 } from "@/db/schema";
 import type { Executor } from "./common";
 import { labelKey, type AttributeDataType } from "./normalize";
+import { ensureDefaultPolicies } from "./policies";
 
 /**
  * The attribute vocabulary: the system definitions every product can carry,
@@ -119,6 +120,7 @@ export type DefinitionRecord = {
  * exist. Idempotent and cheap when they do; safe under concurrency.
  */
 export async function ensureSystemVocabulary(executor: Executor): Promise<{ legacySourceId: string }> {
+  await ensureDefaultPolicies(executor);
   const [existing, [legacy]] = await Promise.all([
     executor
       .select({ key: pkbAttributeDefinitions.key })

@@ -4,6 +4,7 @@ import { searchSynonyms } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
+import type { Executor } from "@/lib/pkb/common";
 import type { SynonymInput } from "@/lib/validation/search";
 import type { Slot } from "./normalize";
 import { textArray } from "./sql";
@@ -55,8 +56,8 @@ export async function listSynonyms(
   return db.select(columns).from(searchSynonyms).orderBy(asc(searchSynonyms.term));
 }
 
-async function assertTermIsFree(term: string, excludingId?: string) {
-  const [clash] = await db
+async function assertTermIsFree(term: string, excludingId?: string, executor: Executor = db) {
+  const [clash] = await executor
     .select({ id: searchSynonyms.id })
     .from(searchSynonyms)
     .where(eq(searchSynonyms.term, term))
@@ -73,11 +74,13 @@ async function assertTermIsFree(term: string, excludingId?: string) {
 export async function createSynonym(
   actor: SessionUser | null,
   input: SynonymInput,
+  /** A transaction to write inside, when this is one step of a larger decision (D-075). */
+  options: { executor?: Executor } = {},
 ): Promise<SynonymEntry> {
   const staff = requirePermission(actor, "search.manage");
-  await assertTermIsFree(input.term);
+  await assertTermIsFree(input.term, undefined, options.executor);
 
-  return db.transaction(async (tx) => {
+  const write = async (tx: Executor) => {
     const [created] = await tx
       .insert(searchSynonyms)
       .values({
@@ -100,7 +103,9 @@ export async function createSynonym(
     );
 
     return created;
-  });
+  };
+
+  return options.executor ? write(options.executor) : db.transaction(write);
 }
 
 export async function updateSynonym(

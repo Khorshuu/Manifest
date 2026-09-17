@@ -569,3 +569,27 @@ every existing listing.
 
 **Encoding note.** The local PostgreSQL server runs WIN1252; migration text must
 not contain characters outside it (arrows, for instance).
+
+## Migration 0032 — Product intelligence (D-071 to D-076)
+
+Adds the review, trust and retrieval tables. Brand status becomes
+`active | merged | retired` with `merged_into_id`, so "this brand exists" and
+"this brand's sources are trusted" are separate facts (A-9).
+
+| Table | Holds | Rules the database enforces |
+| --- | --- | --- |
+| `pkb_source_registry` | A brand's domains, path prefixes and providers, with a role and an optional product-address template | the authority tier follows the role (1 official, 2 distributor/retailer/database/feed, 3 approved secondary, none for blocked); approved and rejected entries need a decider and a time; one entry per brand, kind, domain, path and provider |
+| `pkb_brand_relations` | manufactured_by, subsidiary_of, formerly_known_as | no self-relation; one row per pair and kind; decisions recorded |
+| `pkb_verification_policies` | What evidence is enough for VERIFIED: qualifying source types, registry roles, maximum tier, number of independent sources, whether AI-assisted extraction may count | active policies carry an activation time; the code seeds four (`lib/pkb/policies.ts`), one of them off by default |
+| `pkb_label_mappings` | A reviewed decision that a written label is, or is not, an attribute | one approved decision per label, context and family; a mapping needs an attribute, an ignore must not name one; every row records who decided and when |
+| `pkb_identifier_history` | created, updated, cleared, locked, unlocked — with before, after, actor or source, and a reason | append-only (trigger); the migration backfills a `created` row for every existing identifier |
+| `pkb_enrichment_runs` | One requested run: status, request key, resolution state at the time, provider states, counts, blocked reason | request key unique, so a repeated request is one run; a blocked run records why |
+| `pkb_source_documents` | What a run read or a person provided: status, refusal reason, HTTP status, size, hash, text, structured data, identity verdict | a refused document carries a reason; a retrieved one carries a hash |
+| `pkb_product_sources` | The pages a person attached to a product | one row per product and source |
+| `pkb_attribute_proposals` | A discovered label with an example value and its evidence | evidence required; a decided proposal records the actor, the time and what it became |
+| `pkb_resolution_history` | Every change of a product's resolution state, with the reasons and the note | append-only |
+| `pkb_identity_distinctions` | "This product is explicitly not that one" | no self-distinction; one row per pair |
+
+**Columns added:** `pkb_evidence.document_id`; on `pkb_products` the resolution
+state, when it was last checked, the reasons, and who decided it with when — a
+VERIFIED resolution requires a person and a time.

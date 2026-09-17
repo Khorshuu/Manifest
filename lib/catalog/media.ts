@@ -4,6 +4,7 @@ import { productImages } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
+import type { Executor } from "@/lib/pkb/common";
 import { getMediaProvider, type UploadInput } from "@/lib/providers/media";
 
 /**
@@ -210,8 +211,11 @@ export async function updateProductImageAltText(
   actor: SessionUser | null,
   imageId: string,
   altText: string,
+  /** A transaction to write inside, when this is one step of a larger decision (D-075). */
+  options: { executor?: Executor } = {},
 ) {
   const staff = requirePermission(actor, "catalog.manage");
+  const executor: Executor = options.executor ?? db;
 
   const text = altText.trim();
   if (text.length === 0) {
@@ -220,7 +224,7 @@ export async function updateProductImageAltText(
     );
   }
 
-  const [updated] = await db
+  const [updated] = await executor
     .update(productImages)
     .set({ altText: text })
     .where(eq(productImages.id, imageId))
@@ -229,13 +233,16 @@ export async function updateProductImageAltText(
   if (!updated) throw new MediaError("That image no longer exists.");
 
   // The description is on the product page; the audit entry drops its cached copy.
-  await recordAudit({
-    actorUserId: staff.id,
-    action: "product.updated",
-    entityType: "product",
-    entityId: updated.productId,
-    after: { imageAltText: updated.id },
-  });
+  await recordAudit(
+    {
+      actorUserId: staff.id,
+      action: "product.updated",
+      entityType: "product",
+      entityId: updated.productId,
+      after: { imageAltText: updated.id },
+    },
+    executor,
+  );
 
   return updated;
 }

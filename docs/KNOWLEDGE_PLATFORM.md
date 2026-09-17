@@ -35,7 +35,7 @@ fact; admin approval before mutation; deterministic logic before AI.
 | --- | --- | --- | --- |
 | 1 | Repository audit, architecture, source-of-truth decisions | ULTRACODE | **COMPLETE** (2026-09-17) |
 | 2 | PKB database foundation: identity, families, attributes, normalization, variants, provenance, migrations, backfill | MAX | **COMPLETE** (2026-09-17) — see section 3A |
-| 3 | SeoPulse product intelligence: resolution, brand source registry, sources, claims, conflicts, review and apply | EXTRA HIGH | NOT STARTED — waiting for `CONTINUE STAGE 3` |
+| 3 | SeoPulse product intelligence: resolution, brand source registry, sources, claims, conflicts, review and apply | EXTRA HIGH | **COMPLETE** (2026-09-18) — see section 3B |
 | 4 | SEO engine: metadata states, structured data, technical SEO, image SEO, internal links, SEO Health Center | HIGH | NOT STARTED |
 | 5 | SearchPulse: query understanding, aliases, attribute-aware search, typo tolerance, autocomplete, facets, analytics | EXTRA HIGH | NOT STARTED |
 | 6 | Google Search Console, opportunity detection, SEO change history, controlled learning | HIGH | NOT STARTED |
@@ -274,6 +274,55 @@ legacy columns (Stages 4–5).
   be stored. Replaced before the migration was applied anywhere.
 
 ---
+
+## 3B. Stage 3 — what was done
+
+Product intelligence: the machinery that turns a source into a reviewed fact,
+and the screens a person uses to decide. Nothing in this stage writes a fact
+without a person naming the claim.
+
+### 3B.1 Built
+
+| Area | What exists now |
+| --- | --- |
+| Resolution | `lib/pkb/resolution.ts`: VERIFIED / HIGH_CONFIDENCE / AMBIGUOUS / UNRESOLVED from the product's own identifiers, sticky while the identity signature is unchanged; `confirmIdentity` with a required note and explicit distinctions; `canEnrich` gates every factual run (D-072) |
+| Trust | `lib/pkb/trust.ts` and `policies.ts`: the Brand Source Registry (domains, path prefixes, providers, roles, tiers, address templates), brand relations, and four verification policies; `evaluateVerification` decides whether a claim may become VERIFIED, by source type, registry role, tier and independent sources (A-9) |
+| Label mappings | `lib/pkb/mappings.ts`: the reviewed workflow, scoped by context and family, applied deterministically by `resolveLabel` inside the sync for details keys, the two tables and variant options; deciding or retiring a mapping re-queues the listings it touches (A-8) |
+| Attribute discovery | `lib/pkb/discovery.ts`: proposals with a guessed shape and their evidence; Add to Family (through the category for a mirrored family, otherwise a new family version), Product only, Ignore — each remembering the label and creating a claim (D-073) |
+| Enrichment | `lib/pkb/enrichment.ts`: runs in the `pkb.enrich_product` job; sources from the registry, staff URLs, provided documents and an optional research provider that reports NOT_CONFIGURED; retrieval through `safeFetch` and robots.txt; identity verdict per document; claims and proposals, never facts (D-074) |
+| Extraction | `lib/pkb/extract.ts`: schema.org JSON-LD, two-cell HTML table rows, definition lists and labelled text lines, with a locator and an excerpt for each pair; no script execution |
+| Network safety | `lib/pkb/net/`: address policy, pinned DNS, manual redirects, timeouts, size caps, content-type allowlist, RFC 9309 robots.txt where unreachable means disallowed |
+| Review | `lib/pkb/review.ts`: create, accept (optionally as verified), reject, correct, resolve a conflict, lock — named claims, one transaction, no "apply everything" (D-076) |
+| Identifiers | `pkb_identifier_history` through `insertIdentifier`/`updateIdentifier`/`deleteIdentifier`; an invalid identifier keeps its text and is marked, never corrected (R-6) |
+| SeoPulse | Fill proposes generated wording instead of writing it; an apply is one transaction; research with an external provider runs as a job; `spec_table`/`measurements` removed from the apply fields (F1–F4, D-075) |
+| Admin | `/admin/knowledge` (queue, label mapping, registry, policies, brand relations) and `/admin/products/[id]/intelligence` (identity, completeness, claims with evidence and verification eligibility, discovered attributes, sources, runs); seven API routes, each `refuseNonStaff()` first |
+| Permissions | Reading intelligence needs `catalog.manage`; deciding vocabulary or trust needs `knowledge.manage`; both are checked server-side in the service functions, not in the screens |
+
+### 3B.2 Tested
+
+`tests/pkb-intelligence.test.ts` (24) and `tests/pkb-write-paths.test.ts` (2),
+plus the Stage 2 suites re-run unchanged: resolution and the enrichment gate,
+the label workflow and its reuse on a second listing, a registry entry with no
+authority until approved, verification under and without a policy, a policy
+turned off, conflicts and their resolution, all-or-nothing approval, attribute
+discovery end to end, identifier history and an invalid check digit, a provided
+document producing claims and proposals, and identity match / mismatch /
+unknown. `tests/seo-pulse.test.ts` (40) was updated for job-based research.
+
+### 3B.3 Found and fixed on the way
+
+- `requestEnrichment` trusted the stored resolution state; it now re-checks it,
+  because identifiers change between runs.
+- Threading one transaction through the SeoPulse apply meant `updateProduct`,
+  `updateProductImageAltText` and `createSynonym` needed an optional executor;
+  each computes its pre-transaction reads through the same executor so it sees
+  its own writes (PGlite has one connection).
+- `createCategoryAttribute` was split into an in-transaction half
+  (`createCategoryAttributeIn`) so attribute discovery can extend a category
+  and write the claim in one decision.
+- The label queue is grouped in TypeScript, not SQL: `labelKey` folds accents,
+  punctuation and `&`, which SQL cannot reproduce, and a divergence would place
+  a value under the wrong attribute.
 
 ## 4. Target architecture
 
@@ -648,15 +697,35 @@ overturn any of them):
   `ProductResearchProvider` implementations later. When automatic discovery is
   unavailable the system reports NOT_CONFIGURED or UNAVAILABLE instead of
   inventing sources or data.
-- **A-7** *(Stage 2)* A duplicated listing's copied values are UNVERIFIED, not
-  MANUAL: duplicating usually starts a different product, and nobody has
-  checked those values for it.
-- **A-8** *(Stage 2)* Hand-typed specification-table and measurement rows map
-  to an attribute only by exact label, key or approved alias. Everything else
-  is parked for a person (69 rows on the dev database). Mapping them is a
-  Stage 3 screen.
-- **A-9** *(Stage 2)* Brands created from listing text start `suggested`; they
-  work immediately and wait for `knowledge.manage` to approve or merge.
+- **A-7** *(Stage 2; **APPROVED** by the owner at the start of Stage 3)*
+  Migrated and copied listing facts stay unchecked (LEGACY, or UNVERIFIED for a
+  duplicated listing) unless they independently satisfy the verification policy
+  with appropriate evidence and decision history. Migration never makes a value
+  VERIFIED.
+- **A-8** *(Stage 2; **APPROVED WITH CONTROLLED EXPANSION** at the start of
+  Stage 3)* Exact label, key or approved-alias matching stays the only
+  automatic behaviour. Stage 3 adds a reviewed mapping workflow for unmatched
+  labels: when staff approve that a label maps to a canonical attribute (or is
+  not an attribute), the decision is stored as reusable knowledge, scoped to a
+  family where it needs to be, and future rows with that label map
+  deterministically. No fuzzy matching. The 69 unmatched dev rows are reviewed
+  through the workflow, never repaired in the database by hand.
+- **A-9** *(Stage 2; **MODIFIED** by the owner at the start of Stage 3)* A
+  brand existing in the Manifest catalogue and a brand's sources being trusted
+  are separate. Catalogue brands are valid without re-approval (status
+  `active`). Trust assertions — official product and documentation domains,
+  source preferences, manufacturer identity mappings — start SUGGESTED and
+  count for nothing until an approved decision or evidence supports them.
+  Brand existence ≠ trusted source verification.
+- **R-6 decision** *(owner, start of Stage 3)* Identifier history is built in
+  Stage 3: every change to a GTIN/UPC/EAN/ISBN/MPN/model number or other
+  identifier keeps the previous value, new value, actor or source, time and
+  reason, append-only. Invalid identifiers keep the original text, are marked
+  invalid, and a check digit is never "corrected" by guessing.
+- **Network safety** *(owner, start of Stage 3)* SSRF and network protections
+  ship with the first retrieval code: localhost, private and internal ranges,
+  cloud metadata endpoints, unsafe redirects, DNS rebinding, timeouts,
+  response-size limits, protocol restrictions, safe parsing.
 
 Open risks:
 
@@ -666,17 +735,28 @@ Open risks:
 - **R-2** A changed product save costs ≈28 ms more (8 → 36 ms median); a no-op
   sync ≈27 ms, mostly reloading the vocabulary per listing. Optimise in Stage 7
   (vocabulary cache keyed by a change signature).
-- **R-3** Findings still open: F2–F16. F1 is closed for one-click fill; the
-  review/apply path can still write `spec_table`/`measurements` from a run when
-  staff choose it (retired with the Stage 3 review flow).
-- **R-4** Source retrieval introduces outbound HTTP for the first time. The
-  SSRF guard must land with the fetcher in Stage 3.
-- **R-5** The mirror covers every current staff write path; a future path that
-  writes the mirrored columns without calling it is caught only by the queue
-  (values arrive as LEGACY, not MANUAL). Stage 3 should add a test that fails
-  when a `lib/catalog` write leaves the listing queued.
-- **R-6** Identifier changes are not written to a history table (facts are).
-  Add `pkb_identifier_history` before Stage 3 lets staff edit identifiers.
+- **R-3** Findings still open: F5–F16. F1 to F4 are closed (D-075): fill no
+  longer writes generated wording or the two tables, an apply is one
+  transaction, and research with an external provider runs as a job.
+- **R-4** CLOSED. Outbound retrieval exists and is guarded by
+  `lib/pkb/net/safe-fetch.ts` and `robots.ts`, proved by `tests/pkb-net.test.ts`
+  (38 tests) and documented in SECURITY.md.
+- **R-5** CLOSED for regressions: `tests/pkb-write-paths.test.ts` reads
+  `lib/catalog` and fails when a file writes `products`, `product_variants` or
+  the variant option values without locking or syncing the mirror. The option
+  vocabulary and category specifications stay trigger-covered by design.
+- **R-6** CLOSED. `pkb_identifier_history` records created, updated, cleared,
+  locked and unlocked with before, after, actor or source, time and reason;
+  append-only, and backfilled for existing identifiers.
+- **R-8** (new) Renaming an option value (`lib/catalog/attributes.ts`) reaches
+  the mirror through a trigger rather than in-transaction, so the change arrives
+  unattributed. For a slot whose knowledge value is decided, the sync records it
+  as an unattributed change rather than applying it. Worth a decision in Stage 7:
+  either thread attribution through the option-vocabulary writes, or treat
+  option renames as a legacy-attributed change.
+- **R-9** (new) `getProductIntelligence` runs `evaluateVerification` once per
+  open claim (several queries each). Fine for a product with a handful of open
+  claims; batch it in Stage 7 if a run ever proposes dozens.
 - **R-7** The dev seed's UPC `0812345678901` fails its check digit; it is stored
   as invalid and parked. Seed data only.
 
@@ -740,6 +820,16 @@ Entry checklist:
 | `lib/pkb/evidence.ts` | Sources, evidence, claims |
 | `lib/pkb/units.ts`, `normalize.ts`, `identifiers.ts` | Normalization rules shared with SearchPulse in Stage 5 |
 | `lib/pkb/maintenance.ts`, `db/pkb-backfill.ts` | Import, job, release, reconciliation report |
+| `lib/pkb/resolution.ts` | Product resolution states, identity confirmation, distinctions (D-072) |
+| `lib/pkb/mappings.ts` | The reviewed label-mapping workflow and its deterministic reuse (A-8) |
+| `lib/pkb/trust.ts`, `lib/pkb/policies.ts` | Brand Source Registry, brand relations, verification policies (A-9) |
+| `lib/pkb/discovery.ts` | Attribute proposals: Add to Family, Product only, Ignore (D-073) |
+| `lib/pkb/enrichment.ts` | The pipeline: find or receive sources, retrieve, extract, propose (D-074) |
+| `lib/pkb/extract.ts` | Deterministic extraction: JSON-LD, HTML tables, definition lists, labelled lines |
+| `lib/pkb/net/` | Address policy, pinned-DNS fetch, redirect handling, robots.txt |
+| `lib/pkb/review.ts` | Accept, reject, correct, resolve a conflict, lock (D-076) |
+| `lib/pkb/intelligence.ts` | The admin read model: one product's intelligence, the queue, the vocabulary |
+| `lib/providers/research/` | `ProductResearchProvider`; the default reports NOT_CONFIGURED (A-6) |
 
 ---
 
@@ -748,4 +838,5 @@ Entry checklist:
 | Date | Stage | Summary |
 | --- | --- | --- |
 | 2026-09-17 | 1 | Audit, classification, findings F1–F16, target architecture, source-of-truth matrix, migration strategy, invariants, decisions D-060 to D-069. Documentation only. |
+| 2026-09-18 | 3 | Owner decisions D-071 (A-7 approved, A-8 with a reviewed mapping workflow, A-9 modified, R-6, network safety first). Migration 0032 and `lib/pkb`: resolution, trust registry and policies, reviewed label mappings, attribute discovery, the enrichment pipeline with SSRF-safe retrieval and robots.txt, deterministic extraction, review actions, the intelligence read model. SeoPulse F2–F4 closed (D-075). Admin: `/admin/knowledge`, per-product intelligence screen, seven API routes. 26 new tests; 0032 applied to the dev database. |
 | 2026-09-17 | 2 | Owner revised A-4 and A-6. Migration 0031 and `lib/pkb`: normalization, vocabulary, families with versions, facts with history, legacy mirror (D-070), sources/evidence/claims, relationships, aliases, export rule, backfill and report, job, `knowledge.manage`. F1 closed for fill. Imported dev and scale databases cleanly. |

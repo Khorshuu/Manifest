@@ -27,12 +27,16 @@ import {
   type Executor,
 } from "./common";
 import { LEGACY_IDENTIFIER_TYPES, normalizeIdentifier, type IdentifierInputType } from "./identifiers";
+import { loadLabelMappings, resolveLabel, type LabelMappingIndex } from "./mappings";
 import { cleanText, labelKey } from "./normalize";
 import { applyProjection, isProjectable } from "./projection";
 import {
   createStaffEntrySource,
   deleteFact,
+  deleteIdentifier,
   ensureBrand,
+  insertIdentifier,
+  updateIdentifier,
   findBrandId,
   insertFact,
   pruneUnusedBrands,
@@ -49,7 +53,6 @@ import {
   LEGACY_DETAIL_DEFINITIONS,
   LEGACY_DETAIL_IDENTIFIERS,
   loadDefinitions,
-  matchDefinitionByLabel,
   type DefinitionRecord,
 } from "./vocabulary";
 
@@ -203,19 +206,21 @@ export async function syncListingKnowledge(
   }
 
   // 2. Family: follows the listing's category unless someone chose one.
+  let familyId: string | null = pkbProduct!.familyId ?? null;
   if (pkbProduct!.familyAssignmentSource === null || pkbProduct!.familyAssignmentSource === "legacy_category") {
     const [category] = await executor
       .select({ familyId: categories.defaultFamilyId, status: pkbFamilies.status })
       .from(categories)
       .leftJoin(pkbFamilies, eq(pkbFamilies.id, categories.defaultFamilyId))
       .where(eq(categories.id, listing.categoryId));
-    const familyId = category?.familyId && category.status === "approved" ? category.familyId : null;
-    if ((pkbProduct!.familyId ?? null) !== familyId) {
+    const nextFamilyId = category?.familyId && category.status === "approved" ? category.familyId : null;
+    familyId = nextFamilyId;
+    if ((pkbProduct!.familyId ?? null) !== nextFamilyId) {
       await executor
         .update(pkbProducts)
         .set(
-          familyId
-            ? { familyId, familyAssignment: "assigned", familyAssignmentSource: "legacy_category", updatedAt: new Date() }
+          nextFamilyId
+            ? { familyId: nextFamilyId, familyAssignment: "assigned", familyAssignmentSource: "legacy_category", updatedAt: new Date() }
             : { familyId: null, familyAssignment: "unassigned", familyAssignmentSource: null, updatedAt: new Date() },
         )
         .where(eq(pkbProducts.id, pkbProductId));
@@ -244,6 +249,7 @@ export async function syncListingKnowledge(
 
   // 4. What the legacy columns say.
   const definitions = await loadDefinitions(executor);
+  const labelMappings: LabelMappingIndex = await loadLabelMappings(executor);
   const byKey = new Map(definitions.map((definition) => [definition.key, definition]));
   const byId = new Map(definitions.map((definition) => [definition.id, definition]));
   const desired: DesiredFact[] = [];
@@ -285,7 +291,28 @@ export async function syncListingKnowledge(
     } else if (LEGACY_DETAIL_IDENTIFIERS[key]) {
       desiredIdentifiers.push({ inputType: LEGACY_DETAIL_IDENTIFIERS[key], raw, legacyRef: `products.details.${key}` });
     } else {
-      unmapped.push({ variantId: null, legacyRef: `products.details.${key}`, label: key, value: raw, reason: "no_matching_definition" });
+      const placed = resolveLabel(definitions, labelMappings, key, "any", familyId);
+      if (placed.kind === "ignored") continue;
+      if (placed.kind === "match" && placed.definition.cardinality === "single") {
+        want({
+          pkbVariantId: null,
+          definition: placed.definition,
+          ordinal: 0,
+          raw,
+          rawLabel: key,
+          legacyRef: `products.details.${key}`,
+          defaultUnit: null,
+        });
+      } else {
+        unmapped.push({
+          variantId: null,
+          legacyRef: `products.details.${key}`,
+          label: key,
+          value: raw,
+          reason:
+            placed.kind === "ambiguous" ? "ambiguous_label" : placed.kind === "match" ? "multi_value_label" : "no_matching_definition",
+        });
+      }
     }
   }
 
@@ -357,14 +384,23 @@ export async function syncListingKnowledge(
     }
   }
 
-  // Hand-typed table rows map only by exact label; everything else waits for a person.
+  // Hand-typed table rows map by exact label or by a reviewed mapping (A-8);
+  // everything else waits for a person.
   for (const [column, rows] of [
     ["products.spec_table", rowsOf(listing.specTable)],
     ["products.measurements", rowsOf(listing.measurements)],
   ] as const) {
     for (const row of rows) {
-      const match = matchDefinitionByLabel(definitions, row.label);
-      if (match.kind === "none") {
+      const match = resolveLabel(
+        definitions,
+        labelMappings,
+        row.label,
+        column === "products.spec_table" ? "spec_table" : "measurements",
+        familyId,
+      );
+      if (match.kind === "ignored") {
+        continue;
+      } else if (match.kind === "none") {
         unmapped.push({ variantId: null, legacyRef: column, label: row.label, value: row.value, reason: "no_matching_definition" });
       } else if (match.kind === "ambiguous") {
         unmapped.push({ variantId: null, legacyRef: column, label: row.label, value: row.value, reason: "ambiguous_label" });
@@ -398,13 +434,15 @@ export async function syncListingKnowledge(
       .where(eq(productVariants.productId, listingId));
 
     const linked = new Map<string, DefinitionRecord | null>();
+    const ignoredOptions = new Set<string>();
     for (const option of options) {
       if (!linked.has(option.attributeId)) {
         let definition = option.definitionId ? byId.get(option.definitionId) : undefined;
         if (!definition || definition.status === "retired") {
-          const match = matchDefinitionByLabel(definitions, option.name);
+          const match = resolveLabel(definitions, labelMappings, option.name, "variant_option", familyId);
           definition = match.kind === "match" ? match.definition : undefined;
-          if (match.kind === "ambiguous") linked.set(option.attributeId, null);
+          if (match.kind === "ambiguous" || match.kind === "ignored") linked.set(option.attributeId, null);
+          if (match.kind === "ignored") ignoredOptions.add(option.attributeId);
           if ((definition?.id ?? null) !== option.definitionId) {
             await executor
               .update(attributes)
@@ -419,6 +457,7 @@ export async function syncListingKnowledge(
       const raw = stringOf(option.value);
       if (!raw) continue;
       if (!definition) {
+        if (ignoredOptions.has(option.attributeId)) continue;
         unmapped.push({ variantId: null, legacyRef, label: option.name, value: raw, reason: "option_without_definition" });
       } else if (definition.cardinality === "multiple") {
         unmapped.push({ variantId: null, legacyRef, label: option.name, value: raw, reason: "multi_value_label" });
@@ -685,6 +724,7 @@ async function syncIdentifiers(
   },
 ): Promise<{ created: number; updated: number; cleared: number; restore: boolean }> {
   const { pkbProductId, attribution, unmapped } = input;
+  const actorId = attribution.kind === "legacy" ? null : attribution.actorId;
   const result = { created: 0, updated: 0, cleared: 0, restore: false };
   const current: (typeof pkbIdentifiers.$inferSelect)[] = await executor
     .select()
@@ -726,7 +766,11 @@ async function syncIdentifiers(
       validationStatus: normalized.validation,
     };
     if (!row) {
-      await executor.insert(pkbIdentifiers).values({ pkbProductId, ...columns, ...(await input.provenanceFor()), legacyRef: want.legacyRef });
+      await insertIdentifier(
+        executor,
+        { pkbProductId, pkbVariantId: null, ...columns, ...(await input.provenanceFor()), legacyRef: want.legacyRef },
+        { actorId, reason: reasonFor(attribution, "Recorded") },
+      );
       result.created += 1;
       continue;
     }
@@ -742,10 +786,7 @@ async function syncIdentifiers(
       unmapped.push({ variantId: null, legacyRef: want.legacyRef, label, value: want.raw, reason: "unattributed_change_not_applied" });
       continue;
     }
-    await executor
-      .update(pkbIdentifiers)
-      .set({ ...columns, ...(await input.provenanceFor()), updatedAt: new Date() })
-      .where(eq(pkbIdentifiers.id, row.id));
+    await updateIdentifier(executor, row, { ...columns, ...(await input.provenanceFor()) }, { actorId, reason: reasonFor(attribution, "Changed") });
     result.updated += 1;
   }
 
@@ -760,7 +801,7 @@ async function syncIdentifiers(
       result.restore = true;
       continue;
     }
-    await executor.delete(pkbIdentifiers).where(eq(pkbIdentifiers.id, row.id));
+    await deleteIdentifier(executor, row, { actorId, reason: reasonFor(attribution, "Removed") });
     result.cleared += 1;
   }
   return result;

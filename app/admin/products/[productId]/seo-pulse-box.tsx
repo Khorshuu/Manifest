@@ -97,7 +97,7 @@ export function SeoPulseBox({
         </span>
       </div>
       <p className="text-[0.75rem] text-ink/65">
-        Fills empty description, specification, measurement, SEO and search fields from the facts you entered. Your own text is kept, and nothing is invented.
+        Fills empty description, SEO and search fields from the facts you entered. Your own text is kept, nothing is invented, and specifications stay in the product knowledge base.
       </p>
       <Button type="button" size="sm" disabled={state === "saving" || state === "analyzing"} onClick={() => void fill()}>
         {state === "saving" || state === "analyzing" ? "Working…" : "✨ Fill with SEO Pulse"}
@@ -107,6 +107,15 @@ export function SeoPulseBox({
 
       {result ? (
         <div className="flex flex-col gap-1.5 border-t border-blue-200 pt-2 text-[0.75rem]">
+          {result.queued ? (
+            <p className="text-ink">Research is running in the background. Open this panel again in a moment.</p>
+          ) : null}
+          {result.proposed.length > 0 ? (
+            <p className="text-brass-text">
+              <span className="font-semibold">Waiting for your review:</span>{" "}
+              {result.proposed.map((entry) => entry.label).join(", ")}. Generated wording is never written for you.
+            </p>
+          ) : null}
           <p className="text-ink">
             {result.filled.length > 0 ? (
               <>

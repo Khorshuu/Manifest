@@ -3136,3 +3136,51 @@ Blocked on your accounts or choices:
 - `[!]` 69 hand-typed specification rows on the development database could not be matched to an attribute without guessing; they are kept aside for mapping in Stage 3. One seeded UPC has a wrong check digit and is marked invalid.
 - `[!]` Not run: end-to-end suite and production build (no pages changed).
 - `[ ]` Stage 3 (SeoPulse product intelligence) waits for the go-ahead.
+
+## Product Knowledge Base programme — Stage 3 of 8 (product intelligence)
+
+- `[x]` Two new screens. **Knowledge** (in the admin menu) shows what is waiting
+  for a decision, the written labels nothing matched, the sources trusted per
+  brand, and the rules that decide when a value may be called verified.
+  **Product intelligence**, linked from each product's editor, shows which
+  product it is, how complete its facts are, every proposed value with the
+  passage it came from, newly discovered attributes, the pages that were read,
+  and the runs.
+- `[x]` A proposed value never becomes a fact by itself. You accept or reject
+  each one; several accepted together are written in one go or not at all; a
+  disagreement between two sources is settled by choosing, never by overwriting.
+  "Verified" is only offered when the evidence satisfies one of the rules —
+  otherwise the value is stored with its source, marked unverified.
+- `[x]` A written label ("Driver diameter") is placed once and remembered:
+  every other product that uses the same wording follows automatically, and you
+  can mark a label as not an attribute at all. No guessing by similarity. The 69
+  unmatched development rows are reviewable on the Knowledge screen instead of
+  being repaired in the database.
+- `[x]` A page is only read after the identity is settled, and only used when
+  the page itself names the same product (a matching barcode or model number).
+  A page about a different generation is kept on record and produces nothing.
+- `[x]` Reading an outside page is guarded: internal addresses, cloud metadata,
+  unsafe redirects and oversized responses are refused; robots.txt is obeyed;
+  a page that asks for a login stays unread and says so. Nothing is bypassed.
+- `[x]` Barcode and model-number changes now keep a full history (old value,
+  new value, who, when, why). An invalid barcode is kept exactly as supplied and
+  marked invalid — never "corrected".
+- `[x]` SEO Pulse: with an AI provider configured, one-click Fill no longer
+  writes generated wording into a listing — it offers it for review. Applying
+  recommendations is now a single transaction, so a failure part-way leaves
+  nothing half-written, and research with an outside provider runs in the
+  background instead of holding the screen.
+- `[x]` Checks: typecheck and lint clean; 26 new tests plus the Stage 2 suites
+  and the 40 SEO Pulse tests pass. The new tables are applied to the development
+  database and the site runs on http://localhost:3000.
+- `[!]` Automatic source discovery is not configured, and nothing requires it:
+  runs read the brand's approved pages, the pages you add and the documents you
+  provide, and report discovery as "not configured" rather than inventing
+  sources.
+- `[!]` No source is trusted yet: the registry starts empty, so until a domain
+  is approved on the Knowledge screen, a value from it can be accepted but not
+  verified.
+- `[!]` Not run: end-to-end suite and production build. Renaming an option value
+  reaches the knowledge base without attribution and is reported rather than
+  applied for decided values (tracker risk R-8).
+- `[ ]` Stage 4 (SEO engine) waits for the go-ahead.

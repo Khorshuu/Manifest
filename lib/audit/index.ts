@@ -60,7 +60,17 @@ export type AuditAction =
   | "knowledge.relationship_added"
   | "knowledge.relationship_removed"
   | "knowledge.alias_suggested"
-  | "knowledge.alias_decided";
+  | "knowledge.alias_decided"
+  | "knowledge.registry_suggested"
+  | "knowledge.registry_decided"
+  | "knowledge.policy_changed"
+  | "knowledge.claims_accepted"
+  | "knowledge.claims_rejected"
+  | "knowledge.identity_resolved"
+  | "knowledge.label_mapped"
+  | "knowledge.proposal_decided"
+  | "knowledge.enrichment_requested"
+  | "knowledge.source_added";
 
 export type AuditEntry = {
   actorUserId: string;

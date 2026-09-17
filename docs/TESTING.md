@@ -287,3 +287,21 @@ budget or answers with an error. Run it against a production build
 (`next build && next start`); the development server's bundles are far larger.
 When a change legitimately needs more JavaScript, raise the default in
 `scripts/perf/budget.mjs` in the same pull request so the increase is reviewed.
+
+### Product knowledge and intelligence
+
+| Suite | Covers |
+| --- | --- |
+| `tests/pkb-normalization.test.ts` | Exact decimal arithmetic, the unit registry, identifier normalization and check digits |
+| `tests/pkb-model.test.ts` | The database's own rules: value shapes, verification states, append-only history, GTIN uniqueness, immutable active family versions |
+| `tests/pkb-sync.test.ts` | The legacy mirror under real catalogue writes: attribution, locks, unattributed changes, nothing left queued |
+| `tests/pkb-sync-concurrency.test.ts` | Two concurrent saves of one listing, against real PostgreSQL |
+| `tests/pkb-backfill.test.ts` | Importing existing listings as LEGACY, and the reconciliation report |
+| `tests/pkb-net.test.ts` | Address policy, pinned DNS, redirects into private ranges, timeouts, size limits, content types, robots.txt |
+| `tests/pkb-intelligence.test.ts` | Resolution states and the enrichment gate, the reviewed label-mapping workflow and its reuse, registry trust and verification policies, conflicts, all-or-nothing approval, attribute discovery, identifier history, provided documents, identity gating |
+| `tests/pkb-write-paths.test.ts` | Risk R-5: a source check that fails when a new `lib/catalog` write path writes a mirrored table without locking or syncing it |
+
+`tests/pkb-intelligence.test.ts` runs on PGlite like the rest of the unit
+suites; nothing in it reaches the network, because retrieval is exercised
+through `safeFetch`'s test seams in `tests/pkb-net.test.ts` and through
+`provideDocument`, which takes the text a person supplies.

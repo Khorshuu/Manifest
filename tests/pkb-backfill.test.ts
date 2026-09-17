@@ -231,7 +231,8 @@ describe("backfill", () => {
     expect(byKey("color")[0]).toMatchObject({ rawValue: "Black", rawLabel: "Colour", legacyRef: "products.spec_table" });
 
     const [brand] = await harness.db.select().from(pkbBrands).where(eq(pkbBrands.id, byKey("brand")[0].valueBrandId!));
-    expect(brand).toMatchObject({ name: "Sony", status: "suggested", origin: "UNKNOWN_LEGACY" });
+    // Exists in the catalogue; nothing about it is trusted (A-9).
+    expect(brand).toMatchObject({ name: "Sony", status: "active", origin: "UNKNOWN_LEGACY" });
 
     // Variant-defining values live on the variants, not the product.
     const variantColours = facts.filter((row) => row.fact.pkbVariantId !== null && row.key === "color").map((row) => row.fact.rawValue);

@@ -17,6 +17,8 @@ import {
 } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
+import { enqueueJob } from "@/lib/jobs/runner";
+import type { Executor } from "@/lib/pkb/common";
 import type { SessionUser } from "@/lib/auth/session";
 import { resolveCategoryAttributes } from "@/lib/catalog/category-attributes";
 import { updateProductImageAltText } from "@/lib/catalog/media";
@@ -674,6 +676,31 @@ export async function runSeoPulse(
 
   const row = await insertRunningRow(staff, input, inputHash, options.requestKey);
 
+  /*
+   * Research that calls an external service does not run inside the admin's
+   * request: a slow or rate-limited provider would hold the request open and
+   * time it out (finding F4). The run row exists and says `running`; the job
+   * finishes it, and the screen shows the result when it polls. With no
+   * external provider configured the rules generator is fast and local, so it
+   * still runs here and the answer is immediate.
+   */
+  if (usesExternalProviders()) {
+    await enqueueJob({
+      kind: "seo.research_product",
+      payload: { runId: row.id },
+      dedupeKey: `seo.research:${row.id}`,
+    });
+    await recordAudit({
+      actorUserId: staff.id,
+      action: "seo_pulse.researched",
+      entityType: "product",
+      entityId: productId,
+      after: { runId: row.id, version: row.version, fresh: options.fresh, queued: true },
+    });
+    const queued = await findRun(eq(seoResearchRuns.id, row.id));
+    return { run: toDetail(queued as RunRow), reused: false };
+  }
+
   try {
     const { research, analysis, usage } = await executeResearch(input);
     await db
@@ -706,6 +733,55 @@ export async function runSeoPulse(
 
   const saved = await findRun(eq(seoResearchRuns.id, row.id));
   return { run: toDetail(saved as RunRow), reused: false };
+}
+
+/** Whether a run would call out to a paid or remote service. */
+export function usesExternalProviders(): boolean {
+  const config = getSeoPulseConfig();
+  const ai = config.SEO_PULSE_AI_PROVIDER === "anthropic" && Boolean(config.ANTHROPIC_API_KEY);
+  return ai || getSeoDataProvider() !== null;
+}
+
+/**
+ * Finishes a queued run. Idempotent: a run that is no longer `running` is
+ * left alone, so a retried job cannot overwrite a completed analysis.
+ */
+export async function completeQueuedResearch(runId: string): Promise<{ status: string }> {
+  const existing = await findRun(eq(seoResearchRuns.id, runId));
+  if (!existing) return { status: "missing" };
+  if (existing.run.status !== "running") return { status: existing.run.status };
+
+  const input = await loadPulseInput(existing.run.productId);
+  if (!input) {
+    await db
+      .update(seoResearchRuns)
+      .set({ status: "failed", error: "The product was removed before research finished.", completedAt: new Date() })
+      .where(eq(seoResearchRuns.id, runId));
+    return { status: "failed" };
+  }
+
+  try {
+    const { research, analysis, usage } = await executeResearch(input);
+    await db
+      .update(seoResearchRuns)
+      .set({
+        status: "completed",
+        research,
+        analysis,
+        providerUsage: usage,
+        seoScore: analysis.scores.seo.score,
+        searchScore: analysis.scores.search.score,
+        completedAt: new Date(),
+      })
+      .where(eq(seoResearchRuns.id, runId));
+    return { status: "completed" };
+  } catch (error) {
+    await db
+      .update(seoResearchRuns)
+      .set({ status: "failed", error: errorText(error), completedAt: new Date() })
+      .where(eq(seoResearchRuns.id, runId));
+    throw error;
+  }
 }
 
 export async function getSeoPulseRun(
@@ -853,10 +929,18 @@ export type FillResult = {
   filled: string[];
   /** Fields that already had the admin's text, left alone. */
   kept: string[];
+  /**
+   * Generated text waiting for review. With an AI generator configured,
+   * nothing it wrote is written to the listing by Fill: the recommendations
+   * are returned here and applied field by field (finding F2, D-075).
+   */
+  proposed: { field: ApplyField; label: string; preview: string }[];
   /** Facts SEO Pulse cannot know; the admin should add them. */
   needsInput: string[];
   /** Photographs whose alt text SEO Pulse cannot write without seeing them. */
   imagesNeedReview: number;
+  /** True when research is running as a job and there is nothing to fill yet. */
+  queued?: boolean;
 };
 
 function mergeTerms(existing: string[], extra: string[], max: number, maxLength: number) {
@@ -888,7 +972,24 @@ export async function fillWithSeoPulse(
     fresh: false,
   });
   const analysis = run.analysis;
-  if (!analysis) throw new SeoPulseError("SEO Pulse could not analyse this product. Review its information.", 502);
+  if (!analysis) {
+    // Research is running as a job (finding F4). Nothing is written from an
+    // unfinished run; the screen asks again when it completes.
+    if (run.status === "running") {
+      return {
+        runId: run.id,
+        reused,
+        generator: "Research is still running",
+        filled: [],
+        kept: [],
+        proposed: [],
+        needsInput: [],
+        imagesNeedReview: 0,
+        queued: true,
+      };
+    }
+    throw new SeoPulseError("SEO Pulse could not analyse this product. Review its information.", 502);
+  }
 
   const [product] = await db.select().from(products).where(eq(products.id, productId));
   if (!product) throw new SeoPulseError("That product was not found.", 404);
@@ -896,7 +997,27 @@ export async function fillWithSeoPulse(
   const fields: SeoPulseApplyPayload["fields"] = {};
   const filled: string[] = [];
   const kept: string[] = [];
+  const proposed: FillResult["proposed"] = [];
   const empty = (value: string | null) => !value || !value.trim();
+
+  /*
+   * A generator that writes prose is not evidence, so its words are never
+   * written into a listing that may already be published without someone
+   * reading them first (finding F2). With the rules generator, Fill still
+   * fills: every value it produces is derived from facts the listing records.
+   */
+  const review = analysis.generator.kind === "ai";
+  const preview = (value: unknown) => {
+    const text = Array.isArray(value) ? value.join(" · ") : String(value ?? "");
+    return text.length > 160 ? `${text.slice(0, 157)}…` : text;
+  };
+  const offer = (field: ApplyField, label: string, value: unknown) => {
+    if (review) {
+      proposed.push({ field, label, preview: preview(value) });
+      return false;
+    }
+    return true;
+  };
 
   const text = (
     key: "seoFocusKeyword" | "seoMetaTitle" | "seoMetaDescription" | "descriptionHtml",
@@ -904,12 +1025,14 @@ export async function fillWithSeoPulse(
     label: string,
   ) => {
     if (!value) return;
-    if (empty(product[key])) {
-      fields[key] = key === "descriptionHtml" ? sanitizeDescriptionHtml(value) : value;
-      filled.push(label);
-    } else {
+    if (!empty(product[key])) {
       kept.push(label);
+      return;
     }
+    const next = key === "descriptionHtml" ? sanitizeDescriptionHtml(value) : value;
+    if (!offer(key, label, next)) return;
+    fields[key] = next;
+    filled.push(label);
   };
 
   text("seoFocusKeyword", analysis.primaryKeyword.keyword, "Focus keyword");
@@ -919,11 +1042,11 @@ export async function fillWithSeoPulse(
 
   const features = analysis.keyFeatures ?? [];
   if (features.length > 0) {
-    if (strings(product.bulletFeatures).length === 0) {
+    if (strings(product.bulletFeatures).length > 0) {
+      kept.push("Key features");
+    } else if (offer("bulletFeatures", "Key features", features)) {
       fields.bulletFeatures = features;
       filled.push("Key features");
-    } else {
-      kept.push("Key features");
     }
   }
 
@@ -938,7 +1061,7 @@ export async function fillWithSeoPulse(
 
   const tags = strings(product.tags);
   const nextTags = mergeTerms(tags, analysis.tags, 30, 40);
-  if (nextTags.length > tags.length) {
+  if (nextTags.length > tags.length && offer("tags", "Tags", analysis.tags)) {
     fields.tags = nextTags;
     filled.push(`Tags (+${nextTags.length - tags.length})`);
   }
@@ -955,7 +1078,7 @@ export async function fillWithSeoPulse(
     40,
     60,
   );
-  if (nextKeywords.length > keywords.length) {
+  if (nextKeywords.length > keywords.length && offer("searchKeywords", "Search terms", analysis.searchAliases)) {
     fields.searchKeywords = nextKeywords;
     filled.push(`Search terms (+${nextKeywords.length - keywords.length})`);
   }
@@ -970,8 +1093,10 @@ export async function fillWithSeoPulse(
     generator: analysis.generator.label,
     filled,
     kept,
+    proposed,
     needsInput: analysis.contentGaps.filter((gap) => FACT_GAPS.has(gap.key)).map((gap) => gap.label),
     imagesNeedReview: analysis.imageAlts.filter((image) => image.needsReview).length,
+    queued: false,
   };
 }
 
@@ -998,6 +1123,10 @@ const TEXT_FIELDS = [
  * The product itself is saved through `updateProduct`, the same path as the
  * editor's Save, so validation, the search index and the audit log all behave
  * exactly as they do for a manual edit.
+ *
+ * All of the writes — the product, each alt text, each synonym, the run marker
+ * and the audit entry — happen in one transaction, so a failure part-way
+ * leaves no half-applied listing (finding F3, D-075).
  */
 export async function applySeoPulse(
   actor: SessionUser | null,
@@ -1039,18 +1168,12 @@ export async function applySeoPulse(
     }
   }
 
-  // The two tables are replaced whole rather than merged, so writing over a
-  // table staff have already filled in always needs Replace (D-043).
-  for (const field of ["specTable", "measurements"] as const) {
-    const next = fields[field];
-    if (next === undefined) continue;
-    const current = Array.isArray(product[field])
-      ? (product[field] as { label: string; value: string }[])
-      : [];
-    if (current.length > 0 && !overwrite.has(field)) {
-      conflicts.push({ field, existing: current });
-    }
-  }
+  /*
+   * The specification and measurement tables are no longer written from here
+   * at all. Their facts belong to the knowledge base, which mirrors them into
+   * the listing with provenance; writing them from an analysis would create a
+   * second, unattributed copy (finding F1, D-070).
+   */
 
   const images = fields.imageAlts?.length
     ? await db.select().from(productImages).where(eq(productImages.productId, productId))
@@ -1080,6 +1203,10 @@ export async function applySeoPulse(
     throw new SeoPulseError(`The address /products/${fields.slug} is already used by another product.`, 409);
   }
 
+  return db.transaction(async (tx) => applyInside(tx));
+
+  async function applyInside(tx: Executor) {
+
   const patch: Record<string, unknown> = {};
   for (const field of TEXT_FIELDS) {
     if (fields[field] === undefined) continue;
@@ -1088,21 +1215,19 @@ export async function applySeoPulse(
   if (fields.tags !== undefined) patch.tags = fields.tags;
   if (fields.searchKeywords !== undefined) patch.searchKeywords = fields.searchKeywords;
   if (fields.bulletFeatures !== undefined) patch.bulletFeatures = fields.bulletFeatures;
-  if (fields.specTable !== undefined) patch.specTable = fields.specTable;
-  if (fields.measurements !== undefined) patch.measurements = fields.measurements;
 
   if (Object.keys(patch).length > 0) {
     const parsed = productPatchSchema.safeParse(patch);
     if (!parsed.success) {
       throw new SeoPulseError(parsed.error.issues[0]?.message ?? "Check the values.", 400);
     }
-    await updateProduct(staff, productId, parsed.data);
+    await updateProduct(staff, productId, parsed.data, { executor: tx });
     applied.push(...(Object.keys(patch) as ApplyField[]));
   }
 
   if (fields.imageAlts?.length) {
     for (const entry of fields.imageAlts) {
-      await updateProductImageAltText(staff, entry.imageId, entry.altText);
+      await updateProductImageAltText(staff, entry.imageId, entry.altText, { executor: tx });
     }
     applied.push("imageAlts");
   }
@@ -1120,11 +1245,12 @@ export async function applySeoPulse(
         continue;
       }
       try {
-        await createSynonym(staff, parsed.data);
+        await createSynonym(staff, parsed.data, { executor: tx });
         created += 1;
       } catch (error) {
         // An existing entry is never edited from here — that stays a decision
-        // made on the Search screen.
+        // made on the Search screen. A refusal inside a transaction would
+        // poison it, so the term is checked before the insert is attempted.
         skipped.push(`Synonym "${entry.term}": ${errorText(error)}`);
       }
     }
@@ -1135,19 +1261,23 @@ export async function applySeoPulse(
     throw new SeoPulseError("Choose at least one recommendation to apply.", 400);
   }
 
-  const appliedFields = [...new Set([...strings(run.run.appliedFields), ...applied])];
-  await db
+  const appliedFields = [...new Set([...strings(run!.run.appliedFields), ...applied])];
+  await tx
     .update(seoResearchRuns)
     .set({ appliedFields, appliedAt: new Date(), appliedBy: staff.id })
     .where(eq(seoResearchRuns.id, payload.runId));
 
-  await recordAudit({
-    actorUserId: staff.id,
-    action: "seo_pulse.applied",
-    entityType: "product",
-    entityId: productId,
-    after: { runId: payload.runId, applied, replaced: [...overwrite], skipped },
-  });
+  await recordAudit(
+    {
+      actorUserId: staff.id,
+      action: "seo_pulse.applied",
+      entityType: "product",
+      entityId: productId,
+      after: { runId: payload.runId, applied, replaced: [...overwrite], skipped },
+    },
+    tx,
+  );
 
   return { applied, skipped };
+  }
 }
