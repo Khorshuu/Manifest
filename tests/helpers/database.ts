@@ -34,7 +34,7 @@ export async function createTestDatabase() {
           search_queries, search_clicks, search_history, search_synonyms,
           product_search_words, product_search_queue, product_search,
           seo_research_runs, sku_reservations, recovery_codes, rate_limit_hits, notifications, audit_log, site_settings, reviews,
-          media_objects, jobs, payment_events, payments, order_status_history, order_items, orders,
+          media_objects, jobs, scheduler_heartbeats, payment_events, payments, order_status_history, order_items, orders,
           wishlist_items, cart_items, carts,
           waitlist_entries, inventory_adjustments,
           variant_option_values, variant_images, product_variants,

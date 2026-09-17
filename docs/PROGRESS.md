@@ -3082,3 +3082,10 @@ Needs you: push the branch to see the first run, and turn on branch protection i
 - `[x]` Staff cannot clear either value on a live listing, and opening a preorder window asks for both.
 - `[x]` The admin variant table labels such a variant "Not orderable".
 - Heads-up: on your development site the Optoma projector listing has no capacity or closing date, so it can no longer be ordered until you set them.
+
+## Scheduled jobs (D-059)
+
+- `[x]` Background work (expiring unpaid orders, sending messages, applying publish dates, clean-up) only runs when a scheduler calls the site — never because someone happens to visit.
+- `[x]` How often each job runs can be changed per environment (for example less often on staging) without a code change.
+- `[x]` The admin overview now warns you, as the owner, when the scheduler has stopped calling. On your development site you will see this warning unless `npm run jobs:dev` is running (it needs a `CRON_SECRET` in `.env.local` that matches the server).
+- `[ ]` Not set up on real hosting yet. On Vercel's paid plan it is a one-line change; on the free plan, or for staging, it needs a cron service or the included GitHub scheduler turned on. See docs/DEPLOYMENT.md.

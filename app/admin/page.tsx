@@ -12,6 +12,8 @@ import {
   lastDays,
 } from "@/lib/admin";
 import { searchOrdersForStaff } from "@/lib/orders";
+import { RECURRING_JOBS } from "@/lib/jobs/registry";
+import { resolveRecurringJobs, schedulerHealth } from "@/lib/jobs/schedule";
 import { can, isStaffRole, ROLE_DETAILS } from "@/lib/auth";
 import { requireAdminPage } from "@/lib/auth/admin-page";
 import { formatBdt } from "@/lib/money";
@@ -62,6 +64,13 @@ export default async function AdminOverviewPage({
       seesCustomers ? getRecentCustomers(user, 5) : null,
       getCatalogCounts(user),
     ]);
+
+  // Expiry, delivery and publishing only happen when the scheduler calls in
+  // (D-059). The owner is told when it has stopped, rather than finding out
+  // from an order that never expired.
+  const scheduler = can(user, "settings.manage")
+    ? await schedulerHealth(resolveRecurringJobs(RECURRING_JOBS).jobs)
+    : null;
 
   const roleLabel = isStaffRole(user.role) ? ROLE_DETAILS[user.role].label : "Staff";
   const greeting = user.firstName ? `Hello, ${user.firstName}` : "Overview";
@@ -168,6 +177,17 @@ export default async function AdminOverviewPage({
 
         <section className="admin-card">
           <h2 className="admin-h2">Needs attention</h2>
+          {scheduler?.stale ? (
+            <p role="status" className="mt-2 rounded-card border border-stamp-red-text/40 bg-paper p-2.5 text-meta text-ink">
+              <strong className="text-stamp-red-text">Scheduled jobs are not running.</strong>{" "}
+              {scheduler.lastRunAt
+                ? `The scheduler last called in ${scheduler.lastRunAt.toLocaleString("en-GB", { timeZone: "Asia/Dhaka" })}.`
+                : "The scheduler has never called in on this site."}{" "}
+              Unpaid orders are not expiring, messages are not being sent and publish dates are not applied until it
+              calls /api/cron/jobs at least every {scheduler.expectedEveryMinutes} minute
+              {scheduler.expectedEveryMinutes === 1 ? "" : "s"}.
+            </p>
+          ) : null}
           {attention.every((item) => item.count === 0) ? (
             <p className="mt-3">
               <StatusBadge tone="positive">Nothing waiting</StatusBadge>

@@ -1,0 +1,50 @@
+# An external scheduler for hosted environments that have no Vercel Cron of
+# their own (D-059) — for example a Vercel preview used as staging, where
+# Vercel runs no cron jobs. Off by default: each environment is enabled by a
+# repository variable, and a disabled job is skipped without using a runner.
+#
+# To enable one environment:
+#   1. Create a GitHub environment (staging or production) with secrets
+#      CRON_URL (https://…/api/cron/jobs) and CRON_SECRET.
+#   2. Set the repository variable STAGING_SCHEDULER (or PRODUCTION_SCHEDULER)
+#      to github-actions.
+#
+# GitHub runs schedules at most every 5 minutes and may start them late under
+# load, so this suits staging. Production should prefer a scheduler that calls
+# every minute (Vercel Cron on a paid plan, or a dedicated cron service); the
+# admin overview warns when calls stop arriving often enough.
+name: Scheduler
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  staging:
+    if: vars.STAGING_SCHEDULER == 'github-actions'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    environment: staging
+    steps:
+      - name: Call the job trigger
+        env:
+          CRON_URL: ${{ secrets.CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 90             -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_URL"
+
+  production:
+    if: vars.PRODUCTION_SCHEDULER == 'github-actions'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    environment: production
+    steps:
+      - name: Call the job trigger
+        env:
+          CRON_URL: ${{ secrets.CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 90             -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_URL"

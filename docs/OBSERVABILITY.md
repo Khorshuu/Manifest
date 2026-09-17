@@ -30,6 +30,8 @@ line for that request.
 | `checkout.place` | info / warn / error | Every order placement | `method`, `signedIn`, `outcome`, `durationMs`, `orderNumber`, `paymentStatus`; on failure the error name and message |
 | `payments.start_failed` | error | The provider could not start a payment after the order was saved | `orderNumber`, error |
 | `payments.webhook` | info / warn / error | Every payment webhook | `provider`, `bytes`, `outcome`, `result` (processed, ignored, duplicate), `durationMs` |
+| `jobs.trigger` | info | Each scheduler call to `/api/cron/jobs` | `scheduled`, `recovered`, `succeeded`, `retried`, `dead`, `disabled` |
+| `jobs.schedule_invalid` | error | `JOB_SCHEDULE` has an entry that was ignored | `problems` |
 | `job.succeeded` | info | A background job finished | `jobId`, `kind`, `attempt`, `durationMs` |
 | `job.retrying` / `job.dead` | warn / error | A job failed and will retry / gave up | as above, plus `maxAttempts` and the error |
 | `search.slow` | warn | A listing or search took 500 ms or more | `durationMs`, `hasQuery`, `filtered`, `scoped`, `total`, `page` |

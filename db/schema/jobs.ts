@@ -48,3 +48,10 @@ export const jobs = pgTable(
     index("jobs_kind_status_idx").on(table.kind, table.status),
   ],
 );
+
+/** When each scheduler trigger last ran (migration 0030, D-059). */
+export const schedulerHeartbeats = pgTable("scheduler_heartbeats", {
+  name: text("name").primaryKey(),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }).notNull(),
+  lastReport: jsonb("last_report").notNull().default({}),
+});

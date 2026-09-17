@@ -1463,3 +1463,42 @@ until staff fill it in; the admin variant table labels them "Not orderable" and
 the readiness panel lists what is missing. On the development database this
 affects one listing (the Optoma projector). Tests that relied on uncapped
 preorders now give a capacity large enough never to bind.
+
+## D-059 — Jobs run only from a real scheduler, with intervals per job and per environment, and a heartbeat
+
+**Context.** D-053 left the trigger frequency open. The owner decided
+(September 2026) that production jobs must run from a real scheduler and never
+depend on site traffic, and that frequency must be configurable per job and per
+environment rather than one universal setting. Vercel Cron runs only on a
+project's production deployment and, on the Hobby plan, at most daily; the
+plan for production and the shape of staging are not yet fixed.
+
+**Decision.**
+
+- Each recurring job keeps its default interval in `lib/jobs/registry.ts`.
+  An environment overrides any of them with `JOB_SCHEDULE`
+  (`kind=minutes` or `kind=off`, comma-separated). A malformed entry keeps
+  that job's default and is logged as `jobs.schedule_invalid`; a typo never
+  switches a job off.
+- Every call to `/api/cron/jobs` records a heartbeat
+  (`scheduler_heartbeats`, migration 0030) and logs `jobs.trigger`. The job
+  summary API and, for the owner, the admin overview say when the scheduler
+  has not called in for three of the shortest intervals (at least 10 minutes),
+  and what that stops.
+- Triggers, none of which is site traffic:
+  - Vercel Cron in `vercel.json` (daily, valid on every plan; on a paid plan
+    change the jobs entry to `* * * * *`).
+  - `.github/workflows/scheduler.yml`: an opt-in external scheduler for
+    staging or production, enabled per environment by a repository variable,
+    every 5 minutes.
+  - Any other cron service calling `/api/cron/jobs` with `CRON_SECRET`.
+  - `npm run jobs:dev` on a development machine.
+- Requests may still *accelerate* work (placing an order tries to send its
+  confirmation at once), but nothing depends on it: the scheduled delivery job
+  sends whatever that attempt did not.
+
+**Consequences.** Until a hosted environment has a trigger at least as frequent
+as its shortest interval, the admin overview shows a warning, which is the
+intent. Choosing the production trigger depends on the Vercel plan and is
+BLOCKED on the owner's hosting account. The development site shows the warning
+unless `npm run jobs:dev` is running with the server's `CRON_SECRET`.

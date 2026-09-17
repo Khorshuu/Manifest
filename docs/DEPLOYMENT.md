@@ -47,11 +47,36 @@ already-applied migration fails the deploy rather than being skipped. With
 
 ## Scheduled work
 
-Background jobs run from the `jobs` table when `/api/cron/jobs` is called
-(DECISIONS.md D-053). On Vercel Hobby the cron runs once a day; unpaid-order
-expiry (every 2 minutes), notification delivery (every minute) and the publish
-schedule (every 5 minutes) need a more frequent trigger — Vercel Pro cron or
-an external scheduler calling `/api/cron/jobs` with `CRON_SECRET`.
+Background jobs run from the `jobs` table only when `/api/cron/jobs` is
+called with `Authorization: Bearer <CRON_SECRET>` (DECISIONS.md D-053, D-059).
+Site traffic never runs them.
+
+**Intervals.** Defaults live in `lib/jobs/registry.ts`: notification delivery
+every minute, unpaid-order expiry every 2, publish dates every 5, payment
+reconciliation and search repair every 10, SKU holds every 15, pruning and the
+media sweep hourly. Override per environment with `JOB_SCHEDULE`, for example
+on staging:
+
+```
+JOB_SCHEDULE="media.sweep_unreferenced=off,payments.reconcile=30"
+```
+
+**Trigger.** The scheduler must call at least as often as the shortest interval
+left on (every minute with the defaults):
+
+| Environment | Trigger |
+|---|---|
+| Production on a Vercel paid plan | `vercel.json`: change the `/api/cron/jobs` schedule to `* * * * *`. |
+| Production on Vercel Hobby | Vercel allows only a daily cron: use a cron service (for example cron-job.org or Upstash QStash schedules) calling the endpoint every minute. |
+| Staging (a Vercel preview or separate project) | Vercel runs no cron on previews: enable `.github/workflows/scheduler.yml` for the `staging` environment (every 5 minutes; set `JOB_SCHEDULE` so nothing needs more often), or a cron service. |
+| Development | `npm run jobs:dev` with the server's `CRON_SECRET`. |
+
+**Checking it.** Each call records a heartbeat. The admin overview warns the
+owner when the scheduler has not called in for three of the shortest intervals
+(at least 10 minutes); `GET /api/admin/jobs` returns the same under
+`scheduler`, with the effective schedule and any ignored `JOB_SCHEDULE`
+entries. Logs carry `jobs.trigger` per call and `jobs.schedule_invalid`
+when the variable has a mistake.
 
 ## Tables that grow and how they are kept in check
 

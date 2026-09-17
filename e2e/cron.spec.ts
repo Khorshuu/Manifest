@@ -128,3 +128,25 @@ test("an order placed now is delivered by the sweep", async ({
     .filter({ hasText: orderNumber, visible: true });
   await expect(row.first()).toContainText("sent");
 });
+
+/**
+ * The job trigger records a heartbeat (D-059): once a scheduler has called in,
+ * the owner's overview carries no "not running" warning and the job summary
+ * reports the scheduler as healthy, with the schedule this environment uses.
+ */
+test("a call to the job trigger shows the owner that the scheduler is running", async ({ page }) => {
+  const trigger = await page.request.post("/api/cron/jobs", {
+    headers: { Authorization: `Bearer ${SECRET}` },
+  });
+  expect(trigger.status()).toBe(200);
+  expect(await trigger.json()).toMatchObject({ scheduled: expect.any(Number), succeeded: expect.any(Number) });
+
+  await signIn(page, "admin@example.com");
+  await page.goto("/admin");
+  await expect(page.getByRole("heading", { name: "Needs attention" })).toBeVisible();
+  await expect(page.getByText("Scheduled jobs are not running.")).toHaveCount(0);
+
+  const summary = await page.evaluate(async () => (await fetch("/api/admin/jobs")).json());
+  expect(summary.scheduler).toMatchObject({ stale: false, expectedEveryMinutes: 1, problems: [] });
+  expect(summary.scheduler.jobs.map((job: { kind: string }) => job.kind)).toContain("orders.expire_unpaid");
+});
