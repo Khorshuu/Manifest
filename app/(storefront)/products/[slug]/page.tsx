@@ -341,7 +341,7 @@ export default async function ProductPage({
             shelf does not push the photograph down. */}
         <ol className="-mx-4 flex items-center gap-2 overflow-x-auto whitespace-nowrap px-4 text-meta text-ink/70 [scrollbar-width:none] md:mx-0 md:flex-wrap md:px-0">
           <li>
-            <Link href="/" className="hover:underline">
+            <Link href="/" className="inline-flex min-h-6 items-center hover:underline">
               Home
             </Link>
           </li>
@@ -350,7 +350,7 @@ export default async function ProductPage({
               <span aria-hidden="true">/</span>
               <Link
                 href={`/categories/${node.slug}`}
-                className="hover:underline"
+                className="inline-flex min-h-6 items-center hover:underline"
               >
                 {node.name}
               </Link>

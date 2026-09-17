@@ -835,48 +835,38 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
 }
 
 /**
- * What the header shows before the search box has read the address — the same
- * field, without suggestions. It only ever appears if a page is rendered
- * statically, which the storefront's pages are not today.
+ * What the header shows while the page streams the real search box in.
+ *
+ * The header reads the visitor behind a Suspense boundary (D-054), so this is
+ * on screen for a moment on every page, and for that moment it and the real
+ * box are both in the document. It is therefore a picture of the field rather
+ * than a second field: a second labelled input made "Search products"
+ * ambiguous to assistive technology and to the end-to-end suite, and anything
+ * typed into it was lost when the real box replaced it. On a phone it keeps
+ * the icon in place as a plain link to the search page.
  */
 export function SearchBoxFallback() {
   return (
     <>
-    {/* Holds the icon place on a phone until the real search box arrives. */}
-    <a
-      href="/search"
-      aria-label="Open search"
-      className="ml-auto inline-flex size-10 shrink-0 items-center justify-center rounded-control text-[color:var(--head-fg)] md:hidden"
-    >
-      <IconSearch size={19} />
-    </a>
-    <div className="relative hidden md:ml-auto md:block md:w-64 lg:w-80 xl:w-[26rem]">
-      <form action="/search" role="search" aria-label="Search the catalogue" className="relative">
-        {/* Its own id: while the page streams, this and the real search box
-            are both in the document for a moment. */}
-        <label htmlFor="site-search-fallback" className="sr-only">
-          Search products
-        </label>
-        <input
-          id="site-search-fallback"
-          name="q"
-          type="search"
-          placeholder="Search products, brands or SKUs"
-          className={`min-h-11 w-full rounded-control py-2 pl-10 pr-12 text-body ${fieldBar}`}
-        />
+      <a
+        href="/search"
+        aria-label="Open search"
+        className="ml-auto inline-flex size-10 shrink-0 items-center justify-center rounded-control text-[color:var(--head-fg)] md:hidden"
+      >
+        <IconSearch size={19} />
+      </a>
+      <div aria-hidden="true" className="relative hidden md:ml-auto md:block md:w-64 lg:w-80 xl:w-[26rem]">
+        <div className={`flex min-h-11 w-full items-center rounded-control py-2 pl-10 pr-12 text-body text-ink/60 ${fieldBar}`}>
+          Search products, brands or SKUs
+        </div>
         <IconSearch
           size={18}
           className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink/70"
         />
-        <button
-          type="submit"
-          aria-label="Search"
-          className="surface-brass absolute right-1 top-1/2 inline-flex size-9 -translate-y-1/2 items-center justify-center rounded-[8px] text-ink"
-        >
+        <span className="surface-brass absolute right-1 top-1/2 inline-flex size-9 -translate-y-1/2 items-center justify-center rounded-[8px] text-ink">
           <IconSearch size={18} />
-        </button>
-      </form>
-    </div>
+        </span>
+      </div>
     </>
   );
 }

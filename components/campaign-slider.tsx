@@ -312,7 +312,7 @@ function ShowcaseTile({
         />
       </span>
       {tile.title ? (
-        <span className="block truncate px-0.5 pb-0.5 pt-1 text-center text-[0.625rem] font-bold leading-tight tracking-[-0.01em] text-ink sm:px-1 sm:pt-2 sm:text-[0.8125rem] md:px-2 md:pb-1 md:pt-2.5 md:text-[1.0625rem]">
+        <span className="block truncate px-0.5 pb-0.5 pt-1 text-center text-[0.6875rem] font-bold leading-tight tracking-[-0.01em] text-ink sm:px-1 sm:pt-2 sm:text-[0.8125rem] md:px-2 md:pb-1 md:pt-2.5 md:text-[1.0625rem]">
           {tile.title}
         </span>
       ) : null}

@@ -46,7 +46,7 @@ export function SiteFooter() {
 
           <Link
             href="/search?available=1"
-            className="mt-6 inline-flex items-center gap-2 text-meta font-medium text-blue-600 underline-offset-4 hover:underline"
+            className="tap-target mt-6 inline-flex items-center gap-2 text-meta font-medium text-blue-600 underline-offset-4 hover:underline"
           >
             See every open window
             <IconArrowRight size={16} />

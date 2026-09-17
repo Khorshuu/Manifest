@@ -40,7 +40,7 @@ export function RecommendationSection({
         {link ? (
           <Link
             href={link.href}
-            className="link-draw text-meta font-semibold text-blue-600"
+            className="tap-target link-draw text-meta font-semibold text-blue-600"
           >
             {link.label}
           </Link>

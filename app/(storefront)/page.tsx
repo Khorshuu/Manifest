@@ -203,7 +203,7 @@ async function HomeCatalogue() {
             </div>
             <Link
               href="/search?sort=newest"
-              className="text-meta font-semibold text-blue-600 underline-offset-4 hover:underline"
+              className="tap-target text-meta font-semibold text-blue-600 underline-offset-4 hover:underline"
             >
               Everything, newest first
             </Link>

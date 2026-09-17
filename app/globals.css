@@ -459,6 +459,21 @@ input[type="radio"] {
  * on. Used on the footer and the quieter in-page links: it is the cheapest
  * possible answer to "the page feels dead under the pointer".
  */
+/*
+ * A finger-sized target for a link set in small type (PRODUCTION-READINESS
+ * 17.1). The link keeps its look; an invisible box around it takes the tap.
+ * These links were 15–20 px tall on a phone, under the 24 px WCAG 2.2 minimum.
+ */
+.tap-target {
+  position: relative;
+}
+
+.tap-target::after {
+  content: "";
+  position: absolute;
+  inset: -12px -6px;
+}
+
 .link-draw {
   background-image: linear-gradient(currentColor, currentColor);
   background-repeat: no-repeat;

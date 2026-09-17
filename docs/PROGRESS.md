@@ -3003,3 +3003,14 @@ Not verified: the five-minute schedule on the live host — it runs as often as 
 Verified: unit and full end-to-end suites pass.
 
 Needs your decision: the publish check insists every preorder has a place limit and a closing date, but checkout still sells a preorder without them as unlimited. Tell me which rule you want.
+
+## Production readiness: phone and tablet pass (17.1)
+
+- `[x]` Checked every main page on seven screen sizes, from iPhone SE to a large desktop monitor: nothing scrolls sideways.
+- `[x]` Small links (breadcrumbs, "See all", footer links, back links) are easier to tap on a phone, and look the same.
+- `[x]` Homepage campaign tile names are slightly larger on phones.
+- `[x]` Fixed a brief moment while a page loads where the header had two search boxes, which could swallow what you typed.
+
+Verified: unit and full end-to-end suites pass.
+
+Not verified: real iPhones and Android devices.

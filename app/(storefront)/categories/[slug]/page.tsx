@@ -112,14 +112,14 @@ async function CategoryShelf({ slug, listingKey }: { slug: string; listingKey: s
       <nav aria-label="Breadcrumb">
         <ol className="flex flex-wrap items-center gap-2 text-meta text-ink/70">
           <li>
-            <Link href="/" className="hover:underline">
+            <Link href="/" className="inline-flex min-h-6 items-center hover:underline">
               Home
             </Link>
           </li>
           {path.map((crumb) => (
             <li key={crumb.id} className="flex items-center gap-2">
               <span aria-hidden="true">/</span>
-              <Link href={`/categories/${crumb.slug}`} className="hover:underline">
+              <Link href={`/categories/${crumb.slug}`} className="inline-flex min-h-6 items-center hover:underline">
                 {crumb.name}
               </Link>
             </li>

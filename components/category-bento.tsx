@@ -72,7 +72,7 @@ export function CategoryBento({
         </div>
         <Link
           href="/search"
-          className="group inline-flex shrink-0 items-center gap-1 text-meta font-semibold text-blue-600 underline-offset-4 hover:underline"
+          className="tap-target group inline-flex shrink-0 items-center gap-1 text-meta font-semibold text-blue-600 underline-offset-4 hover:underline"
         >
           See all
           <IconArrowRight

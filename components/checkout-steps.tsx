@@ -64,7 +64,7 @@ export function CheckoutSteps({ current }: { current: CheckoutStep }) {
               {backTo ? (
                 <Link
                   href={backTo}
-                  className="flex items-center gap-2 rounded-control underline-offset-4 hover:underline"
+                  className="tap-target flex items-center gap-2 rounded-control underline-offset-4 hover:underline"
                 >
                   {marker}
                 </Link>

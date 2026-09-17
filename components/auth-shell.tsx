@@ -95,7 +95,7 @@ export function AuthShell({
         <div className="mx-auto w-full max-w-md">
           <Link
             href="/"
-            className="inline-flex items-center gap-2 text-meta text-blue-600 underline-offset-4 hover:underline lg:hidden"
+            className="tap-target inline-flex items-center gap-2 text-meta text-blue-600 underline-offset-4 hover:underline lg:hidden"
           >
             <IconArrowLeft size={16} />
             Back to the shop
