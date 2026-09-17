@@ -21,6 +21,7 @@ import { hash } from "@node-rs/argon2";
 import { sql } from "drizzle-orm";
 import postgres from "postgres";
 import { getDb } from "./index";
+import { isPooledUrl } from "./connection";
 import { migratePostgres } from "./migrator";
 import { users } from "./schema";
 
@@ -59,10 +60,22 @@ async function ensureFirstAdministrator() {
 }
 
 async function main() {
-  const url = process.env.DATABASE_URL?.trim();
+  /*
+   * Migrations take a session-scoped advisory lock (db/migrator.ts) so two
+   * deploys cannot migrate at once. Behind a transaction pooler the lock and
+   * its release can land on different server connections, so migrations use
+   * the direct address: Neon's integration provides it as
+   * DATABASE_URL_UNPOOLED.
+   */
+  const url = (process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL)?.trim();
   if (!url) {
     process.stdout.write("No DATABASE_URL; skipping migrations.\n");
     process.exit(0);
+  }
+  if (isPooledUrl(url)) {
+    throw new Error(
+      "Migrations need a direct database connection, not the pooled one. Set DATABASE_URL_UNPOOLED.",
+    );
   }
 
   const client = postgres(url, { max: 1, onnotice: () => {} });

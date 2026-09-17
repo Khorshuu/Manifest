@@ -1,4 +1,5 @@
 import { deleteExpiredSessions } from "@/lib/auth/session";
+import { pruneUnreachableGuestCarts } from "@/lib/cart";
 import { applyPublishSchedule } from "@/lib/catalog/schedule";
 import { releaseExpiredSkuReservations } from "@/lib/catalog/sku";
 import { deliverQueuedNotifications } from "@/lib/notifications";
@@ -34,7 +35,8 @@ export const JOB_HANDLERS: JobHandlers = {
     await deleteExpiredSessions();
     const searchLogs = await pruneSearchLogs();
     const finishedJobs = await pruneFinishedJobs();
-    return { rateLimits, searchLogs, finishedJobs };
+    const guestCarts = await pruneUnreachableGuestCarts();
+    return { rateLimits, searchLogs, finishedJobs, guestCarts };
   },
   "media.sweep_unreferenced": () => sweepUnreferencedMedia(getMediaProvider()),
   "catalog.apply_publish_schedule": () => applyPublishSchedule(),

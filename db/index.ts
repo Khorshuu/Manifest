@@ -2,13 +2,15 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { getEnv } from "@/lib/env";
+import { connectionOptions } from "./connection";
 import * as schema from "./schema";
 
 export type Database = ReturnType<typeof createDatabase>;
 
 function createDatabase() {
   const env = getEnv();
-  return drizzle(postgres(env.DATABASE_URL, { max: env.DATABASE_POOL_MAX }), {
+  const options = connectionOptions(env.DATABASE_URL, { ...env, VERCEL: process.env.VERCEL });
+  return drizzle(postgres(env.DATABASE_URL, options), {
     schema,
   });
 }

@@ -3042,3 +3042,12 @@ Verified: SEO end-to-end tests pass.
 Verified: unit and full end-to-end suites pass; pages are no slower.
 
 Not built: "forgot password". A customer who forgets their password cannot reset it yet (needs an email provider).
+
+## Production readiness: database setup for hosting (21.1)
+
+- `[x]` Database connections are set up for Vercel: small per-instance pools, idle connections closed, and settings that work through Neon's connection pooler.
+- `[x]` Deploy-time database updates now use Neon's direct address, which the update lock needs.
+- `[x]` Old guest carts (older than the 60-day cart cookie) are cleaned up automatically.
+- `[x]` `docs/DEPLOYMENT.md` lists the environment variables and the checks to run in Neon.
+
+Needs you: access to the production Neon project, to confirm backups, a test restore, and database monitoring.

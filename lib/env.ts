@@ -9,10 +9,17 @@ const schema = z.object({
       "DATABASE_URL must be a postgres:// connection string.",
     ),
   /**
-   * Connection pool size. The development database server (PGlite over TCP)
-   * serves one connection at a time, so local runs set this to 1.
+   * Connections per server instance. Unset, it is 3 on Vercel and 10
+   * elsewhere (db/connection.ts): on serverless hosts the total is this times
+   * the number of instances, so it stays small and a pooler absorbs spikes.
    */
-  DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
+  DATABASE_POOL_MAX: z.coerce.number().int().positive().optional(),
+  /**
+   * Named prepared statements. "auto" turns them off behind a Neon "-pooler"
+   * address, where a transaction pooler may run each statement on a different
+   * server connection.
+   */
+  DATABASE_PREPARE: z.enum(["auto", "on", "off"]).default("auto"),
   SESSION_SECRET: z.string().min(32),
   /**
    * Login attempt ceilings per 15-minute window. The per-account limit is the

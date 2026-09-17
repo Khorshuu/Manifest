@@ -468,3 +468,36 @@ export async function cartExists(cartId: string): Promise<boolean> {
     .limit(1);
   return Boolean(row);
 }
+
+/** The guest cart cookie's lifetime (lib/cart/session.ts), plus a day of margin. */
+const GUEST_CART_REACHABLE_DAYS = 61;
+
+/**
+ * Deletes guest carts nobody can reach any more.
+ *
+ * A guest cart is found only through its cookie, which is set once when the
+ * cart is created and lasts sixty days. After that the cart and its lines can
+ * never be read again, but nothing removed them, so every visitor who ever
+ * added something left rows behind for good. Account carts are never touched.
+ * Deleted in batches so one run cannot hold a long transaction.
+ */
+export async function pruneUnreachableGuestCarts(now: Date = new Date(), batch = 1000): Promise<number> {
+  const cutoff = new Date(now.getTime() - GUEST_CART_REACHABLE_DAYS * 86_400_000);
+  let removed = 0;
+  for (;;) {
+    const deleted = await db.transaction(async (tx) => {
+      const stale = await tx
+        .select({ id: carts.id })
+        .from(carts)
+        .where(and(isNull(carts.userId), sql`${carts.createdAt} < ${cutoff.toISOString()}::timestamptz`))
+        .limit(batch);
+      if (stale.length === 0) return 0;
+      const ids = stale.map((cart) => cart.id);
+      await tx.delete(cartItems).where(inArray(cartItems.cartId, ids));
+      await tx.delete(carts).where(inArray(carts.id, ids));
+      return ids.length;
+    });
+    removed += deleted;
+    if (deleted < batch) return removed;
+  }
+}
