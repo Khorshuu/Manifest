@@ -72,6 +72,19 @@ db/
   migrations/           checked-in SQL migrations, never edited after merge
 ```
 
+### Planned: Product Knowledge Base (in progress, staged)
+
+Product facts are being moved into one Product Knowledge Base (`lib/pkb/`,
+tables `pkb_*`) that the storefront, SeoPulse (`lib/seo-pulse`) and SearchPulse
+(`lib/search` with `lib/catalog/{discovery,facets,filter-params}`) read through
+read models. `products` stays the listing and `product_variants` the offer;
+identity, facts, identifiers, relationships, aliases and their evidence move to
+the PKB. SeoPulse and SearchPulse propose; only `lib/pkb` review and apply
+services write accepted facts. Until each field is cut over, the existing
+columns described on this page remain authoritative. Status, target model,
+source-of-truth matrix and migration plan: [KNOWLEDGE_PLATFORM.md](KNOWLEDGE_PLATFORM.md);
+reasoning: DECISIONS.md D-060 to D-069.
+
 The admin product editor is a set of independent panels
 (`app/admin/products/[productId]/sections/`), each posting only the fields it
 owns to a partial `PATCH`. They share their save behaviour, their controls and

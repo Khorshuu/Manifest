@@ -1,5 +1,12 @@
 # Database
 
+> **Planned change.** Product identity, facts, identifiers, relationships,
+> aliases and their sources are moving into Product Knowledge Base tables
+> (`pkb_*`). This page describes the schema as built; the planned tables and
+> the migration path are in [KNOWLEDGE_PLATFORM.md](KNOWLEDGE_PLATFORM.md)
+> section 4 and DECISIONS.md D-060 to D-069. They are added here as each
+> migration lands.
+
 PostgreSQL. All monetary columns are integers in minor units, with an explicit currency: `_bdt` suffix for paisa a customer pays, `_usd` suffix for cents the operator spends sourcing a product in the US. Every table has `created_at timestamptz`; mutable tables also have `updated_at timestamptz`. Business-critical tables (`products`, `product_variants`, `orders`) are soft-deleted with `archived_at timestamptz null`, never hard-deleted, because order history references them.
 
 ## Users, roles, addresses

@@ -3116,3 +3116,10 @@ Blocked on your accounts or choices:
 - GitHub: push the branch so CI runs there, then turn on required checks for `main` (docs/TESTING.md).
 - Payments and couriers: provider choice and credentials.
 - Password reset: waits for the email provider.
+
+## Product Knowledge Base programme — Stage 1 of 8 (audit and architecture)
+
+- `[x]` Audited how product facts, search and SEO work today, and designed one Product Knowledge Base that the shop, SeoPulse and SearchPulse will all read. Nothing on the site changed in this stage; it is a plan and a record. Full tracker: docs/KNOWLEDGE_PLATFORM.md; decisions D-060 to D-069.
+- `[x]` Checks on the unchanged code: typecheck and lint clean; 192 targeted search, SEO and catalogue tests passed.
+- `[!]` Found, not yet fixed (each assigned to a later stage in the tracker): renaming a product changes its web address with no redirect, so old links break (F5); SeoPulse's one-click fill can copy the same fact into a second table, which would then show twice on the product page (F1), and it writes generated text into empty fields without review (F2).
+- `[ ]` Stage 2 (knowledge base database) waits for the go-ahead.

@@ -1502,3 +1502,225 @@ as its shortest interval, the admin overview shows a warning, which is the
 intent. Choosing the production trigger depends on the Vercel plan and is
 BLOCKED on the owner's hosting account. The development site shows the warning
 unless `npm run jobs:dev` is running with the server's `CRON_SECRET`.
+
+## D-060 — One Product Knowledge Base under the storefront, SeoPulse and SearchPulse
+
+**Context.** The owner started an eight-stage programme (tracked in
+[KNOWLEDGE_PLATFORM.md](KNOWLEDGE_PLATFORM.md)) to make product knowledge a
+long-term, reusable Manifest asset. The Stage 1 audit found facts about one
+product spread over seven unsourced stores (`brand`, `identifier_*`,
+`details`, `attribute_values`, `spec_table`, `measurements`, compliance JSON),
+SeoPulse copying some of them into others (finding F1), and search and SEO
+each reading their own selection of those stores.
+
+**Decision.** Product facts get one home: a Product Knowledge Base in the same
+PostgreSQL database, tables prefixed `pkb_`, code in `lib/pkb/`. The
+storefront, SeoPulse and SearchPulse read it through read models and
+projections; only `lib/pkb` review and apply services write accepted facts.
+The existing modules keep their names — `lib/seo-pulse` is SeoPulse, and
+SearchPulse is `lib/search` with `lib/catalog/{discovery,facets,filter-params}`
+— rather than being renamed for the programme.
+
+**Alternatives considered.** Adding provenance columns to the existing JSON
+stores (keeps seven stores, cannot express evidence, conflicts or
+relationships to products not sold); a separate database or service (a second
+system to deploy and keep consistent, for a catalogue of hundreds to low
+thousands of listings); a Postgres schema namespace instead of a prefix
+(cleaner grants, but every raw SQL fragment, trigger and test helper would have
+to qualify names; a prefix gives the same visible boundary for less friction).
+
+**Why.** A single, relational, source-backed store is the only way to satisfy
+"one source of truth", "provenance over unexplained values" and a future export
+boundary at the same time. Keeping it in Postgres matches D-003 and D-026.
+
+## D-061 — PKB product and variant are identity; the listing sells it; the variant row is the offer
+
+**Decision.** `pkb_products` is what a thing is (brand, manufacturer, name,
+model, generation, family, facts, identifiers, relationships). `pkb_variants`
+is one concrete version defined by its variant-defining attributes. `products`
+stays Manifest's listing (title, slug, status, photography, copy, SEO fields)
+and points at a PKB product through `products.pkb_product_id`.
+`product_variants` stays the offer (BDT price, sale window, stock, preorder
+capacity, payment mode, merchant SKU, shipping weight) and points at a PKB
+variant through `product_variants.pkb_variant_id`. The existing option tables
+remain the listing's selection axes and combination engine (D-006, D-040), with
+`attributes.attribute_definition_id` linking an option to the vocabulary.
+
+**Alternatives considered.** Keeping `products` as the identity and adding
+facts to it. Rejected: compatibility, accessory and predecessor relationships
+must be able to name products Manifest does not sell, and the reusable asset
+must not carry prices, capacity or merchandising.
+
+**Why.** Offer data changes daily and belongs to one shop; identity and facts
+are stable and reusable. `product_variants.weight_grams` is kept as the
+shipping weight used by landed-price bookkeeping; the published item weight is
+a PKB fact. They are different quantities, documented rather than merged.
+
+## D-062 — Facts, claims and evidence are relational rows; JSON only for small bounded configuration
+
+**Decision.** Accepted values live in `pkb_facts`, one row per single-valued
+slot or per option of a multi-valued one, with typed normalized columns
+(`value_text`, `value_number`, `value_number_to`, `value_unit`,
+`value_boolean`, `value_date`, `option_id`), an explicit `value_status`
+(`value` or `not_applicable`) and the raw source text and unit. Proposed values
+live in `pkb_claims`, each tied to a `pkb_evidence` excerpt of a `pkb_sources`
+row. Prior values go to append-only `pkb_fact_history`. Identifiers,
+relationships and aliases have their own tables with foreign keys. JSON is used
+only for small configuration that is never queried on (definition validation
+rules) and for SeoPulse run payloads that are stored and exported as a unit.
+
+**Alternatives considered.** One JSON document per product with per-key
+provenance (keeps the weakness of D-025: no constraints and no indexing by
+value, so no facet read model); a generic entity-attribute table without typed
+columns (numeric comparison and unit conversion would happen in application
+code on every read).
+
+**Why.** Typed rows let the database enforce uniqueness and value shape, let
+facets and search filter numerically ("512 GB and above"), and make "which
+values came from where" a query. This supersedes D-025 once the migration in
+D-069 contracts `products.attribute_values`.
+
+## D-063 — Verification states, origin classes and authority tiers
+
+**Decision.**
+
+- Slot states: VERIFIED, SUGGESTED, CONFLICT, UNVERIFIED, MANUAL, LEGACY,
+  LOCKED. Facts store VERIFIED, MANUAL, UNVERIFIED or LEGACY; claims store
+  SUGGESTED or CONFLICT (then ACCEPTED, REJECTED or SUPERSEDED). LOCKED is
+  `locked_at`/`locked_by` beside the underlying state and is reported as the
+  effective state. A slot with neither fact nor claim is UNKNOWN, which is never
+  stored as false, zero or not applicable.
+- Origin classes on sources, copied to facts: MANIFEST_CREATED, MANUAL_ADMIN,
+  OFFICIAL_MANUFACTURER, APPROVED_EXTERNAL_SOURCE, SUPPLIER_PROVIDED,
+  PROVIDER_RESTRICTED, CUSTOMER_DERIVED, UNKNOWN_LEGACY. Sources also carry
+  usage rights (internal_only, display, exportable, unknown).
+- Authority tiers: 1 official manufacturer; 2 authorized distributor, trusted
+  retailer, reliable product database; 3 other approved public sources.
+  Unlisted domains have no tier and verify nothing.
+- Default policy: VERIFIED needs a human acceptance plus matching tier-1
+  evidence and no open conflict; accepted with only tier-2 or tier-3 evidence
+  is UNVERIFIED; typed by staff is MANUAL; backfilled is LEGACY with
+  UNKNOWN_LEGACY origin. Nothing is promoted automatically. AI may locate an
+  excerpt in a real source or write SEO language; it is never a source and
+  never decides a fact.
+
+**Why a lock is not a state value.** A locked value was still either verified
+or entered by hand; overwriting that with LOCKED would lose it, and unlocking
+would have nothing to return to.
+
+**Assumption for the owner (A-4).** Tier-2 corroboration alone does not reach
+VERIFIED. Cheap to relax later: it is one rule in the review service.
+
+## D-064 — Product Families are data, versioned, and never forced
+
+**Decision.** `pkb_families` (optionally with a parent) own versioned schemas
+(`pkb_family_versions`) that list global attribute definitions
+(`pkb_attribute_definitions`) with a requirement level (required, recommended,
+optional), a variant-defining flag and optional overrides of the searchable,
+filterable, SEO and structured-data flags. Completeness is measured against
+the family's active version. A product with no suitable family is
+`unassigned`; a proposed family is `suggested` until someone with the new
+`knowledge.manage` permission approves it. Removing a definition from a family
+creates a new version and never deletes facts. `categories` stays the
+navigation tree and may name a default family to suggest on create.
+`category_attributes` is migrated into families and retired (D-069).
+
+**Alternatives considered.** Keeping specifications per category (a kind of
+product can sit on several shelves, a shelf can mix kinds of product, and
+navigation changes should not rewrite product schemas); hard-coded families in
+code (every new kind of product becomes a deploy).
+
+**Why.** Adding a new kind of product must be a data operation. The only code
+change a new category can need is a new unit dimension (D-065).
+
+**Assumption for the owner (A-3).** Categories that already define
+specifications become approved families on backfill, because staff authored
+those definitions.
+
+## D-065 — Deterministic normalization with a code-defined unit registry
+
+**Decision.** Units are a registry in `lib/pkb/units.ts` (dimension, canonical
+unit, aliases, conversion), not a table: mass g, length mm, data storage byte
+(decimal GB; GiB separate), frequency Hz, power W, energy Wh, charge mAh,
+voltage V, current A, duration s, volume mL, temperature °C, pixel count px.
+Quantities are stored in the canonical unit with the raw text and unit kept.
+Unparseable input is kept raw, with no normalized value, and flagged. Enum
+values normalize through option keys and aliases; identifiers by type (GTIN
+digits with a validated check digit; MPN folded for matching). Stage 5 search
+normalization reuses the same rules so a query and a fact normalize alike.
+
+**Alternatives considered.** A units table staff can edit (conversion factors
+are physics, and a wrong factor silently corrupts every fact of that
+dimension); AI normalization (non-deterministic and unverifiable).
+
+## D-066 — SeoPulse proposes; `lib/pkb` decides
+
+**Decision.** SeoPulse owns product resolution, the brand source registry,
+source retrieval, extraction, claim normalization and validation, conflict
+detection, completeness, attribute discovery proposals, SEO suggestions,
+technical SEO audits, structured data and Search Console intelligence. It
+writes sources, evidence, claims, research runs, SEO suggestions and audit
+results — never accepted facts. Accept, reject, edit, lock, resolve conflict
+and schema approval are `lib/pkb` services with a server-side permission check,
+one transaction, history and audit. Research and retrieval run as background
+jobs (D-053). Any outbound fetch goes through a guard against private,
+loopback and metadata addresses (checked after DNS resolution and on every
+redirect), with timeouts, size caps and robots.txt respected; the guard ships
+with the fetcher in Stage 3.
+
+**Supersedes in part.** D-040's one-click fill that writes into empty fields,
+and D-043's derived specification and measurement tables being written to the
+listing. Both become proposals shown for review (assumption A-5); the tables
+are rendered from facts instead of being copied.
+
+## D-067 — SearchPulse reads the PKB through read models and proposes aliases
+
+**Decision.** Search stays in Postgres (D-026 reaffirmed).
+`refresh_product_search` and the facet queries move to reading accepted,
+displayable, searchable PKB facts through read models instead of `details`,
+`attribute_values` and `spec_table`. Entity aliases ("XM6" for WH-1000XM6,
+"Logitec" for Logitech) live in `pkb_aliases` with status and origin;
+SearchPulse may suggest them from zero-result analytics, and only
+`search.manage` approves them. `search_synonyms` remains the table for
+term-level synonyms. Search analytics stay hashed and free of account ids;
+`search_history` stays customer data and never feeds the PKB except as
+aggregated, thresholded counts.
+
+## D-068 — The future API boundary is a DTO layer with one export-eligibility rule
+
+**Decision.** No API is built now. `lib/pkb/export.ts` will serialize only
+facts whose origin, usage rights and state pass one tested eligibility
+function, with public identifiers and without actor columns, internal notes,
+costs, offers or provider-restricted data (DataForSEO, Search Console). No code
+outside `lib/` reads `pkb_*` tables, as for every other table.
+
+**Why.** "Which pieces of this dataset may leave Manifest?" must be answerable
+from stored classifications, not reconstructed from memory later.
+
+## D-069 — Migrate by expand, backfill, cut over, contract
+
+**Decision.**
+
+1. Expand: new numbered migrations create `pkb_*` tables and nullable link
+   columns; nothing existing changes meaning.
+2. Backfill: an idempotent TypeScript command and job (so it shares the live
+   normalization code) creates brands (exact normalized matches only), PKB
+   products and variants, identifiers and LEGACY facts with
+   `origin = UNKNOWN_LEGACY` and a `legacy_ref` per source column; unmatched
+   rows go to `pkb_unmapped_values`; a reconciliation report must be clean.
+3. Cut over writes: editor panels write through `lib/pkb`, which rewrites the
+   legacy columns as projections in the same transaction, so existing readers
+   keep working. After cut-over only the projection writes a legacy column.
+4. Move readers: structured data, product page, search trigger and facets read
+   PKB read models (Stages 4 and 5).
+5. Contract: drop a legacy column or `category_attributes` only when no reader
+   remains (enforced by a test) and the reconciliation report is clean on the
+   target database (Stage 7).
+
+**Alternatives considered.** A one-shot rewrite of the product model (breaks
+every reader at once, against CLAUDE.md §5); dual writes from each screen (two
+code paths that drift); a SQL-only backfill (would duplicate the unit and
+identifier parsing in PL/pgSQL).
+
+**Why.** Every step leaves the storefront working and is reversible until the
+contract step, which only removes what nothing reads.
