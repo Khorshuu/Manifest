@@ -16,6 +16,8 @@ import {
   wishlistItems,
 } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
+import { staffChange } from "@/lib/pkb/common";
+import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import { lockSkuAllocation } from "./sku";
 import { isUnconfiguredPreorder } from "./price";
 import { PUBLIC_STATUSES } from "./products";
@@ -229,6 +231,8 @@ export async function generateVariants(
     .where(eq(products.id, productId));
 
   await db.transaction(async (tx) => {
+    // Knowledge lock before the SKU lock, the order every catalogue write uses.
+    await beginListingChange(tx, productId);
     // Held until commit, so a concurrent generation for a product with the
     // same slug prefix cannot choose the same SKUs (lockSkuAllocation).
     await lockSkuAllocation(tx);
@@ -262,6 +266,8 @@ export async function generateVariants(
         })),
       );
     }
+
+    await syncListingKnowledge(tx, productId, staffChange(staff.id));
 
     await recordAudit(
       {
@@ -317,6 +323,7 @@ async function createSingleVariant(
   if (!product) throw new Error("That product no longer exists.");
 
   await db.transaction(async (tx) => {
+    await beginListingChange(tx, productId);
     await lockSkuAllocation(tx);
     const takenSkus = new Set(
       (await tx.select({ sku: productVariants.sku }).from(productVariants)).map(
@@ -337,6 +344,8 @@ async function createSingleVariant(
       fulfillmentMode: defaults.fulfillmentMode ?? "preorder",
       isEnabled: true,
     });
+
+    await syncListingKnowledge(tx, productId, staffChange(staff.id));
 
     await recordAudit(
       {
@@ -742,6 +751,7 @@ export async function addVariant(
   const existing = await existingCombinationKeys(productId);
 
   return db.transaction(async (tx) => {
+    await beginListingChange(tx, productId);
     const options: { attributeId: string; attributeValueId: string; value: string }[] = [];
 
     for (const axis of chosen) {
@@ -813,6 +823,8 @@ export async function addVariant(
       );
     }
 
+    await syncListingKnowledge(tx, productId, staffChange(staff.id));
+
     await recordAudit(
       {
         actorUserId: staff.id,
@@ -846,6 +858,7 @@ export async function removeVariant(
       .from(productVariants)
       .where(eq(productVariants.id, variantId));
     if (!variant) throw new VariantPricingError("That variant no longer exists.");
+    await beginListingChange(tx, variant.productId);
 
     const count = async (query: Promise<{ n: number }[]>) => Number((await query)[0]?.n ?? 0);
     const history =
@@ -888,6 +901,7 @@ export async function removeVariant(
     await tx.delete(variantImages).where(eq(variantImages.variantId, variantId));
     await tx.delete(variantOptionValues).where(eq(variantOptionValues.variantId, variantId));
     await tx.delete(productVariants).where(eq(productVariants.id, variantId));
+    await syncListingKnowledge(tx, variant.productId, staffChange(staff.id));
     await recordAudit(
       {
         actorUserId: staff.id,

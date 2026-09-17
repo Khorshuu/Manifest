@@ -3122,4 +3122,17 @@ Blocked on your accounts or choices:
 - `[x]` Audited how product facts, search and SEO work today, and designed one Product Knowledge Base that the shop, SeoPulse and SearchPulse will all read. Nothing on the site changed in this stage; it is a plan and a record. Full tracker: docs/KNOWLEDGE_PLATFORM.md; decisions D-060 to D-069.
 - `[x]` Checks on the unchanged code: typecheck and lint clean; 192 targeted search, SEO and catalogue tests passed.
 - `[!]` Found, not yet fixed (each assigned to a later stage in the tracker): renaming a product changes its web address with no redirect, so old links break (F5); SeoPulse's one-click fill can copy the same fact into a second table, which would then show twice on the product page (F1), and it writes generated text into empty fields without review (F2).
-- `[ ]` Stage 2 (knowledge base database) waits for the go-ahead.
+- `[x]` Stage 2 (knowledge base database) — done, below.
+
+## Product Knowledge Base programme — Stage 2 of 8 (knowledge base foundation)
+
+- `[x]` The knowledge base exists in the database: brands, product families with versioned schemas, attributes, product and variant identities, facts with history, identifiers, relationships, aliases, sources, evidence and claims. The database itself refuses a "verified" value without evidence and a decision, and has no way to record AI as a source.
+- `[x]` Values are read into a standard form ("256GB", "256 GB" and "256 gigabytes" are one value; "1 kg" and "1000 g" are one value), with the original text always kept. Anything unreadable is kept as written, never guessed.
+- `[x]` Every existing listing is copied in, marked as legacy data of unknown origin. On the development database: 24 listings, clean. On the 5,000-product test database: clean, about 3 minutes.
+- `[x]` Staff edits in the existing product, variant and category screens now update the knowledge base in the same save, marked as entered by that staff member; values nobody touched stay marked as legacy. Checked through the real admin save on the running site.
+- `[x]` SeoPulse's one-click fill no longer copies facts into the specification table (F1).
+- `[x]` Checks: typecheck and lint clean; 68 new knowledge-base tests pass (including a real-PostgreSQL race test); the whole unit suite passes (1,159).
+- `[!]` Nothing to look at on the site yet: there is no knowledge-base screen until Stage 3. Product saves take about 28 ms longer.
+- `[!]` 69 hand-typed specification rows on the development database could not be matched to an attribute without guessing; they are kept aside for mapping in Stage 3. One seeded UPC has a wrong check digit and is marked invalid.
+- `[!]` Not run: end-to-end suite and production build (no pages changed).
+- `[ ]` Stage 3 (SeoPulse product intelligence) waits for the go-ahead.

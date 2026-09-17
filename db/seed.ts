@@ -38,6 +38,10 @@ export async function seed(db: SeedDatabase) {
   console.log("Clearing seeded tables...");
   await db.execute(sql`
     truncate table
+      pkb_sync_queue, pkb_unmapped_values, pkb_legacy_attribute_map, pkb_aliases, pkb_relationships,
+      pkb_identifiers, pkb_fact_history, pkb_facts, pkb_claims, pkb_evidence, pkb_sources,
+      pkb_variants, pkb_products, pkb_family_attributes, pkb_family_versions, pkb_families,
+      pkb_attribute_options, pkb_attribute_definitions, pkb_brands,
       variant_option_values, variant_images, waitlist_entries,
       inventory_adjustments, product_attributes, product_variants,
       product_images, product_related, product_categories, products,

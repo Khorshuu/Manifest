@@ -18,6 +18,7 @@ const PERMISSION_LABELS: Record<(typeof PERMISSIONS)[number], string> = {
   "orders.view": "See orders",
   "orders.manage": "Change orders",
   "catalog.manage": "Products & categories",
+  "knowledge.manage": "Product families & attributes",
   "customers.view": "Customers",
   "homepage.manage": "Homepage",
   "reviews.moderate": "Reviews",

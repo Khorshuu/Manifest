@@ -928,30 +928,13 @@ export async function fillWithSeoPulse(
   }
 
   /*
-   * The specification and measurement tables, which are the product's own
-   * recorded facts rearranged rather than anything written (D-043). Filled
-   * only when empty, and skipped entirely when there is nothing factual to
-   * put in them — an empty measurements table keeps the tab off the page.
+   * The specification and measurement tables are not written. They would
+   * only rearrange facts the listing already records — brand, details, the
+   * category's specifications — and the product page already shows those, so
+   * copying them into `spec_table` showed each twice and kept two copies of
+   * one fact (KNOWLEDGE_PLATFORM.md finding F1, D-066). The facts live in the
+   * knowledge base; the analysis still lists them in the report.
    */
-  const rows = (
-    key: "specTable" | "measurements",
-    next: { label: string; value: string }[],
-    label: string,
-  ) => {
-    if (next.length === 0) return;
-    const current = Array.isArray(product[key])
-      ? (product[key] as { label: string; value: string }[])
-      : [];
-    if (current.length === 0) {
-      fields[key] = next;
-      filled.push(label);
-    } else {
-      kept.push(label);
-    }
-  };
-
-  rows("specTable", analysis.specifications, "Specification");
-  rows("measurements", analysis.measurements, "Measurements");
 
   const tags = strings(product.tags);
   const nextTags = mergeTerms(tags, analysis.tags, 30, 40);

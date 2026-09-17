@@ -45,6 +45,20 @@ checksum in `schema_migrations` (DECISIONS.md, migration ledger). An edited,
 already-applied migration fails the deploy rather than being skipped. With
 `ADMIN_EMAIL` and `ADMIN_PASSWORD` set, the first run creates the owner account.
 
+**Product Knowledge Base import (migration 0031).** The migration queues every
+existing listing; the `pkb.sync_listings` job imports them in batches without a
+manual step. To import at once and check the result, run against the direct
+address:
+
+```
+DATABASE_URL=<direct address> npm run pkb:backfill
+```
+
+It prints a reconciliation report and exits 1 unless every listing and offer is
+linked, nothing is queued, no VERIFIED value lacks a claim, and every listing's
+structured fields equal what the knowledge base would write back. `-- --report`
+prints the report without importing. Re-running is safe.
+
 ## Scheduled work
 
 Background jobs run from the `jobs` table only when `/api/cron/jobs` is

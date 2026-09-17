@@ -31,6 +31,10 @@ export async function createTestDatabase() {
     async reset() {
       await client.exec(`
         truncate table
+          pkb_sync_queue, pkb_unmapped_values, pkb_legacy_attribute_map, pkb_aliases, pkb_relationships,
+          pkb_identifiers, pkb_fact_history, pkb_facts, pkb_claims, pkb_evidence, pkb_sources,
+          pkb_variants, pkb_products, pkb_family_attributes, pkb_family_versions, pkb_families,
+          pkb_attribute_options, pkb_attribute_definitions, pkb_brands,
           search_queries, search_clicks, search_history, search_synonyms,
           product_search_words, product_search_queue, product_search,
           seo_research_runs, sku_reservations, recovery_codes, rate_limit_hits, notifications, audit_log, site_settings, reviews,

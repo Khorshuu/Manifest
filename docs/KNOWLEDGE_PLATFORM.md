@@ -4,7 +4,7 @@ The continuity record for the eight-stage programme that puts Manifest on one
 Product Knowledge Base (PKB) shared by the storefront, **SeoPulse** and
 **SearchPulse**. Read this file first at the start of every stage. It holds the
 status, the architecture, the invariants and what comes next; the reasoning
-behind each decision is in [DECISIONS.md](DECISIONS.md) (D-060 to D-069).
+behind each decision is in [DECISIONS.md](DECISIONS.md) (D-060 to D-070).
 
 - Branch: `production-readiness`
 - Started: 2026-09-17, on commit `1e2e9d3`
@@ -34,8 +34,8 @@ fact; admin approval before mutation; deterministic logic before AI.
 | Stage | Scope | Effort | Status |
 | --- | --- | --- | --- |
 | 1 | Repository audit, architecture, source-of-truth decisions | ULTRACODE | **COMPLETE** (2026-09-17) |
-| 2 | PKB database foundation: identity, families, attributes, normalization, variants, provenance, migrations, backfill | MAX | NOT STARTED — waiting for `CONTINUE STAGE 2` |
-| 3 | SeoPulse product intelligence: resolution, brand source registry, sources, claims, conflicts, review and apply | EXTRA HIGH | NOT STARTED |
+| 2 | PKB database foundation: identity, families, attributes, normalization, variants, provenance, migrations, backfill | MAX | **COMPLETE** (2026-09-17) — see section 3A |
+| 3 | SeoPulse product intelligence: resolution, brand source registry, sources, claims, conflicts, review and apply | EXTRA HIGH | NOT STARTED — waiting for `CONTINUE STAGE 3` |
 | 4 | SEO engine: metadata states, structured data, technical SEO, image SEO, internal links, SEO Health Center | HIGH | NOT STARTED |
 | 5 | SearchPulse: query understanding, aliases, attribute-aware search, typo tolerance, autocomplete, facets, analytics | EXTRA HIGH | NOT STARTED |
 | 6 | Google Search Console, opportunity detection, SEO change history, controlled learning | HIGH | NOT STARTED |
@@ -185,7 +185,7 @@ fixed in Stage 1; each names the stage that owns it.
 
 | # | Finding | Evidence | Owner stage |
 | --- | --- | --- | --- |
-| F1 | SeoPulse fill copies brand, `details`, category specifications, country of origin and the identifier into an empty `spec_table`, and measurable `details` into an empty `measurements`. The product page already renders those same sources, so a filled listing shows each such row twice (e.g. "Brand"). Two stores now hold one fact. | `lib/seo-pulse/facts.ts` `specificationRows`/`measurementRows`; `service.ts` fill `rows(...)`; `products/[slug]/page.tsx` spec assembly. Latent in dev data (every product already has a `spec_table`, no runs). | 2 (stop), 3 |
+| F1 | SeoPulse fill copies brand, `details`, category specifications, country of origin and the identifier into an empty `spec_table`, and measurable `details` into an empty `measurements`. The product page already renders those same sources, so a filled listing shows each such row twice (e.g. "Brand"). Two stores now hold one fact. | `lib/seo-pulse/facts.ts` `specificationRows`/`measurementRows`; `service.ts` fill `rows(...)`; `products/[slug]/page.tsx` spec assembly. Latent in dev data (every product already has a `spec_table`, no runs). | **Closed for fill in Stage 2**; apply path retired in 3 |
 | F2 | Fill writes generated description and, with Claude configured, generated key features straight into empty fields of possibly published listings, with no per-field review. | `fillWithSeoPulse` | 3 |
 | F3 | Apply is several independent writes (product save, each alt text, each synonym, the run marker, audit) outside one transaction; a failure part-way leaves a partial apply. | `applySeoPulse` | 3 |
 | F4 | Research (including the AI and DataForSEO calls) runs inside the admin HTTP request. | `runSeoPulse` | 3, 7 |
@@ -201,6 +201,77 @@ fixed in Stage 1; each names the stage that owns it.
 | F14 | `search_keywords` mixes aliases, AI-suggested misspellings, phrases and brand variations with no provenance; once stored, the AI label is lost. | fill merge | 5 |
 | F15 | Sitemap lists every category including empty ones; no image entries; a product's `lastModified` ignores variant and photo changes. | `app/sitemap.ts` | 4 |
 | F16 | SeoPulse decides a variant is available without the closing-date and D-058 rules the storefront uses, so schema readiness can disagree with the page. | `loadPulseInput` | 4 |
+
+---
+
+## 3A. Stage 2 — what was done
+
+Built the Product Knowledge Base foundation and connected it to the existing
+catalogue without changing what shoppers or staff see.
+
+**Before starting**, the owner revised two Stage 1 assumptions (A-4
+verification is evidence-policy driven, not manufacturer-only; A-6 source
+acquisition is provider-agnostic). Recorded in sections 4.5, 4.8, 7 and in
+D-063 and D-066.
+
+### 3A.1 Built
+
+| Area | Where | What |
+| --- | --- | --- |
+| Schema | `db/migrations/0031_product_knowledge_base.sql`, `db/schema/pkb.ts` | 19 `pkb_*` tables, 4 domains, link columns on `products`, `product_variants`, `attributes`, `categories`; the database rules listed in DATABASE.md (VERIFIED needs an evidenced claim and a decision basis; LEGACY ⇔ UNKNOWN_LEGACY; value shape per definition; single-valued slots; append-only history; no AI source type; AI-assisted evidence must quote; one GTIN per product; active schemas immutable; family cycles; assignment only to approved families). Triggers queue listings when mirrored columns change — never price, stock or capacity. |
+| Normalization | `lib/pkb/decimal.ts`, `units.ts`, `normalize.ts`, `identifiers.ts` | Exact decimal arithmetic; 20 unit dimensions with canonical units; quantities, ranges, numbers, booleans, ISO dates, URLs, enums with aliases, brands; GTIN-8/12/13/14 with check digits and GTIN-14 equivalence, ISBN-10/13, MPN/model-number folding, ASIN. Refuses rather than guesses; raw text always kept. |
+| Vocabulary | `lib/pkb/vocabulary.ts` | 21 system definitions (brand, manufacturer, model, generation, product type, release date, material, colour, size, dimensions, weights, box contents, country of origin …); exact label/key/alias matching; ambiguity reported, never resolved by guess. |
+| Families | `lib/pkb/families.ts` | Suggest (catalog.manage), approve/reject/version/activate (knowledge.manage), assign; inherited schema resolution; the category-specification mirror (one definition per specification, one family per category that defines any, a new version per change). |
+| Facts | `lib/pkb/store.ts`, `facts.ts` | Insert/update/delete with history; `setFact`, `clearFact`, `lockFact`, `unlockFact`; slot states (VERIFIED, MANUAL, UNVERIFIED, LEGACY, LOCKED, SUGGESTED, CONFLICT, NOT_APPLICABLE, UNKNOWN) and completeness against the family. |
+| Mirror | `lib/pkb/sync.ts`, `projection.ts` | D-070: every staff write path syncs in its own transaction with attribution; unattributed changes via queue and job; locks and decided values protected; projection writes knowledge-native values back to the listing; unplaceable values parked in `pkb_unmapped_values`. |
+| Provenance | `lib/pkb/evidence.ts` | Sources (with acquisition method, authority tier, origin, usage rights; deduplicated by address and content), evidence, fact claims (SUGGESTED/CONFLICT, conflicts mark each other, decided values untouched). Accept/reject is Stage 3. |
+| Relationships, aliases, export | `lib/pkb/relationships.ts`, `aliases.ts`, `export.ts` | Directed and symmetric relationships with inverse labels; alias suggestion and approval by the vocabulary's owner; the export-eligibility rule. |
+| Operations | `lib/pkb/maintenance.ts`, `db/pkb-backfill.ts`, `lib/jobs/registry.ts` | `npm run pkb:backfill` (import + reconciliation report, exit 1 unless clean), `pkb.sync_listings` job every 5 minutes, release of a deleted listing's purely mirrored knowledge; `db:setup` imports seeded listings. |
+| Wiring | `lib/catalog/{products,product-lifecycle,variants,category-attributes,categories}.ts` | Product create/update/duplicate/delete, variant generate/add/remove, category and specification create/update/delete call the mirror. |
+| Permission | `lib/auth/authorize.ts`, `app/admin/staff/page.tsx` | `knowledge.manage` for owner, operations manager, product manager. |
+| F1 | `lib/seo-pulse/service.ts` | One-click fill no longer copies facts into `spec_table` / `measurements`. |
+
+Not built in Stage 2, by design: any admin screen for the knowledge base (the
+Product Intelligence view is Stage 3), claim acceptance and the verification
+policy engine (Stage 3), source retrieval (Stage 3), readers moving off the
+legacy columns (Stages 4–5).
+
+### 3A.2 Schema as built versus section 4.4
+
+- Added `pkb_legacy_attribute_map` and `pkb_sync_queue` (needed by the mirror).
+- Data types are text, number, quantity, quantity_range, boolean, enum, date,
+  url, brand, with a separate `cardinality` (single/multiple); "multi_enum" is
+  enum + multiple.
+- `value_status` (normalized / unnormalized / not_applicable) makes UNKNOWN the
+  absence of a row, and lets an unreadable value be stored raw.
+- Brand is a fact of type `brand` referencing `pkb_brands`, not a column on
+  `pkb_products`, so it carries provenance like every other value.
+- `pkb_products.name` follows the listing title until set by hand
+  (`name_source`).
+- Identifier changes have no history table of their own yet (facts do);
+  recorded as risk R-6.
+
+### 3A.3 Measured
+
+| Measurement | Result |
+| --- | --- |
+| Migration 0031 on `manifest_scale` (5,000 products, 18,731 variants, 100,000 orders) | 2.6 s including 0030 |
+| First import, `manifest_scale` | 5,000 listings, 18,731 offers, 38,731 LEGACY facts, 150 families, 60 brands, 0 failures, 176 s (≈35 ms per listing); reconciliation clean |
+| Second import (all no-ops) | 114 s; nothing written; reconciliation clean |
+| One product save, write only vs write + staff sync (20 of the most-variant products) | 8 ms → 36 ms median |
+| No-op sync of one listing | 27 ms median (mostly loading the vocabulary; Stage 7 optimisation) |
+| `updateProduct` on the most-variant products (≈250 variants), full path | 122 ms median, 424 ms worst |
+| Development database `preorder` | migrated; 24 listings, 26 offers, 42 LEGACY facts, 2 families, 13 brands; reconciliation clean in 0.6 s; 69 hand-typed specification rows and 2 option values parked for mapping; 1 seeded UPC has a wrong check digit and is stored as invalid |
+| Real admin API save on the running dev site | edited value became MANUAL with the admin as decider; untouched values stayed LEGACY; queue empty; storefront showed the saved text |
+
+### 3A.4 Found and fixed on the way
+
+- `updateProduct` computed a new slug through the shared connection inside its
+  transaction; on the single-connection test database that waits forever once
+  the transaction has issued a statement. Moved before the transaction (same
+  behaviour, it was never locked).
+- The local PostgreSQL server is WIN1252; `→` in migration comments could not
+  be stored. Replaced before the migration was applied anywhere.
 
 ---
 
@@ -346,12 +417,23 @@ relationships, aliases and evidence are relational.
 - **Authority tiers** (Stage 3): 1 official manufacturer pages, specifications,
   documentation, support, feeds; 2 authorized distributor, trusted retailer,
   reliable product database; 3 other approved public sources. Unlisted domains
-  carry no tier and cannot verify anything.
-- **Verification policy** (default, Stage 3 finalizes): VERIFIED needs a human
-  acceptance plus at least one tier-1 evidence row whose normalized value
-  matches and no open conflict. Accepted with only tier-2/3 evidence →
-  UNVERIFIED. Typed by an admin → MANUAL. Backfilled → LEGACY with
-  UNKNOWN_LEGACY origin. Nothing is promoted automatically.
+  carry no tier and cannot verify anything on their own.
+- **Verification is evidence-policy driven** (revised A-4, D-063 amended).
+  Official manufacturer evidence is the preferred, highest-authority path, but
+  not the only one. A verification policy decides, per family or attribute
+  where needed, which evidence may support VERIFIED: authoritative manufacturer
+  documentation, approved manufacturer or supplier feeds, official
+  documentation an admin provides, and other sources an admin has explicitly
+  marked trusted. Every fact keeps its exact source, source type, acquisition
+  method and authority, so the basis of each VERIFIED value can be shown and
+  re-evaluated. Evidence that no policy accepts is never silently promoted: it
+  stays SUGGESTED, or UNVERIFIED once accepted. Typed by an admin → MANUAL.
+  Backfilled → LEGACY with UNKNOWN_LEGACY origin. Nothing is promoted by a
+  migration or by AI.
+- **Database guard** (Stage 2): a fact can be VERIFIED only with an accepted
+  claim (which requires evidence) and a recorded decision basis — the deciding
+  admin or the key of the verification policy that authorized it. The policy
+  engine itself is built in Stage 3.
 - **AI** may locate an excerpt in a real source (`extraction_method =
   ai_assisted`) or write SEO language; it is never a source, never evidence on
   its own, and never decides a fact.
@@ -400,6 +482,16 @@ value, approving a family or an attribute definition goes through `lib/pkb`
 review services with a server-side permission check, in one transaction with
 history and audit. Research and retrieval run as jobs, never in a storefront
 request and not synchronously in an admin request.
+
+**Source acquisition is provider-agnostic** (revised A-6). Sources can arrive
+through any of: known official domains in the Brand Source Registry, URLs staff
+provide, documents or data staff provide, approved manufacturer or supplier
+feeds, lawful public or free mechanisms where implemented, and optional
+`ProductResearchProvider` implementations (free or paid) added later. Every
+source records how it was acquired (`acquisition_method`). When automatic
+discovery is not available for a product, the pipeline reports NOT_CONFIGURED
+or UNAVAILABLE and carries on with what staff supply; it never invents a source,
+a URL or a value.
 
 ### 4.9 SearchPulse boundaries (D-067)
 
@@ -470,24 +562,24 @@ verified on PGlite and real PostgreSQL.
 
 ## 5. Invariants
 
-| # | Invariant | Enforced by (planned) |
-| --- | --- | --- |
-| I-1 | AI output is never evidence. A claim requires an evidence row from a non-AI source. | FK + check; tests |
-| I-2 | Nothing becomes VERIFIED without human acceptance and tier-1 evidence. | review service; tests |
-| I-3 | Backfill and migration never produce VERIFIED; legacy data is LEGACY / UNKNOWN_LEGACY. | backfill; tests |
-| I-4 | MANUAL and locked values are never overwritten automatically; disagreement becomes CONFLICT. | apply service; tests |
-| I-5 | UNKNOWN ≠ false ≠ zero ≠ not applicable. Absence of a row is unknown. | schema (`value_status`); tests |
-| I-6 | Raw source value and unit are kept beside the normalized value. | schema not-null rules |
-| I-7 | Analysis never mutates accepted facts; only `lib/pkb` apply does, in one transaction with history and audit. | module boundary; lint rule or test on imports |
-| I-8 | Offer data (price, stock, capacity) is never stored in or read from the PKB. | schema; review |
-| I-9 | No customer PII in `pkb_*`; customer-derived signals only aggregated and thresholded. | schema; review |
-| I-10 | Provider-restricted data (DataForSEO, Search Console) is never exportable. | export eligibility function; tests |
-| I-11 | Shoppers see only accepted facts; structured data identifiers only VERIFIED or MANUAL. | read models; tests |
-| I-12 | After cut-over, a legacy column is written only by the projection. | code search test |
-| I-13 | New categories, families and attributes are data operations. | design |
-| I-14 | Every PKB mutation checks permission in `lib/`. | existing pattern; boundary e2e |
-| I-15 | No outbound fetch without SSRF guard, timeout, size cap and robots check. | Stage 3 fetcher; tests |
-| I-16 | Existing checkout, capacity, pricing and publish invariants (BUSINESS_LOGIC.md) are untouched. | existing suites |
+| # | Invariant | Enforced by | Status after Stage 2 |
+| --- | --- | --- | --- |
+| I-1 | AI output is never evidence. A claim requires an evidence row from a non-AI source. | `pkb_claims.evidence_id` not null; no AI source type; AI-assisted evidence must quote | ENFORCED (database), tested |
+| I-2 | Nothing becomes VERIFIED without an accepted, evidenced claim and a decision under an evidence policy (A-4). | `pkb_facts_verified_check`; policy engine Stage 3 | ENFORCED at database level; policy Stage 3 |
+| I-3 | Backfill and migration never produce VERIFIED; legacy data is LEGACY / UNKNOWN_LEGACY. | mirror attribution; `pkb_facts_legacy_check` | ENFORCED, tested at PGlite, dev and scale |
+| I-4 | MANUAL and locked values are never overwritten automatically; disagreement becomes CONFLICT. | mirror (refuse/revert), claims (CONFLICT) | ENFORCED, tested |
+| I-5 | UNKNOWN ≠ false ≠ zero ≠ not applicable. Absence of a row is unknown. | `value_status`, shape checks | ENFORCED, tested |
+| I-6 | Raw source value and unit are kept beside the normalized value. | shape check requires raw text | ENFORCED |
+| I-7 | Analysis never mutates accepted facts; only `lib/pkb` does, in one transaction with history and audit. | module boundary | Holds today (SeoPulse does not import `lib/pkb`); an import-boundary test is planned for Stage 3 |
+| I-8 | Offer data (price, stock, capacity) is never stored in or read from the PKB. | schema has no such columns; triggers ignore those columns | HOLDS |
+| I-9 | No customer PII in `pkb_*`; customer-derived signals only aggregated and thresholded. | schema; actor columns reference staff | HOLDS |
+| I-10 | Provider-restricted data is never exportable. | `exportEligibility` | Rule built and tested; no export exists |
+| I-11 | Shoppers see only accepted facts; structured data identifiers only VERIFIED or MANUAL. | read models | Stages 4–5 (storefront still reads legacy columns) |
+| I-12 | After cut-over, a legacy column is written only by the projection. | code search test | Stage 4–5, when readers move |
+| I-13 | New categories, families and attributes are data operations. | design | HOLDS (only a new unit dimension needs code) |
+| I-14 | Every PKB mutation checks permission in `lib/`. | `requirePermission` in every service | HOLDS, tested for families, sources, claims, aliases, facts |
+| I-15 | No outbound fetch without SSRF guard, timeout, size cap and robots check. | Stage 3 fetcher | No fetching exists yet |
+| I-16 | Existing checkout, capacity, pricing and publish invariants are untouched. | existing suites | HOLDS — full unit project 1,159 passed |
 
 ---
 
@@ -505,6 +597,26 @@ verified on PGlite and real PostgreSQL.
 Not run in Stage 1, by design: full unit suite, end-to-end suite, production
 build (no application code changed).
 
+### Stage 2 (2026-09-17)
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS |
+| `tests/pkb-normalization.test.ts` | PASS — 23 |
+| `tests/pkb-backfill.test.ts` (PGlite) | PASS — 11 |
+| `tests/pkb-sync.test.ts` (PGlite) | PASS — 11 |
+| `tests/pkb-model.test.ts` (PGlite) | PASS — 17 |
+| `tests/pkb-sync-concurrency.test.ts` (real PostgreSQL) | PASS — 1 (8 listings × 4 rounds of staff saves, bypassing writes and 4 workers) |
+| `tests/migrations.test.ts` | PASS — 5 |
+| Whole Vitest `unit` project (PGlite) | PASS — 82 files, 1,159 tests |
+| Backfill + reconciliation on `manifest_scale` and dev `preorder` | clean (section 3A.3) |
+| Real admin API save on the dev site | verified (section 3A.3) |
+
+Not run in Stage 2: the end-to-end suite and a production build (no pages or
+routes changed; the storefront reads the same columns), and the real-PostgreSQL
+concurrency suites other than the new one.
+
 ---
 
 ## 7. Unresolved issues and assumptions
@@ -518,54 +630,86 @@ overturn any of them):
   an admin queue.
 - **A-3** Categories that already define specifications become approved
   families on backfill, because staff authored those definitions.
-- **A-4** VERIFIED requires tier-1 evidence; tier-2 corroboration alone gives
-  UNVERIFIED.
+- **A-4** *(revised by the owner at the start of Stage 2)* Official
+  manufacturer evidence is the preferred, highest-authority verification path,
+  but not the only one. VERIFIED is decided by evidence policy: authoritative
+  manufacturer documentation, approved manufacturer or supplier feeds, official
+  documentation provided by an admin, and other explicitly trusted sources may
+  support it depending on the product and the evidence available. Exact
+  provenance and source authority are always kept, and lower-quality evidence
+  is never silently promoted to VERIFIED.
 - **A-5** The one-click "Fill with SeoPulse" (D-040) becomes a proposal and
   review flow in Stage 3. This is a visible change for staff.
-- **A-6** Automatic *discovery* of source pages needs a web-search provider,
-  which is paid. Without one, sources come from URLs staff add, supplier feeds
-  and the brand registry's known documentation. The provider interface reports
-  NOT_CONFIGURED rather than guessing URLs.
+- **A-6** *(revised by the owner at the start of Stage 2)* Automatic source
+  discovery is not assumed to need a paid search service. Acquisition is
+  provider-agnostic: Brand Source Registry domains, staff-provided URLs,
+  staff-provided documents or data, approved supplier and manufacturer feeds,
+  lawful public or free mechanisms where implemented, and optional
+  `ProductResearchProvider` implementations later. When automatic discovery is
+  unavailable the system reports NOT_CONFIGURED or UNAVAILABLE instead of
+  inventing sources or data.
+- **A-7** *(Stage 2)* A duplicated listing's copied values are UNVERIFIED, not
+  MANUAL: duplicating usually starts a different product, and nobody has
+  checked those values for it.
+- **A-8** *(Stage 2)* Hand-typed specification-table and measurement rows map
+  to an attribute only by exact label, key or approved alias. Everything else
+  is parked for a person (69 rows on the dev database). Mapping them is a
+  Stage 3 screen.
+- **A-9** *(Stage 2)* Brands created from listing text start `suggested`; they
+  work immediately and wait for `knowledge.manage` to approve or merge.
 
 Open risks:
 
-- **R-1** Production data volume and shape are unknown; the backfill must be
-  measured against `manifest_scale` before any real run.
-- **R-2** Projection writes add work to product saves; measure in Stage 2.
-- **R-3** Findings F1–F16 (section 3.3) remain open until their stages.
+- **R-1** Production data volume and shape are unknown. Measured on
+  `manifest_scale` (5,000 listings, 176 s, clean); the production run should
+  still be done with `npm run pkb:backfill` and its report checked.
+- **R-2** A changed product save costs ≈28 ms more (8 → 36 ms median); a no-op
+  sync ≈27 ms, mostly reloading the vocabulary per listing. Optimise in Stage 7
+  (vocabulary cache keyed by a change signature).
+- **R-3** Findings still open: F2–F16. F1 is closed for one-click fill; the
+  review/apply path can still write `spec_table`/`measurements` from a run when
+  staff choose it (retired with the Stage 3 review flow).
 - **R-4** Source retrieval introduces outbound HTTP for the first time. The
-  SSRF guard (planned for Stage 7) must land with the fetcher in Stage 3, not
-  after it — see the note in section 8.
+  SSRF guard must land with the fetcher in Stage 3.
+- **R-5** The mirror covers every current staff write path; a future path that
+  writes the mirrored columns without calling it is caught only by the queue
+  (values arrive as LEGACY, not MANUAL). Stage 3 should add a test that fails
+  when a `lib/catalog` write leaves the listing queued.
+- **R-6** Identifier changes are not written to a history table (facts are).
+  Add `pkb_identifier_history` before Stage 3 lets staff edit identifiers.
+- **R-7** The dev seed's UPC `0812345678901` fails its check digit; it is stored
+  as invalid and parked. Seed data only.
 
 ---
 
 ## 8. Next stage
 
-**Stage 2 — MAX — Product Knowledge Base and database foundation.**
+**Stage 3 — EXTRA HIGH — SeoPulse product intelligence.**
 
 Entry checklist:
 
-1. Read this file, D-060 to D-069, and `git log` since `1e2e9d3`.
-2. Re-profile the development database (section 3.1 query set) in case data
-   changed.
-3. Finalize the columns of section 4.4; write `0031_product_knowledge_base.sql`
-   and `db/schema/pkb.ts`.
-4. Build `lib/pkb/units.ts`, identifier and value normalization with unit tests
-   (256GB family, 1000 g / 1 kg, GTIN check digits, unparseable input kept raw).
-5. Build the fact write service (permission, transaction, history, audit,
-   lock and manual protection), the family schema and completeness service,
-   and the projection to legacy columns.
-6. Build the idempotent backfill with its reconciliation report; run it on
-   PGlite, the development database copy and `manifest_scale`.
-7. Tests: migration, data model constraints, normalization, variants,
-   provenance, targeted integration; plus typecheck and lint.
-8. Update this tracker, DATABASE.md, DECISIONS.md.
-
-Scheduling note for the owner, not a change of effort: Stage 3 introduces
-fetching pages from the internet. The minimum SSRF protection (private and
-metadata address blocking after DNS resolution, redirects re-checked, timeouts,
-size caps, robots.txt) should be built in Stage 3 with the fetcher. Stage 7
-then reviews and hardens it.
+1. Read this file (sections 3A, 4.5, 4.8, 5, 7), D-060 to D-070, and `git log`
+   since the Stage 2 commit.
+2. Run `npm run pkb:backfill -- --report` against the dev database to confirm
+   the mirror is still clean.
+3. Product resolution states on `pkb_products.resolution_state` (VERIFIED,
+   HIGH_CONFIDENCE, AMBIGUOUS, UNRESOLVED) with candidate evidence; block
+   factual enrichment until resolved.
+4. Brand Source Registry (`pkb_brand_source_domains`): official product,
+   official support, approved secondary, blocked; tiers; provider-agnostic
+   acquisition (A-6) with NOT_CONFIGURED/UNAVAILABLE states.
+5. Source retrieval as a background job, with the SSRF guard, timeouts, size
+   caps and robots.txt built together with it.
+6. Verification policy engine (A-4): which evidence may support VERIFIED per
+   family/attribute; accept/reject/edit/resolve conflict/lock in `lib/pkb`
+   with history; "Accept verified" only for claims a policy qualifies.
+7. Attribute discovery proposals (add to family / product only / ignore);
+   mapping screen for `pkb_unmapped_values`.
+8. Product Intelligence admin view; replace one-click fill with the proposal
+   and review flow (A-5); close F2–F4.
+9. Closing risks R-5 and R-6.
+10. Targeted tests: resolution, sources, verification, conflicts, approvals,
+    transaction safety.
 
 ---
 
@@ -589,6 +733,13 @@ then reviews and hardens it.
 | `lib/auth/authorize.ts` | Permissions |
 | `lib/jobs/registry.ts` | Background job kinds |
 | `lib/cache.ts` | Cache tags and invalidation by audit entity |
+| `db/migrations/0031_product_knowledge_base.sql`, `db/schema/pkb.ts` | Knowledge base schema and its database-enforced rules |
+| `lib/pkb/sync.ts`, `projection.ts` | The legacy mirror (D-070) — read before changing any catalogue write path |
+| `lib/pkb/store.ts`, `facts.ts` | Fact writes with history, slot states, completeness |
+| `lib/pkb/families.ts` | Family schemas, versions, and the category-specification mirror |
+| `lib/pkb/evidence.ts` | Sources, evidence, claims |
+| `lib/pkb/units.ts`, `normalize.ts`, `identifiers.ts` | Normalization rules shared with SearchPulse in Stage 5 |
+| `lib/pkb/maintenance.ts`, `db/pkb-backfill.ts` | Import, job, release, reconciliation report |
 
 ---
 
@@ -597,3 +748,4 @@ then reviews and hardens it.
 | Date | Stage | Summary |
 | --- | --- | --- |
 | 2026-09-17 | 1 | Audit, classification, findings F1–F16, target architecture, source-of-truth matrix, migration strategy, invariants, decisions D-060 to D-069. Documentation only. |
+| 2026-09-17 | 2 | Owner revised A-4 and A-6. Migration 0031 and `lib/pkb`: normalization, vocabulary, families with versions, facts with history, legacy mirror (D-070), sources/evidence/claims, relationships, aliases, export rule, backfill and report, job, `knowledge.manage`. F1 closed for fill. Imported dev and scale databases cleanly. |

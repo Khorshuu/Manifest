@@ -4,6 +4,8 @@ import { categories, products } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
+import { staffChange } from "@/lib/pkb/common";
+import { syncLegacyFamilies } from "@/lib/pkb/families";
 
 export type Category = {
   id: string;
@@ -181,6 +183,9 @@ export async function createCategory(
       tx,
     );
 
+    // Its default Product Family is its nearest ancestor's (D-064).
+    await syncLegacyFamilies(tx, staffChange(staff.id));
+
     return created;
   });
 }
@@ -231,6 +236,9 @@ export async function updateCategory(
       tx,
     );
 
+    // A move or rename changes families; listings beneath are queued to follow.
+    await syncLegacyFamilies(tx, staffChange(staff.id));
+
     return updated;
   });
 }
@@ -268,15 +276,22 @@ export async function deleteCategory(
     );
   }
 
-  await db.delete(categories).where(eq(categories.id, categoryId));
+  await db.transaction(async (tx) => {
+    await tx.delete(categories).where(eq(categories.id, categoryId));
 
-  await recordAudit({
-    actorUserId: staff.id,
-    action: "category.updated",
-    entityType: "category",
-    entityId: categoryId,
-    before: { deleted: false },
-    after: { deleted: true },
+    await recordAudit(
+      {
+        actorUserId: staff.id,
+        action: "category.updated",
+        entityType: "category",
+        entityId: categoryId,
+        before: { deleted: false },
+        after: { deleted: true },
+      },
+      tx,
+    );
+
+    await syncLegacyFamilies(tx, staffChange(staff.id));
   });
 }
 

@@ -13,3 +13,4 @@ export * from "./search";
 export * from "./sku";
 export * from "./seo-pulse";
 export * from "./media";
+export * from "./pkb";

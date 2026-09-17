@@ -7,6 +7,7 @@ import { sweepUnreferencedMedia } from "@/lib/media/registry";
 import { expireUnpaidOrders } from "@/lib/orders/expiry";
 import { reconcilePayments } from "@/lib/payments/reconcile";
 import { pruneRateLimits } from "@/lib/rate-limit";
+import { runKnowledgeSync } from "@/lib/pkb/maintenance";
 import { getMediaProvider } from "@/lib/providers/media";
 import { pruneSearchLogs } from "@/lib/search/analytics";
 import { processSearchQueue } from "@/lib/search/maintenance";
@@ -29,6 +30,8 @@ export const JOB_HANDLERS: JobHandlers = {
   "notifications.deliver": () => deliverQueuedNotifications(100),
   "payments.reconcile": () => reconcilePayments(),
   "search.process_queue": () => processSearchQueue(),
+  // Idempotent: a listing is re-read from its current state under its lock.
+  "pkb.sync_listings": () => runKnowledgeSync(),
   "catalog.release_sku_holds": async () => ({ released: await releaseExpiredSkuReservations() }),
   "maintenance.prune": async () => {
     const rateLimits = await pruneRateLimits();
@@ -47,6 +50,7 @@ export const RECURRING_JOBS: RecurringJob[] = [
   { kind: "orders.expire_unpaid", everyMinutes: 2 },
   { kind: "payments.reconcile", everyMinutes: 10 },
   { kind: "search.process_queue", everyMinutes: 10 },
+  { kind: "pkb.sync_listings", everyMinutes: 5 },
   { kind: "catalog.release_sku_holds", everyMinutes: 15 },
   { kind: "catalog.apply_publish_schedule", everyMinutes: 5 },
   { kind: "maintenance.prune", everyMinutes: 60 },

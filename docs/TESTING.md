@@ -164,6 +164,37 @@ against a real placed order, newsletter idempotency, and recently-viewed cookie
 parsing. The browser flows were driven by hand against the dev server; no e2e
 spec was added for them yet.
 
+## Product Knowledge Base (Stage 2)
+
+- `tests/pkb-normalization.test.ts` — exact decimal conversion; storage, mass,
+  length, temperature and ranges read however written; refusals instead of
+  guesses (decimal commas, missing or wrong units); unknown vs false vs zero;
+  ISO dates at written precision; enum matching by key, label and alias; GTIN
+  check digits, UPC/EAN/GTIN-14 equivalence, ISBN-10/13, model-number folding.
+- `tests/pkb-backfill.test.ts` (PGlite) — every listing and offer imported;
+  only LEGACY of unknown origin; normalized values with raw text kept;
+  unreadable values kept raw; unplaceable values parked with reasons; one GTIN
+  per product; similar brands reported, never merged; category specifications
+  mirrored as versioned families, products never forced into one;
+  completeness; a second run writes nothing; reconciliation report clean.
+- `tests/pkb-sync.test.ts` (PGlite) — staff saves are MANUAL and credited only
+  with what changed; clearing keeps history; a locked value refuses the save
+  and nothing is written; waiting unattributed changes settled first;
+  unattributed changes accepted over LEGACY and reverted over decided values;
+  every staff write path (options, variants, duplicate, delete, category
+  specifications) leaves nothing queued; provenance survives a definition
+  remap; knowledge-native values written back or detached; not-applicable.
+- `tests/pkb-model.test.ts` (PGlite) — the database's own refusals (VERIFIED
+  rules, value shape, cardinality, append-only history, AI source types, GTIN
+  uniqueness, cross-product variants, permanent keys, active schema immutability,
+  family cycles); family suggestion, approval by `knowledge.manage` only,
+  rejection, versioning without touching values; sources recorded once;
+  claims SUGGESTED or CONFLICT without touching a locked value; relationships
+  both ways; alias approval rights and uniqueness; export eligibility.
+- `tests/pkb-sync-concurrency.test.ts` (real PostgreSQL) — staff saves, writes
+  behind `lib/`, and four queue workers on the same eight listings for four
+  rounds: no failure, no duplicate slot, queue drains, reconciliation clean.
+
 ## Added this session
 
 - `tests/customer-spend.test.ts` — spend is zero with no orders, counts paid

@@ -37,6 +37,11 @@ export const attributes = pgTable(
      * shared option; the editor never creates one.
      */
     productId: uuid("product_id").references(() => products.id),
+    /**
+     * The knowledge-base attribute this option is (D-061) — "Color" → colour.
+     * Null until matched. Written only by lib/pkb; FK in migration 0031.
+     */
+    attributeDefinitionId: uuid("attribute_definition_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -131,6 +136,12 @@ export const productVariants = pgTable(
     }),
     paymentMode: text("payment_mode").notNull().default("full"),
     depositPercent: integer("deposit_percent"),
+    /**
+     * The knowledge-base variant this offer sells (D-061). The offer keeps the
+     * price, stock and capacity; the identity and its facts live there.
+     * Written only by lib/pkb; FK in migration 0031.
+     */
+    pkbVariantId: uuid("pkb_variant_id"),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

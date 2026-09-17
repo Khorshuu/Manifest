@@ -23,6 +23,8 @@ import {
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
+import { releaseListingKnowledge } from "@/lib/pkb/maintenance";
+import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import { uniqueSlug } from "@/lib/slug";
 import { slugTaken } from "./products";
 
@@ -123,6 +125,8 @@ export async function duplicateProduct(actor: SessionUser | null, productId: str
     delete values.id;
     delete values.createdAt;
     delete values.updatedAt;
+    // A copy is usually a different product: it gets its own knowledge record.
+    delete values.pkbProductId;
 
     const [copy] = await tx
       .insert(products)
@@ -208,6 +212,7 @@ export async function duplicateProduct(actor: SessionUser | null, productId: str
       delete variantValues.id;
       delete variantValues.createdAt;
       delete variantValues.updatedAt;
+      delete variantValues.pkbVariantId;
 
       const [created] = await tx
         .insert(productVariants)
@@ -248,6 +253,9 @@ export async function duplicateProduct(actor: SessionUser | null, productId: str
       }
     }
 
+    // Copied values were never checked for the new product: UNVERIFIED, not MANUAL.
+    await syncListingKnowledge(tx, copy.id, { kind: "staff_copy", actorId: staff.id });
+
     await recordAudit(
       {
         actorUserId: staff.id,
@@ -275,8 +283,15 @@ export async function deleteProduct(actor: SessionUser | null, productId: string
   const staff = requirePermission(actor, "catalog.manage");
 
   return db.transaction(async (tx) => {
+    await beginListingChange(tx, productId);
     const [product] = await tx
-      .select({ id: products.id, title: products.title, slug: products.slug, sku: products.sku })
+      .select({
+        id: products.id,
+        title: products.title,
+        slug: products.slug,
+        sku: products.sku,
+        pkbProductId: products.pkbProductId,
+      })
       .from(products)
       .where(eq(products.id, productId));
     if (!product) throw new ProductLifecycleError("That product no longer exists.", 404);
@@ -337,6 +352,9 @@ export async function deleteProduct(actor: SessionUser | null, productId: string
     // The SKU stays spent: its reservation row is kept, detached from the product.
     await tx.update(skuReservations).set({ productId: null }).where(eq(skuReservations.productId, productId));
     await tx.delete(products).where(eq(products.id, productId));
+    // Knowledge that came only from this listing goes with it; anything learned
+    // about the product itself stays (lib/pkb/maintenance.ts).
+    await releaseListingKnowledge(tx, product.pkbProductId);
 
     await recordAudit(
       {

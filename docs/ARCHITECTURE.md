@@ -72,7 +72,11 @@ db/
   migrations/           checked-in SQL migrations, never edited after merge
 ```
 
-### Planned: Product Knowledge Base (in progress, staged)
+### Product Knowledge Base (in progress, staged)
+
+Stage 2 is built: `lib/pkb/` and the `pkb_*` tables hold the knowledge record,
+and the catalogue's write paths mirror their legacy columns into it in the same
+transaction (D-070). Nothing reads it yet on the storefront.
 
 Product facts are being moved into one Product Knowledge Base (`lib/pkb/`,
 tables `pkb_*`) that the storefront, SeoPulse (`lib/seo-pulse`) and SearchPulse

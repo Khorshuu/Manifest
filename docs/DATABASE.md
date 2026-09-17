@@ -1,11 +1,10 @@
 # Database
 
-> **Planned change.** Product identity, facts, identifiers, relationships,
-> aliases and their sources are moving into Product Knowledge Base tables
-> (`pkb_*`). This page describes the schema as built; the planned tables and
-> the migration path are in [KNOWLEDGE_PLATFORM.md](KNOWLEDGE_PLATFORM.md)
-> section 4 and DECISIONS.md D-060 to D-069. They are added here as each
-> migration lands.
+> **Product Knowledge Base.** Product identity, facts, identifiers,
+> relationships, aliases and their sources now also live in `pkb_*` tables
+> (migration 0031, described at the end of this page). The legacy product
+> columns below remain what the storefront reads; the knowledge base mirrors
+> them until readers move (KNOWLEDGE_PLATFORM.md, D-060 to D-070).
 
 PostgreSQL. All monetary columns are integers in minor units, with an explicit currency: `_bdt` suffix for paisa a customer pays, `_usd` suffix for cents the operator spends sourcing a product in the US. Every table has `created_at timestamptz`; mutable tables also have `updated_at timestamptz`. Business-critical tables (`products`, `product_variants`, `orders`) are soft-deleted with `archived_at timestamptz null`, never hard-deleted, because order history references them.
 
@@ -522,3 +521,51 @@ a placeholder.
 - `audit_log (created_at DESC, id DESC)` replaces `audit_log (created_at)`: the log is paged by keyset on that pair, because entries written in one transaction share a timestamp.
 - `audit_log (action, created_at DESC, id DESC)`: the log filtered by action, and the distinct action list read by skipping along it.
 - `variant_option_values (attribute_value_id)`: counting and checking variants per option value (279 → 3 ms for a 250-value product).
+
+## Migration 0031 — Product Knowledge Base (D-060 to D-070)
+
+The reusable record of what each product *is*, apart from the listing that sells
+it (`products`) and the offer that prices it (`product_variants`). Every table is
+prefixed `pkb_`, written only by `lib/pkb`, and holds no customer data. Status,
+invariants and the migration plan: [KNOWLEDGE_PLATFORM.md](KNOWLEDGE_PLATFORM.md).
+
+**Domains.** `pkb_origin` (MANIFEST_CREATED, MANUAL_ADMIN, OFFICIAL_MANUFACTURER,
+APPROVED_EXTERNAL_SOURCE, SUPPLIER_PROVIDED, PROVIDER_RESTRICTED, CUSTOMER_DERIVED,
+UNKNOWN_LEGACY), `pkb_verification_state` (VERIFIED, MANUAL, UNVERIFIED, LEGACY),
+`pkb_review_status` (suggested, approved, retired), `pkb_value_status`
+(normalized, unnormalized, not_applicable).
+
+| Table | Holds | Rules enforced by the database |
+| --- | --- | --- |
+| `pkb_brands` | Brand and manufacturer entities | unique normalized name and slug; approved needs a decision time |
+| `pkb_attribute_definitions` | Global attribute vocabulary: key, label, data type (text, number, quantity, quantity_range, boolean, enum, date, url, brand), cardinality, unit dimension, display unit, search/filter/SEO/structured-data flags | key unique, snake_case and permanent; unit dimension exactly for quantities; type, cardinality and dimension fixed once values exist |
+| `pkb_attribute_options` | Controlled values of enum attributes | enum definitions only; unique key per definition |
+| `pkb_families` | Product Families; `legacy_category_id` when mirrored from a category | no cycles, at most eight deep |
+| `pkb_family_versions` | Versioned schemas | draft → active → retired only; one active per family; only drafts deletable |
+| `pkb_family_attributes` | A definition's role in a version: required/recommended/optional, variant-defining, flag overrides | editable only while the version is a draft; variant-defining attributes are single-valued |
+| `pkb_products` | Product identity: name, family assignment (assigned/suggested/unassigned, and its source), resolution state, merge | assigned only to an approved family and suggested only to a suggested one (checked at commit) |
+| `pkb_variants` | Variant identity | unique (id, product) as the target of variant foreign keys |
+| `pkb_facts` | Accepted values: raw text, unit and label; typed normalized columns; state; origin; source; claim; decision; lock; `legacy_ref` | one row per slot (product, variant, definition, ordinal); value shape matches the definition (trigger); not-applicable carries no value; VERIFIED needs a claim and a decision basis; MANUAL needs a decider; LEGACY exactly when origin is UNKNOWN_LEGACY; a variant value belongs to its own product's variant |
+| `pkb_fact_history` | Before/after snapshots of every fact change, with actor and reason | append-only; removed only with the whole product record |
+| `pkb_sources` | Where information came from and how it was acquired (`acquisition_method`), authority tier, usage rights | no AI source type exists; legacy imports and UNKNOWN_LEGACY go together; URL sources carry a normalized address; one row per (address, content hash) |
+| `pkb_evidence` | A located passage in a source | AI-assisted extraction must quote an excerpt |
+| `pkb_claims` | Proposed values tied to evidence: SUGGESTED, CONFLICT, ACCEPTED, REJECTED, SUPERSEDED | evidence required; accepted/rejected need a decision; same value shape rules as facts |
+| `pkb_identifiers` | GTIN-8/12/13/14, ISBN-10/13, MPN, model number, ASIN, other; raw, normalized, GTIN-14 form, validation | a GTIN is held by one product; invalid values keep no normalized form; same state rules as facts |
+| `pkb_relationships` | accessory_for, compatible_with, successor_of, replacement_for, bundle_contains, requires, related_to, same_series | no self-relationships; symmetric kinds stored once in id order; state rules as facts |
+| `pkb_aliases` | Other names for a brand, product, variant, family, definition or option | exactly one target; an approved alias means one thing per kind (per attribute for options) |
+| `pkb_legacy_attribute_map` | Which definition mirrors each category specification | — |
+| `pkb_unmapped_values` | Legacy values that could not be placed without guessing, with the reason | unique per listing and entry |
+| `pkb_sync_queue` | Listings whose legacy columns changed since the mirror last read them | filled by triggers on the mirrored columns only — never price, stock or capacity |
+
+**Links on existing tables** (nullable, `ON DELETE SET NULL`):
+`products.pkb_product_id`, `product_variants.pkb_variant_id`,
+`attributes.attribute_definition_id`, `categories.default_family_id`.
+
+**Triggers that queue a listing:** product insert, and updates of title, brand,
+identifier, details, attribute_values, spec_table, measurements, box_contents,
+compliance or category; variant insert, delete or move; variant option value
+changes; option and option-value renames; category moves. The migration queues
+every existing listing.
+
+**Encoding note.** The local PostgreSQL server runs WIN1252; migration text must
+not contain characters outside it (arrows, for instance).

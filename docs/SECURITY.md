@@ -114,6 +114,29 @@ The limiter fails open if the database will not answer. Signing in needs the dat
 - Staff temporary password minimum is 8 (argon2id, login rate limiting and the
   staff second-factor prompt unchanged).
 
+## Product Knowledge Base (D-060 to D-070)
+
+- New permission `knowledge.manage` (owner, operations manager, product
+  manager): approving families and their schema versions, attribute
+  definitions, vocabulary aliases. Product-level knowledge work — setting,
+  clearing and locking values, recording sources and evidence, proposing
+  claims, relationships, suggesting a family or alias — needs
+  `catalog.manage`. Product and variant aliases, which change search, are
+  approved with `search.manage`. Every check is inside `lib/pkb`.
+- The database refuses what code must never do: a VERIFIED value without an
+  accepted, evidenced claim and a decision basis; an AI source type; AI-assisted
+  evidence without a quoted excerpt; edits to fact history; edits to an active
+  family schema.
+- Knowledge tables hold no customer data. Actor columns reference staff only.
+  Origin and usage rights are stored on every source so provider-restricted and
+  unknown-rights data can be excluded from any future export
+  (`lib/pkb/export.ts`).
+- Nothing in Stage 2 fetches anything from the internet. Source retrieval, with
+  its SSRF protection, is Stage 3.
+- A locked value cannot be overwritten by a staff save through the old editor
+  (the save is refused) nor by an unattributed write (it is reverted and
+  recorded).
+
 ## Homepage campaign links (D-035)
 
 - Every staff-entered destination is normalised server-side: a site path

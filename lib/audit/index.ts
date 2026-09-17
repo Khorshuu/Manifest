@@ -40,7 +40,27 @@ export type AuditAction =
   | "search.synonym_deleted"
   | "search.reindexed"
   /** A product option or its values: added, removed, reordered. */
-  | "attribute.updated";
+  | "attribute.updated"
+  /** Product Knowledge Base — docs/KNOWLEDGE_PLATFORM.md. */
+  | "knowledge.family_suggested"
+  | "knowledge.family_approved"
+  | "knowledge.family_rejected"
+  | "knowledge.family_version_drafted"
+  | "knowledge.family_version_activated"
+  | "knowledge.family_assigned"
+  | "knowledge.definition_created"
+  | "knowledge.definition_decided"
+  | "knowledge.fact_set"
+  | "knowledge.fact_cleared"
+  | "knowledge.fact_locked"
+  | "knowledge.fact_unlocked"
+  | "knowledge.identifier_changed"
+  | "knowledge.source_recorded"
+  | "knowledge.claim_proposed"
+  | "knowledge.relationship_added"
+  | "knowledge.relationship_removed"
+  | "knowledge.alias_suggested"
+  | "knowledge.alias_decided";
 
 export type AuditEntry = {
   actorUserId: string;

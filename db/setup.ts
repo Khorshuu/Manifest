@@ -21,6 +21,10 @@ async function main() {
   }
 
   await seed(getDb());
+  // The seeded listings enter the knowledge base as LEGACY values (D-069).
+  const { backfillKnowledge } = await import("../lib/pkb/maintenance");
+  const knowledge = await backfillKnowledge();
+  process.stdout.write(`Knowledge base: ${knowledge.processed} listings imported.\n`);
   process.stdout.write("Database ready.\n");
   process.exit(0);
 }

@@ -10,6 +10,8 @@ import {
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
+import { staffChange } from "@/lib/pkb/common";
+import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import { uniqueSlug } from "@/lib/slug";
 import type {
   ProductInputPayload,
@@ -701,6 +703,9 @@ export async function createProduct(
         where id = ${reservationId} and reserved_by = ${staff.id} and status = 'reserved'`);
     }
 
+    // The listing's facts enter the knowledge base in the same transaction (D-070).
+    await syncListingKnowledge(tx, created.id, staffChange(staff.id));
+
     await recordAudit(
       {
         actorUserId: staff.id,
@@ -757,22 +762,28 @@ export async function updateProduct(
     input.categoryId ?? current.categoryId,
   );
 
+  const title = input.title ?? current.title;
+
+  /*
+   * The slug is only rebuilt when the title changed and no slug was sent.
+   * A published URL is not something to change behind a shopper's back, but
+   * a product still being drafted should not keep the slug of its first
+   * working title either — so a staff member can always set it by hand.
+   * Worked out before the transaction: it reads through the shared
+   * connection, which a transaction must not wait on.
+   */
+  const slug =
+    input.slug ??
+    (current.title === title
+      ? current.slug
+      : await uniqueSlug(title, (c) => slugTaken(c, productId)));
+
   return db.transaction(async (tx) => {
+    // Knowledge lock first, and any change another path left waiting settled,
+    // so this save is credited only with what it changes (D-070).
+    await beginListingChange(tx, productId);
+
     const before = current;
-
-    const title = input.title ?? before.title;
-
-    /*
-     * The slug is only rebuilt when the title changed and no slug was sent.
-     * A published URL is not something to change behind a shopper's back, but
-     * a product still being drafted should not keep the slug of its first
-     * working title either — so a staff member can always set it by hand.
-     */
-    const slug =
-      input.slug ??
-      (before.title === title
-        ? before.slug
-        : await uniqueSlug(title, (c) => slugTaken(c, productId)));
 
     const [updated] = await tx
       .update(products)
@@ -793,6 +804,9 @@ export async function updateProduct(
       if (before.sku) await recordPermanentSku(tx, staff.id, productId, before.sku);
       await recordPermanentSku(tx, staff.id, productId, updated.sku);
     }
+
+    // A locked knowledge value refuses the save here, and nothing is written.
+    await syncListingKnowledge(tx, productId, staffChange(staff.id));
 
     await recordAudit(
       {

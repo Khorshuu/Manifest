@@ -1596,20 +1596,32 @@ D-069 contracts `products.attribute_values`.
   usage rights (internal_only, display, exportable, unknown).
 - Authority tiers: 1 official manufacturer; 2 authorized distributor, trusted
   retailer, reliable product database; 3 other approved public sources.
-  Unlisted domains have no tier and verify nothing.
-- Default policy: VERIFIED needs a human acceptance plus matching tier-1
-  evidence and no open conflict; accepted with only tier-2 or tier-3 evidence
-  is UNVERIFIED; typed by staff is MANUAL; backfilled is LEGACY with
-  UNKNOWN_LEGACY origin. Nothing is promoted automatically. AI may locate an
-  excerpt in a real source or write SEO language; it is never a source and
-  never decides a fact.
+  Unlisted domains have no tier and cannot verify anything on their own.
+- Verification is evidence-policy driven (amended at the start of Stage 2 on
+  the owner's instruction). Official manufacturer evidence is the preferred,
+  highest-authority path but not the only one: a verification policy decides
+  which evidence may support VERIFIED — authoritative manufacturer
+  documentation, approved manufacturer or supplier feeds, official
+  documentation an admin provides, and other explicitly trusted sources —
+  depending on the product and the evidence available. Evidence no policy
+  accepts is never silently promoted; accepted without qualifying evidence it
+  is UNVERIFIED. Typed by staff is MANUAL; backfilled is LEGACY with
+  UNKNOWN_LEGACY origin. Nothing is promoted by a migration or by AI. AI may
+  locate an excerpt in a real source or write SEO language; it is never a
+  source and never decides a fact.
+- Every source records its type, how it was acquired and its authority, and
+  every fact records its source, so each VERIFIED value's basis can be shown
+  and re-evaluated when a policy changes.
+- The database refuses a VERIFIED fact without an accepted claim (which
+  requires evidence) and a decision basis: the deciding admin, or the key of
+  the verification policy that authorized it. The policy engine is Stage 3.
 
 **Why a lock is not a state value.** A locked value was still either verified
 or entered by hand; overwriting that with LOCKED would lose it, and unlocking
 would have nothing to return to.
 
-**Assumption for the owner (A-4).** Tier-2 corroboration alone does not reach
-VERIFIED. Cheap to relax later: it is one rule in the review service.
+**Superseded assumption.** Stage 1 assumed VERIFIED would require tier-1
+evidence only (A-4). The owner replaced that with the policy-driven rule above.
 
 ## D-064 — Product Families are data, versioned, and never forced
 
@@ -1668,6 +1680,16 @@ loopback and metadata addresses (checked after DNS resolution and on every
 redirect), with timeouts, size caps and robots.txt respected; the guard ships
 with the fetcher in Stage 3.
 
+**Source acquisition is provider-agnostic** (amended at the start of Stage 2 on
+the owner's instruction; replaces the Stage 1 assumption that automatic
+discovery needs a paid search service). Sources may come from Brand Source
+Registry domains, staff-provided URLs, staff-provided documents or data,
+approved manufacturer or supplier feeds, lawful public or free mechanisms where
+implemented, and optional `ProductResearchProvider` implementations added
+later. Each source records its `acquisition_method`. When automatic discovery
+is unavailable, the pipeline reports NOT_CONFIGURED or UNAVAILABLE and never
+invents a source, URL or value.
+
 **Supersedes in part.** D-040's one-click fill that writes into empty fields,
 and D-043's derived specification and measurement tables being written to the
 listing. Both become proposals shown for review (assumption A-5); the tables
@@ -1724,3 +1746,71 @@ identifier parsing in PL/pgSQL).
 
 **Why.** Every step leaves the storefront working and is reversible until the
 contract step, which only removes what nothing reads.
+
+## D-070 — While the editor still writes legacy columns, the knowledge base mirrors them, attributed, in the same transaction
+
+**Context.** Stage 2 builds the knowledge base, but the product editor, the
+category specification screen and the variant screens still write the legacy
+columns (`brand`, `details`, `attribute_values`, `spec_table`, `measurements`,
+`box_contents`, the identifier columns, variant options). A backfill alone would
+be stale after the next save — a second, drifting copy of the same facts, the
+exact thing this programme exists to remove.
+
+**Decision.**
+
+- Every staff write path that changes those columns runs
+  `syncListingKnowledge` inside its own transaction: product create, update,
+  duplicate and delete; variant generate, add and remove; category and category
+  specification create, update and delete. The knowledge base therefore agrees
+  with the listing at commit.
+- Changes are attributed. A staff save makes the values it *changed* MANUAL,
+  with the staff member as decider and a `staff_entry` source; a duplicated
+  listing's copied values are UNVERIFIED; anything unattributed is LEGACY with
+  UNKNOWN_LEGACY origin. A value's state follows its raw text: saving a panel
+  without editing a value never turns LEGACY into MANUAL.
+- Before a staff transaction writes, `beginListingChange` takes the listing's
+  knowledge lock and settles any change another path left waiting as
+  unattributed, so the save is credited only with its own edits.
+- Triggers on those columns queue the listing in `pkb_sync_queue`; the
+  `pkb.sync_listings` job (every 5 minutes) processes anything a staff
+  transaction did not — imports, scripts, category moves. The migration queues
+  every existing listing, so a deploy imports them without a manual step.
+- Nothing automatic overwrites a decided value. A staff save that would change
+  a locked value is refused and rolls back. An unattributed change to a MANUAL,
+  UNVERIFIED, VERIFIED or locked value is not applied; the knowledge base's
+  value is written back to the listing, and the attempt is kept in
+  `pkb_unmapped_values` until someone dismisses it.
+- Values written directly in the knowledge base (`setFact`) are written back to
+  the listing when its columns can show them (brand, details, category
+  specifications, box contents, country of origin, identifier). A value from a
+  column that cannot be written back — a specification-table row, a variant
+  option — stops mirroring, and a later disagreeing row is parked, not applied.
+- Anything that cannot be placed without guessing — a specification row whose
+  label names no attribute exactly, an option with no definition, a value that
+  collides with a structured one, a GTIN already held by another product — is
+  parked in `pkb_unmapped_values`, never forced.
+- Mapping is conservative: labels match a definition only by exact label, key
+  or approved alias; a label two definitions answer to is ambiguous and parked.
+  One definition is created per category specification; duplicates across
+  categories are not merged by guess.
+- A deleted listing's knowledge record is removed only when it holds nothing
+  but what was mirrored from that listing. Evidence, claims, relationships,
+  aliases, knowledge-native values or another listing keep it.
+
+**Alternatives considered.** Backfill only, until the editor is rebuilt (stale
+from the first save); an application-side hook in the shared transaction
+wrapper (implicit, and silently skipped in any process that never imports the
+knowledge module); making every attribution come from a transaction-local
+setting read by triggers (still needs every path to set it, and a trigger
+cannot run the TypeScript normalization).
+
+**Cost.** A product save does the sync's reads and diff (measured in
+KNOWLEDGE_PLATFORM.md). Two found and fixed on the way: `updateProduct` read
+the slug through the shared connection inside its transaction (a hang on the
+single-connection test database once the transaction issued a statement first);
+and the local PostgreSQL server's WIN1252 encoding cannot store `→` in migration
+text.
+
+**Assumption for the owner (A-7).** Copied values of a duplicated listing are
+UNVERIFIED rather than MANUAL: duplicating is usually the start of a different
+product, and nobody has checked those values for it.

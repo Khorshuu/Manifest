@@ -1,0 +1,245 @@
+import {
+  isQuantityFailure,
+  isUnitDimension,
+  parseNumberText,
+  parseQuantity,
+  parseQuantityRange,
+} from "./units";
+
+/**
+ * Turning a written value into the typed value an attribute definition asks
+ * for (DECISIONS.md D-065). Pure: no database. The raw text always survives
+ * beside whatever this returns, and anything that cannot be read with
+ * certainty comes back `unnormalized` with the reason — never a guess.
+ */
+
+export const ATTRIBUTE_DATA_TYPES = [
+  "text",
+  "number",
+  "quantity",
+  "quantity_range",
+  "boolean",
+  "enum",
+  "date",
+  "url",
+  "brand",
+] as const;
+export type AttributeDataType = (typeof ATTRIBUTE_DATA_TYPES)[number];
+
+export type DefinitionShape = {
+  dataType: AttributeDataType;
+  unitDimension: string | null;
+  options?: { id: string; key: string; label: string; aliases?: string[] }[];
+};
+
+export type TypedValue = {
+  text: string | null;
+  number: string | null;
+  numberMax: string | null;
+  unit: string | null;
+  boolean: boolean | null;
+  date: string | null;
+  optionId: string | null;
+  /** For brand definitions: the brand as written, resolved to an entity by the caller. */
+  brandName: string | null;
+};
+
+export type NormalizationResult =
+  | { status: "normalized"; value: TypedValue }
+  | { status: "unnormalized"; reason: string };
+
+export const EMPTY_TYPED: TypedValue = {
+  text: null,
+  number: null,
+  numberMax: null,
+  unit: null,
+  boolean: null,
+  date: null,
+  optionId: null,
+  brandName: null,
+};
+
+/** The longest text value the knowledge base keeps. */
+export const MAX_TEXT_LENGTH = 4000;
+
+/** Whitespace collapsed and Unicode composed; the form every raw value is stored in. */
+export function cleanText(value: string): string {
+  return value.normalize("NFC").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The comparison key of a label or a name: case, accents and punctuation
+ * folded. "Colour:", "colour" and "COLOUR" are one key.
+ */
+export function labelKey(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+/**
+ * The key a brand is matched on. Deliberately conservative: case, accents,
+ * spacing and punctuation fold together, but nothing else does — "Delta Pepper
+ * Co." and "Delta Pepper" stay two brands until a person says otherwise.
+ */
+export function brandKey(value: string): string {
+  return labelKey(value);
+}
+
+/** A stable snake_case key from a label: "Refresh rate" → "refresh_rate". */
+export function keyFromLabel(label: string, maxLength = 63): string {
+  const base = labelKey(label).replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+  const key = /^[a-z]/.test(base) ? base : `k_${base}`;
+  return key.slice(0, maxLength).replace(/_+$/, "") || "attribute";
+}
+
+/** A URL slug from a name: "Delta Pepper Co." → "delta-pepper-co". */
+export function slugFromName(name: string): string {
+  return labelKey(name).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "brand";
+}
+
+const BOOLEAN_TRUE = new Set(["true", "yes", "y", "1"]);
+const BOOLEAN_FALSE = new Set(["false", "no", "n", "0"]);
+
+function isValidCalendarDate(year: number, month: number, day: number): boolean {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+/**
+ * ISO dates only, at the precision written: "2024", "2024-03", "2024-03-15".
+ * "03/04/2024" is refused, because the day and month cannot be told apart.
+ */
+export function parseIsoDate(value: string): { text: string; date: string } | null {
+  const text = value.trim().replace(/T.*$/, "");
+  let match = /^(\d{4})$/.exec(text);
+  if (match) return { text, date: `${match[1]}-01-01` };
+  match = /^(\d{4})-(\d{2})$/.exec(text);
+  if (match) {
+    const month = Number(match[2]);
+    return month >= 1 && month <= 12 ? { text, date: `${text}-01` } : null;
+  }
+  match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (match && isValidCalendarDate(Number(match[1]), Number(match[2]), Number(match[3]))) {
+    return { text, date: text };
+  }
+  return null;
+}
+
+export function normalizeUrl(value: string): string | null {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function typed(partial: Partial<TypedValue>): NormalizationResult {
+  return { status: "normalized", value: { ...EMPTY_TYPED, ...partial } };
+}
+
+function unnormalized(reason: string): NormalizationResult {
+  return { status: "unnormalized", reason };
+}
+
+/**
+ * Normalizes one written value for a definition. `defaultUnit` is used only
+ * when the text carries no unit of its own.
+ */
+export function normalizeValue(
+  definition: DefinitionShape,
+  rawValue: string,
+  context: { defaultUnit?: string | null } = {},
+): NormalizationResult {
+  const raw = cleanText(rawValue);
+  if (!raw) return unnormalized("empty");
+  if (raw.length > MAX_TEXT_LENGTH) return unnormalized("longer than the knowledge base keeps");
+
+  switch (definition.dataType) {
+    case "text":
+      return typed({ text: raw });
+
+    case "brand":
+      return typed({ brandName: raw });
+
+    case "url": {
+      const url = normalizeUrl(raw);
+      return url ? typed({ text: url }) : unnormalized("not an http(s) link");
+    }
+
+    case "boolean": {
+      const key = raw.toLowerCase();
+      if (BOOLEAN_TRUE.has(key)) return typed({ boolean: true });
+      if (BOOLEAN_FALSE.has(key)) return typed({ boolean: false });
+      return unnormalized("not a yes or no");
+    }
+
+    case "number": {
+      const number = parseNumberText(raw);
+      return number === null ? unnormalized("not a plain number") : typed({ number });
+    }
+
+    case "date": {
+      const parsed = parseIsoDate(raw);
+      return parsed ? typed({ date: parsed.date, text: parsed.text }) : unnormalized("not an ISO date");
+    }
+
+    case "enum": {
+      const key = labelKey(raw);
+      const option = (definition.options ?? []).find(
+        (candidate) =>
+          candidate.key === raw ||
+          labelKey(candidate.label) === key ||
+          labelKey(candidate.key.replace(/_/g, " ")) === key ||
+          (candidate.aliases ?? []).some((alias) => labelKey(alias) === key),
+      );
+      return option ? typed({ optionId: option.id }) : unnormalized("not one of the defined options");
+    }
+
+    case "quantity": {
+      if (!definition.unitDimension || !isUnitDimension(definition.unitDimension)) {
+        return unnormalized("the definition has no unit dimension");
+      }
+      const parsed = parseQuantity(raw, definition.unitDimension, {
+        defaultUnit: context.defaultUnit ?? undefined,
+      });
+      return isQuantityFailure(parsed)
+        ? unnormalized(parsed.reason)
+        : typed({ number: parsed.value, unit: parsed.unit });
+    }
+
+    case "quantity_range": {
+      if (!definition.unitDimension || !isUnitDimension(definition.unitDimension)) {
+        return unnormalized("the definition has no unit dimension");
+      }
+      const parsed = parseQuantityRange(raw, definition.unitDimension, {
+        defaultUnit: context.defaultUnit ?? undefined,
+      });
+      return isQuantityFailure(parsed)
+        ? unnormalized(parsed.reason)
+        : typed({ number: parsed.min.value, numberMax: parsed.max.value, unit: parsed.min.unit });
+    }
+  }
+}
+
+/** Whether two typed values say the same thing. Numbers compare as canonical decimals. */
+export function sameTypedValue(a: TypedValue, b: TypedValue): boolean {
+  return (
+    (a.text ?? null) === (b.text ?? null) &&
+    (a.number ?? null) === (b.number ?? null) &&
+    (a.numberMax ?? null) === (b.numberMax ?? null) &&
+    (a.unit ?? null) === (b.unit ?? null) &&
+    (a.boolean ?? null) === (b.boolean ?? null) &&
+    (a.date ?? null) === (b.date ?? null) &&
+    (a.optionId ?? null) === (b.optionId ?? null) &&
+    (a.brandName === null) === (b.brandName === null) &&
+    (a.brandName === null || b.brandName === null || brandKey(a.brandName) === brandKey(b.brandName))
+  );
+}

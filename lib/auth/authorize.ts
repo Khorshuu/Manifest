@@ -59,6 +59,11 @@ export const PERMISSIONS = [
   "staff.manage",
   /** Site-wide settings that decide prices and policy. */
   "settings.manage",
+  /**
+   * The product knowledge vocabulary shared by every product: families and
+   * their schema versions, attribute definitions, brands (D-064).
+   */
+  "knowledge.manage",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -86,6 +91,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
   super_admin: PERMISSIONS,
   staff_admin: [
     "catalog.manage",
+    "knowledge.manage",
     "homepage.manage",
     "search.manage",
     "reviews.moderate",
@@ -95,7 +101,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
     "analytics.view",
     "audit.view",
   ],
-  product_manager: ["catalog.manage", "search.manage", "reviews.moderate"],
+  product_manager: ["catalog.manage", "knowledge.manage", "search.manage", "reviews.moderate"],
   order_manager: [
     "orders.view",
     "orders.manage",

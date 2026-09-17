@@ -9,6 +9,9 @@ import {
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
+import { staffChange } from "@/lib/pkb/common";
+import { syncLegacyFamilies } from "@/lib/pkb/families";
+import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import type { CategoryAttributeInputPayload } from "@/lib/validation/catalog";
 
 /**
@@ -210,32 +213,39 @@ export async function createCategoryAttribute(
     .from(categoryAttributes)
     .where(eq(categoryAttributes.categoryId, categoryId));
 
-  const [created] = await db
-    .insert(categoryAttributes)
-    .values({
-      categoryId,
-      name: input.name,
-      dataType: input.dataType,
-      unit: input.unit ?? null,
-      options: input.options ?? null,
-      isRequired: input.isRequired ?? false,
-      isFilterable:
-        input.isFilterable ??
-        filterableByDefault(input.dataType as CategoryAttributeType),
-      isSearchable: input.isSearchable ?? true,
-      sortOrder: nextOrder,
-    })
-    .returning();
+  return db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(categoryAttributes)
+      .values({
+        categoryId,
+        name: input.name,
+        dataType: input.dataType,
+        unit: input.unit ?? null,
+        options: input.options ?? null,
+        isRequired: input.isRequired ?? false,
+        isFilterable:
+          input.isFilterable ??
+          filterableByDefault(input.dataType as CategoryAttributeType),
+        isSearchable: input.isSearchable ?? true,
+        sortOrder: nextOrder,
+      })
+      .returning();
 
-  await recordAudit({
-    actorUserId: staff.id,
-    action: "category.updated",
-    entityType: "category",
-    entityId: categoryId,
-    after: { attributeAdded: created.name, dataType: created.dataType },
+    await recordAudit(
+      {
+        actorUserId: staff.id,
+        action: "category.updated",
+        entityType: "category",
+        entityId: categoryId,
+        after: { attributeAdded: created.name, dataType: created.dataType },
+      },
+      tx,
+    );
+
+    // The category's family schema follows, as a new version (D-064).
+    await syncLegacyFamilies(tx, staffChange(staff.id));
+    return created;
   });
-
-  return created;
 }
 
 export async function updateCategoryAttribute(
@@ -252,42 +262,50 @@ export async function updateCategoryAttribute(
 
   if (!before) throw new CategoryAttributeError("That attribute no longer exists.");
 
-  const [updated] = await db
-    .update(categoryAttributes)
-    .set({
-      name: input.name,
-      dataType: input.dataType,
-      unit: input.unit ?? null,
-      options: input.options ?? null,
-      isRequired: input.isRequired ?? false,
-      // Absent means unchanged: an older client that does not know about
-      // these switches must not quietly turn them off.
-      isFilterable: input.isFilterable ?? before.isFilterable,
-      isSearchable: input.isSearchable ?? before.isSearchable,
-    })
-    .where(eq(categoryAttributes.id, attributeId))
-    .returning();
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(categoryAttributes)
+      .set({
+        name: input.name,
+        dataType: input.dataType,
+        unit: input.unit ?? null,
+        options: input.options ?? null,
+        isRequired: input.isRequired ?? false,
+        // Absent means unchanged: an older client that does not know about
+        // these switches must not quietly turn them off.
+        isFilterable: input.isFilterable ?? before.isFilterable,
+        isSearchable: input.isSearchable ?? before.isSearchable,
+      })
+      .where(eq(categoryAttributes.id, attributeId))
+      .returning();
 
-  await recordAudit({
-    actorUserId: staff.id,
-    action: "category.updated",
-    entityType: "category",
-    entityId: before.categoryId,
-    before: {
-      name: before.name,
-      dataType: before.dataType,
-      isFilterable: before.isFilterable,
-      isSearchable: before.isSearchable,
-    },
-    after: {
-      name: updated.name,
-      dataType: updated.dataType,
-      isFilterable: updated.isFilterable,
-      isSearchable: updated.isSearchable,
-    },
+    await recordAudit(
+      {
+        actorUserId: staff.id,
+        action: "category.updated",
+        entityType: "category",
+        entityId: before.categoryId,
+        before: {
+          name: before.name,
+          dataType: before.dataType,
+          isFilterable: before.isFilterable,
+          isSearchable: before.isSearchable,
+        },
+        after: {
+          name: updated.name,
+          dataType: updated.dataType,
+          isFilterable: updated.isFilterable,
+          isSearchable: updated.isSearchable,
+        },
+      },
+      tx,
+    );
+
+    // A type change moves stored values to a new definition; listings are
+    // queued and keep each value's provenance when re-read (D-070).
+    await syncLegacyFamilies(tx, staffChange(staff.id));
+    return updated;
   });
-
-  return updated;
 }
 
 /**
@@ -311,6 +329,15 @@ export async function deleteCategoryAttribute(
   if (!before) throw new CategoryAttributeError("That attribute no longer exists.");
 
   await db.transaction(async (tx) => {
+    const affected = (
+      await tx
+        .select({ id: products.id })
+        .from(products)
+        .where(sql`${products.attributeValues} ? ${attributeId}`)
+        .orderBy(products.id)
+    ).map((row) => row.id);
+    for (const id of affected) await beginListingChange(tx, id);
+
     await tx
       .update(products)
       .set({
@@ -333,6 +360,10 @@ export async function deleteCategoryAttribute(
       },
       tx,
     );
+
+    // Removing the specification removed staff-typed values: cleared, with history.
+    await syncLegacyFamilies(tx, staffChange(staff.id));
+    for (const id of affected) await syncListingKnowledge(tx, id, staffChange(staff.id));
   });
 }
 

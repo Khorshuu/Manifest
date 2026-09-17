@@ -40,6 +40,12 @@ export const categories = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull().unique(),
     sortOrder: integer("sort_order").notNull().default(0),
+    /**
+     * The Product Family a new product filed here is expected to be — its own
+     * or the nearest ancestor's (migration 0031, D-064). A suggestion, never
+     * a forced assignment. Foreign key declared in the migration.
+     */
+    defaultFamilyId: uuid("default_family_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -114,6 +120,11 @@ export const products = pgTable(
     publishAt: timestamp("publish_at", { withTimezone: true }),
     unpublishAt: timestamp("unpublish_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
+    /**
+     * The Product Knowledge Base identity this listing sells (D-061). Written
+     * only by lib/pkb; foreign key declared in migration 0031.
+     */
+    pkbProductId: uuid("pkb_product_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
