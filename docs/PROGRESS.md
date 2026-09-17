@@ -3103,3 +3103,16 @@ Needs you: push the branch to see the first run, and turn on branch protection i
 - `[x]` The browser tests, load test and page-size check can now run against a deployed staging site.
 - `[x]` Fixed a dangerous gap: the script that resets the test database would have deleted any database it was pointed at. It now refuses anything not clearly a test database, and refuses remote servers unless told explicitly.
 - `[ ]` Nothing has been run on real staging yet — needs your Vercel, Neon and Sentry access.
+
+## Where production readiness stands (after the owner's decisions)
+
+Latest verification on the final code: unit and integration suite 85 files, 1,118 passed; full end-to-end suite on the production build 488 passed, 0 failed (6 skipped by design: phone-only or desktop-only checks).
+
+Blocked on your accounts or choices:
+
+- Neon: backups, restore rehearsal, query statistics, and the staging branch.
+- Vercel: staging project, scheduler plan, hosted load and browser tests (docs/STAGING.md).
+- Sentry: DSN and alert rules (the code is ready).
+- GitHub: push the branch so CI runs there, then turn on required checks for `main` (docs/TESTING.md).
+- Payments and couriers: provider choice and credentials.
+- Password reset: waits for the email provider.
