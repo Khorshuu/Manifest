@@ -8,6 +8,7 @@ import {
   type PreparedFilters,
 } from "./facets";
 import { parseDiscoveryParams, type SearchParamsRecord } from "./filter-params";
+import { logEvent } from "@/lib/observability/log";
 import {
   countProducts,
   listProductCards,
@@ -118,6 +119,9 @@ async function relatedSearches(
   );
 }
 
+/** A listing slower than this is logged. */
+const SLOW_DISCOVERY_MS = 500;
+
 export async function discover({
   params,
   categoryIds,
@@ -128,6 +132,7 @@ export async function discover({
   categoryIds?: string[];
   pageSize?: number;
 }): Promise<DiscoveryResult> {
+  const started = performance.now();
   const query = cleanQuery(params.q);
   const [fromUrl, plan] = await Promise.all([
     parseDiscoveryParams(params),
@@ -191,6 +196,20 @@ export async function discover({
       ? relatedSearches(activePlan, categoryIds)
       : Promise.resolve([]),
   ]);
+
+  // Only slow listings are logged: every search would drown the logs, and the
+  // slow ones are what someone investigating needs (docs/OBSERVABILITY.md).
+  const durationMs = Math.round(performance.now() - started);
+  if (durationMs >= SLOW_DISCOVERY_MS) {
+    void logEvent("warn", "search.slow", {
+      durationMs,
+      hasQuery: Boolean(query),
+      filtered: Object.keys(params).length,
+      scoped: Boolean(categoryIds),
+      total,
+      page,
+    });
+  }
 
   return {
     query,

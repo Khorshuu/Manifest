@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { rateLimitHits } from "@/db/schema";
+import { logEvent } from "@/lib/observability/log";
 
 /**
  * Fixed-window rate limiting for login and password-reset attempts, counted in
@@ -85,7 +86,7 @@ export async function consumeRateLimit(
     // that cannot count attempts is one that cannot check a password either —
     // refusing here would turn an outage into a lockout without protecting
     // anything.
-    console.error("Rate limit check failed; allowing the attempt.", error);
+    await logEvent("error", "rate_limit.check_failed", { key: "[hashed]", error });
     return { allowed: true, remaining: limit, retryAfterSeconds: 0 };
   }
 }
@@ -105,7 +106,7 @@ export async function pruneRateLimits(
 
     return deleted.length;
   } catch (error) {
-    console.error("Could not prune rate limit rows.", error);
+    await logEvent("warn", "rate_limit.prune_failed", { error });
     return 0;
   }
 }

@@ -3051,3 +3051,11 @@ Not built: "forgot password". A customer who forgets their password cannot reset
 - `[x]` `docs/DEPLOYMENT.md` lists the environment variables and the checks to run in Neon.
 
 Needs you: access to the production Neon project, to confirm backups, a test restore, and database monitoring.
+
+## Production readiness: logging (22.1)
+
+- `[x]` The site now writes structured logs for checkouts, payments, background jobs, slow searches and server errors, each tagged with a request id that is also sent back in the response.
+- `[x]` Logs never contain passwords, tokens, card details, full emails or phone numbers.
+- `[x]` `docs/OBSERVABILITY.md` explains how to find what happened to a checkout.
+
+Needs you: an error-tracking account (for example Sentry) if you want alerts when something breaks.

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logEvent } from "@/lib/observability/log";
 import {
   databaseErrorCode,
   PG_CHECK_VIOLATION,
@@ -96,7 +97,7 @@ export function toErrorResponse(error: unknown): NextResponse {
 
   if (failure) {
     // Logged by code only: the driver message can carry customer data.
-    console.warn(`Known database conflict ${code} answered as ${failure.status}.`);
+    void logEvent("warn", "api.database_conflict", { code, status: failure.status });
     return withRetryAfter(
       NextResponse.json(
         { error: failure.message, code: failure.code },
@@ -106,7 +107,7 @@ export function toErrorResponse(error: unknown): NextResponse {
     );
   }
 
-  console.error(error);
+  void logEvent("error", "api.unexpected_error", { error });
   return NextResponse.json(
     { error: "Something went wrong. Try again." },
     { status: 500 },

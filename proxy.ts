@@ -73,14 +73,33 @@ export function contentSecurityPolicy(nonce: string, production = process.env.NO
   ].join("; ");
 }
 
+/**
+ * The id every log line for this request carries (lib/observability/log.ts),
+ * returned to the caller in x-request-id so a report can be matched to logs.
+ * An id from the hosting layer is kept when it looks like one.
+ */
+function requestIdFor(request: NextRequest): string {
+  const incoming = request.headers.get("x-request-id") ?? request.headers.get("x-vercel-id");
+  return incoming && /^[A-Za-z0-9:_.-]{8,128}$/.test(incoming) ? incoming : crypto.randomUUID();
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const requestId = requestIdFor(request);
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-request-id", requestId);
 
   if (isCrossSiteMutation(request)) {
-    return NextResponse.json({ error: "Cross-site requests are not accepted." }, { status: 403 });
+    const refused = NextResponse.json({ error: "Cross-site requests are not accepted." }, { status: 403 });
+    refused.headers.set("x-request-id", requestId);
+    return refused;
   }
 
-  if (pathname.startsWith("/api/")) return NextResponse.next();
+  if (pathname.startsWith("/api/")) {
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
+    response.headers.set("x-request-id", requestId);
+    return response;
+  }
 
   const inSignedInArea = SIGNED_IN_AREAS.some((area) => pathname === area || pathname.startsWith(`${area}/`));
   if (inSignedInArea && !request.cookies.has(SESSION_COOKIE_NAME)) {
@@ -91,7 +110,6 @@ export function proxy(request: NextRequest) {
 
   const nonce = btoa(crypto.randomUUID());
   const policy = contentSecurityPolicy(nonce);
-  const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
   // Next.js reads the nonce from this request header and puts it on every
   // script it renders.
@@ -99,6 +117,7 @@ export function proxy(request: NextRequest) {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", policy);
+  response.headers.set("x-request-id", requestId);
   return response;
 }
 

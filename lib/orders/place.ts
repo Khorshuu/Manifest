@@ -33,6 +33,7 @@ import {
   withTransientRetry,
 } from "@/lib/db-errors";
 import { TransientConflictError } from "@/lib/errors";
+import { logEvent } from "@/lib/observability/log";
 
 /**
  * Order placement.
@@ -422,7 +423,7 @@ export async function placeOrder(
         rawPayload: { error: error instanceof Error ? error.message : String(error) },
       })
       .where(eq(payments.id, outcome.paymentId));
-    console.error(`Payment could not be started for ${placed.orderNumber}.`);
+    await logEvent("error", "payments.start_failed", { orderNumber: placed.orderNumber, error });
   }
 
   // Delivery is outside the transaction and cannot fail the order.

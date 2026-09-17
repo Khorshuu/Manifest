@@ -4,6 +4,7 @@ import { productSearch, productSearchQueue, products } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
+import { logEvent } from "@/lib/observability/log";
 
 /**
  * Keeping the index honest.
@@ -56,7 +57,7 @@ export async function processSearchQueue(
       rebuilt += ids.length;
     } catch (error) {
       failed += ids.length;
-      console.error("Search index retry failed.", error);
+      await logEvent("error", "search.reindex_retry_failed", { error });
       await db
         .update(productSearchQueue)
         .set({ attempts: sql`${productSearchQueue.attempts} + 1` })

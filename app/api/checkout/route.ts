@@ -8,6 +8,7 @@ import { placeOrder } from "@/lib/orders";
 import { placeOrderSchema } from "@/lib/validation/cart";
 import { getEnv } from "@/lib/env";
 import { clientAddress, throttle } from "@/lib/http/throttle";
+import { timed } from "@/lib/observability/log";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -69,15 +70,23 @@ export async function POST(request: Request) {
       shippingAddressId = created.id;
     }
 
-    const placed = await placeOrder({
-      cartId,
-      userId: user?.id ?? null,
-      guestEmail: parsed.data.email,
-      guestPhone: parsed.data.phone ?? null,
-      shippingAddressId,
-      method: parsed.data.method,
-      idempotencyKey: parsed.data.idempotencyKey,
-    });
+    // Diagnosable from logs: how long placement took and how it ended, with
+    // the order number — never the shopper's details (redacted regardless).
+    const placed = await timed(
+      "checkout.place",
+      { method: parsed.data.method, signedIn: Boolean(user) },
+      () =>
+        placeOrder({
+          cartId,
+          userId: user?.id ?? null,
+          guestEmail: parsed.data.email,
+          guestPhone: parsed.data.phone ?? null,
+          shippingAddressId,
+          method: parsed.data.method,
+          idempotencyKey: parsed.data.idempotencyKey,
+        }),
+      (order) => ({ orderNumber: order.orderNumber, paymentStatus: order.paymentStatus }),
+    );
 
     return NextResponse.json({ order: placed });
   } catch (error) {

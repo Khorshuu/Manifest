@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/api-error";
 import { handlePaymentWebhook } from "@/lib/payments/webhooks";
+import { timed } from "@/lib/observability/log";
 
 /**
  * Payment provider webhooks.
@@ -30,7 +31,12 @@ export async function POST(
   }
 
   try {
-    const outcome = await handlePaymentWebhook(provider, rawBody, request.headers);
+    const outcome = await timed(
+      "payments.webhook",
+      { provider, bytes: Buffer.byteLength(rawBody) },
+      () => handlePaymentWebhook(provider, rawBody, request.headers),
+      (result) => ({ result: result.result }),
+    );
     return NextResponse.json({ received: true, outcome: outcome.result }, { status: 200 });
   } catch (error) {
     return toErrorResponse(error);

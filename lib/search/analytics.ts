@@ -6,6 +6,7 @@ import type { SessionUser } from "@/lib/auth/session";
 import { looksPersonal, normalizeText } from "./normalize";
 import { queryRows } from "./sql";
 import { analyticsWindow } from "./visitor";
+import { logEvent } from "@/lib/observability/log";
 
 /**
  * What people search for, and what they do next.
@@ -50,7 +51,7 @@ export async function logSearch(entry: {
       // Paging, sorting and refreshing are not new searches.
       .onConflictDoNothing();
   } catch (error) {
-    console.error("Could not record a search.", error);
+    await logEvent("warn", "search.log_failed", { error });
   }
 }
 
@@ -81,7 +82,7 @@ export async function logSearchClick(entry: {
   } catch (error) {
     // A product id that does not exist fails the foreign key; that is a
     // forged beacon, not something to report.
-    console.error("Could not record a search click.", error);
+    await logEvent("warn", "search.click_log_failed", { error });
   }
 }
 
@@ -288,7 +289,7 @@ export async function pruneSearchLogs(
 
     return { queries: queries.length, clicks: clicks.length };
   } catch (error) {
-    console.error("Could not prune search analytics.", error);
+    await logEvent("warn", "search.prune_failed", { error });
     return { queries: 0, clicks: 0 };
   }
 }

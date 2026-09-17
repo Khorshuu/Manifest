@@ -87,3 +87,27 @@ describe("signed-in areas", () => {
     expect(source).toContain(`const SESSION_COOKIE_NAME = "${SESSION_COOKIE_NAME}";`);
   });
 });
+
+describe("request ids", () => {
+  it("gives every response an id, pages and API alike", () => {
+    const page = proxy(request("/")).headers.get("x-request-id");
+    const api = proxy(request("/api/search/popular")).headers.get("x-request-id");
+    expect(page).toMatch(/^[0-9a-f-]{36}$/);
+    expect(api).toMatch(/^[0-9a-f-]{36}$/);
+    expect(page).not.toBe(api);
+  });
+
+  it("keeps a well-formed id from the hosting layer, and replaces a malformed one", () => {
+    expect(proxy(request("/", { headers: { "x-vercel-id": "iad1::abcd1234-5678" } })).headers.get("x-request-id")).toBe(
+      "iad1::abcd1234-5678",
+    );
+    expect(proxy(request("/", { headers: { "x-request-id": "<script>" } })).headers.get("x-request-id")).toMatch(
+      /^[0-9a-f-]{36}$/,
+    );
+  });
+
+  it("puts the id on refusals too", () => {
+    const refused = proxy(request("/api/cart", { method: "POST", headers: { origin: "https://evil.example" } }));
+    expect(refused.headers.get("x-request-id")).toBeTruthy();
+  });
+});

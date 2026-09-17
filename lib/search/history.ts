@@ -4,6 +4,7 @@ import { searchHistory } from "@/db/schema";
 import { requireUser } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { cleanQuery, looksPersonal, normalizeText } from "./normalize";
+import { logEvent } from "@/lib/observability/log";
 
 /**
  * A signed-in customer's own recent searches, so they follow them from phone
@@ -48,7 +49,7 @@ export async function recordSearchHistory(
         )
     `);
   } catch (error) {
-    console.error("Could not record search history.", error);
+    await logEvent("warn", "search.history_failed", { error });
   }
 }
 

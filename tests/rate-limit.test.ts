@@ -168,10 +168,8 @@ describe("when the database will not answer", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const result = await consumeRateLimit("anything", 1, 1000);
     expect(result.allowed).toBe(true);
-    expect(logged).toHaveBeenCalledWith(
-      "Rate limit check failed; allowing the attempt.",
-      expect.anything(),
-    );
+    const events = logged.mock.calls.map((call: unknown[]) => JSON.parse(String(call[0])));
+    expect(events).toContainEqual(expect.objectContaining({ level: "error", event: "rate_limit.check_failed" }));
     logged.mockRestore();
 
     // Restored for the next test, since the harness truncates rather than

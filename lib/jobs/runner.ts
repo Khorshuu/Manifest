@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, count, eq, inArray, lt, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { logEvent } from "@/lib/observability/log";
 import { jobs } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
@@ -178,6 +179,7 @@ export async function runDueJobs(
 
     for (const job of claimed) {
       const handler = handlers[job.kind];
+      const started = performance.now();
       try {
         if (!handler) throw new UnknownJobKindError(job.kind);
         const result = await handler(job.payload ?? {}, { jobId: job.id, attempt: job.attempts });
@@ -194,6 +196,12 @@ export async function runDueJobs(
           .where(and(eq(jobs.id, job.id), eq(jobs.lockedBy, workerId)));
         report.succeeded += 1;
         report.ran.push({ id: job.id, kind: job.kind, outcome: "succeeded" });
+        void logEvent("info", "job.succeeded", {
+          jobId: job.id,
+          kind: job.kind,
+          attempt: job.attempts,
+          durationMs: Math.round(performance.now() - started),
+        });
       } catch (error) {
         const exhausted = !handler || job.attempts >= job.maxAttempts;
         await db
@@ -211,6 +219,14 @@ export async function runDueJobs(
         if (exhausted) report.dead += 1;
         else report.retried += 1;
         report.ran.push({ id: job.id, kind: job.kind, outcome: exhausted ? "dead" : "retried" });
+        void logEvent(exhausted ? "error" : "warn", exhausted ? "job.dead" : "job.retrying", {
+          jobId: job.id,
+          kind: job.kind,
+          attempt: job.attempts,
+          maxAttempts: job.maxAttempts,
+          durationMs: Math.round(performance.now() - started),
+          error,
+        });
       }
     }
   }
