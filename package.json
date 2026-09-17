@@ -23,6 +23,7 @@
     "db:seed:scale": "tsx db/seed-scale.ts",
     "perf:bench": "tsx scripts/perf/bench.ts",
     "perf:http": "node scripts/perf/http-load.mjs",
+    "perf:vitals": "node scripts/perf/vitals.mjs",
     "vercel-build": "tsx db/migrate.ts && next build"
   },
   "dependencies": {

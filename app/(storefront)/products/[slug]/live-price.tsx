@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatBdt } from "@/lib/money";
 
-export type LivePriceVariant = {
-  id: string;
+export type LivePriceFigure = {
   priceBdt: number;
   listPriceBdt: number;
   discountPercent: number | null;
@@ -17,27 +16,36 @@ export type LivePriceVariant = {
  * shopper reads with the name, as in the owner's reference. It follows the
  * option chosen in the picker, and until one is chosen it says "From" the
  * cheapest, the same rule the buy box uses.
+ *
+ * It is given only the cheapest figure. The chosen variant's figure arrives
+ * with the picker's selection event, so a product with hundreds of variants
+ * does not send every price twice (PRODUCTION-READINESS 13.1).
  */
-export function LivePrice({ variants }: { variants: LivePriceVariant[] }) {
-  const [selectedId, setSelectedId] = useState(
-    variants.length === 1 ? variants[0].id : "",
-  );
+export function LivePrice({
+  cheapest,
+  single,
+}: {
+  cheapest: LivePriceFigure | null;
+  /** One variant only: its price is the price, not a "From". */
+  single: boolean;
+}) {
+  const [selected, setSelected] = useState<LivePriceFigure | null>(single ? cheapest : null);
 
   useEffect(() => {
     const onVariant = (event: Event) => {
-      const id = (event as CustomEvent<{ variantId?: string }>).detail?.variantId;
-      if (id) setSelectedId(id);
+      const detail = (event as CustomEvent<Partial<LivePriceFigure> & { variantId?: string }>).detail;
+      if (detail?.variantId && typeof detail.priceBdt === "number" && typeof detail.listPriceBdt === "number") {
+        setSelected({
+          priceBdt: detail.priceBdt,
+          listPriceBdt: detail.listPriceBdt,
+          discountPercent: detail.discountPercent ?? null,
+        });
+      }
     };
     window.addEventListener("product:variant-selected", onVariant);
     return () => window.removeEventListener("product:variant-selected", onVariant);
   }, []);
 
-  const selected = variants.find((variant) => variant.id === selectedId) ?? null;
-  const cheapest = variants.reduce<LivePriceVariant | null>(
-    (lowest, variant) =>
-      lowest === null || variant.priceBdt < lowest.priceBdt ? variant : lowest,
-    null,
-  );
   const shown = selected ?? cheapest;
   if (!shown) return null;
 

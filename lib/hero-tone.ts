@@ -44,6 +44,23 @@ function linear(channel: number): number {
 
 const measured = new Map<string, BackgroundTone>();
 
+/**
+ * What to download to measure a photograph: the image optimiser's smallest
+ * rendition rather than the original.
+ *
+ * The average lightness of 32 pixels is the same either way, but the original
+ * of a hero photograph is the largest file on the page, and this fetched it a
+ * second time beside the hero the page actually shows — 120 KB on a phone for
+ * one number (PRODUCTION-READINESS 13.1). The rendition is also served from
+ * this site, so a photograph stored on another host no longer taints the
+ * canvas. SVG artwork is not optimised (components/media-image.tsx) and is a
+ * few kilobytes, so it is read as it is.
+ */
+function sampleUrl(url: string): string {
+  if (/\.svgz?($|\?)/i.test(url)) return url;
+  return `/_next/image?url=${encodeURIComponent(url)}&w=32&q=75`;
+}
+
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -78,7 +95,7 @@ export async function detectBackgroundTone(
   if (typeof document === "undefined") return null;
 
   try {
-    const image = await loadImage(url);
+    const image = await loadImage(sampleUrl(url));
     const size = 32;
     const canvas = document.createElement("canvas");
     canvas.width = size;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { MediaImage } from "@/components/media-image";
 import { Fragment, useState } from "react";
 import { Button } from "@/components/button";
 import { StatusBadge } from "@/components/status-badge";
@@ -463,8 +464,7 @@ export function VariantMatrix({
                           <span className="flex items-center gap-2">
                             <span className="size-8 shrink-0 overflow-hidden rounded-[5px] border border-blue-200 bg-blue-50">
                               {variant.imageUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={variant.imageUrl} alt="" className="size-full object-cover" />
+                                <MediaImage src={variant.imageUrl} alt="" width={32} height={32} className="size-full object-cover" />
                               ) : null}
                             </span>
                             <span className="font-medium text-ink">{variant.label}</span>
@@ -705,8 +705,7 @@ function VariantEditor({
               onClick={() => setPhoto(image.id)}
               className={`size-12 overflow-hidden rounded-[6px] border ${photo === image.id ? "border-blue-600 ring-2 ring-blue-600/30" : "border-blue-200"}`}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={image.url} alt={image.altText} className="size-full object-cover" />
+              <MediaImage src={image.url} alt={image.altText} width={48} height={48} className="size-full object-cover" />
             </button>
           ))}
         </div>

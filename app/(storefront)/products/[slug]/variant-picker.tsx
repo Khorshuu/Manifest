@@ -117,7 +117,15 @@ export function VariantPicker({
     setSelectedId(variant.id);
     window.dispatchEvent(
       new CustomEvent("product:variant-selected", {
-        detail: { imageUrl: variant.imageUrl, variantId: variant.id },
+        // The price travels with the choice, so the price beside the title
+        // does not need its own copy of every variant (13.1).
+        detail: {
+          imageUrl: variant.imageUrl,
+          variantId: variant.id,
+          priceBdt: variant.priceBdt,
+          listPriceBdt: variant.listPriceBdt,
+          discountPercent: variant.discountPercent,
+        },
       }),
     );
   }

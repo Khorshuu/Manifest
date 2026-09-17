@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MediaImage } from "@/components/media-image";
 import { IconArrowRight } from "@/components/icons";
 import { StatusBadge } from "@/components/status-badge";
 import { formatDate } from "@/lib/format";
@@ -62,11 +63,11 @@ export function OrderCard({ order }: { order: OrderCardOrder }) {
       className="lift group flex flex-col gap-3 rounded-card border border-blue-300 bg-paper p-4 shadow-[var(--shadow-raise)] sm:flex-row sm:items-center sm:gap-4 sm:p-5"
     >
       {first?.imageUrlSnapshot ? (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
+        <MediaImage
           src={first.imageUrlSnapshot}
           alt=""
-          loading="lazy"
+          width={64}
+          height={64}
           className="size-14 shrink-0 rounded-card border border-blue-200 object-cover sm:size-16"
         />
       ) : null}

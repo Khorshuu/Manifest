@@ -1,4 +1,5 @@
 import { IconAlert, IconCheck, IconSeal, IconShield } from "@/components/icons";
+import { MediaImage } from "@/components/media-image";
 
 /**
  * The sections below the buy box.
@@ -259,13 +260,13 @@ export function LifestyleBand({
           >
             {/* Below the fold by construction, so every one of these is lazy —
                 the buy box must not wait on them. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <MediaImage
               src={image.url}
               alt={image.altText}
-              loading="lazy"
-              decoding="async"
-              className="aspect-[4/3] w-full object-cover transition-transform duration-500 ease-out hover:scale-[1.03] motion-reduce:transition-none"
+              width={800}
+              height={600}
+              sizes="(min-width: 1280px) 400px, (min-width: 768px) 33vw, 100vw"
+              className="aspect-[4/3] h-auto w-full object-cover transition-transform duration-500 ease-out hover:scale-[1.03] motion-reduce:transition-none"
             />
           </li>
         ))}

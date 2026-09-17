@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { MediaImage } from "@/components/media-image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/button";
@@ -66,8 +67,7 @@ export function WishlistList({ entries }: { entries: WishlistRow[] }) {
                 className="media-zoom surface-studio size-24 shrink-0 overflow-hidden rounded-card border border-blue-300"
               >
                 {entry.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={entry.imageUrl} alt="" className="size-full object-cover" />
+                  <MediaImage src={entry.imageUrl} alt="" width={96} height={96} className="size-full object-cover" />
                 ) : (
                   <ProductArt title={entry.productTitle} seed={entry.productSlug} className="size-full" />
                 )}

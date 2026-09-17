@@ -372,7 +372,7 @@ export default async function ProductPage({
                   ? `/categories/${breadcrumb.at(-1)!.slug}`
                   : "/search"
               }
-              variantIds={pickerVariants.map((variant) => variant.id)}
+              onlyVariantId={pickerVariants.length === 1 ? pickerVariants[0].id : null}
               savedVariantIds={savedVariantIds}
               signedIn={Boolean(user)}
               returnTo={`/products/${product.slug}`}
@@ -407,12 +407,16 @@ export default async function ProductPage({
               </h1>
               <div className="pt-1 lg:hidden">
                 <LivePrice
-                  variants={pickerVariants.map((variant) => ({
-                    id: variant.id,
-                    priceBdt: variant.priceBdt,
-                    listPriceBdt: variant.listPriceBdt,
-                    discountPercent: variant.discountPercent,
-                  }))}
+                  cheapest={
+                    cheapest
+                      ? {
+                          priceBdt: cheapest.priceBdt,
+                          listPriceBdt: cheapest.listPriceBdt,
+                          discountPercent: cheapest.discountPercent,
+                        }
+                      : null
+                  }
+                  single={pickerVariants.length === 1}
                 />
               </div>
             </div>

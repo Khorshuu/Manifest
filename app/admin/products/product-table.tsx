@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { MediaImage } from "@/components/media-image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { Button, buttonClass } from "@/components/button";
@@ -585,8 +586,7 @@ export function ProductTable({
                       <div className="flex items-center gap-2.5">
                         <span className="size-10 shrink-0 overflow-hidden rounded-[6px] border border-blue-200 bg-blue-50">
                           {row.imageUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={row.imageUrl} alt="" loading="lazy" className="size-full object-cover" />
+                            <MediaImage src={row.imageUrl} alt="" width={40} height={40} className="size-full object-cover" />
                           ) : null}
                         </span>
                         <span className="min-w-0">
@@ -653,8 +653,7 @@ export function ProductTable({
                   />
                   <span className="size-14 shrink-0 overflow-hidden rounded-[6px] border border-blue-200 bg-blue-50">
                     {row.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={row.imageUrl} alt="" loading="lazy" className="size-full object-cover" />
+                      <MediaImage src={row.imageUrl} alt="" width={56} height={56} className="size-full object-cover" />
                     ) : null}
                   </span>
                   <div className="min-w-0 flex-1">

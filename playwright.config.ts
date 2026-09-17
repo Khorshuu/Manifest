@@ -48,6 +48,10 @@ export default defineConfig({
     command: isProduction ? "npm run start" : "npm run dev",
     url: baseURL,
     env: {
+      // The port the base URL names, so the suite can run on another port
+      // (E2E_BASE_URL=http://localhost:3200) while the development server
+      // stays up on 3000.
+      PORT: new URL(baseURL).port || "3000",
       // Login throttling is real behaviour, but a suite that signs in on every
       // spec would trip it. Disabled for the test server only; the flag is
       // ignored entirely when NODE_ENV is production.

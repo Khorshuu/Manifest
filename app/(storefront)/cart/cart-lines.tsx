@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { MediaImage } from "@/components/media-image";
 import { useRouter } from "next/navigation";
 import { ProductArt } from "@/components/product-art";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -256,11 +257,13 @@ export function CartLines({
                       aria-hidden="true"
                     >
                       {line.imageUrl ? (
-                        /* Placeholder media until the storage integration lands. */
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
+                        /* A 64px slip thumbnail: the optimiser's small rendition,
+                           not the stored 1600px photograph (13.1). */
+                        <MediaImage
                           src={line.imageUrl}
                           alt=""
+                          width={64}
+                          height={64}
                           className="size-full object-cover"
                         />
                       ) : (

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { MediaImage } from "@/components/media-image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { IconArrowLeft } from "@/components/icons";
@@ -98,10 +99,11 @@ export default async function AccountOrderPage({
                       simply show the product name. */}
                   <div className="flex min-w-0 items-start gap-3">
                     {item.imageUrlSnapshot ? (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
+                      <MediaImage
                         src={item.imageUrlSnapshot}
                         alt=""
+                        width={48}
+                        height={48}
                         className="size-12 shrink-0 rounded-card border border-blue-300 object-cover"
                       />
                     ) : null}

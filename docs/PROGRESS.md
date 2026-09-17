@@ -2956,3 +2956,19 @@ second on the scale dataset; the product page and homepage barely changed.
 
 Not verified: behaviour on a serverless host, where each instance keeps its own
 cache (see D-054). An unknown category still answers 200 with a not-found page.
+
+## Production readiness: phone speed (13.1)
+
+- `[x]` Home page no longer jumps when you scroll past the big photograph (the
+  header stayed put instead of re-entering the page).
+- `[x]` Small pictures — cart, checkout, orders, wishlist, search suggestions,
+  photo strips, admin tables — now download small versions instead of the full
+  photograph. Checkout image weight went from 75 KB to 1 KB; cart from 118 KB to 44 KB.
+- `[x]` The home page stopped downloading the hero photograph a second time.
+- `[x]` Products with many options send less data (a 250-option product: 58 → 49 KB).
+
+Verified on a simulated mid-range Android phone on slow 4G: every key page shows its
+main content in 1.0–1.6 s, nothing shifts, taps respond in under 100 ms. Unit suite
+and full end-to-end suite pass.
+
+Not verified: real phones, iPhones, and photos served from Vercel Blob.

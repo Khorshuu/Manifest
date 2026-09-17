@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { MediaImage } from "@/components/media-image";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/button";
@@ -405,9 +406,7 @@ export function CheckoutForm({
                 className="surface-studio size-12 shrink-0 overflow-hidden rounded-card border border-blue-300"
               >
                 {line.imageUrl ? (
-                  /* Placeholder media until the storage integration lands. */
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={line.imageUrl} alt="" className="size-full object-cover" />
+                  <MediaImage src={line.imageUrl} alt="" width={64} height={64} className="size-full object-cover" />
                 ) : (
                   <ProductArt
                     title={line.title}

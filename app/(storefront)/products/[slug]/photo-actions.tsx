@@ -16,7 +16,7 @@ import { IconChevronLeft, IconHeart, IconShare } from "@/components/icons";
 export function PhotoActions({
   title,
   backHref,
-  variantIds,
+  onlyVariantId,
   savedVariantIds,
   signedIn,
   returnTo,
@@ -24,15 +24,14 @@ export function PhotoActions({
   title: string;
   /** Where Back goes when there is no page of ours to go back to. */
   backHref: string;
-  variantIds: string[];
+  /** The variant, when the product has only one; otherwise the picker says which. */
+  onlyVariantId: string | null;
   savedVariantIds: string[];
   signedIn: boolean;
   returnTo: string;
 }) {
   const router = useRouter();
-  const [selectedId, setSelectedId] = useState(
-    variantIds.length === 1 ? variantIds[0] : "",
-  );
+  const [selectedId, setSelectedId] = useState(onlyVariantId ?? "");
   const [saved, setSaved] = useState(() => new Set(savedVariantIds));
   const [pending, setPending] = useState(false);
   const [note, setNote] = useState<string | null>(null);

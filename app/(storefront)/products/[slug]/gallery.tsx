@@ -588,11 +588,11 @@ export function Gallery({
                           <IconPlay size={18} />
                         </span>
                       ) : (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img
+                        <MediaImage
                           src={item.url}
                           alt=""
-                          loading="lazy"
+                          width={56}
+                          height={56}
                           className="size-14 object-cover"
                         />
                       )}

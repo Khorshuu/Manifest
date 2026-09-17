@@ -37,6 +37,8 @@ type HeaderStore = {
   scrolledPast: boolean;
   /** True while the header is drawn over a hero instead of on a bar. */
   floating: boolean;
+  /** A route whose header starts over a hero, and so stays out of the page flow. */
+  overlay: boolean;
   report: (next: Partial<Omit<HeroReport, "route">>) => void;
 };
 
@@ -98,6 +100,7 @@ export function HeaderThemeProvider({ children }: { children: ReactNode }) {
       tone: current.tone,
       scrolledPast: current.scrolledPast,
       floating: OVERLAY_ROUTES.has(pathname) && !current.scrolledPast,
+      overlay: OVERLAY_ROUTES.has(pathname),
       report: update,
     }),
     [current.tone, current.scrolledPast, pathname, update],
@@ -119,6 +122,7 @@ const STANDALONE: HeaderStore = {
   tone: "light",
   scrolledPast: true,
   floating: false,
+  overlay: false,
   report: () => {},
 };
 

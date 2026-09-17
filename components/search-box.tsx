@@ -1,6 +1,7 @@
 "use client";
 
 import Form from "next/form";
+import { MediaImage } from "@/components/media-image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -469,8 +470,7 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
         <>
           <span className="surface-studio flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-control">
             {suggestion?.thumbnailUrl ? (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
+              <MediaImage
                 src={suggestion.thumbnailUrl}
                 alt=""
                 width={40}

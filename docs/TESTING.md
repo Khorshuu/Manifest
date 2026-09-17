@@ -188,5 +188,12 @@ spec was added for them yet.
   updated for instant filters (reads `[data-result-count]`).
 - The e2e suite can run beside a running dev server only against the production
   build (Next 16 refuses a second `next dev` in one folder): `next build`, then
-  `PORT=3100 E2E_PRODUCTION=1
-  E2E_BASE_URL=http://localhost:3100 npx playwright test …`.
+  `E2E_PRODUCTION=1 E2E_BASE_URL=http://localhost:3200 npx playwright test …`.
+  The configuration passes the URL's port to the server it starts, so `PORT`
+  no longer has to be set by hand.
+- Mobile lab vitals: `npm run perf:vitals -- --base http://localhost:3100
+  --paths "/,/cart" [--variant <uuid>] [--tap <selector>] [--warm]`
+  (`scripts/perf/vitals.mjs`): a Pixel-class phone, CPU slowed 4×, slow 4G;
+  LCP (read before scrolling), CLS across a scroll to the bottom, TBT, a tap's
+  event duration, and bytes by type with the largest images. Lab figures, for
+  before/after comparison on one machine.

@@ -42,7 +42,7 @@ export function HeaderShell({
   actions: ReactNode;
 }) {
   const [scrolled, setScrolled] = useState(false);
-  const { floating, tone } = useHeaderTheme();
+  const { floating, overlay, tone } = useHeaderTheme();
   const pathname = usePathname();
 
   /*
@@ -144,10 +144,19 @@ export function HeaderShell({
        * it is showing — any transform would become the containing block for
        * the fixed category drawer and search inside it.
        */
+      /*
+       * Where the header starts over a hero it stays fixed for the whole visit
+       * and only its colours change once the hero has scrolled away. Switching
+       * it to sticky at that moment put its height back into the page and
+       * pushed everything below down by it mid-scroll — a layout shift of
+       * about 0.07 on a phone (PRODUCTION-READINESS 13.1).
+       */
       className={`site-header ${palette} z-50 text-[color:var(--head-fg)] transition-[background-color,box-shadow,border-color,color,translate,opacity] duration-500 ease-[var(--ease-out-quint)] ${
+        overlay ? "fixed inset-x-0 top-0" : "sticky top-0"
+      } ${
         floating
-          ? "fixed inset-x-0 top-0 border-b border-transparent bg-transparent"
-          : "sticky top-0 border-b border-blue-300 bg-paper shadow-[var(--shadow-raise)]"
+          ? "border-b border-transparent bg-transparent"
+          : "border-b border-blue-300 bg-paper shadow-[var(--shadow-raise)]"
       } ${onProduct ? "max-lg:fixed max-lg:inset-x-0" : ""} ${
         tucked
           ? "max-lg:pointer-events-none max-lg:-translate-y-full max-lg:opacity-0 max-lg:shadow-none"
