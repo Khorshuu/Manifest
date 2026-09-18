@@ -31,7 +31,7 @@ export async function listingSearchPerformance(
   productId: string,
   options: { windowDays?: number; executor?: Executor; changeLimit?: number } = {},
 ): Promise<ListingPerformance> {
-  requirePermission(actor, "catalog.manage");
+  requirePermission(actor, "seo.view");
   const executor = options.executor ?? db;
   const changes = await seoChangesFor(actor, { productId }, { limit: options.changeLimit ?? 5, executor });
 

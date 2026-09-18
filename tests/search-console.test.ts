@@ -20,7 +20,7 @@ import {
   seoFieldHistory,
   users,
 } from "@/db/schema";
-import { AuthorizationError } from "@/lib/auth/authorize";
+import { AuthorizationError, ROLE_PERMISSIONS, can } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { createCategory, createProduct, updateCategory, updateProduct } from "@/lib/catalog";
 import { JOB_HANDLERS } from "@/lib/jobs/registry";
@@ -38,10 +38,15 @@ import { changeComparisons } from "@/lib/search-console/comparison";
 import { addDays, isoDay } from "@/lib/search-console/config";
 import { learningSignals } from "@/lib/search-console/learning";
 import { listingSearchPerformance } from "@/lib/search-console/listing";
-import { searchConsoleStatus } from "@/lib/search-console/metrics";
-import { opportunityReport, decideOpportunity } from "@/lib/search-console/opportunities";
+import { metricsStorage, searchConsoleStatus } from "@/lib/search-console/metrics";
+import { OPPORTUNITY_LIMITS, opportunityReport, decideOpportunity } from "@/lib/search-console/opportunities";
 import { pathOf, resolvePaths } from "@/lib/search-console/paths";
-import { requestSearchConsoleSync, runSearchConsoleSync, syncWindow } from "@/lib/search-console/sync";
+import {
+  pruneSearchConsoleMetrics,
+  requestSearchConsoleSync,
+  runSearchConsoleSync,
+  syncWindow,
+} from "@/lib/search-console/sync";
 import { recentSeoChanges, seoChangesFor } from "@/lib/seo/history";
 import { categoryInputSchema } from "@/lib/validation/catalog";
 import { createTestDatabase } from "./helpers/database";
@@ -826,6 +831,102 @@ describe("controlled learning", () => {
 
 // ------------------------------------------------------------- permissions
 
+/*
+ * Risk R-16. The engine reads a bounded number of rows by design. What Stage 7
+ * added is that a bounded read says what it left out, so a large property
+ * cannot produce a partial report that reads as a complete one.
+ */
+describe("a report bounded by its limits", () => {
+  it("says how many pages it covered of how many there were", async () => {
+    const shelfId = (await shelf("Bounded")).id;
+    const made = [];
+    for (let index = 0; index < 60; index += 1) {
+      made.push(await listing({ title: `Bounded listing ${index}`, categoryId: shelfId }));
+    }
+    const slugs = await harness.db
+      .select({ slug: products.slug })
+      .from(products)
+      .where(sql`${products.id} in ${made.map((row) => row.id)}`)
+      .catch(() => [] as { slug: string }[]);
+    const paths = (slugs.length > 0 ? slugs : []).map((row) => row.slug);
+    expect(paths.length).toBe(60);
+
+    // A complete window for every page, so nothing is skipped for thin data.
+    fake.rows = {
+      page: overDays(28, (day) =>
+        paths.map((slug, index) =>
+          pageRow({ day, slug, clicks: 1, impressions: 200 + index, position: 8 }),
+        ),
+      ),
+    };
+    await sync();
+
+    const bounded = await opportunityReport(staff, { pageLimit: 50 });
+    expect(bounded.coverage.pagesAvailable).toBe(60);
+    expect(bounded.coverage.pagesConsidered).toBe(50);
+    expect(bounded.coverage.pagesTruncated).toBe(true);
+    expect(bounded.insufficient.some((row) => row.subject === "The pages covered")).toBe(true);
+    expect(bounded.insufficient.find((row) => row.subject === "The pages covered")!.reason).toContain("60");
+
+    const whole = await opportunityReport(staff, { pageLimit: 500 });
+    expect(whole.coverage.pagesConsidered).toBe(60);
+    expect(whole.coverage.pagesTruncated).toBe(false);
+    expect(whole.insufficient.some((row) => row.subject === "The pages covered")).toBe(false);
+  }, 120_000);
+
+  it("refuses to read more than its ceiling, however much is asked for", async () => {
+    expect(OPPORTUNITY_LIMITS.maxPages).toBeLessThanOrEqual(5_000);
+    const report = await opportunityReport(staff, { pageLimit: 10_000_000 });
+    // Nothing stored, so nothing covered — the point is that it did not throw
+    // and did not try to read ten million rows.
+    expect(report.coverage.pagesConsidered).toBe(0);
+  });
+});
+
+/*
+ * Risk R-17. The table's size is driven by Google rather than by the catalogue,
+ * so an operator needs to see what it holds and whether retention is running
+ * without opening the database.
+ */
+describe("what the measurement table costs", () => {
+  it("reports rows, range, retention and the last prune", async () => {
+    const product = await listing({ title: "Storage Lamp" });
+    const [row] = await harness.db.select({ slug: products.slug }).from(products).where(eq(products.id, product.id));
+    fake.rows = { page: overDays(3, (day) => [pageRow({ day, slug: row.slug, clicks: 2, impressions: 40, position: 6 })]) };
+    await sync();
+
+    const storage = await metricsStorage(staff);
+    expect(storage.rows).toBe(3);
+    expect(storage.properties).toEqual([
+      expect.objectContaining({ property: PROPERTY, rows: 3, latest: LATEST }),
+    ]);
+    expect(storage.retentionDays).toBeGreaterThan(0);
+    expect(storage.rowsOutsideRetention).toBe(0);
+    expect(storage.lastPrune).toBeNull();
+    // Measured, not guessed: null is allowed, a made-up number is not.
+    expect(storage.bytes === null || storage.bytes > 0).toBe(true);
+  });
+
+  it("counts what the next prune will remove, and reports the prune once it runs", async () => {
+    const product = await listing({ title: "Old Lamp" });
+    const [row] = await harness.db.select({ slug: products.slug }).from(products).where(eq(products.id, product.id));
+    fake.rows = { page: [pageRow({ slug: row.slug, clicks: 1, impressions: 10, position: 4 })] };
+    await sync();
+
+    // Backdate the stored day well past any retention window.
+    await harness.client.exec("update search_console_metrics set measured_on = current_date - 2000");
+    expect((await metricsStorage(staff)).rowsOutsideRetention).toBe(1);
+
+    const removed = await pruneSearchConsoleMetrics();
+    expect(removed).toBe(1);
+    expect((await metricsStorage(staff)).rows).toBe(0);
+  });
+
+  it("refuses a customer", async () => {
+    await expect(metricsStorage(customer)).rejects.toThrow(AuthorizationError);
+  });
+});
+
 describe("permissions and boundaries", () => {
   it("refuses a customer everywhere", async () => {
     await expect(searchConsoleStatus(customer)).rejects.toThrow(AuthorizationError);
@@ -838,6 +939,38 @@ describe("permissions and boundaries", () => {
       decideOpportunity(customer, { opportunityKey: "k", kind: "low_ctr", entityType: "site", decision: "dismissed" }),
     ).rejects.toThrow(AuthorizationError);
     await expect(listingSearchPerformance(customer, staff.id)).rejects.toThrow(AuthorizationError);
+  });
+
+  /*
+   * D-101: reading a report and changing the catalogue are different
+   * authorities. `marketing` holds `seo.view` and not `catalog.manage`, so it
+   * is the role that proves the separation is real rather than only described.
+   */
+  it("lets a reader see the reports and refuses every action", async () => {
+    const reader: SessionUser = { id: staff.id, email: "marketing@example.com", role: "marketing" };
+    expect(can(reader, "seo.view")).toBe(true);
+    expect(can(reader, "catalog.manage")).toBe(false);
+
+    await expect(searchConsoleStatus(reader)).resolves.toBeTruthy();
+    await expect(opportunityReport(reader)).resolves.toBeTruthy();
+    await expect(changeComparisons(reader)).resolves.toBeTruthy();
+    await expect(learningSignals(reader)).resolves.toBeTruthy();
+    await expect(recentSeoChanges(reader)).resolves.toBeTruthy();
+
+    await expect(requestSearchConsoleSync(reader, { trigger: "manual" })).rejects.toThrow(AuthorizationError);
+    await expect(
+      decideOpportunity(reader, { opportunityKey: "k", kind: "low_ctr", entityType: "site", decision: "dismissed" }),
+    ).rejects.toThrow(AuthorizationError);
+  });
+
+  it("does not hand commerce analytics to the catalogue staff who read search performance", async () => {
+    // The permission the owner named first would have. `seo.view` does not:
+    // the purchase funnel, revenue and customer insights stay where they were.
+    expect(ROLE_PERMISSIONS.product_manager).toContain("seo.view");
+    expect(ROLE_PERMISSIONS.product_manager).not.toContain("analytics.view");
+    expect(ROLE_PERMISSIONS.product_manager).not.toContain("finance.view");
+    expect(ROLE_PERMISSIONS.marketing).not.toContain("catalog.manage");
+    expect(ROLE_PERMISSIONS.finance).not.toContain("seo.view");
   });
 
   it("refuses a signed-out visitor", async () => {

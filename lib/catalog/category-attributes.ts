@@ -54,6 +54,20 @@ export type CategoryAttributeDefinition = {
   sortOrder: number;
 };
 
+type CategoryAttributeRow = {
+  id: string;
+  categoryId: string;
+  categoryName: string | null;
+  name: string;
+  dataType: string;
+  unit: string | null;
+  options: unknown;
+  isRequired: boolean;
+  isFilterable: boolean;
+  isSearchable: boolean;
+  sortOrder: number;
+};
+
 function toDefinition(row: {
   id: string;
   categoryId: string;
@@ -131,8 +145,16 @@ export async function listCategoryAttributes(
  */
 export async function resolveCategoryAttributes(
   categoryId: string,
+  /**
+   * Read through a caller's transaction where there is one. A product save
+   * validates its specification values inside its own transaction, and a
+   * function called from there must not reach for a second connection: on a
+   * pool that can be exhausted, a transaction waiting on another connection is
+   * a deadlock waiting for load.
+   */
+  executor: Executor = db,
 ): Promise<CategoryAttributeDefinition[]> {
-  const allCategories = await db
+  const allCategories: { id: string; parentId: string | null; name: string }[] = await executor
     .select({
       id: categories.id,
       parentId: categories.parentId,
@@ -156,7 +178,7 @@ export async function resolveCategoryAttributes(
 
   if (lineage.length === 0) return [];
 
-  const rows = await db
+  const rows: CategoryAttributeRow[] = await executor
     .select(definitionColumns)
     .from(categoryAttributes)
     .innerJoin(categories, eq(categoryAttributes.categoryId, categories.id))

@@ -2411,3 +2411,52 @@ this are the catalogue staff — `product_manager` holds `catalog.manage` and no
 `analytics.view` — and what is shown is this shop's own pages rather than
 customer behaviour. Requiring the permission that matches the work is narrower
 in practice than requiring the one that also opens revenue and funnels.
+*Superseded by D-101 in Stage 7: reading is its own permission.*
+
+## D-101 — Reading search performance is its own permission, separate from changing the catalogue
+
+**Decision (owner, start of Stage 7).** Viewing Search Console and SEO
+performance is separated from the authority to change the catalogue. A new
+read-only permission `seo.view` gates every report; every *action* on those
+screens keeps the management permission it already had.
+
+| Operation | Permission |
+| --- | --- |
+| `searchConsoleStatus`, `opportunityReport`, `changeComparisons`, `learningSignals`, `listingSearchPerformance`, `recentSeoChanges`, `seoChangesFor` | `seo.view` |
+| `requestSearchConsoleSync` with `trigger: "manual"` | `catalog.manage` |
+| `decideOpportunity` | `catalog.manage` |
+| Editing a listing's or shelf's SEO fields, locks, audits, SEO Health | `catalog.manage` (unchanged) |
+
+**Why not `analytics.view`, which the owner named first.** The instruction was
+to stop using `catalog.manage` as the semantic permission for an analytics
+read, and to fall back to "the smallest clean permission architecture" if
+`analytics.view` turned out to be broader than intended. It is:
+`analytics.view` gates `lib/admin/analytics.ts` and `lib/admin/insights.ts`
+— the purchase funnel, order and signup trends, best sellers, shelf
+performance, and customer insights such as repeat-buyer counts and the share of
+orders placed by an account. Granting it to `product_manager` in order to show
+them how their pages rank in Google would also have opened commerce and
+customer-behaviour analytics, which is exactly the unintentional widening the
+instruction warned against. It would also have handed SEO performance to
+`finance`, which has no use for it.
+
+So `seo.view` is the narrow permission, and it follows the existing
+`area.action` naming and the existing rule that a role is a named list of
+capabilities (D-034). Granted to `super_admin`, `staff_admin`,
+`product_manager` and `marketing`. The first three already reached these
+screens through `catalog.manage`, so for them nothing opens and nothing
+closes; `marketing` gains the reports, which is the point of separating a
+read from a write, and gains no ability to change anything.
+
+**The screen shows what the permission allows.** `/admin/seo-performance`
+loads under `seo.view` and passes `canManage` into the panel, so a read-only
+viewer sees every measurement, every finding and the whole change history, and
+no "Sync now" or decision buttons. That is presentation only — the two API
+routes still resolve the session and the `lib/` functions still call
+`requirePermission(actor, "catalog.manage")`, so a forged request from a
+read-only account is refused (CLAUDE.md section 7).
+
+**What stayed on `catalog.manage`.** The SEO Health Center, a listing's page
+audit and SEO field editing are catalogue tooling, not performance reporting:
+they exist to change listings, and the people who read them are the people who
+fix them. Widening those was not asked for and would have been scope creep.

@@ -51,6 +51,21 @@ export const PERMISSIONS = [
   "notifications.view",
   /** Non-financial analytics: funnels, order volume, signups, preorders. */
   "analytics.view",
+  /**
+   * Reading search-performance reporting: the Search Console connection and
+   * its measurements, the opportunity findings, before-and-after observation,
+   * the SEO change history and the learning recommendations.
+   *
+   * Read only, and deliberately separate from `analytics.view` (D-101).
+   * `analytics.view` is commerce analytics — the purchase funnel, order
+   * volume, signups and customer insights — which nobody needs in order to see
+   * how this shop's own pages perform in Google search. It is separate from
+   * `catalog.manage` too: seeing a report is not authority to change the
+   * catalogue, so every action on one of these screens (running a sync,
+   * recording a decision on a finding) still asks for the management
+   * permission.
+   */
+  "seo.view",
   /** Money: revenue, collected amounts, margin. */
   "finance.view",
   /** The audit log. */
@@ -92,6 +107,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
   staff_admin: [
     "catalog.manage",
     "knowledge.manage",
+    "seo.view",
     "homepage.manage",
     "search.manage",
     "reviews.moderate",
@@ -101,7 +117,13 @@ export const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
     "analytics.view",
     "audit.view",
   ],
-  product_manager: ["catalog.manage", "knowledge.manage", "search.manage", "reviews.moderate"],
+  product_manager: [
+    "catalog.manage",
+    "knowledge.manage",
+    "search.manage",
+    "seo.view",
+    "reviews.moderate",
+  ],
   order_manager: [
     "orders.view",
     "orders.manage",
@@ -118,6 +140,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
     "homepage.manage",
     "search.manage",
     "analytics.view",
+    "seo.view",
     "reviews.moderate",
   ],
   finance: ["finance.view", "analytics.view", "orders.view", "customers.view"],
@@ -135,7 +158,8 @@ export const ROLE_DETAILS: Record<StaffRole, { label: string; summary: string }>
   },
   product_manager: {
     label: "Product manager",
-    summary: "Products, categories, photography, search and reviews.",
+    summary:
+      "Products, categories, photography, search, search performance and reviews.",
   },
   order_manager: {
     label: "Order manager",
@@ -147,7 +171,8 @@ export const ROLE_DETAILS: Record<StaffRole, { label: string; summary: string }>
   },
   marketing: {
     label: "Marketing",
-    summary: "Homepage campaigns, search, reviews and non-financial analytics.",
+    summary:
+      "Homepage campaigns, search, search performance, reviews and non-financial analytics.",
   },
   finance: {
     label: "Finance",
@@ -208,6 +233,7 @@ const PERMISSION_REFUSALS: Partial<Record<Permission, string>> = {
   "homepage.manage": "Your role cannot change the homepage.",
   "orders.manage": "Your role can read orders but not change them.",
   "finance.view": "Your role cannot see financial figures.",
+  "seo.view": "Your role cannot see search-performance reporting.",
   "staff.manage": "Only the owner can manage staff.",
   "settings.manage": "Only the owner can change site settings.",
 };

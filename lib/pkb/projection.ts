@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { pkbAttributeDefinitions, pkbFacts, pkbIdentifiers, pkbLegacyAttributeMap, products } from "@/db/schema";
 import type { Executor } from "./common";
 import { cleanText } from "./normalize";
@@ -189,6 +189,68 @@ export async function loadProjection(executor: Executor, pkbProductId: string): 
     })),
     identifiers,
   );
+}
+
+/**
+ * The same projection for many knowledge products at once.
+ *
+ * The reconciliation report compares every listing with its knowledge, and
+ * doing that one product at a time cost two statements per listing — 10,000 of
+ * them on the 5,000-listing scale database, and 2.4 seconds of the report
+ * (risk R-2). This reads one chunk of products in two statements instead. The
+ * projection itself is the same function; only the fetching is batched.
+ */
+export async function loadProjections(
+  executor: Executor,
+  pkbProductIds: string[],
+): Promise<Map<string, LegacyStructuredFields>> {
+  const result = new Map<string, LegacyStructuredFields>();
+  if (pkbProductIds.length === 0) return result;
+
+  const [facts, identifiers]: [
+    { pkbProductId: string; legacyRef: string | null; ordinal: number; rawValue: string | null; cardinality: string }[],
+    { pkbProductId: string; legacyRef: string | null; valueRaw: string }[],
+  ] = await Promise.all([
+    executor
+      .select({
+        pkbProductId: pkbFacts.pkbProductId,
+        legacyRef: pkbFacts.legacyRef,
+        ordinal: pkbFacts.ordinal,
+        rawValue: pkbFacts.rawValue,
+        cardinality: pkbAttributeDefinitions.cardinality,
+      })
+      .from(pkbFacts)
+      .innerJoin(pkbAttributeDefinitions, eq(pkbAttributeDefinitions.id, pkbFacts.definitionId))
+      .where(and(inArray(pkbFacts.pkbProductId, pkbProductIds), isNull(pkbFacts.pkbVariantId))),
+    executor
+      .select({
+        pkbProductId: pkbIdentifiers.pkbProductId,
+        legacyRef: pkbIdentifiers.legacyRef,
+        valueRaw: pkbIdentifiers.valueRaw,
+      })
+      .from(pkbIdentifiers)
+      .where(inArray(pkbIdentifiers.pkbProductId, pkbProductIds)),
+  ]);
+
+  const factsBy = new Map<string, { legacyRef: string | null; ordinal: number; rawValue: string | null; multiple: boolean }[]>();
+  for (const fact of facts) {
+    const entry = { legacyRef: fact.legacyRef, ordinal: fact.ordinal, rawValue: fact.rawValue, multiple: fact.cardinality === "multiple" };
+    const list = factsBy.get(fact.pkbProductId);
+    if (list) list.push(entry);
+    else factsBy.set(fact.pkbProductId, [entry]);
+  }
+  const identifiersBy = new Map<string, MirroredIdentifier[]>();
+  for (const identifier of identifiers) {
+    const entry = { legacyRef: identifier.legacyRef, valueRaw: identifier.valueRaw };
+    const list = identifiersBy.get(identifier.pkbProductId);
+    if (list) list.push(entry);
+    else identifiersBy.set(identifier.pkbProductId, [entry]);
+  }
+
+  for (const id of pkbProductIds) {
+    result.set(id, projectLegacyFields(factsBy.get(id) ?? [], identifiersBy.get(id) ?? []));
+  }
+  return result;
 }
 
 /**

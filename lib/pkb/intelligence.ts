@@ -10,7 +10,7 @@ import { listClaims } from "./evidence";
 import { getProductKnowledge, type ProductKnowledgeView } from "./facts";
 import { listUnmappedLabels, type UnmappedLabelGroup } from "./mappings";
 import { assessResolution, resolutionHistory, type ResolutionAssessment } from "./resolution";
-import { evaluateVerification, type VerificationQualification } from "./trust";
+import { evaluateVerification, loadVerificationContext, type VerificationQualification } from "./trust";
 
 /**
  * The Product Intelligence view: everything a person needs to decide about one
@@ -79,10 +79,26 @@ export async function getProductIntelligence(
   // The product exists, so its knowledge view does too.
   if (!knowledge) return null;
 
+  /*
+   * Every open claim is judged against the same product-level evidence — the
+   * registry, the family lineage, the active policies, the other claims on the
+   * slot — so that evidence is read once and handed to each judgement (risk
+   * R-9). The verdicts are identical; what changes is that a product with
+   * thirty open claims no longer issues thirty rounds of the same six reads.
+   */
+  const openClaims = rawClaims.filter(
+    (row: (typeof rawClaims)[number]) => row.claim.status === "SUGGESTED" || row.claim.status === "CONFLICT",
+  );
+  const verificationContext =
+    openClaims.length > 0 ? await loadVerificationContext(executor, pkbProductId) : undefined;
+
   const claims: ClaimView[] = [];
   for (const row of rawClaims) {
     const open = row.claim.status === "SUGGESTED" || row.claim.status === "CONFLICT";
-    claims.push({ ...row, verification: open ? await evaluateVerification(executor, row.claim.id) : null });
+    claims.push({
+      ...row,
+      verification: open ? await evaluateVerification(executor, row.claim.id, verificationContext) : null,
+    });
   }
 
   const unmappedLabels = listing

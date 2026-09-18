@@ -6,6 +6,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  attributeValues,
   pkbAttributeDefinitions,
   pkbFactHistory,
   pkbFacts,
@@ -31,6 +32,8 @@ import {
   generateVariants,
   listProductOptions,
   removeVariant,
+  renameProductOption,
+  renameProductOptionValue,
   updateCategoryAttribute,
   updateProduct,
 } from "@/lib/catalog";
@@ -170,6 +173,125 @@ describe("staff saves", () => {
     const [listing] = await harness.db.select().from(products).where(eq(products.id, product.id));
     expect(listing.brand).toBe("Acme");
     expect(await queued()).toBe(0);
+  });
+});
+
+/*
+ * Risk R-8. An option rename reaches the mirror either way, because the
+ * database queues every listing that uses the value. What differs is who gets
+ * the credit: through `lib/catalog` the rename and the re-read share one
+ * transaction and one actor, and a decided value refuses it; around
+ * `lib/catalog` the queue settles it later with no actor, and a decided value
+ * is reverted rather than renamed.
+ */
+describe("renaming an option", () => {
+  async function colourFacts(listingId: string) {
+    const { rows } = await factsOf(listingId);
+    return rows.filter((row) => row.key === "color" && row.fact.pkbVariantId).map((row) => row.fact);
+  }
+
+  it("attributes a value rename to the person who made it, in the same transaction", async () => {
+    const category = await createCategory(staff, { name: "Audio", slug: "audio" });
+    const product = await createProduct(staff, { title: "Earbuds", categoryId: category.id });
+    await createProductOption(staff, product.id, { name: "Colour", values: ["Blk", "White"] });
+    await generateVariants(staff, product.id, { priceBdt: 1_000_00 });
+
+    const [option] = await listProductOptions(product.id);
+    const value = option.values.find((row) => row.value === "Blk")!;
+    const before = (await colourFacts(product.id)).find((fact) => fact.rawValue === "Blk")!;
+
+    const result = await renameProductOptionValue(staff, value.id, "Black");
+    expect(result).toMatchObject({ renamed: true, from: "Blk", to: "Black", listings: 1 });
+
+    // Nothing left for the queue to settle: the rename did its own re-read.
+    expect(await queued()).toBe(0);
+
+    const after = await colourFacts(product.id);
+    expect(after.map((fact) => fact.rawValue).sort()).toEqual(["Black", "White"]);
+    const renamed = after.find((fact) => fact.rawValue === "Black")!;
+    expect(renamed).toMatchObject({ id: before.id, verificationState: "MANUAL", decidedBy: staff.id });
+    expect((await history(renamed.id)).map((row) => [row.changeKind, row.actorUserId])).toEqual([
+      ["created", staff.id],
+      ["updated", staff.id],
+    ]);
+    expect((await knowledgeReport()).ok).toBe(true);
+  });
+
+  it("refuses to rename a value whose knowledge is locked, and writes nothing", async () => {
+    const category = await createCategory(staff, { name: "Audio", slug: "audio" });
+    const product = await createProduct(staff, { title: "Earbuds", categoryId: category.id });
+    await createProductOption(staff, product.id, { name: "Colour", values: ["Blk"] });
+    await generateVariants(staff, product.id, { priceBdt: 1_000_00 });
+
+    const locked = (await colourFacts(product.id))[0];
+    await lockFact(staff, locked.id);
+
+    const [option] = await listProductOptions(product.id);
+    await expect(renameProductOptionValue(staff, option.values[0].id, "Black")).rejects.toThrow(PkbLockedError);
+
+    // Both sides still say what they said: no divergence, nothing queued.
+    const [row] = await harness.db.select().from(attributeValues).where(eq(attributeValues.id, option.values[0].id));
+    expect(row.value).toBe("Blk");
+    expect((await colourFacts(product.id))[0].rawValue).toBe("Blk");
+    expect(await queued()).toBe(0);
+  });
+
+  it("renames the group through the same path, and refuses a name the product already uses", async () => {
+    const category = await createCategory(staff, { name: "Audio", slug: "audio" });
+    const product = await createProduct(staff, { title: "Earbuds", categoryId: category.id });
+    await createProductOption(staff, product.id, { name: "Colour", values: ["Black"] });
+    await createProductOption(staff, product.id, { name: "Size", values: ["S"] });
+    await generateVariants(staff, product.id, { priceBdt: 1_000_00 });
+
+    const options = await listProductOptions(product.id);
+    const colour = options.find((option) => option.name === "Colour")!;
+
+    await expect(renameProductOption(staff, product.id, colour.id, "size")).rejects.toThrow(/already has an option/);
+
+    const result = await renameProductOption(staff, product.id, colour.id, "Color");
+    expect(result).toMatchObject({ renamed: true, from: "Colour", to: "Color" });
+    expect(await queued()).toBe(0);
+    expect((await listProductOptions(product.id)).map((option) => option.name).sort()).toEqual(["Color", "Size"]);
+    expect((await knowledgeReport()).ok).toBe(true);
+  });
+
+  it("does not let a rename made around lib/ overwrite a decided value", async () => {
+    const category = await createCategory(staff, { name: "Audio", slug: "audio" });
+    const product = await createProduct(staff, { title: "Earbuds", categoryId: category.id });
+    await createProductOption(staff, product.id, { name: "Colour", values: ["Blk"] });
+    await generateVariants(staff, product.id, { priceBdt: 1_000_00 });
+
+    const [option] = await listProductOptions(product.id);
+    await harness.db
+      .update(attributeValues)
+      .set({ value: "Black" })
+      .where(eq(attributeValues.id, option.values[0].id));
+    expect(await queued()).toBe(1);
+
+    for (let pass = 0; pass < 3; pass++) {
+      const report = await processKnowledgeQueue(harness.db);
+      expect(report.failed).toBe(0);
+      if (report.remaining === 0) break;
+    }
+
+    // The decided value stands in the knowledge base. A variant option is not
+    // projected back into the catalogue by design (D-070), so the rename stays
+    // in `attribute_values` and the two now disagree — which is why it is
+    // parked with a reason and raised as an event rather than passing quietly.
+    expect((await colourFacts(product.id))[0].rawValue).toBe("Blk");
+    const [row] = await harness.db.select().from(attributeValues).where(eq(attributeValues.id, option.values[0].id));
+    expect(row.value).toBe("Black");
+    const [parked] = await harness.db
+      .select()
+      .from(pkbUnmappedValues)
+      .where(
+        and(
+          eq(pkbUnmappedValues.productId, product.id),
+          eq(pkbUnmappedValues.reason, "unattributed_change_not_applied"),
+        ),
+      );
+    expect(parked).toMatchObject({ value: "Black" });
+    expect((await knowledgeReport()).ok).toBe(true);
   });
 });
 

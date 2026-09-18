@@ -179,7 +179,7 @@ export async function changeComparisons(
     executor?: Executor;
   } = {},
 ): Promise<{ property: string | null; comparisons: ChangeComparison[] }> {
-  requirePermission(actor, "catalog.manage");
+  requirePermission(actor, "seo.view");
   const executor = options.executor ?? db;
   const changes =
     options.productId || options.categoryId

@@ -632,11 +632,12 @@ function columnsFrom(
 async function cleanAttributeValues(
   input: ProductPatchPayload,
   categoryId: string,
+  executor: Executor = db,
 ) {
   if (input.attributeValues === undefined) return undefined;
   if (input.attributeValues === null) return null;
 
-  const definitions = await resolveCategoryAttributes(categoryId);
+  const definitions = await resolveCategoryAttributes(categoryId, executor);
   return validateAttributeValues(definitions, input.attributeValues);
 }
 
@@ -759,12 +760,20 @@ export async function updateProduct(
   const reader: Executor = options.executor ?? db;
   const fieldWrites = options.fieldWrites ?? { origin: "staff" as const, reason: "Saved in the product editor" };
 
-  const [current] = await reader
-    .select()
+  const isPublic = (status: string) => (PUBLIC_STATUSES as readonly string[]).includes(status);
+
+  /*
+   * The checks that refuse the save outright run first, against the committed
+   * row, because both of them read through the shared connection: a
+   * transaction must not wait on a second one (that is a deadlock under load,
+   * not a slow save). They decide whether the save is allowed at all, not what
+   * it writes — what it writes is read again under the lock below (F8).
+   */
+  const [precheck] = await reader
+    .select({ status: products.status })
     .from(products)
     .where(eq(products.id, productId));
-
-  if (!current) throw new Error("That product no longer exists.");
+  if (!precheck) throw new Error("That product no longer exists.");
 
   /*
    * Moving an unpublished listing to a status shoppers can see is publishing,
@@ -772,43 +781,56 @@ export async function updateProduct(
    * already live may change between public statuses — open to closed, say —
    * without being checked again.
    */
-  const isPublic = (status: string) => (PUBLIC_STATUSES as readonly string[]).includes(status);
-  if (input.status && isPublic(input.status) && !isPublic(current.status)) {
+  if (input.status && isPublic(input.status) && !isPublic(precheck.status)) {
     const { assertReadyToPublish } = await import("./readiness");
     await assertReadyToPublish(actor, productId);
   }
 
   if (input.sku) await assertSkuIsFree(input.sku, productId);
 
-  const attributeValues = await cleanAttributeValues(
-    input,
-    input.categoryId ?? current.categoryId,
-  );
-
-  const title = input.title ?? current.title;
-
-  /*
-   * The address follows the title only while nobody has seen the listing
-   * (D-078, finding F5). Once it has been public, renaming the product keeps
-   * the address: links, search results and messages already point at it. A
-   * staff member can still set the address by hand, and the old one keeps
-   * working through a redirect.
-   *
-   * Worked out before the transaction: it reads through the shared connection,
-   * which a transaction must not wait on.
-   */
-  const slug =
-    input.slug ??
-    (current.title === title || !slugMayFollowTitle(current)
-      ? current.slug
-      : await uniqueSlug(title, (c) => slugTaken(c, productId, reader)));
-
   const save = async (tx: Executor) => {
     // Knowledge lock first, and any change another path left waiting settled,
     // so this save is credited only with what it changes (D-070).
     await beginListingChange(tx, productId);
 
-    const before = current;
+    /*
+     * The row is read *after* the lock, and through the transaction, so the
+     * values this save compares itself against are the committed ones and not
+     * a snapshot taken before another save finished (finding F8). Reading it
+     * first — as this did until Stage 7 — let two concurrent saves each derive
+     * their patch from the same stale row: the later one overwrote the earlier
+     * one's untouched columns, recorded a "before" in the audit and in the SEO
+     * field history that had already been replaced, and could set
+     * `firstPublishedAt` a second time because the copy it held still said the
+     * listing had never been public.
+     */
+    const [before] = await tx.select().from(products).where(eq(products.id, productId));
+    if (!before) throw new Error("That product no longer exists.");
+
+    const attributeValues = await cleanAttributeValues(
+      input,
+      input.categoryId ?? before.categoryId,
+      tx,
+    );
+
+    const title = input.title ?? before.title;
+
+    /*
+     * The address follows the title only while nobody has seen the listing
+     * (D-078, finding F5). Once it has been public, renaming the product keeps
+     * the address: links, search results and messages already point at it. A
+     * staff member can still set the address by hand, and the old one keeps
+     * working through a redirect.
+     *
+     * The candidate is checked through the transaction as well; a genuine race
+     * between two different listings is caught by the unique index on the
+     * column rather than by this read.
+     */
+    const slug =
+      input.slug ??
+      (before.title === title || !slugMayFollowTitle(before)
+        ? before.slug
+        : await uniqueSlug(title, (c) => slugTaken(c, productId, tx)));
 
     const nextStatus = input.status ?? before.status;
     const [updated] = await tx

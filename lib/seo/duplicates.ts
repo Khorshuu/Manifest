@@ -55,6 +55,12 @@ export type DuplicateReport = {
 
 const GROUP_LIMIT = 20;
 const MEMBER_LIMIT = 8;
+/**
+ * How many listings one per-listing check will look at before it stops. A
+ * bounded example list, not a count: the screens that report how widespread a
+ * duplicate is read the catalogue-wide grouping instead (risk R-10).
+ */
+const CANDIDATE_LIMIT = 50;
 
 /** The comparable form of a body of copy: tags out, punctuation and case out. */
 const STRIPPED = (column: string) =>
@@ -69,11 +75,13 @@ async function exactGroups(
   label: string,
   expression: ReturnType<typeof sql>,
   where: ReturnType<typeof sql>,
+  /** What to group on, when it is cheaper than the value itself. */
+  groupBy: ReturnType<typeof sql> = expression,
 ): Promise<DuplicateGroup[]> {
   const rows = await queryRows<GroupRow>(
     executor,
     sql`
-      select ${expression} as value,
+      select min(${expression}) as value,
              array_agg(p.id::text order by p.updated_at desc) as ids,
              array_agg(p.title order by p.updated_at desc) as titles,
              array_agg(p.slug order by p.updated_at desc) as slugs
@@ -82,7 +90,7 @@ async function exactGroups(
         and p.status = any(${statuses}::text[])
         and p.seo_no_index = false
         and (${where})
-      group by ${expression}
+      group by ${groupBy}
       having count(*) > 1
       order by count(*) desc
       limit ${GROUP_LIMIT}
@@ -141,7 +149,11 @@ export async function duplicateReport(executor: Executor = db): Promise<Duplicat
       "description",
       "The same description, word for word",
       sql`btrim(${STRIPPED("p.description_html")})`,
-      sql`char_length(btrim(${STRIPPED("p.description_html")})) >= 40`,
+      sql`p.description_html is not null and char_length(btrim(${STRIPPED("p.description_html")})) >= 40`,
+      // Grouped on the hash of the body rather than the body itself: migration
+      // 0038 indexes exactly this expression, and a grouping key of a few bytes
+      // beats one of several thousand (risk R-10).
+      sql`md5(btrim(${STRIPPED("p.description_html")}))`,
     ),
     nearDuplicateDescriptions(executor, statuses),
     thinListings(executor, statuses),
@@ -171,6 +183,7 @@ async function nearDuplicateDescriptions(executor: Executor, statuses: string): 
                btrim(${STRIPPED("p.description_html")}) as body
         from products p
         where p.archived_at is null
+          and p.description_html is not null
           and p.status = any(${statuses}::text[])
           and p.seo_no_index = false
           and char_length(btrim(${STRIPPED("p.description_html")})) >= 160
@@ -182,10 +195,10 @@ async function nearDuplicateDescriptions(executor: Executor, statuses: string): 
              array_agg(slug order by updated_at desc) as slugs
       from bodies
       -- Grouped on the hash of the opening rather than the opening itself, so
-      -- the grouping key stays short whatever the copy is. The body is
-      -- trimmed before the prefix is taken, so this does not match migration
-      -- 0035's index exactly: the description checks are a scan of the
-      -- published listings, which is measured in Stage 7 (risk R-10).
+      -- the grouping key stays short whatever the copy is. The body is trimmed
+      -- before the prefix is taken; migration 0035's index was on the untrimmed
+      -- text and so never matched this, which is why migration 0038 replaces it
+      -- with one on this exact expression (risk R-10).
       group by md5(left(body, 160))
       having count(*) > 1 and count(distinct body) > 1
       order by count(*) desc
@@ -265,32 +278,128 @@ export async function listingDuplication(
   executor: Executor = db,
 ): Promise<{ field: string; label: string; shared: string; with: { id: string; title: string }[] }[]> {
   const statuses = `{${PUBLIC_STATUSES.join(",")}}`;
-  const rows = await queryRows<{ field: string; shared: string; id: string; title: string }>(
+
+  /*
+   * The listing's own values first, then one indexed lookup per field (R-10).
+   *
+   * This runs in the product editor on every load. Its first form asked the
+   * whole question in one statement with a `CASE` inside the join, so which
+   * field was being compared was decided per candidate row and no expression
+   * index could be used; the description branch stripped the HTML of every
+   * published listing. That measured 197 ms on the 5,000-listing scale
+   * database. Asking it as one statement with the listing in a CTE was worse
+   * still — 1,347 ms — because the value compared against was not a constant,
+   * so the planner looped over the catalogue four times.
+   *
+   * Reading this listing's values into the process first makes each comparison
+   * an equality against a parameter, which is exactly what the expression
+   * indexes in migrations 0035 and 0038 are for. Four small statements, each an
+   * index lookup. The comparable form of the description is computed here with
+   * the same rules the SQL uses, and matched on its hash, because a hash is
+   * what can be indexed; the full text is compared as well, so a hash
+   * collision cannot invent a duplicate.
+   */
+  const [mine] = await queryRows<{
+    id: string;
+    title: string;
+    seo_meta_title: string | null;
+    seo_meta_description: string | null;
+    body: string;
+  }>(
     executor,
     sql`
-      with mine as (select * from products where id = ${productId})
-      select f.field, f.shared, other.id::text as id, other.title
-      from mine
-      cross join lateral (
-        values
-          ('seo_meta_title', lower(btrim(mine.seo_meta_title))),
-          ('seo_meta_description', lower(btrim(mine.seo_meta_description))),
-          ('title', lower(btrim(mine.title))),
-          ('description', btrim(${STRIPPED("mine.description_html")}))
-      ) as f(field, shared)
-      join products other on other.id <> mine.id
-        and other.archived_at is null
-        and other.status = any(${statuses}::text[])
-        and case f.field
-          when 'seo_meta_title' then lower(btrim(other.seo_meta_title)) = f.shared
-          when 'seo_meta_description' then lower(btrim(other.seo_meta_description)) = f.shared
-          when 'title' then lower(btrim(other.title)) = f.shared
-          else btrim(${STRIPPED("other.description_html")}) = f.shared
-        end
-      where f.shared is not null and char_length(f.shared) >= 8
-      order by f.field, other.title
-      limit 40
+      select id::text as id, title, seo_meta_title, seo_meta_description,
+             btrim(${STRIPPED("description_html")}) as body
+      from products where id = ${productId}
     `,
+  );
+  if (!mine) return [];
+
+  const comparable = (value: string | null) => (value ?? "").trim().toLowerCase();
+
+  const checks: { field: string; shared: string; run: () => Promise<{ id: string; title: string }[]> }[] = [
+    {
+      field: "seo_meta_title",
+      shared: comparable(mine.seo_meta_title),
+      run: () =>
+        queryRows(
+          executor,
+          sql`select other.id::text as id, other.title from products other
+              where other.id <> ${productId}::uuid and other.archived_at is null
+                and other.status = any(${statuses}::text[])
+                and lower(btrim(other.seo_meta_title)) = ${comparable(mine.seo_meta_title)}
+              order by other.title limit ${MEMBER_LIMIT}`,
+        ),
+    },
+    {
+      field: "seo_meta_description",
+      shared: comparable(mine.seo_meta_description),
+      run: () =>
+        queryRows(
+          executor,
+          sql`select other.id::text as id, other.title from products other
+              where other.id <> ${productId}::uuid and other.archived_at is null
+                and other.status = any(${statuses}::text[])
+                and lower(btrim(other.seo_meta_description)) = ${comparable(mine.seo_meta_description)}
+              order by other.title limit ${MEMBER_LIMIT}`,
+        ),
+    },
+    {
+      field: "title",
+      shared: comparable(mine.title),
+      run: () =>
+        queryRows(
+          executor,
+          sql`select other.id::text as id, other.title from products other
+              where other.id <> ${productId}::uuid and other.archived_at is null
+                and other.status = any(${statuses}::text[])
+                and lower(btrim(other.title)) = ${comparable(mine.title)}
+              order by other.title limit ${MEMBER_LIMIT}`,
+        ),
+    },
+    {
+      field: "description",
+      shared: mine.body,
+      run: () =>
+        queryRows(
+          executor,
+          /*
+           * Two details make this bounded rather than catalogue-wide.
+           *
+           * `description_html is not null` is not redundant: migration 0038
+           * indexes only those rows, and a partial index cannot be used without
+           * its own predicate. Leaving it out cost a sequential scan of the
+           * published catalogue — 391 ms on the scale database.
+           *
+           * And the candidates are capped before the full text is compared. The
+           * hash match is what the index answers; confirming it needs the
+           * comparable form computed again per row, and a catalogue where
+           * thousands of listings share one description would pay that
+           * thousands of times to fill a list of eight. This screen exists to
+           * say "this copy is not unique", which ${CANDIDATE_LIMIT} examples
+           * establish as well as five thousand.
+           */
+          sql`select id::text as id, title from (
+                select other.id, other.title, other.description_html
+                from products other
+                where other.id <> ${productId}::uuid and other.archived_at is null
+                  and other.description_html is not null
+                  and other.status = any(${statuses}::text[])
+                  and md5(btrim(${STRIPPED("other.description_html")})) = md5(${mine.body}::text)
+                limit ${CANDIDATE_LIMIT}
+              ) candidates
+              where btrim(${STRIPPED("candidates.description_html")}) = ${mine.body}
+              order by title limit ${MEMBER_LIMIT}`,
+        ),
+    },
+  ];
+
+  const found = await Promise.all(
+    checks.map(async (check) =>
+      // Too short to be a meaningful duplicate: two blank meta descriptions are
+      // not "the same copy", they are two listings with none.
+      check.shared.length >= 8 ? { ...check, with: await check.run() } : { ...check, with: [] },
+    ),
   );
 
   const labels: Record<string, string> = {
@@ -300,16 +409,12 @@ export async function listingDuplication(
     description: "Description",
   };
 
-  const grouped = new Map<string, { field: string; label: string; shared: string; with: { id: string; title: string }[] }>();
-  for (const row of rows) {
-    const group = grouped.get(row.field) ?? {
-      field: row.field,
-      label: labels[row.field] ?? row.field,
-      shared: row.shared.length > 120 ? `${row.shared.slice(0, 117)}…` : row.shared,
-      with: [],
-    };
-    if (group.with.length < MEMBER_LIMIT) group.with.push({ id: row.id, title: row.title });
-    grouped.set(row.field, group);
-  }
-  return [...grouped.values()];
+  return found
+    .filter((check) => check.with.length > 0)
+    .map((check) => ({
+      field: check.field,
+      label: labels[check.field] ?? check.field,
+      shared: check.shared.length > 120 ? `${check.shared.slice(0, 117)}…` : check.shared,
+      with: check.with,
+    }));
 }

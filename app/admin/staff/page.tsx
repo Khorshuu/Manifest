@@ -25,6 +25,7 @@ const PERMISSION_LABELS: Record<(typeof PERMISSIONS)[number], string> = {
   "search.manage": "Search",
   "notifications.view": "Notifications",
   "analytics.view": "Analytics",
+  "seo.view": "Search performance",
   "finance.view": "Revenue & margin",
   "audit.view": "Audit log",
   "staff.manage": "Staff",

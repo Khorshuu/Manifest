@@ -81,7 +81,7 @@ export async function learningSignals(
   actor: SessionUser | null,
   options: { windowDays?: number; executor?: Executor; limit?: number } = {},
 ): Promise<LearningReport> {
-  requirePermission(actor, "catalog.manage");
+  requirePermission(actor, "seo.view");
   const executor = options.executor ?? db;
   const property = configuredProperty();
   if (!property) return { connected: false, window: null, recommendations: [], guardrails: GUARDRAILS };

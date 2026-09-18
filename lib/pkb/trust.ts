@@ -312,15 +312,123 @@ export type VerificationQualification = {
 
 type ClaimRow = typeof pkbClaims.$inferSelect;
 
+type ClaimSourceRow = {
+  claimId: string;
+  sourceId: string;
+  domain: string | null;
+  url: string | null;
+  providerKey: string | null;
+  sourceType: string;
+  acquisitionMethod: string;
+  extractionMethod: string;
+  createdBy: string | null;
+};
+
+/**
+ * Everything `evaluateVerification` needs that belongs to the *product* rather
+ * than to one claim (risk R-9).
+ *
+ * Judging a claim reads the same six things every time: the product's claims,
+ * the sources behind them, which brands are trusted for it, the approved
+ * registry entries, the family lineage and the active policies. Evaluated one
+ * claim at a time, a product with thirty open claims issued around 270
+ * statements to answer one screen. Loading them once and passing them in is
+ * the same evidence read once: the policy arithmetic below is untouched, and
+ * a caller that passes nothing still gets the single-claim behaviour.
+ */
+export type VerificationContext = {
+  pkbProductId: string;
+  claims: ClaimRow[];
+  sourcesByClaim: Map<string, ClaimSourceRow>;
+  registry: RegistryRow[];
+  familyLineage: string[];
+  policies: (typeof pkbVerificationPolicies.$inferSelect)[];
+};
+
+async function familyLineageOf(executor: Executor, pkbProductId: string): Promise<string[]> {
+  const [product] = await executor
+    .select({ familyId: pkbProducts.familyId })
+    .from(pkbProducts)
+    .where(eq(pkbProducts.id, pkbProductId));
+  if (!product?.familyId) return [];
+  return (
+    await queryRows<{ id: string }>(
+      executor,
+      sql`with recursive up as (select id, parent_id, 0 as depth from pkb_families where id = ${product.familyId}
+          union all select f.id, f.parent_id, up.depth + 1 from pkb_families f join up on f.id = up.parent_id where up.depth < 16)
+          select id from up`,
+    )
+  ).map((row) => row.id);
+}
+
+/** Loads one product's verification context. Six statements, whatever the claim count. */
+export async function loadVerificationContext(
+  executor: Executor,
+  pkbProductId: string,
+): Promise<VerificationContext> {
+  const claims: ClaimRow[] = await executor.select().from(pkbClaims).where(eq(pkbClaims.pkbProductId, pkbProductId));
+
+  const sourceRows: ClaimSourceRow[] =
+    claims.length === 0
+      ? []
+      : await executor
+          .select({
+            claimId: pkbClaims.id,
+            sourceId: pkbSources.id,
+            domain: pkbSources.domain,
+            url: pkbSources.url,
+            providerKey: pkbSources.providerKey,
+            sourceType: pkbSources.sourceType,
+            acquisitionMethod: pkbSources.acquisitionMethod,
+            extractionMethod: pkbEvidence.extractionMethod,
+            createdBy: pkbSources.createdBy,
+          })
+          .from(pkbClaims)
+          .innerJoin(pkbEvidence, eq(pkbEvidence.id, pkbClaims.evidenceId))
+          .innerJoin(pkbSources, eq(pkbSources.id, pkbEvidence.sourceId))
+          .where(eq(pkbClaims.pkbProductId, pkbProductId));
+
+  const brandIds = await trustedBrandIds(executor, pkbProductId);
+  const [registry, familyLineage, policies] = await Promise.all([
+    approvedRegistryFor(executor, brandIds),
+    familyLineageOf(executor, pkbProductId),
+    executor.select().from(pkbVerificationPolicies).where(eq(pkbVerificationPolicies.status, "active")),
+  ]);
+
+  return {
+    pkbProductId,
+    claims,
+    sourcesByClaim: new Map(sourceRows.map((row) => [row.claimId, row])),
+    registry,
+    familyLineage,
+    policies,
+  };
+}
+
 /**
  * Whether a claim may be accepted as VERIFIED, and under which policy. Pure
  * reading: nothing is written. The claim and every open or accepted claim that
  * says the same thing for the same slot count as corroboration; independence
  * is by registry entry, domain or feed, so two pages of one site are one source.
  */
-export async function evaluateVerification(executor: Executor, claimId: string): Promise<VerificationQualification> {
-  const [claim]: ClaimRow[] = await executor.select().from(pkbClaims).where(eq(pkbClaims.id, claimId));
+export async function evaluateVerification(
+  executor: Executor,
+  claimId: string,
+  /**
+   * A context already loaded for this claim's product (risk R-9). Optional: a
+   * caller judging one claim passes nothing and this loads what it needs.
+   */
+  preloaded?: VerificationContext,
+): Promise<VerificationQualification> {
+  const fromContext = preloaded?.claims.find((row) => row.id === claimId);
+  const [claim]: ClaimRow[] = fromContext
+    ? [fromContext]
+    : await executor.select().from(pkbClaims).where(eq(pkbClaims.id, claimId));
   if (!claim) throw new PkbError("That claim does not exist.", 404);
+  const context =
+    preloaded && preloaded.pkbProductId === claim.pkbProductId
+      ? preloaded
+      : await loadVerificationContext(executor, claim.pkbProductId);
   const reasons: string[] = [];
   if (claim.status === "CONFLICT") {
     return { eligible: false, policy: null, reasons: ["The slot has conflicting claims. Resolve the conflict first."], sources: [] };
@@ -329,18 +437,16 @@ export async function evaluateVerification(executor: Executor, claimId: string):
     return { eligible: false, policy: null, reasons: [`The claim is already ${claim.status.toLowerCase()}.`], sources: [] };
   }
 
-  const sameSlot: ClaimRow[] = await executor
-    .select()
-    .from(pkbClaims)
-    .where(
-      and(
-        eq(pkbClaims.pkbProductId, claim.pkbProductId),
-        claim.pkbVariantId ? eq(pkbClaims.pkbVariantId, claim.pkbVariantId) : isNull(pkbClaims.pkbVariantId),
-        claim.targetKind === "fact" ? eq(pkbClaims.definitionId, claim.definitionId!) : eq(pkbClaims.identifierType, claim.identifierType!),
-        eq(pkbClaims.ordinal, claim.ordinal),
-        inArray(pkbClaims.status, ["SUGGESTED", "ACCEPTED"]),
-      ),
-    );
+  // The same filter the SQL used, over the product's claims already in hand.
+  const sameSlot: ClaimRow[] = context.claims.filter(
+    (other) =>
+      (claim.pkbVariantId ? other.pkbVariantId === claim.pkbVariantId : other.pkbVariantId === null) &&
+      (claim.targetKind === "fact"
+        ? other.definitionId === claim.definitionId
+        : other.identifierType === claim.identifierType) &&
+      other.ordinal === claim.ordinal &&
+      (other.status === "SUGGESTED" || other.status === "ACCEPTED"),
+  );
   const agreeing = sameSlot.filter((other) =>
     claim.targetKind === "identifier"
       ? other.identifierNormalized === claim.identifierNormalized
@@ -364,35 +470,11 @@ export async function evaluateVerification(executor: Executor, claimId: string):
         }),
   );
 
-  const rows: {
-    claimId: string;
-    sourceId: string;
-    domain: string | null;
-    url: string | null;
-    providerKey: string | null;
-    sourceType: string;
-    acquisitionMethod: string;
-    extractionMethod: string;
-    createdBy: string | null;
-  }[] = await executor
-    .select({
-      claimId: pkbClaims.id,
-      sourceId: pkbSources.id,
-      domain: pkbSources.domain,
-      url: pkbSources.url,
-      providerKey: pkbSources.providerKey,
-      sourceType: pkbSources.sourceType,
-      acquisitionMethod: pkbSources.acquisitionMethod,
-      extractionMethod: pkbEvidence.extractionMethod,
-      createdBy: pkbSources.createdBy,
-    })
-    .from(pkbClaims)
-    .innerJoin(pkbEvidence, eq(pkbEvidence.id, pkbClaims.evidenceId))
-    .innerJoin(pkbSources, eq(pkbSources.id, pkbEvidence.sourceId))
-    .where(inArray(pkbClaims.id, agreeing.map((row) => row.id)));
+  const rows: ClaimSourceRow[] = agreeing
+    .map((row) => context.sourcesByClaim.get(row.id))
+    .filter((row): row is ClaimSourceRow => row !== undefined);
 
-  const brandIds = await trustedBrandIds(executor, claim.pkbProductId);
-  const registry = await approvedRegistryFor(executor, brandIds);
+  const registry = context.registry;
   const sources: SourceAssessment[] = rows.map((row) => ({
     sourceId: row.sourceId,
     claimId: row.claimId,
@@ -408,23 +490,8 @@ export async function evaluateVerification(executor: Executor, claimId: string):
     reasons.push("A source for this value is on a blocked domain; blocked sources never support verification.");
   }
 
-  const [product] = await executor.select({ familyId: pkbProducts.familyId }).from(pkbProducts).where(eq(pkbProducts.id, claim.pkbProductId));
-  const familyLineage = product?.familyId
-    ? (
-        await queryRows<{ id: string }>(
-          executor,
-          sql`with recursive up as (select id, parent_id, 0 as depth from pkb_families where id = ${product.familyId}
-              union all select f.id, f.parent_id, up.depth + 1 from pkb_families f join up on f.id = up.parent_id where up.depth < 16)
-              select id from up`,
-        )
-      ).map((row) => row.id)
-    : [];
-
-  const policies: (typeof pkbVerificationPolicies.$inferSelect)[] = await executor
-    .select()
-    .from(pkbVerificationPolicies)
-    .where(eq(pkbVerificationPolicies.status, "active"));
-  const applicable = policies
+  const familyLineage = context.familyLineage;
+  const applicable = context.policies
     .filter((policy) => policy.appliesTo === "any" || policy.appliesTo === claim.targetKind)
     .filter((policy) => !policy.definitionId || policy.definitionId === claim.definitionId)
     .filter((policy) => !policy.familyId || familyLineage.includes(policy.familyId))
@@ -472,10 +539,11 @@ export async function qualifyingClaims(executor: Executor, pkbProductId: string)
         .where(and(eq(pkbFacts.pkbProductId, pkbProductId), sql`${pkbFacts.lockedAt} is not null`))
     ).map((row: { definitionId: string }) => row.definitionId),
   );
+  const context = open.length > 0 ? await loadVerificationContext(executor, pkbProductId) : null;
   const results: { claimId: string; policy: { key: string; name: string } }[] = [];
   for (const claim of open) {
     if (claim.definitionId && locked.has(claim.definitionId)) continue;
-    const qualification = await evaluateVerification(executor, claim.id);
+    const qualification = await evaluateVerification(executor, claim.id, context ?? undefined);
     if (qualification.eligible && qualification.policy) results.push({ claimId: claim.id, policy: qualification.policy });
   }
   return results;

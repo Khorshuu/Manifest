@@ -11,6 +11,8 @@ import { removeVariant } from "./variants";
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
+import { staffChange } from "@/lib/pkb/common";
+import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import type { AttributeInputPayload } from "@/lib/validation/catalog";
 
 export type AttributeWithValues = {
@@ -366,6 +368,169 @@ export async function removeProductOption(
   }
   await auditAttribute(staff.id, attributeId, { removedFromProduct: productId, deleted, archived });
   return { deleted, archived };
+}
+
+/**
+ * The listings a variant group, or one of its values, appears on.
+ *
+ * A group belongs to one product since D-030, but a value is reached through
+ * the variants that carry it, so this is a query rather than a column. The ids
+ * come back sorted: every writer takes the knowledge locks in the same order,
+ * which is what stops two renames deadlocking against each other.
+ */
+async function listingsUsingOption(
+  executor: typeof db,
+  where: { attributeId?: string; attributeValueId?: string; owningProductId?: string | null },
+): Promise<string[]> {
+  const conditions = [];
+  if (where.attributeId) conditions.push(eq(variantOptionValues.attributeId, where.attributeId));
+  if (where.attributeValueId) conditions.push(eq(variantOptionValues.attributeValueId, where.attributeValueId));
+
+  const rows = await executor
+    .selectDistinct({ id: productVariants.productId })
+    .from(variantOptionValues)
+    .innerJoin(productVariants, eq(productVariants.id, variantOptionValues.variantId))
+    .where(and(...conditions));
+
+  const ids = new Set(rows.map((row) => row.id));
+  // A group with no variants yet still belongs to a listing, whose knowledge
+  // must be re-read: the option vocabulary is part of what the mirror holds.
+  if (where.owningProductId) ids.add(where.owningProductId);
+  return [...ids].sort();
+}
+
+/**
+ * Renames a variant group — "Colour" to "Color" (risk R-8).
+ *
+ * **This is the only write path for the name.** A rename reaches the knowledge
+ * base either way, because `attributes_pkb_rename` queues every listing that
+ * uses the group, but a queued listing is re-read later with no actor: the
+ * change arrives as `UNKNOWN_LEGACY`, and a slot whose knowledge value has
+ * been decided treats it as an unattributed change to revert rather than as a
+ * decision to apply. Going through here instead renames and re-reads inside
+ * one transaction, under the same listing locks a staff save takes, so the
+ * change is attributed to the person who made it, gets a history row, and a
+ * locked or decided value refuses it outright instead of diverging quietly.
+ *
+ * The trigger stays as the safety net for a write that reaches the table some
+ * other way — a data fix run by hand, say. `tests/pkb-write-paths.test.ts`
+ * fails if another file under `lib/` starts writing these columns.
+ */
+export async function renameProductOption(
+  actor: SessionUser | null,
+  productId: string,
+  attributeId: string,
+  name: string,
+) {
+  const staff = requirePermission(actor, "catalog.manage");
+  const next = name.trim();
+  if (!next) throw new ProductOptionError("Name the option — Color, Size, Capacity.");
+  if (next.length > 60) throw new ProductOptionError("That name is too long.");
+
+  const [attribute] = await db
+    .select({ id: attributes.id, name: attributes.name, productId: attributes.productId })
+    .from(attributes)
+    .where(eq(attributes.id, attributeId));
+  if (!attribute || attribute.productId !== productId) {
+    throw new ProductOptionError("That option does not belong to this product.", 404);
+  }
+  if (attribute.name === next) return { renamed: false, from: attribute.name, to: next, listings: 0 };
+
+  const [clash] = await db
+    .select({ id: attributes.id })
+    .from(attributes)
+    .where(
+      and(
+        eq(attributes.productId, productId),
+        sql`lower(${attributes.name}) = lower(${next})`,
+        sql`${attributes.id} <> ${attributeId}`,
+      ),
+    )
+    .limit(1);
+  if (clash) throw new ProductOptionError(`This product already has an option called “${next}”.`, 409);
+
+  const listings = await listingsUsingOption(db, { attributeId, owningProductId: productId });
+
+  return db.transaction(async (tx) => {
+    for (const id of listings) await beginListingChange(tx, id);
+
+    await tx.update(attributes).set({ name: next }).where(eq(attributes.id, attributeId));
+
+    await auditAttribute(staff.id, attributeId, { renamedFrom: attribute.name, renamedTo: next, productId }, tx);
+
+    // In the same transaction, so the mirror never holds the old name and the
+    // change is credited to this person (D-070).
+    for (const id of listings) await syncListingKnowledge(tx, id, staffChange(staff.id));
+
+    return { renamed: true, from: attribute.name, to: next, listings: listings.length };
+  });
+}
+
+/**
+ * Renames one value of a variant group — "Blk" to "Black" (risk R-8).
+ *
+ * The only write path for `attribute_values.value`, for the reasons on
+ * `renameProductOption`. A value a customer has ordered keeps its own snapshot
+ * on the order line, so renaming it here does not rewrite order history.
+ */
+export async function renameProductOptionValue(
+  actor: SessionUser | null,
+  valueId: string,
+  value: string,
+) {
+  const staff = requirePermission(actor, "catalog.manage");
+  const next = value.trim();
+  if (!next) throw new ProductOptionError("Give the value a name.");
+  if (next.length > 120) throw new ProductOptionError("That value is too long.");
+
+  const [row] = await db
+    .select({
+      valueId: attributeValues.id,
+      value: attributeValues.value,
+      attributeId: attributes.id,
+      attributeName: attributes.name,
+      owningProductId: attributes.productId,
+    })
+    .from(attributeValues)
+    .innerJoin(attributes, eq(attributes.id, attributeValues.attributeId))
+    .where(eq(attributeValues.id, valueId));
+  if (!row) throw new ProductOptionError("That value no longer exists.", 404);
+  if (row.value === next) return { renamed: false, from: row.value, to: next, listings: 0 };
+
+  const [clash] = await db
+    .select({ id: attributeValues.id })
+    .from(attributeValues)
+    .where(
+      and(
+        eq(attributeValues.attributeId, row.attributeId),
+        sql`lower(${attributeValues.value}) = lower(${next})`,
+        sql`${attributeValues.id} <> ${valueId}`,
+      ),
+    )
+    .limit(1);
+  if (clash) throw new ProductOptionError(`${row.attributeName} already has a value called “${next}”.`, 409);
+
+  const listings = await listingsUsingOption(db, {
+    attributeValueId: valueId,
+    owningProductId: row.owningProductId,
+  });
+
+  return db.transaction(async (tx) => {
+    for (const id of listings) await beginListingChange(tx, id);
+
+    await tx.update(attributeValues).set({ value: next }).where(eq(attributeValues.id, valueId));
+
+    await auditAttribute(
+      staff.id,
+      row.attributeId,
+      { valueRenamedFrom: row.value, valueRenamedTo: next, productId: row.owningProductId },
+      tx,
+    );
+
+    for (const id of listings) await syncListingKnowledge(tx, id, staffChange(staff.id));
+
+    return { renamed: true, from: row.value, to: next, listings: listings.length };
+  });
 }
 
 /** Which attributes a product varies by, in display order. */

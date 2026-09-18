@@ -14,6 +14,7 @@ import {
   coverageFor,
   daysWithData,
   pagePerformance,
+  performanceRowCount,
   queryPerformance,
   windowLength,
   type PagePerformance,
@@ -72,6 +73,24 @@ export const THRESHOLDS = {
   MIN_CHANGE_RATIO: 0.3,
   /** A window with less than this share of its days measured is not compared. */
   MIN_WINDOW_COVERAGE: 0.8,
+} as const;
+
+/**
+ * How much of a window one report reads (risk R-16).
+ *
+ * The engine deliberately reads a bounded number of rows, most-shown first: a
+ * property with tens of thousands of addresses would otherwise pull all of them
+ * into memory to draw one screen, and the pages that account for the
+ * impressions sort first anyway. The bound is safe *because* the report says
+ * what it left out — `coverage` on the report and a note in `insufficient` —
+ * so a slice is never presented as the whole. The ceilings exist so a caller
+ * asking for more cannot ask for everything.
+ */
+export const OPPORTUNITY_LIMITS = {
+  pages: 500,
+  queries: 500,
+  maxPages: 5_000,
+  maxQueries: 5_000,
 } as const;
 
 /** Position bands, in the order they are tested. */
@@ -133,6 +152,30 @@ export type OpportunityReport = {
   insufficient: InsufficientData[];
   /** The benchmark each band produced, for the screen to show its working. */
   benchmarks: { band: string; label: string; pages: number; medianCtr: number | null }[];
+  /**
+   * Exactly how much of the window this report examined (risk R-16). A screen
+   * showing the findings must be able to say "the 500 most-shown pages of
+   * 4,213" rather than implying it looked at everything.
+   */
+  coverage: OpportunityCoverage;
+};
+
+export type OpportunityCoverage = {
+  pagesConsidered: number;
+  pagesAvailable: number;
+  pagesTruncated: boolean;
+  queriesConsidered: number;
+  queriesAvailable: number;
+  queriesTruncated: boolean;
+};
+
+const NO_COVERAGE: OpportunityCoverage = {
+  pagesConsidered: 0,
+  pagesAvailable: 0,
+  pagesTruncated: false,
+  queriesConsidered: 0,
+  queriesAvailable: 0,
+  queriesTruncated: false,
 };
 
 const EMPTY: OpportunityReport = {
@@ -145,6 +188,7 @@ const EMPTY: OpportunityReport = {
   improvements: [],
   insufficient: [],
   benchmarks: [],
+  coverage: NO_COVERAGE,
 };
 
 function keyFor(kind: OpportunityKind, path: string, extra = ""): string {
@@ -189,9 +233,9 @@ function pageTerms(listing: {
  */
 export async function opportunityReport(
   actor: SessionUser | null,
-  options: { windowDays?: number; executor?: Executor } = {},
+  options: { windowDays?: number; executor?: Executor; pageLimit?: number; queryLimit?: number } = {},
 ): Promise<OpportunityReport> {
-  requirePermission(actor, "catalog.manage");
+  requirePermission(actor, "seo.view");
   const executor = options.executor ?? db;
   const property = configuredProperty();
   if (!property) return EMPTY;
@@ -217,8 +261,13 @@ export async function opportunityReport(
   const windowComplete = measuredDays >= windowLength(window) * THRESHOLDS.MIN_WINDOW_COVERAGE;
   const canCompare = windowComplete && previousMeasured >= windowLength(previousWindow) * THRESHOLDS.MIN_WINDOW_COVERAGE;
 
-  const current = await pagePerformance(executor, property, window, { limit: 500 });
-  const previous = canCompare ? await pagePerformance(executor, property, previousWindow, { limit: 500 }) : [];
+  // Bounded, most-shown first, and counted so the report can say so (R-16).
+  const pageLimit = Math.min(Math.max(options.pageLimit ?? OPPORTUNITY_LIMITS.pages, 50), OPPORTUNITY_LIMITS.maxPages);
+  const [current, pagesAvailable] = await Promise.all([
+    pagePerformance(executor, property, window, { limit: pageLimit }),
+    performanceRowCount(executor, property, window, { dimension: "page" }),
+  ]);
+  const previous = canCompare ? await pagePerformance(executor, property, previousWindow, { limit: pageLimit }) : [];
   const previousByPath = new Map(previous.map((row) => [row.pagePath, row]));
 
   const insufficient: InsufficientData[] = [];
@@ -231,6 +280,17 @@ export async function opportunityReport(
     insufficient.push({
       subject: "Comparisons with the earlier period",
       reason: `The ${windowLength(previousWindow)} days before this window have only ${previousMeasured} days of measurements, so rises and falls are not reported.`,
+    });
+  }
+
+  const pagesTruncated = pagesAvailable > current.length;
+  if (pagesTruncated) {
+    insufficient.push({
+      subject: "The pages covered",
+      reason:
+        `This report covers the ${current.length.toLocaleString("en-GB")} most-shown pages of the ` +
+        `${pagesAvailable.toLocaleString("en-GB")} that had impressions in the window. Pages below that are not ` +
+        `examined, and the click-through benchmarks are the median of the pages that are.`,
     });
   }
 
@@ -335,8 +395,22 @@ export async function opportunityReport(
     }
   }
 
-  // 5. Queries a page is shown for but never says.
-  opportunities.push(...(await contentGaps(executor, property, window, current, titles)));
+  // 5. Queries a page is shown for but never says — bounded the same way.
+  const queryLimit = Math.min(
+    Math.max(options.queryLimit ?? OPPORTUNITY_LIMITS.queries, 50),
+    OPPORTUNITY_LIMITS.maxQueries,
+  );
+  const gaps = await contentGaps(executor, property, window, current, titles, queryLimit);
+  opportunities.push(...gaps.opportunities);
+  if (gaps.truncated) {
+    insufficient.push({
+      subject: "The searches covered",
+      reason:
+        `The wording check read the ${gaps.considered.toLocaleString("en-GB")} most-shown page-and-search rows of ` +
+        `the ${gaps.available.toLocaleString("en-GB")} in the window. Searches below that are not compared against ` +
+        `page copy.`,
+    });
+  }
 
   const withDecisions = await attachDecisions(executor, [...opportunities, ...improvements]);
   const decided = new Map(withDecisions.map((row) => [row.key, row]));
@@ -347,6 +421,14 @@ export async function opportunityReport(
     window,
     previousWindow: canCompare ? previousWindow : null,
     windowComplete,
+    coverage: {
+      pagesConsidered: current.length,
+      pagesAvailable,
+      pagesTruncated,
+      queriesConsidered: gaps.considered,
+      queriesAvailable: gaps.available,
+      queriesTruncated: gaps.truncated,
+    },
     opportunities: opportunities.map((row) => decided.get(row.key) ?? row),
     improvements: improvements.map((row) => decided.get(row.key) ?? row),
     insufficient,
@@ -403,16 +485,23 @@ async function contentGaps(
   window: Window,
   pages: PagePerformance[],
   titles: Map<string, string>,
-): Promise<Opportunity[]> {
+  limit: number,
+): Promise<{ opportunities: Opportunity[]; considered: number; available: number; truncated: boolean }> {
   const productPages = pages.filter((page) => page.productId);
-  if (productPages.length === 0) return [];
+  if (productPages.length === 0) return { opportunities: [], considered: 0, available: 0, truncated: false };
 
-  const queries = await queryPerformance(executor, property, window, {
-    // A gap is about one page's wording, so it needs the page-and-query rows.
-    dimension: "page_query",
-    minImpressions: THRESHOLDS.MIN_QUERY_IMPRESSIONS,
-    limit: 500,
-  });
+  const [queries, available] = await Promise.all([
+    queryPerformance(executor, property, window, {
+      // A gap is about one page's wording, so it needs the page-and-query rows.
+      dimension: "page_query",
+      minImpressions: THRESHOLDS.MIN_QUERY_IMPRESSIONS,
+      limit,
+    }),
+    performanceRowCount(executor, property, window, {
+      dimension: "page_query",
+      minImpressions: THRESHOLDS.MIN_QUERY_IMPRESSIONS,
+    }),
+  ]);
   const byPath = new Map<string, QueryPerformance[]>();
   for (const row of queries) {
     if (!row.pagePath) continue;
@@ -420,7 +509,9 @@ async function contentGaps(
   }
   // With no page-and-query rows there is nothing to compare a page's wording
   // against; that dimension only exists once a sync has stored it.
-  if (byPath.size === 0) return [];
+  if (byPath.size === 0) {
+    return { opportunities: [], considered: queries.length, available, truncated: available > queries.length };
+  }
 
   const ids = [...new Set(productPages.map((page) => page.productId!))];
   const listings: {
@@ -478,7 +569,7 @@ async function contentGaps(
       });
     }
   }
-  return found;
+  return { opportunities: found, considered: queries.length, available, truncated: available > queries.length };
 }
 
 /** Decisions staff already recorded, matched back onto the recomputed list. */

@@ -228,6 +228,19 @@ export async function loadDefinitions(executor: Executor, ids?: string[]): Promi
   if (rows.length === 0) return [];
   const definitionIds = rows.map((row) => row.id);
 
+  /*
+   * Every listing save loads this, so it is worth being plain about the shape
+   * (risk R-2). Two things used to make it the most expensive part of a save on
+   * a large catalogue. The options and aliases were fetched with an IN list of
+   * every definition id — 471 uuids in the statement text when the caller
+   * wanted them all, which is the whole table asked for the long way round.
+   * And the rows were then joined in JavaScript with a nested `filter` per
+   * definition and per option, which is O(definitions × options). Both are now
+   * one pass: the query says "all of them" when that is what was asked for, and
+   * the grouping is done with maps. Same rows, same order, no cache.
+   */
+  const wantsAll = ids === undefined;
+
   const [options, aliases]: [
     (typeof pkbAttributeOptions.$inferSelect)[],
     { definitionId: string | null; optionId: string | null; alias: string; targetKind: string }[],
@@ -235,7 +248,7 @@ export async function loadDefinitions(executor: Executor, ids?: string[]): Promi
     executor
       .select()
       .from(pkbAttributeOptions)
-      .where(inArray(pkbAttributeOptions.definitionId, definitionIds))
+      .where(wantsAll ? sql`true` : inArray(pkbAttributeOptions.definitionId, definitionIds))
       .orderBy(pkbAttributeOptions.sortOrder, pkbAttributeOptions.label),
     executor
       .select({
@@ -247,30 +260,45 @@ export async function loadDefinitions(executor: Executor, ids?: string[]): Promi
       .from(pkbAliases)
       .where(
         and(
-          inArray(pkbAliases.definitionId, definitionIds),
+          wantsAll ? sql`${pkbAliases.definitionId} is not null` : inArray(pkbAliases.definitionId, definitionIds),
           eq(pkbAliases.status, "approved"),
           ne(pkbAliases.targetKind, "brand"),
         ),
       ),
   ]);
 
+  const optionsByDefinition = new Map<string, (typeof pkbAttributeOptions.$inferSelect)[]>();
+  for (const option of options) {
+    const list = optionsByDefinition.get(option.definitionId);
+    if (list) list.push(option);
+    else optionsByDefinition.set(option.definitionId, [option]);
+  }
+
+  const aliasesByOption = new Map<string, string[]>();
+  const aliasesByDefinition = new Map<string, string[]>();
+  for (const alias of aliases) {
+    if (alias.targetKind === "option" && alias.optionId) {
+      const list = aliasesByOption.get(alias.optionId);
+      if (list) list.push(alias.alias);
+      else aliasesByOption.set(alias.optionId, [alias.alias]);
+    } else if (alias.targetKind === "definition" && alias.definitionId) {
+      const list = aliasesByDefinition.get(alias.definitionId);
+      if (list) list.push(alias.alias);
+      else aliasesByDefinition.set(alias.definitionId, [alias.alias]);
+    }
+  }
+
   return rows.map((row) =>
     toRecord(
       row,
-      options
-        .filter((option) => option.definitionId === row.id)
-        .map((option) => ({
-          id: option.id,
-          key: option.key,
-          label: option.label,
-          status: option.status,
-          aliases: aliases
-            .filter((alias) => alias.targetKind === "option" && alias.optionId === option.id)
-            .map((alias) => alias.alias),
-        })),
-      aliases
-        .filter((alias) => alias.targetKind === "definition" && alias.definitionId === row.id)
-        .map((alias) => alias.alias),
+      (optionsByDefinition.get(row.id) ?? []).map((option) => ({
+        id: option.id,
+        key: option.key,
+        label: option.label,
+        status: option.status,
+        aliases: aliasesByOption.get(option.id) ?? [],
+      })),
+      aliasesByDefinition.get(row.id) ?? [],
     ),
   );
 }

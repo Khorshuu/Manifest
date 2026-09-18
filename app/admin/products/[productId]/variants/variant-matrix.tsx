@@ -182,6 +182,35 @@ export function VariantMatrix({
     });
   }
 
+  /*
+   * Renaming goes through the API rather than being typed into the database,
+   * because that is the path that tells the knowledge base who renamed the
+   * value and refuses a value someone has already decided (risk R-8).
+   */
+  function renameValue(option: ManagerOption, value: { id: string; value: string }) {
+    const next = window.prompt(`Rename “${value.value}” in ${option.name}. Variants keep their prices and stock; past orders keep the name they were bought under.`, value.value);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === value.value) return;
+    void run(async () => {
+      const json = await call(`/api/admin/attributes/values/${value.id}`, "PATCH", { value: trimmed });
+      if (!json) return null;
+      return `“${value.value}” is now “${trimmed}”.`;
+    });
+  }
+
+  function renameGroup(option: ManagerOption) {
+    const next = window.prompt(`Rename the ${option.name} group. Its values and variants are unaffected.`, option.name);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === option.name) return;
+    void run(async () => {
+      const json = await call(`/api/admin/products/${productId}/options/${option.id}`, "PATCH", { name: trimmed });
+      if (!json) return null;
+      return `${option.name} is now ${trimmed}.`;
+    });
+  }
+
   function removeValue(option: ManagerOption, value: { id: string; value: string }) {
     if (!window.confirm(`Remove “${value.value}” from ${option.name}? Its variants on this product are removed (archived if they were ever ordered). No other product is affected.`)) return;
     void run(async () => {
@@ -267,13 +296,31 @@ export function VariantMatrix({
               return (
                 <li key={option.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
                   <span className="min-w-24 text-meta font-semibold text-ink">
-                    {option.name}
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => renameGroup(option)}
+                      title={`Rename the ${option.name} group`}
+                      className="rounded text-ink hover:underline"
+                    >
+                      {option.name}
+                      <span className="sr-only"> — rename</span>
+                    </button>
                     <span className="ml-1 font-normal text-ink/70">({option.values.length})</span>
                   </span>
                   <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                     {shown.map((value) => (
-                      <span key={value.id} className="inline-flex items-center rounded-control border border-blue-200 bg-paper-raised py-0.5 pl-2 pr-0.5 text-[0.75rem] text-ink">
-                        {value.value}
+                      <span key={value.id} className="inline-flex items-center rounded-control border border-blue-200 bg-paper-raised py-0.5 pl-0.5 pr-0.5 text-[0.75rem] text-ink">
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => renameValue(option, value)}
+                          title={`Rename ${value.value}`}
+                          className="min-h-8 rounded px-1.5 text-ink hover:bg-blue-200/50"
+                        >
+                          {value.value}
+                          <span className="sr-only"> — rename</span>
+                        </button>
                         <button
                           type="button"
                           disabled={pending}

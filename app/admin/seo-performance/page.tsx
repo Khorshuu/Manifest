@@ -2,8 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
 import { requireAdminPage } from "@/lib/auth/admin-page";
+import { can } from "@/lib/auth/authorize";
 import { formatShortDate } from "@/lib/format";
-import { changeComparisons, learningSignals, opportunityReport, searchConsoleStatus } from "@/lib/search-console";
+import {
+  changeComparisons,
+  learningSignals,
+  metricsStorage,
+  opportunityReport,
+  searchConsoleStatus,
+} from "@/lib/search-console";
 import { changeFieldLabel } from "@/lib/seo/history";
 import { SearchConsolePanel } from "./search-console-panel";
 
@@ -25,8 +32,12 @@ export const metadata: Metadata = { title: "Search performance" };
  * rule over those sums with its numbers shown.
  */
 export default async function SeoPerformancePage() {
-  const user = await requireAdminPage("catalog.manage");
-  const status = await searchConsoleStatus(user);
+  // Reading this screen needs `seo.view`; acting on it needs `catalog.manage`
+  // (D-101). The actions re-check that permission inside `lib/`, so a
+  // read-only viewer who forges the request is still refused.
+  const user = await requireAdminPage("seo.view");
+  const canManage = can(user, "catalog.manage");
+  const [status, storage] = await Promise.all([searchConsoleStatus(user), metricsStorage(user)]);
 
   const connected = status.state !== "not_configured";
   const [report, comparisons, learning] = connected
@@ -45,7 +56,7 @@ export default async function SeoPerformancePage() {
         </p>
       </header>
 
-      <SearchConsolePanel status={status} report={report} learning={learning} />
+      <SearchConsolePanel status={status} report={report} learning={learning} storage={storage} canManage={canManage} />
 
       <section className="flex flex-col gap-3">
         <div className="flex flex-col gap-1">

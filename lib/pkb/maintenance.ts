@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { products } from "@/db/schema";
 import { LEGACY, queryRows, type Executor } from "./common";
 import { syncLegacyFamilies } from "./families";
-import { legacyStructuredFields, loadProjection, sameStructuredFields, type LegacyStructuredFields } from "./projection";
+import { legacyStructuredFields, loadProjections, sameStructuredFields, type LegacyStructuredFields } from "./projection";
 import { processKnowledgeQueue } from "./sync";
 import { ensureSystemVocabulary, LEGACY_DETAIL_DEFINITIONS, LEGACY_DETAIL_IDENTIFIERS } from "./vocabulary";
 
@@ -202,7 +202,6 @@ export async function knowledgeReport(executor: Executor = db): Promise<Knowledg
   const mapped = new Set(
     (await queryRows<{ id: string }>(executor, sql`select category_attribute_id::text as id from pkb_legacy_attribute_map`)).map((row) => row.id),
   );
-  const listings = await executor.select().from(products);
   const parkedRows = await queryRows<{ product_id: string; legacy_ref: string }>(
     executor,
     sql`select product_id, legacy_ref from pkb_unmapped_values`,
@@ -211,14 +210,44 @@ export async function knowledgeReport(executor: Executor = db): Promise<Knowledg
   for (const row of parkedRows) {
     parkedBy.set(row.product_id, (parkedBy.get(row.product_id) ?? new Set()).add(row.legacy_ref));
   }
-  for (const listing of listings as (typeof products.$inferSelect)[]) {
-    if (!listing.pkbProductId) continue;
-    const parked = parkedBy.get(listing.id) ?? new Set<string>();
-    const legacy = restrict(legacyStructuredFields(listing), mapped, parked);
-    const projected = restrict(await loadProjection(executor, listing.pkbProductId), mapped, parked);
-    if (!sameStructuredFields(legacy, projected)) {
-      report.projectionMismatches.push({ listingId: listing.id, fields: differingFields(legacy, projected) });
+
+  /*
+   * The comparison walks the catalogue in chunks, and each chunk loads its
+   * knowledge in two statements rather than two per listing (risk R-2). On the
+   * 5,000-listing scale database that is 10,024 statements down to about 40,
+   * and the peak memory is one chunk of listings rather than all of them.
+   */
+  const RECONCILE_CHUNK = 500;
+  for (let offset = 0; ; offset += RECONCILE_CHUNK) {
+    const listings: (typeof products.$inferSelect)[] = await executor
+      .select()
+      .from(products)
+      .orderBy(products.id)
+      .limit(RECONCILE_CHUNK)
+      .offset(offset);
+    if (listings.length === 0) break;
+
+    const withKnowledge = listings.filter((listing) => listing.pkbProductId !== null);
+    const projections = await loadProjections(
+      executor,
+      withKnowledge.map((listing) => listing.pkbProductId!),
+    );
+
+    for (const listing of withKnowledge) {
+      const parked = parkedBy.get(listing.id) ?? new Set<string>();
+      const legacy = restrict(legacyStructuredFields(listing), mapped, parked);
+      const projected = restrict(
+        // A knowledge product with no mirrored value at all projects to nothing,
+        // which is exactly what the batch loader returns for it.
+        projections.get(listing.pkbProductId!)!,
+        mapped,
+        parked,
+      );
+      if (!sameStructuredFields(legacy, projected)) {
+        report.projectionMismatches.push({ listingId: listing.id, fields: differingFields(legacy, projected) });
+      }
     }
+    if (listings.length < RECONCILE_CHUNK) break;
   }
 
   report.ok =

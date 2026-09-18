@@ -195,7 +195,7 @@ export async function recentSeoChanges(
   actor: SessionUser | null,
   options: { limit?: number; since?: Date; executor?: Executor } = {},
 ): Promise<SeoChange[]> {
-  requirePermission(actor, "catalog.manage");
+  requirePermission(actor, "seo.view");
   const executor = options.executor ?? db;
   const rows: HistoryRow[] = await executor
     .select(HISTORY_COLUMNS)
@@ -212,7 +212,7 @@ export async function seoChangesFor(
   entity: { productId?: string; categoryId?: string },
   options: { limit?: number; executor?: Executor } = {},
 ): Promise<SeoChange[]> {
-  requirePermission(actor, "catalog.manage");
+  requirePermission(actor, "seo.view");
   const executor = options.executor ?? db;
   const where = entity.productId
     ? eq(seoFieldHistory.productId, entity.productId)
