@@ -362,3 +362,45 @@ SEO fields surviving a rename with their HTML reduced to the allow-list.
 `e2e/seo.spec.ts` checks the rendered page: the JSON-LD on a real product, that
 its price matches the price on the page, the breadcrumb trail, the sitemap
 (including image entries) and robots.txt.
+
+## Search Console (knowledge platform, Stage 6)
+
+`tests/search-console.test.ts` (47) covers the whole stage against a fixture at
+the provider boundary, so none of it needs Google credentials — which is what
+the boundary is for.
+
+**The fixture** (`FakeSearchConsole`) implements `SearchConsoleProvider`,
+records every request it was given, and pages exactly as Google does: `rowLimit`
+rows from `startRow`, with a full page the only signal there may be more. Tests
+that need a failure queue an answer (`UNAVAILABLE`, `NOT_CONFIGURED`) instead.
+`setSearchConsoleProviderForTesting` swaps it in, as the research and payment
+providers already do.
+
+What is asserted: the unconfigured provider reporting `NOT_CONFIGURED` rather
+than failing, the connection screen showing it without touching the database, a
+sync refusing with an explanation and storing nothing, the scheduled job
+reporting rather than failing, and an empty opportunity report rather than a
+screen of zeroes; the Google provider being unconfigured without credentials
+and never returning key material from its connection; a sync storing what came
+back, an identical second sync writing nothing, a revised day updating in place,
+a double click being one sync, a retried job returning a finished sync
+unchanged, pagination across two requests, an outage recorded as a failed sync
+with the watermark unmoved, the next window re-reading the trailing days,
+another site's address dropped, an unrecognised page kept with no listing
+attached, an old address resolved through the redirect table, and the job
+running through the real registry; the five opportunity kinds, a position band
+with too few pages reported as insufficient data instead of compared against, a
+window whose predecessor is unmeasured not being compared, and no report
+containing the words score, search volume, difficulty, CPC, backlink or
+competitor; an opportunity decision stored without changing the finding; the
+change history for a listing and for a shelf, its append-only trigger refusing
+both an update and a delete, and two changes to one field keeping two rows;
+before-and-after stating what the numbers did, never a causal claim (asserted
+against five phrasings), a change too recent refused, and the same observational
+wording for a fall; controlled learning recommending a phrase, creating no alias
+and no fact, and stopping once the alias is approved; and every entry point
+refusing a customer and a signed-out visitor.
+
+**Not covered here:** whether Google's real responses match the shapes
+`GoogleSearchConsoleProvider` parses. That needs credentials and is marked
+UNVERIFIED in `docs/KNOWLEDGE_PLATFORM.md`.

@@ -11,6 +11,11 @@ import { runEnrichment } from "@/lib/pkb/enrichment";
 import { runKnowledgeSync } from "@/lib/pkb/maintenance";
 import { getMediaProvider } from "@/lib/providers/media";
 import { pruneSearchLogs } from "@/lib/search/analytics";
+import {
+  pruneSearchConsoleMetrics,
+  runSearchConsoleSync,
+  scheduledSearchConsoleSync,
+} from "@/lib/search-console/sync";
 import { completeQueuedResearch } from "@/lib/seo-pulse/service";
 import { processSearchQueue } from "@/lib/search/maintenance";
 import { pruneFinishedJobs, type JobHandlers, type RecurringJob } from "./runner";
@@ -40,14 +45,22 @@ export const JOB_HANDLERS: JobHandlers = {
   // Retrieval is slow and must not run on a staff request; a finished run is
   // returned unchanged, so a retry cannot propose the same claims twice.
   "pkb.enrich_product": (payload) => runEnrichment(String(payload.runId)),
+  // Idempotent by storage: a measurement is keyed on property, day, dimension,
+  // page and query, so re-reading a window updates rows instead of adding any.
+  // A finished sync is returned unchanged, so a retry cannot fetch twice.
+  "seo.search_console_sync": (payload) => runSearchConsoleSync(String(payload.syncId)),
+  // Asks for a sync when there is a newer window to read. With no Search
+  // Console configured it reports that and does nothing.
+  "seo.search_console_schedule": () => scheduledSearchConsoleSync(),
   "catalog.release_sku_holds": async () => ({ released: await releaseExpiredSkuReservations() }),
   "maintenance.prune": async () => {
     const rateLimits = await pruneRateLimits();
     await deleteExpiredSessions();
     const searchLogs = await pruneSearchLogs();
+    const searchConsoleMetrics = await pruneSearchConsoleMetrics();
     const finishedJobs = await pruneFinishedJobs();
     const guestCarts = await pruneUnreachableGuestCarts();
-    return { rateLimits, searchLogs, finishedJobs, guestCarts };
+    return { rateLimits, searchLogs, searchConsoleMetrics, finishedJobs, guestCarts };
   },
   "media.sweep_unreferenced": () => sweepUnreferencedMedia(getMediaProvider()),
   "catalog.apply_publish_schedule": () => applyPublishSchedule(),
@@ -61,6 +74,9 @@ export const RECURRING_JOBS: RecurringJob[] = [
   { kind: "pkb.sync_listings", everyMinutes: 5 },
   { kind: "catalog.release_sku_holds", everyMinutes: 15 },
   { kind: "catalog.apply_publish_schedule", everyMinutes: 5 },
+  // Search Console reports whole days and lags behind by a couple of them, so
+  // asking twice a day is as often as there is anything new to read.
+  { kind: "seo.search_console_schedule", everyMinutes: 720 },
   { kind: "maintenance.prune", everyMinutes: 60 },
   { kind: "media.sweep_unreferenced", everyMinutes: 60 },
 ];

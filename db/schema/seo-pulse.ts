@@ -11,7 +11,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { products } from "./catalog";
+import { categories, products } from "./catalog";
 import { users } from "./users";
 
 export const SEO_RESEARCH_STATUSES = ["running", "completed", "failed"] as const;
@@ -129,25 +129,66 @@ export const seoFieldStates = pgTable(
   ],
 );
 
-/** Before and after of every SEO or content field change (finding F9). Append-only. */
+/** Shelf SEO fields, which have history but no per-field state machine. */
+export const CATEGORY_SEO_FIELDS = [
+  "seoMetaTitle",
+  "seoMetaDescription",
+  "canonicalUrl",
+  "seoNoIndex",
+  "slug",
+  "name",
+  "introHtml",
+] as const;
+export type CategorySeoField = (typeof CATEGORY_SEO_FIELDS)[number];
+
+/** Any field the change history can carry, listing or shelf. */
+export type SeoChangeField = SeoField | CategorySeoField;
+
+/** Which path made a change, so history says how it happened as well as what. */
+export const SEO_CHANGE_WORKFLOWS = [
+  "editor",
+  "seo_pulse_apply",
+  "seo_pulse_fill",
+  "lock",
+  "import",
+  "system",
+] as const;
+export type SeoChangeWorkflow = (typeof SEO_CHANGE_WORKFLOWS)[number];
+
+/**
+ * The SEO change history (migration 0033, widened by 0037 — D-098).
+ *
+ * Append-only: before and after of every change to a listing's or a shelf's
+ * SEO fields, with the actor, the reason and the workflow that made it.
+ * Section 4.4 of the platform tracker planned a separate `seo_change_history`;
+ * this table already had those columns, so it was widened rather than
+ * duplicated — two stores holding one kind of record is the mistake this
+ * programme keeps closing.
+ */
 export const seoFieldHistory = pgTable(
   "seo_field_history",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    productId: uuid("product_id")
-      .notNull()
-      .references(() => products.id, { onDelete: "cascade" }),
-    field: text("field").$type<SeoField>().notNull(),
+    entityType: text("entity_type").$type<"product" | "category">().notNull().default("product"),
+    productId: uuid("product_id").references(() => products.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id").references(() => categories.id, { onDelete: "cascade" }),
+    field: text("field").$type<SeoChangeField>().notNull(),
     beforeValue: text("before_value"),
     afterValue: text("after_value"),
     beforeState: text("before_state").$type<SeoFieldState>(),
-    afterState: text("after_state").$type<SeoFieldState>().notNull(),
+    /** Null for a shelf: no per-field state is stored for one. */
+    afterState: text("after_state").$type<SeoFieldState>(),
     actorUserId: uuid("actor_user_id").references(() => users.id),
     sourceRunId: uuid("source_run_id").references(() => seoResearchRuns.id, { onDelete: "set null" }),
     reason: text("reason").notNull(),
+    workflow: text("workflow").$type<SeoChangeWorkflow>().notNull().default("editor"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("seo_field_history_product_idx").on(table.productId, table.createdAt)],
+  (table) => [
+    index("seo_field_history_product_idx").on(table.productId, table.createdAt),
+    index("seo_field_history_category_idx").on(table.categoryId, table.createdAt),
+    index("seo_field_history_changed_idx").on(table.createdAt),
+  ],
 );
 
 /**

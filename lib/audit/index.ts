@@ -70,7 +70,10 @@ export type AuditAction =
   | "knowledge.label_mapped"
   | "knowledge.proposal_decided"
   | "knowledge.enrichment_requested"
-  | "knowledge.source_added";
+  | "knowledge.source_added"
+  /** Search Console and the SEO opportunity engine — docs/KNOWLEDGE_PLATFORM.md. */
+  | "seo.search_console_synced"
+  | "seo.opportunity_decided";
 
 export type AuditEntry = {
   actorUserId: string;

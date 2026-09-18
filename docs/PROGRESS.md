@@ -3311,5 +3311,69 @@ Blocked on your accounts or choices:
 - `[!]` The product page's Specification and Measurements tabs still read the
   old columns, which are kept in step automatically. They move when those
   columns are removed, in Stage 7.
-- `[ ]` Stage 6 (Google Search Console, opportunity detection, SEO change
-  history) waits for the go-ahead.
+- `[x]` Stage 6 is done; see below.
+
+## Product Knowledge Base programme — Stage 6 of 8 (Search Console and SEO performance)
+
+- `[x]` Manifest can now read what Google reports about its own pages: which
+  searches show them, how often they are clicked, and where they rank. It is
+  optional. With nothing connected the shop says "Search Console not connected"
+  and works exactly as before — the storefront, the search, SeoPulse and the
+  knowledge base do not depend on it.
+- `[x]` A new **Search performance** screen in the admin. Connected or not, it
+  shows every SEO change anyone has made — what was changed, from what to what,
+  by whom and when — and, where there are measurements either side, what the
+  numbers did around it.
+- `[x]` Where there are measurements, the screen says what is worth doing: a
+  page shown often and rarely clicked, a page ranking just off the first page,
+  words people search for that a page never says, a page doing measurably worse
+  than the month before, and a page doing measurably better. Each one shows the
+  numbers behind it, and each can be marked acted on, being watched, or not
+  worth doing.
+- `[x]` It never claims a change caused anything. It says what happened after a
+  change — "clicks increased in the observed period after this change" — and
+  lists the other things that move those numbers. Traffic moves with the
+  season, with stock, with price and with whatever Google changed that week,
+  and a shop that believes otherwise starts making changes for reasons it has
+  not measured.
+- `[x]` Nothing is invented. Search volume, keyword difficulty, cost per click,
+  backlinks and competitor figures are not things this shop can measure, so
+  they are absent rather than estimated. There is no score. When a page is
+  clicked less than expected, "expected" means this site's own pages at similar
+  positions — not a number from somebody else's industry table.
+- `[x]` When there is not enough data, it says so and which: not enough days
+  measured, too few impressions, or a change too recent to have a month after
+  it. A gap is never shown as a zero.
+- `[x]` What people type into Google can suggest a new name for a product, or
+  wording a page is missing. It cannot become one on its own: somebody has to
+  propose it and somebody else has to approve it, exactly as with the shop's
+  own search. A Google search never becomes a product fact.
+- `[x]` Shelves (category pages) now keep a history of their SEO changes, which
+  they never had. Listings already did.
+- `[x]` Credentials live on the server, in one file, and never reach a browser.
+  Nothing Search Console reports can be exported, and none of it holds anything
+  about a customer.
+- `[x]` Checks: typecheck and lint clean; 47 new tests; 296 existing tests in
+  sixteen files re-run and passing. Migration 0037 is applied to the
+  development database and the knowledge base reconciles cleanly afterwards.
+  The screens, both new API routes and a shelf save were exercised on the
+  running development site.
+- `[!]` **UNVERIFIED — external integration unavailable.** Nobody has connected
+  a real Search Console property, because that needs credentials only the owner
+  can supply. Everything up to the Google call is tested with a stand-in; the
+  Google call itself follows the published interface and has never run against
+  Google. A mismatch would show as a failed sync with a reason, never as a
+  wrong number. Recorded as R-15.
+- `[!]` The opportunity engine has only been measured against a small
+  catalogue. At a property with tens of thousands of pages its limits would
+  start truncating the list rather than slowing it down. To be measured in
+  Stage 7; recorded as R-16.
+- `[!]` The measurement table's size is driven by what Google reports, not by
+  the catalogue, because pages the shop no longer has are kept on purpose —
+  that is how a link sending people nowhere becomes visible. Old days are
+  deleted automatically after sixteen months; nothing yet reports the size back
+  to an operator. Recorded as R-17.
+- `[!]` Still not run: the end-to-end suite and a production build.
+- `[ ]` Stage 7 (hardening: security, write safety, performance, removing the
+  legacy columns) waits for the go-ahead.
+

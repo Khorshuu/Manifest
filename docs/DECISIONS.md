@@ -2298,3 +2298,116 @@ came from, makes the coverage measurable instead of assumed: `source` on
 
 Removal belongs to Stage 7, after the reconciliation report is clean on the
 target database and a test proves no reader remains (invariant I-12).
+
+## D-096 — Search Console is an optional intelligence source behind a provider boundary
+
+**Decision.** `lib/providers/search-console/` defines one interface with two
+methods: what is configured, and one page of performance rows. The default
+implementation reports `NOT_CONFIGURED`; `GoogleSearchConsoleProvider` is the
+only place credentials are read, and it authenticates with a service-account
+key exchanged for a short-lived access token. `lib/search-console` consumes the
+interface and never Google.
+
+Measurements are stored in `search_console_metrics`, keyed on property, day,
+dimension, page and query. `page_path` and `query` are empty strings where the
+dimension does not use them, so the natural key is a plain unique index instead
+of one over nullable columns — which would have let the same measurement be
+stored twice. `ctr` is a generated column, so it cannot disagree with the two
+counts behind it; `position` is stored as reported, because an
+impression-weighted average cannot be recomputed from anything else stored.
+
+**The shop works without it, and says so.** With nothing configured, every
+entry point answers "Search Console not connected", the sync refuses with an
+explanation and writes nothing, and the opportunity engine returns an empty
+report rather than a screen of zeroes. A zero is a measurement; there are no
+measurements. Nothing in SeoPulse, SearchPulse, the storefront or the knowledge
+base depends on it.
+
+**Search Console data is not knowledge.** It is `PROVIDER_RESTRICTED` internal
+analytics about this shop's own pages: never exportable (invariant I-10), never
+evidence for a product fact (I-1), and carrying no customer identifier (I-9). A
+schema test asserts the table has no column that could hold one.
+
+## D-097 — Opportunities are rules over stored measurements, benchmarked against this site's own pages
+
+**Decision.** `lib/search-console/opportunities.ts` computes five kinds from
+the stored rows — a page shown often and clicked rarely for where it ranks, a
+query a page is shown for but never says, a page ranking just off the first
+page, a measurable fall, and a measurable rise — each with the numbers behind
+it and a recommendation in words. The thresholds are one exported constant, so
+any figure on a screen can be explained.
+
+**The benchmark is this site's own median click-through rate per position
+band**, not a published industry table. A table would be someone else's data
+presented as this shop's measurement. A band with fewer than five pages carrying
+enough impressions produces no benchmark at all, and that is reported as
+insufficient data rather than compared against anyway.
+
+**No score, and no figures this shop cannot measure.** Search volume, keyword
+difficulty, CPC, backlinks, competitor traffic and competitor keyword counts
+are not measurements Manifest has; they are absent rather than estimated. A
+test asserts none of those words appears in a report.
+
+**Opportunities are recomputed, decisions are stored.** A derived list in a
+table has to be kept in step with the data it came from, and a stale row reports
+work that is no longer there. What is stored is `seo_opportunity_decisions`: a
+person acted, dismissed or is watching, with the measurements as they stood.
+The finding is still computed from the rows every time; the decision is a note
+on it.
+
+## D-098 — One SEO change history, widened rather than duplicated
+
+**Decision.** Section 4.4 of the platform tracker planned a `seo_change_history`
+table. Stage 4 had already built `seo_field_history` with exactly those columns
+for listings. Migration 0037 widens that table — an entity type, a category, and
+the workflow that made the change — instead of adding a second store of the same
+kind of record, which is the mistake this programme keeps closing elsewhere.
+
+Shelves now have SEO history for the first time: `updateCategory` records
+before and after for its five SEO fields and its intro copy. A shelf row records
+no per-field state, because a shelf has no state machine behind it, and claiming
+one would be inventing a store that does not exist.
+
+The table stays append-only in the database. A correction is a new row.
+
+## D-099 — Before and after is an observation, never a cause
+
+**Decision.** `compareAroundChange` takes one row of the change history and
+compares the measurements in the window before it with the window after it. The
+change day itself is in neither window: on that day the page was both things.
+The output states what the numbers did — "clicks increased in the observed
+period after the change" — and carries a `causation` field whose only value is
+"not established", beside the list of things that also move these numbers.
+
+**Why the wording is not a matter of taste.** A page's clicks move with the
+season, with stock, with price, with what competitors publish and with whatever
+Google changed that week. A shop that reads "this change caused traffic to rise"
+starts making changes for reasons it has not measured. A test asserts no
+comparison ever contains a causal claim.
+
+Where there is not enough to say — a change too recent for a window after it,
+a window whose days are mostly unmeasured, or too few impressions either side —
+the verdict says which, and no difference is reported.
+
+## D-100 — Controlled learning: Search Console may recommend, never teach
+
+**Decision.** Manifest improves its recommendations by reading what it already
+has: approved knowledge, approved sources and aliases, decisions staff made, its
+own search log, Search Console performance and the SEO change history. Nothing
+retrains, and nothing changes what the shop believes.
+
+**A Search Console query never becomes a product fact, an attribute, an alias
+or SEO copy on its own.** It can produce a recommendation on a screen and
+nothing else. Turning one into vocabulary is the two-step path D-094 already
+established — a person creates a *suggested* alias, and `search.manage` approves
+it — and turning one into copy is a person editing the listing. What people type
+into Google is evidence of what they want; it is not evidence of what a product
+is. The guardrails are printed on the screen that shows the recommendations, and
+a test asserts that generating them creates no alias and no fact.
+
+**Reading Search Console needs `catalog.manage`, not `analytics.view`.** Section
+4.11 of the platform tracker had planned `analytics.view`. The people who act on
+this are the catalogue staff — `product_manager` holds `catalog.manage` and not
+`analytics.view` — and what is shown is this shop's own pages rather than
+customer behaviour. Requiring the permission that matches the work is narrower
+in practice than requiring the one that also opens revenue and funnels.

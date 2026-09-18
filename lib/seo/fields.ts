@@ -5,6 +5,7 @@ import {
   seoFieldHistory,
   seoFieldStates,
   SEO_FIELDS,
+  type SeoChangeWorkflow,
   type SeoField,
   type SeoFieldState,
 } from "@/db/schema";
@@ -104,7 +105,17 @@ export type FieldWrite = {
   origin: "staff" | "generated" | "accepted";
   runId?: string | null;
   reason: string;
+  /** Which path made the change, kept in the change history (D-098). */
+  workflow?: SeoChangeWorkflow;
 };
+
+/** The workflow a write belongs to when the caller does not name one. */
+function workflowFor(write: FieldWrite): SeoChangeWorkflow {
+  if (write.workflow) return write.workflow;
+  if (write.origin === "accepted") return "seo_pulse_apply";
+  if (write.origin === "generated") return "seo_pulse_fill";
+  return "editor";
+}
 
 function asText(value: unknown): string | null {
   if (value === null || value === undefined) return null;
@@ -187,6 +198,7 @@ export async function recordFieldWrites(
       actorUserId: actorId,
       sourceRunId: write.runId ?? null,
       reason: write.reason.slice(0, 300),
+      workflow: workflowFor(write),
     });
     written.push(write.field);
   }
@@ -237,6 +249,7 @@ export async function setFieldLock(
       afterState: state,
       actorUserId: staff.id,
       reason: lock ? (note?.slice(0, 300) ?? "Locked by staff") : "Unlocked by staff",
+      workflow: "lock",
     });
     return { state };
   });

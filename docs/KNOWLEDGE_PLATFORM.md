@@ -38,7 +38,7 @@ fact; admin approval before mutation; deterministic logic before AI.
 | 3 | SeoPulse product intelligence: resolution, brand source registry, sources, claims, conflicts, review and apply | EXTRA HIGH | **COMPLETE** (2026-09-18) — see section 3B |
 | 4 | SEO engine: metadata states, structured data, technical SEO, image SEO, internal links, duplicate and thin content, SEO Health Center | HIGH | **COMPLETE** (2026-09-18) — see sections 3C and 3C.1b |
 | 5 | SearchPulse: query understanding, aliases, attribute-aware search, typo tolerance, autocomplete, facets, analytics | EXTRA HIGH | **COMPLETE** (2026-09-18) — see section 3D |
-| 6 | Google Search Console, opportunity detection, SEO change history, controlled learning | HIGH | NOT STARTED |
+| 6 | Google Search Console, opportunity detection, SEO change history, controlled learning | HIGH | **COMPLETE** (2026-09-18) — see section 3E |
 | 7 | Hardening: security, SSRF, write safety, performance, legacy contract, observability, provider abstraction | MAX | NOT STARTED |
 | 8 | Final production audit and full verification | ULTRACODE | NOT STARTED |
 
@@ -562,6 +562,119 @@ by the deferred trigger at the commit of whatever changed it. `rebuildSearchInde
 already chunks by 200, so the admin button costs about 14 s at 5,000 listings
 rather than 71. Recorded as R-12.
 
+## 3E. Stage 6 — what was done
+
+Search Console as an optional intelligence source, an opportunity engine over
+what it measures, one SEO change history, before-and-after observation, and
+controlled learning that recommends and never teaches.
+
+**The whole stage works with Search Console not connected.** That is the
+governing constraint, not a fallback: with no provider configured every entry
+point answers "Search Console not connected", the sync refuses with an
+explanation and writes nothing, the opportunity engine returns an empty report
+rather than a screen of zeroes, and the SEO change history — which is the shop's
+own record — carries on working. Nothing in SeoPulse, SearchPulse, the storefront
+or the Product Knowledge Base depends on it.
+
+### 3E.1 Built
+
+| Area | Where | What |
+| --- | --- | --- |
+| Provider boundary | `lib/providers/search-console/` | `SearchConsoleProvider`: what is configured (no network call, so a screen renders its state without waiting on Google) and one page of performance rows. `UnconfiguredSearchConsoleProvider` is the default and reports `NOT_CONFIGURED`; `GoogleSearchConsoleProvider` is the only file that reads credentials — a service-account key signed into a JWT, exchanged for a short-lived access token, against the Search Analytics API with `dataState: "final"`. Selected by `SEARCH_CONSOLE_PROVIDER`; `setSearchConsoleProviderForTesting` swaps it (D-096) |
+| Schema | `db/migrations/0037_search_console.sql`, `db/schema/search-console.ts` | `search_console_metrics` (keyed on property, day, dimension, page and query; `ctr` generated from the counts; `position` stored as reported), `search_console_syncs`, `search_console_sync_state`, `seo_opportunity_decisions`, and the widened `seo_field_history` |
+| Synchronisation | `lib/search-console/sync.ts` | A requested row, a durable job (`seo.search_console_sync`), and a handler that can be retried freely. Idempotent by storage: an upsert on the natural key. Bounded by a request ceiling; paginated by row offset; a finished sync returns unchanged; the watermark moves only after a sync that stored its whole window. `seo.search_console_schedule` runs twice a day and reports rather than failing when nothing is configured |
+| Address resolution | `lib/search-console/paths.ts` | A Search Console address becomes a path of this shop, a listing, a shelf, or nothing. Another site's address is dropped; an address this shop no longer serves resolves through Stage 4's redirect table; an unrecognised path is kept with no entity attached, because a page Google sends people to that this shop does not recognise is the problem worth seeing |
+| Read model | `lib/search-console/metrics.ts` | Connection state, coverage, totals, per-page and per-query performance, and how many of a window's days are actually measured. Positions are impression-weighted; averaging the averages would let a page seen twice count as much as one seen ten thousand times |
+| Opportunity engine | `lib/search-console/opportunities.ts` | Five kinds — shown and not clicked, a query the page never says, ranking within reach, a measurable fall, a measurable rise — each with its numbers and a recommendation. Thresholds are one exported constant. The click-through benchmark is **this site's own median per position band**, and a band with fewer than five qualifying pages produces no benchmark and is reported as insufficient data (D-097) |
+| Decisions | same file, `seo_opportunity_decisions` | Acted, dismissed or watching, with the measurements as they stood. The finding is recomputed every read; the decision is a note on it |
+| Change history | `lib/seo/history.ts`, `lib/catalog/categories.ts`, `lib/seo/fields.ts` | `seo_field_history` widened rather than duplicated (D-098): entity type, shelves, and the workflow that made the change. `updateCategory` now records shelf SEO changes, which had no history at all before |
+| Before and after | `lib/search-console/comparison.ts` | The windows either side of one change, with the change day in neither. States what the numbers did and carries `causation: "not established"` and the confounders. Insufficient days, too little traffic, and a change too recent for a window after it are each their own verdict (D-099) |
+| Controlled learning | `lib/search-console/learning.ts` | Recommendations from approved aliases, the internal search log, Search Console performance and the change history. A query never becomes a fact, an attribute, an alias or copy on its own; the guardrails are printed on the screen (D-100) |
+| Admin | `app/admin/seo-performance/`, `app/admin/products/[productId]/search-performance-box.tsx`, two API routes | The connection and its diagnostics, a sync button, opportunities with per-finding decisions, improvements, insufficient-data notes, recommendations, and the change history with what happened after each change. The listing editor gains a compact box; both routes call `refuseNonStaff()` and the permission is checked inside `lib/` |
+| Retention | `lib/search-console/sync.ts`, `lib/jobs/registry.ts` | `maintenance.prune` deletes measurements past `SEARCH_CONSOLE_RETENTION_DAYS` (480 by default) |
+
+Not built in Stage 6, by design: any paid SEO provider (none is configured and
+none is needed), a second change-history table, stored opportunity lists, and
+any automatic write into the knowledge base.
+
+### 3E.2 What the system will not say
+
+The brief rules out invented figures, and the engine has no way to produce
+them. Search volume, keyword difficulty, CPC, backlinks, competitor traffic and
+competitor keyword counts are not measurements Manifest has, so they are absent
+rather than estimated — a test asserts none of those words appears in a report.
+There is no score. The click-through benchmark is the shop's own median, not a
+published industry table, because a table is someone else's data presented as
+this shop's measurement. And no comparison ever claims a change caused
+anything: the wording is "clicks increased in the observed period after the
+change", the `causation` field says "not established", and a test checks five
+causal phrasings never appear.
+
+### 3E.3 Tested
+
+`tests/search-console.test.ts` (47), all against the fixture at the provider
+boundary. Covered: the unconfigured path end to end; the Google provider's
+unconfigured state and that its connection returns no key material; storing,
+idempotency, revision in place, double-click dedupe, a retried job, pagination,
+an outage leaving the watermark alone, the next window re-reading the trailing
+days, address resolution including an old address, and the job through the real
+registry; all five opportunity kinds plus both insufficient-data paths and the
+forbidden-vocabulary check; decisions; listing and shelf history, the
+append-only trigger refusing an update and a delete, and two changes keeping two
+rows; before-and-after in both directions, the no-causation assertion, and a
+change too recent; controlled learning recommending, writing nothing, and
+stopping once an alias is approved; and every entry point refusing a customer
+and a signed-out visitor. Details in `docs/TESTING.md`.
+
+Re-run unchanged: `seo-engine` (14), `seo-audit` (11), `seo-pulse` (40),
+`catalog`, `migrations`, `jobs`, `schema`, `pkb-write-paths`, `search-knowledge`
+(54), `search-engine`, `seo`, `discovery`, `facets`, `env`, `observability` —
+296 tests across sixteen files besides the new one. `npm run typecheck` and
+`npm run lint` pass.
+
+### 3E.4 Exercised on the running dev site
+
+Migration 0037 was applied to the dev database and `npm run pkb:backfill --
+--report` stayed clean. With nothing configured, `/admin/seo-performance`
+renders "Search Console not connected" with the change history beside it, the
+listing editor's box says the same, the sync route answers 409 with the
+explanation, the decision route records one, and both routes answer 401 to a
+signed-out caller. A shelf save through the real admin API wrote its change
+history rows.
+
+The connected screen was then exercised against a **dummy local property**: 476
+fixture measurements over 56 days for 8 listings, with `SEARCH_CONSOLE_PROVIDER`
+set and a deliberately invalid key. The screen showed the property, the coverage
+and the last sync; the engine produced one "shown, not clicked" finding against
+the site's own 7.50% median for positions 5 to 10, eight "within reach"
+findings, one content gap ("shown 336 times for 'portable espresso maker', which
+this page never says") and the matching alias recommendation. A sync with the
+invalid key failed as `UNAVAILABLE` with a readable diagnostic, the watermark
+did not move, and the job completed rather than retrying forever. The fixtures,
+the environment entries and the scratch scripts were all removed afterwards; the
+dev server is running on the restored configuration.
+
+### 3E.5 Found and fixed on the way
+
+- The first draft read queries through the site-level `query` dimension for both
+  the content-gap rule and the alias recommendation, so neither could ever name
+  a page. Both now read `page_query` explicitly, and `queryPerformance` groups by
+  page as well as query rather than picking one page arbitrarily with `max()`.
+- An alias is stored under the knowledge base's label key, which spaces words
+  where the search term key underscores them. Comparing the two directly made
+  every phrase look new, so an approved alias never silenced its recommendation.
+  The comparison now uses `labelKey` on both sides.
+- `changeFieldLabel` only knew the shelf fields, so a listing's change reached
+  the screen as `seoFocusKeyword`. It now defers to `seoFieldLabel` for anything
+  that is a listing field.
+- An unreadable private key surfaced as OpenSSL's "DECODER
+  routines::unsupported", which tells an operator nothing. Signing failures are
+  now reported as an unreadable key, and the key itself is never quoted.
+- `seo_field_history` is append-only in the database, so a test cannot backdate
+  a change after writing it. The before-and-after fixtures insert the row with
+  the date it is meant to have — which is what a change made that day would have
+  written — rather than weakening the trigger.
+
 ## 4. Target architecture
 
 ### 4.1 Layers
@@ -621,7 +734,7 @@ facts.
 | SEO research (keywords, SERP) | `seo_research_runs.research` | same; PROVIDER_RESTRICTED | — |
 | Search knowledge | `search_synonyms`, `search_keywords`, derived `product_search` | `search_synonyms` (terms) + `pkb_aliases` (entities); `product_search` stays derived from PKB | Stage 5 |
 | Search behaviour | `search_queries`, `search_clicks` | same, extended | Stage 5 |
-| Search performance on Google | none | Search Console tables (restricted) | Stage 6 |
+| Search performance on Google | none | `search_console_metrics` (restricted, never exportable) | Stage 6, migration 0037 |
 
 ### 4.3 Product vs variant vs offer (D-061)
 
@@ -677,8 +790,11 @@ Links added to existing tables: `products.pkb_product_id`,
 Stage 3 adds `pkb_brand_source_domains` (official product, official support,
 approved secondary, blocked; tier; notes). Stage 4 added `seo_field_states`,
 `seo_field_history`, `product_slug_redirects` and the category SEO columns
-(migrations 0033 to 0035). Stage 6 adds Search Console tables and
-`seo_change_history`.
+(migrations 0033 to 0035). Stage 6 added the Search Console tables and
+`seo_opportunity_decisions` (migration 0037). The `seo_change_history` planned
+here turned out to be `seo_field_history` widened rather than a second table
+(D-098): it already had the columns, and two stores of one kind of record is the
+mistake this programme keeps closing.
 
 JSON is used only where the shape is small, bounded and never queried on
 (definition validation rules, a run's research payload). Facts, identifiers,
@@ -808,8 +924,10 @@ note, cost, offer or provider-restricted data. Nothing outside `lib/` reads
   brand source registry. Granted to `super_admin`, `staff_admin`,
   `product_manager`.
 - `search.manage` (existing): alias and synonym approval.
-- Search Console access (Stage 6) reuses `analytics.view` unless a narrower
-  permission proves necessary.
+- Search Console access needs `catalog.manage` (Stage 6, D-096). This plan had
+  said `analytics.view`; the people who act on it are the catalogue staff —
+  `product_manager` holds `catalog.manage` and not `analytics.view` — and what
+  is shown is the shop's own pages rather than customer behaviour.
 
 ### 4.12 Migration strategy (D-069) — expand, backfill, cut over, contract
 
@@ -869,6 +987,9 @@ verified on PGlite and real PostgreSQL.
 | I-15 | No outbound fetch without SSRF guard, timeout, size cap and robots check. | `lib/pkb/net/` | ENFORCED since Stage 3, proved by `tests/pkb-net.test.ts` (38) |
 | I-16 | Existing checkout, capacity, pricing and publish invariants are untouched. | existing suites | HOLDS — full unit project 1,302 passed after Stage 5 |
 | I-17 | SearchPulse proposes; it never writes reusable knowledge. An alias becomes search vocabulary only through a suggestion and then an approval. | `lib/pkb/aliases.ts` permission checks; the index reads only `status = 'approved'` | ENFORCED, tested (a suggested alias finds nothing; a rejected one stops finding) |
+| I-18 | External performance data is never product truth. A Search Console query cannot become a fact, an attribute, an alias or SEO copy without a person suggesting it and a second decision approving it. | `lib/search-console/learning.ts` returns recommendations only; no module under `lib/search-console` imports a `lib/pkb` write path | ENFORCED since Stage 6, tested (generating recommendations creates no alias and no fact) |
+| I-19 | A measurement is stored once. Re-reading a day updates its rows rather than adding any, so a retried or overlapping sync cannot double-count. | the unique key on `search_console_metrics` and the upsert in `lib/search-console/sync.ts` | ENFORCED (database), tested (a second sync writes nothing; a revised day updates in place) |
+| I-20 | The shop never claims a change caused a change in performance. | `compareAroundChange` wording and its `causation` field | ENFORCED, tested against five causal phrasings |
 
 ---
 
@@ -943,6 +1064,24 @@ the real-PostgreSQL concurrency suites. `e2e/search.spec.ts` and
 `e2e/filters.spec.ts` exercise the paths this stage changed and belong to the
 full verification in Stage 8.
 
+### Stage 6 (2026-09-18)
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS |
+| `tests/search-console.test.ts` (new) | PASS — 47 |
+| `seo-engine`, `seo-audit`, `seo-pulse`, `catalog`, `migrations`, `jobs`, `schema`, `pkb-write-paths` | PASS — 161 across eight files with the new one |
+| `search-knowledge`, `search-engine`, `seo`, `discovery`, `facets`, `env`, `observability` | PASS — 135 across seven files |
+| Migration 0037 on dev `preorder` | applied |
+| `npm run pkb:backfill -- --report` after the migration | clean |
+| `/admin/seo-performance`, the listing editor's box, both API routes, and a shelf save | exercised on the running dev site (section 3E.4) |
+| The connected screen, the opportunity engine and a failing sync | exercised against a dummy local property with fixture measurements, then removed (section 3E.4) |
+| Google's real responses | **UNVERIFIED — external integration unavailable.** No Search Console credentials exist. The request and response shapes follow the published API and are parsed defensively; a mismatch becomes a reported provider failure on the sync, never a stored number |
+
+Not run in Stage 6, by design: the end-to-end suite, a production build, the
+whole unit project, and the real-PostgreSQL concurrency suites. Nothing in this
+stage changes a storefront read path.
 
 ---
 
@@ -1017,6 +1156,9 @@ Open risks:
   `search_keywords` survives as listing-level legacy text and is still indexed,
   until Stage 7 contracts it. F1 to F4 are closed (D-075); Stage 4 closed F5,
   F6, F7, F9, F13, F15 and F16; Stage 5 closed F10, F11 and F12 (D-090).
+  Stage 6 closed nothing on this list — it added beside the SEO engine rather
+  than changing it — but it did close a gap that was never numbered: a shelf's
+  SEO fields had no change history at all, and now have one (D-098).
 - **R-4** CLOSED. Outbound retrieval exists and is guarded by
   `lib/pkb/net/safe-fetch.ts` and `robots.ts`, proved by `tests/pkb-net.test.ts`
   (38 tests) and documented in SECURITY.md.
@@ -1067,46 +1209,66 @@ Open risks:
   conversion figure is a floor and the report says so.
 - **R-7** The dev seed's UPC `0812345678901` fails its check digit; it is stored
   as invalid and parked. Seed data only.
+- **R-15** (new, Stage 6) `GoogleSearchConsoleProvider` has never spoken to
+  Google. It follows the published Search Analytics API and parses defensively,
+  and a mismatch surfaces as a provider failure on the sync rather than as a
+  stored number, but the first real connection is the first real test. The
+  owner supplying credentials, or a staging property, closes this.
+- **R-16** (new, Stage 6) `opportunityReport` reads up to 500 pages and 500
+  page-and-query rows per window and does the banding in TypeScript. That is one
+  indexed read each and fine at this catalogue's size; at a property with tens of
+  thousands of pages the limits start truncating rather than slowing, which would
+  silently narrow the report. Measure at scale in Stage 7, and either raise the
+  limits or say on the screen that the list is truncated. The product editor's
+  box deliberately does *not* run this report — it makes three scoped reads —
+  so the listing editor does not get slower as the catalogue grows.
+- **R-17** (new, Stage 6) The sync stores whatever Search Console reports,
+  including pages this shop no longer has. That is deliberate (it is how a
+  mis-sent address becomes visible), but it means the table's size is driven by
+  Google rather than by the catalogue. `maintenance.prune` deletes past the
+  retention window; nothing yet reports the row count back to an operator.
 
 ---
 
 ## 8. Next stage
 
-**Stage 6 — HIGH — Google Search Console, opportunity detection, SEO change
-history, controlled learning.** Not started, and not to be started without the
-owner's `CONTINUE STAGE 6`.
+**Stage 7 — MAX — hardening: security, write safety, performance, the legacy
+contract, observability and the provider abstractions.** Not started, and not to
+be started without the owner's `CONTINUE STAGE 7`.
 
 Entry checklist:
 
-1. Read this file (sections 3C, 3D, 4.8, 5, 7), D-077 to D-095, and `git log`
-   since the Stage 5 commit.
+1. Read this file (sections 3E, 4.8, 5, 7), D-096 to D-100, and `git log` since
+   the Stage 6 commit.
 2. Run `npm run pkb:backfill -- --report` against the dev database to confirm
-   the mirror is still clean, and check `/admin/search` still renders.
-3. Search Console is an external integration with credentials the owner has to
-   supply. Build it behind the same provider shape `lib/providers/research/`
-   uses: an interface, a default that reports NOT_CONFIGURED, and no invented
-   data. Mark anything that cannot be exercised `UNVERIFIED — external
-   integration unavailable` (CLAUDE.md section 6).
-4. Search Console data is PROVIDER_RESTRICTED (D-063) and must never be
-   exportable (I-10) and never a source of facts (I-1).
-5. Opportunity detection has a ready-made precedent in Stage 5's zero-result
-   verdicts: a classification with its evidence and a recommendation, decided
-   by a person. Reuse that shape rather than inventing a score (D-081).
-6. `seo_change_history` was planned in section 4.4. Stage 4 already added
-   `seo_field_history`; check whether a second table is needed before adding
-   one.
-7. Controlled learning must stay inside the D-094 rule: a suggestion, then a
-   human decision, then reusable knowledge. Nothing external teaches the
-   catalogue anything on its own.
+   the mirror is still clean, and check `/admin/seo-performance` renders its
+   "Search Console not connected" state.
+3. The open findings are F8 (a lost update in `updateProduct`) and the remainder
+   of F14 (`search_keywords` still indexed as listing-level legacy text).
+4. The open risks are R-2, R-3, R-8 to R-17. R-15 to R-17 are new in Stage 6 and
+   are described in section 7.
+5. Contracting a legacy column (invariant I-12, D-095) is Stage 7's largest
+   piece and the one with the most ways to go wrong. Nothing is dropped before
+   the reconciliation report is clean on the target database *and* a test proves
+   no reader remains.
+6. Performance work has measurements to start from: section 3D.5 for search and
+   facets, section 3A.3 for the mirror, and R-16 for the opportunity engine,
+   which has never been measured at scale.
 
-**Effort estimate for Stage 6: HIGH** — lower than Stage 5. Stage 5 changed an
-index and a facet system the storefront depends on, with a migration, a
-backfill and regression cover for ranking. Stage 6 mostly adds read-only
-intelligence beside what exists, and its largest piece is an integration that
-cannot be fully verified without the owner's Search Console credentials. The
-parts that can be built without them — the tables, the provider boundary, the
-opportunity classification, the change history and the admin screen — are
-ordinary work on top of Stage 4's engine.
+**Effort estimate for Stage 7: MAX** — the highest of the remaining stages, and
+higher than Stage 6 was. Three reasons. It is the only stage that *removes*
+things: contracting `category_attributes`, the legacy option and specification
+readers and `search_keywords` touches paths the storefront serves on every
+request, and a mistake there is visible to shoppers rather than to staff. It
+carries the accumulated risk list from five stages, several of which (R-8
+attribution through triggers, F8 concurrent saves) are correctness problems in
+write paths rather than additions beside them. And its verification needs the
+real-PostgreSQL concurrency suites and measurement at scale, not just the unit
+project — which is slower work than anything Stage 6 required.
+
+Stage 6 itself came in about where it was estimated: the parts that could be
+built without credentials were ordinary work on top of Stage 4's engine, and
+the integration that cannot be verified is marked as such rather than assumed.
 
 ---
 
@@ -1163,6 +1325,15 @@ ordinary work on top of Stage 4's engine.
 | `lib/seo/technical.ts` | Indexability, canonicals, redirects, shelves and robots (D-087) |
 | `lib/seo/audit.ts` | One listing's page audit for the editor |
 | `db/migrations/0035_seo_audit.sql` | Category SEO columns and the indexes the duplicate checks use (D-084) |
+| `lib/providers/search-console/` | The Search Console boundary: the interface, the unconfigured default, and the only file that reads credentials (D-096) |
+| `lib/search-console/sync.ts` | The sync: windows, the watermark, pagination, idempotent storage, failure diagnostics |
+| `lib/search-console/metrics.ts` | Connection state, coverage, and every read over the stored measurements |
+| `lib/search-console/opportunities.ts` | The five rules, the site's own click-through benchmark, the thresholds, and the decision store (D-097) |
+| `lib/search-console/comparison.ts` | The windows either side of a change, and why it never claims a cause (D-099) |
+| `lib/search-console/learning.ts` | Recommendations and the guardrails on them (D-100) |
+| `lib/search-console/paths.ts` | A Search Console address to a page of this shop, including an address the listing has left |
+| `lib/seo/history.ts` | The one SEO change history, for listings and shelves (D-098) |
+| `db/migrations/0037_search_console.sql`, `db/schema/search-console.ts` | The measurement key that makes a re-read an update, the sync log, the watermark and the opportunity decisions |
 
 ---
 
@@ -1170,6 +1341,7 @@ ordinary work on top of Stage 4's engine.
 
 | Date | Stage | Summary |
 | --- | --- | --- |
+| 2026-09-18 | 6 | Search Console as an optional intelligence source: migration 0037 (the measurement table keyed so a re-read is an update, the sync log, the per-property watermark, opportunity decisions, and `seo_field_history` widened to cover shelves and record its workflow). A provider boundary whose default reports NOT_CONFIGURED and whose Google implementation is the only file that reads credentials; an idempotent, bounded, paginated sync as a job; five opportunity rules benchmarked against this site's own median click-through per position band; one SEO change history, now covering shelves; before-and-after observation that never claims a cause; controlled learning that recommends and never writes. `/admin/seo-performance`, a box in the listing editor, two API routes. Decisions D-096 to D-100; invariants I-18 to I-20; risks R-15 to R-17. 47 new tests. 0037 applied to the dev database. Google itself UNVERIFIED — no credentials. |
 | 2026-09-18 | 5 | SearchPulse on the knowledge base: migration 0036 (four derived columns on `product_search`, the `product_search_attributes` facet read model, `search_term_key`/`search_number`, seven new queue triggers, `search_events`, search attribution on the cart and order lines). Query understanding with approved aliases, brands, families and canonical quantities; attribute-aware matching; ranking tiers 10 and 1; facets and filters on the read model with every older URL key still accepted; knowledge-backed autocomplete; filter, refinement, add-to-cart and confirmed-payment analytics; seven zero-result verdicts with alias proposals. Findings F10, F11 and F12 closed, F14 partly. Decisions D-089 to D-095. 54 new tests; full unit project 1,302 passed. 0036 applied to the dev and scale databases. |
 | 2026-09-18 | 4 | Second half of the SEO engine: migration 0035 (category SEO columns, duplicate-check indexes); image SEO, duplicate/near-duplicate/thin content, technical auditing, internal-link intelligence; four new sections on the SEO Health Center and a Page audit panel in the product editor; shelf SEO written by staff and read by the storefront and sitemap. Decisions D-084 to D-088. 11 new tests. 0035 applied to the dev database. |
 | 2026-09-17 | 1 | Audit, classification, findings F1–F16, target architecture, source-of-truth matrix, migration strategy, invariants, decisions D-060 to D-069. Documentation only. |

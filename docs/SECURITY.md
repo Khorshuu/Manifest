@@ -248,3 +248,32 @@ line of retrieval code, not after it.
 - **Rights stay conservative.** A retrieved source is stored with
   `usage_rights = internal_only` until someone decides otherwise, and provider
   data is treated as restricted.
+
+## Search Console credentials and data (knowledge platform, D-096, D-100)
+
+Google Search Console is optional. Connecting it puts a service-account key on
+the server, so the boundary is drawn tightly.
+
+- **Credentials are read in one file.** `lib/providers/search-console/google.ts`
+  reads `GOOGLE_SEARCH_CONSOLE_CREDENTIALS` (or the client email and private key
+  separately). Nothing else in the codebase reads them, no method returns them,
+  and no page receives them. The connection state a screen renders carries the
+  property and the service-account email, and a test asserts it carries no key
+  material.
+- **Nothing reaches the browser.** Every Search Console read is a server
+  component or a `lib/` function behind `refuseNonStaff()` plus a
+  `catalog.manage` check inside the service — never a client fetch to Google.
+- **Failures name no secret.** A refused token exchange is reported by HTTP
+  status only, because the response body can echo the signed assertion back. An
+  unreadable key is reported as an unreadable key, not as the library's message.
+- **Outbound requests go to fixed Google hosts** (`oauth2.googleapis.com`,
+  `searchconsole.googleapis.com`) with a 30-second timeout. They are not
+  user-supplied addresses, so they do not go through the SSRF fetcher, which
+  exists for pages staff and the registry point the shop at.
+- **What is stored is internal analytics.** Pages, queries and counts about this
+  shop's own pages. It is `PROVIDER_RESTRICTED`: never exportable, never
+  evidence for a product fact, and it holds no customer identifier. A Search
+  Console query cannot become an alias, an attribute or SEO copy without a
+  person suggesting it and a second decision approving it (D-100).
+- **Reading it needs `catalog.manage`**, checked inside `lib/`, not in the
+  screen.

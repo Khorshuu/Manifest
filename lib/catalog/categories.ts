@@ -1,12 +1,13 @@
 import { asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { categories, products } from "@/db/schema";
+import { categories, products, CATEGORY_SEO_FIELDS } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { sanitizeRichText } from "@/lib/html/rich-text";
 import { staffChange } from "@/lib/pkb/common";
 import { syncLegacyFamilies } from "@/lib/pkb/families";
+import { recordCategoryChanges } from "@/lib/seo/history";
 
 export type Category = {
   id: string;
@@ -252,6 +253,14 @@ export async function updateCategory(
       })
       .where(eq(categories.id, categoryId))
       .returning(CATEGORY_COLUMNS);
+
+    // What changed in the shelf's own SEO fields, with before and after
+    // (D-098). A shelf had no history at all before Stage 6, which left a
+    // before-and-after comparison with nothing to anchor to.
+    await recordCategoryChanges(tx, categoryId, staff.id, before, updated, {
+      fields: CATEGORY_SEO_FIELDS,
+      reason: "Saved in the category editor",
+    });
 
     await recordAudit(
       {

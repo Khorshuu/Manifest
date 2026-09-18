@@ -103,9 +103,21 @@ in place of scores), `health.ts` (catalogue-wide counts), `links.ts` (rendered
 links from accepted relationships, plus link intelligence), `images.ts` (image
 SEO), `duplicates.ts` (duplicate, near-duplicate and thin content),
 `technical.ts` (indexability, canonicals, redirects, shelves) and `audit.ts`
-(one listing's page audit for the editor). Everything under `lib/seo/` reads;
-the only writers are `fields.ts` and `redirects.ts`, both called from the
-catalogue's own write paths. Reasoning: D-077 to D-088.
+(one listing's page audit for the editor), and `history.ts` (the one SEO change
+history, covering listings and shelves since Stage 6). Everything under
+`lib/seo/` reads; the only writers are `fields.ts`, `redirects.ts` and
+`history.ts`, all called from the catalogue's own write paths. Reasoning:
+D-077 to D-088 and D-098.
+
+`lib/search-console/` is Stage 6: what Google reports about this shop's pages,
+and what those numbers say is worth doing. `sync.ts` brings measurements in as
+a job, idempotently; `metrics.ts` reads them; `opportunities.ts` applies five
+explicit rules benchmarked against this site's own click-through rate per
+position band; `comparison.ts` sets the windows either side of an SEO change
+without ever claiming a cause; `learning.ts` turns all of it into
+recommendations that need a person. It is optional throughout: with no provider
+configured every entry point answers "Search Console not connected" and nothing
+else changes. Reasoning: D-096 to D-100.
 
 `lib/search/` is SearchPulse, and since Stage 5 it reads the knowledge base
 through two derived tables rather than holding any product truth of its own.
@@ -156,6 +168,13 @@ Every route under `/admin` and every mutation checks permissions server-side bef
 `lib/providers/payment`, `lib/providers/shipping`, and `lib/providers/notification` are interfaces. Each has a mock implementation that simulates success/failure without a network call, selected by an environment variable. This lets every flow — including checkout and order-status progression — run and be tested before SSLCommerz, a courier API, and an SMS/email provider have real credentials, per MASTER_PRODUCT_SPEC.md §7.
 
 SEO Pulse follows the same pattern with two interfaces in `lib/seo-pulse/providers/`: `SeoDataProvider` (external keyword and search-results data; DataForSEO, or none) and `SeoIntelligenceProvider` (writes recommendations; Claude through the Anthropic SDK, or the free rules generator). They are chosen by `SEO_PULSE_DATA_PROVIDER` and `SEO_PULSE_AI_PROVIDER`, read in `lib/seo-pulse/config.ts`. The default — rules, no external data — needs no credentials and costs nothing.
+
+`lib/providers/search-console/` is the same shape again (D-096): one interface
+for what is configured and one page of performance rows, a default that reports
+`NOT_CONFIGURED`, and `GoogleSearchConsoleProvider` as the only file that reads
+credentials — a service-account key signed into a short-lived access token.
+Chosen by `SEARCH_CONSOLE_PROVIDER`. Nothing in the platform requires it, and
+the rest of `lib/search-console` talks to the interface rather than to Google.
 
 ## Rendering strategy
 

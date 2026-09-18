@@ -651,3 +651,25 @@ so the duplicate checks in `lib/seo/duplicates.ts` are index lookups rather than
 a scan per check. They are indexes only: no derived fingerprint table exists,
 because one would have to be kept in step with every copy edit and a stale
 fingerprint reports a duplicate that is not there.
+
+## Migration 0037 — Search Console and the SEO change history (D-096 to D-100)
+
+| Table or column | Holds | Rules the database enforces |
+| --- | --- | --- |
+| `search_console_metrics` | What Google reported for one day, for a page, a query, or a page and a query together | unique on (property, day, dimension, page, query), which is what makes a re-read an update rather than a duplicate; each dimension must carry exactly the keys it uses; `clicks <= impressions` and no negative counts; `ctr` is a generated column from the two counts, so it cannot disagree with them; page and query lengths capped |
+| `search_console_syncs` | One row per attempt: the window asked for, the provider's state, requests made, rows fetched, written and unchanged, and the error | unique `request_key`, so a double click, a retried request and an overlapping scheduled run are one sync; status and provider state are checked; `window_start <= window_end` |
+| `search_console_sync_state` | Per property: the watermark and the last thing that happened | one row per property; the status is checked; `synced_through` only ever moves forward, and only after a sync that stored its whole window |
+| `seo_opportunity_decisions` | What a person decided about one opportunity, with the measurements as they stood | unique `opportunity_key`; the decision is one of acted, dismissed, watching |
+| `seo_field_history` (widened) | The one SEO change history, now covering shelves as well as listings, and recording which workflow made the change | exactly one of `product_id` and `category_id`, matching `entity_type`; the workflow is checked against the six that exist; still append-only |
+
+**`page_path` and `query` are NOT NULL with an empty string** meaning "this
+dimension does not use it". A unique index over nullable columns would treat two
+identical measurements as different rows, which is the one thing the key exists
+to prevent.
+
+**A day that was never fetched has no row.** Absence means "not measured", never
+zero — the same rule the knowledge base applies to UNKNOWN (invariant I-5).
+
+Search Console measurements are internal analytics: `PROVIDER_RESTRICTED`, never
+exportable (I-10), never evidence for a product fact (I-1), and holding no
+customer identifier (I-9), which a test asserts against the column list.

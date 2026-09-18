@@ -22,9 +22,11 @@ import { ProductEditor, type EditorSection } from "./product-editor";
 import { ReadinessBox } from "./readiness-box";
 import { SeoPulseBox } from "./seo-pulse-box";
 import { PageAuditBox } from "./page-audit-box";
+import { SearchPerformanceBox } from "./search-performance-box";
 import { SeoReadinessBox } from "./seo-readiness-box";
 import { db } from "@/db";
 import { listingAudit } from "@/lib/seo/audit";
+import { listingSearchPerformance } from "@/lib/search-console/listing";
 import { fieldStates, seoFieldLabel } from "@/lib/seo/fields";
 import { slugHistory } from "@/lib/seo/redirects";
 import { SEO_FIELDS } from "@/db/schema";
@@ -356,10 +358,11 @@ export default async function AdminProductPage({
    * had (D-077, D-078). Read here so the panel is server-rendered with the
    * rest of the editor.
    */
-  const [states, previousAddresses, audit] = await Promise.all([
+  const [states, previousAddresses, audit, searchPerformance] = await Promise.all([
     fieldStates(db, product.id),
     slugHistory(db, product.id),
     listingAudit(user, { productId: product.id, title: product.title }),
+    listingSearchPerformance(user, product.id),
   ]);
   const LOCKABLE = ["seoMetaTitle", "seoMetaDescription", "seoFocusKeyword", "descriptionHtml", "slug"] as const;
   const fieldStateRows = SEO_FIELDS.filter((field) => (LOCKABLE as readonly string[]).includes(field)).map((field) => ({
@@ -419,6 +422,7 @@ export default async function AdminProductPage({
           />
           <ReadinessBox checks={checks} />
           <PageAuditBox audit={audit} />
+          <SearchPerformanceBox performance={searchPerformance} />
           {pulse ? (
             <SeoReadinessBox
               productId={product.id}

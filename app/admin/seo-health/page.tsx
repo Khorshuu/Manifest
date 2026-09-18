@@ -63,7 +63,12 @@ export default async function SeoHealthPage() {
         <h1 className="font-display text-2xl text-ink">SEO health</h1>
         <p className="max-w-2xl text-sm text-ink/70">
           What is measurably missing across the catalogue. Each row is a query over published listings, with examples to
-          start from. Facts about products are fixed in the knowledge base; wording is fixed in the listing editor.
+          start from. Facts about products are fixed in the knowledge base; wording is fixed in the listing editor. What
+          Google has actually done with these pages is on the{" "}
+          <Link href="/admin/seo-performance" className="text-blue-600 hover:underline">
+            Search performance
+          </Link>{" "}
+          screen.
         </p>
       </header>
 
