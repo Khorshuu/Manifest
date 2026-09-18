@@ -3184,3 +3184,44 @@ Blocked on your accounts or choices:
   reaches the knowledge base without attribution and is reported rather than
   applied for decided values (tracker risk R-8).
 - `[ ]` Stage 4 (SEO engine) waits for the go-ahead.
+
+## Product Knowledge Base programme — Stage 4 of 8 (SEO engine)
+
+- `[x]` Renaming a product no longer breaks its links. A listing shoppers have
+  seen keeps its web address when you change its title; if you do change the
+  address by hand, the old one keeps working and sends visitors to the new one.
+  A draft nobody has seen still follows its title.
+- `[x]` The canonical field can no longer point at another website. Pointing it
+  elsewhere told search engines to show that site instead of ours, and any staff
+  member could do it by accident; the editor now refuses it, and older values are
+  listed on the new SEO health screen.
+- `[x]` What search engines are told about a product now comes from the page and
+  from the knowledge base. Each variant states its own price and its own
+  availability using the same rules the buy box uses, the description is the copy
+  a shopper actually reads, and a barcode or brand is only stated once it is
+  verified or entered by staff. Nothing is invented — no ratings without real
+  reviews, no identifiers we have not checked.
+- `[x]` The two "scores" are gone. In their place each listing has a list of
+  plain checks: what is there ("38 characters"), whether it is enough, and what
+  to change. No number pretends to predict a Google ranking.
+- `[x]` New **SEO health** screen (admin menu): how many published listings have
+  no meta description, share a title, have a photograph nobody described, have
+  nothing to buy, have no checked identifier, or have an identity the knowledge
+  base has not settled — with examples to click straight into.
+- `[x]` You can lock a field. A locked SEO title or description is never touched
+  by SEO Pulse, and an apply that names it is refused rather than silently
+  skipped. Every SEO field now records who last changed it, from what, to what.
+- `[x]` The sitemap stopped listing empty categories and hidden listings, now
+  includes your product photography for image search, and reports a page as
+  changed when its price or photographs change — not only when the text does.
+- `[x]` Product pages now link to the accessories, replacements and series
+  members recorded in the knowledge base, and only those: nothing is guessed.
+- `[x]` Checks: typecheck and lint clean; 14 new tests, and the whole unit suite
+  passes (1,263 tests). The new tables are applied to the development database
+  and the site runs on http://localhost:3000.
+- `[!]` Not run: the end-to-end suite and a production build. The SEO
+  end-to-end checks were updated for the new structured data but not executed.
+- `[!]` On the development data nothing yet carries a verified brand or
+  identifier, so those parts of the rich result are deliberately absent until
+  facts are accepted on the knowledge screens.
+- `[ ]` Stage 5 (SearchPulse) waits for the go-ahead.

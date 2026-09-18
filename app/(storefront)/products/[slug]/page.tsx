@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { cacheLife, cacheTag } from "next/cache";
 import { CACHE_TAGS } from "@/lib/cache";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import {
   findCategoryPath,
   getPublicProductBySlug,
@@ -31,7 +31,11 @@ import {
   type SpecRow,
 } from "./detail-sections";
 import { formatArrivalWindow, formatDate } from "@/lib/format";
-import { breadcrumbJsonLd, jsonLdScript, productJsonLd } from "@/lib/seo";
+import { breadcrumbJsonLd, jsonLdScript } from "@/lib/seo";
+import { productSchema, type SeoOffer } from "@/lib/seo/structured-data";
+import { publishableKnowledge } from "@/lib/pkb/publish";
+import { knowledgeLinks } from "@/lib/seo/links";
+import { resolveSlugRedirect } from "@/lib/seo/redirects";
 import { sanitizeRichText } from "@/lib/html/rich-text";
 import { getProductRating } from "@/lib/catalog";
 import { getCurrentUser } from "@/lib/auth";
@@ -145,7 +149,12 @@ export default async function ProductPage({
   const content = preview
     ? await uncachedProductContent(slug)
     : await cachedProductContent(slug);
-  if (!content) notFound();
+  if (!content) {
+    // An address this listing used to have still arrives (D-078, finding F5).
+    const moved = await resolveSlugRedirect(slug);
+    if (moved) permanentRedirect(`/products/${moved.slug}`);
+    notFound();
+  }
   const { product, suggested, sameShelf, rating, reviews, breakdown } = content;
   const isLive =
     (PUBLIC_STATUSES as readonly string[]).includes(product.status);
@@ -179,6 +188,17 @@ export default async function ProductPage({
         hasReviewed(user.id, product.id),
       ])
     : [null, false];
+
+  /*
+   * Only established facts are published (invariant I-11): the knowledge base
+   * returns a brand or an identifier only when it is verified or staff-entered.
+   * The links come from relationships a person accepted, so a page never
+   * invents a connection between two products (D-083).
+   */
+  const [knowledge, links] = await Promise.all([
+    publishableKnowledge(product.pkbProductId ?? null),
+    knowledgeLinks(product.pkbProductId ?? null),
+  ]);
 
   const [savedVariantIds, recentlyViewed] = await Promise.all([
     user
@@ -269,6 +289,19 @@ export default async function ProductPage({
       : "");
   const summary = summarySource || null;
 
+  /*
+   * The description as plain text, for structured data: the same words the
+   * page renders, with the markup removed (finding F7). The meta description
+   * is not used — it is written for a search result, not shown on the page.
+   */
+  const descriptionText = (product.descriptionHtml ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 5000);
+
   const STATUS_LABELS: Record<string, string> = {
     in_stock: "In stock",
     preorder_open: "Preorder open",
@@ -285,21 +318,50 @@ export default async function ProductPage({
     null,
   );
 
-  const structuredData = productJsonLd({
+  /*
+   * Structured data is built from the values rendered above and from the
+   * knowledge base, never from the meta description or an unchecked column
+   * (D-080, findings F7 and F16). Each offer carries its own price and its own
+   * availability, computed by the same `stockState` the buy box uses, so the
+   * rich result cannot contradict the page. `cheapest` is still what the page
+   * shows as the from-price.
+   */
+  const schemaOffers: SeoOffer[] = variants.map((variant) => {
+    const picker = pickerVariants.find((entry) => entry.id === variant.id)!;
+    return {
+      variantId: variant.id,
+      pkbVariantId: variant.pkbVariantId,
+      label: variant.label,
+      sku: variant.sku,
+      slug: product.slug,
+      priceBdt: picker.priceBdt,
+      listPriceBdt: picker.listPriceBdt,
+      saleEndsAt: variant.saleEndsAt,
+      fulfillmentMode: variant.fulfillmentMode,
+      stockState: stockState({
+        fulfillmentMode: variant.fulfillmentMode,
+        stockQuantity: variant.stockQuantity,
+        lowStockThreshold: variant.lowStockThreshold,
+        preorderCapacity: variant.preorderCapacity,
+        preorderReserved: variant.preorderReserved,
+        isClosed: Boolean(variant.isClosed),
+      }),
+      imageUrl: variant.imageUrl,
+      options: variant.options.map((option) => ({ attribute: option.name, value: option.value })),
+    };
+  });
+
+  const structuredData = productSchema({
     title: product.title,
     slug: product.slug,
-    description: product.seoMetaDescription,
-    brand: product.brand,
-    imageUrl: product.images[0]?.url ?? null,
-    priceBdt: cheapest?.priceBdt ?? null,
-    isAvailable: pickerVariants.some(
-      (variant) =>
-        !variant.isClosed &&
-        (variant.remaining === null || variant.remaining > 0),
-    ),
-    isPreorder: cheapest?.fulfillmentMode === "preorder",
-    ratingAverage: rating.average,
-    reviewCount: rating.count,
+    // The copy a shopper can actually read on the page.
+    descriptionText: descriptionText || null,
+    legacyBrand: product.brand,
+    images: product.images.map((image) => ({ url: image.url, altText: image.altText })),
+    offers: schemaOffers,
+    rating: { average: rating.average, count: rating.count },
+    knowledge,
+    canonicalPath: null,
   });
 
   const breadcrumbData = breadcrumbJsonLd([
@@ -497,6 +559,26 @@ export default async function ProductPage({
         title="More like this"
         products={suggested}
       />
+
+      {/* Relationships the knowledge base holds: what fits this, what it
+          replaced, the rest of its series. Rendered only when there are any. */}
+      {links.map((group) => (
+        <section key={`${group.kind}-${group.label}`} className="mt-10 flex flex-col gap-3">
+          <h2 className="font-display text-lg text-ink">{group.label}</h2>
+          <ul className="flex flex-wrap gap-3">
+            {group.products.map((item) => (
+              <li key={item.id}>
+                <Link
+                  href={`/products/${item.slug}`}
+                  className="inline-flex items-center gap-2 rounded-card border border-line px-3 py-2 text-meta text-ink transition-colors hover:border-brass"
+                >
+                  {item.title}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
 
       <RecommendationSection
         eyebrow="Same shelf"

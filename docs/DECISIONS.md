@@ -1945,3 +1945,101 @@ Otherwise it is accepted as UNVERIFIED with its provenance intact. A locked
 value is never replaced, and a value staff entered or verified is replaced only
 with an explicit override. A slot with conflicting claims is settled by
 choosing between them, never by overwriting one with the other.
+
+## D-077 — Every SEO field says who decided it, and a lock stops automation
+
+`seo_field_states` records one state per listing field: AUTO (nobody has
+decided), SUGGESTED (a generator proposed the wording), MANUAL (a person wrote
+it) and LOCKED (a person fixed it). `seo_field_history` keeps the before and
+after of every change with the actor and the reason, which the `product.updated`
+audit entry never did (finding F9).
+
+The state governs automation, not people: staff can always edit a field through
+the editor, and doing so makes it MANUAL. An automatic path — an accepted SEO
+Pulse recommendation included — is refused on a LOCKED field with a message
+naming the field, rather than quietly skipping it, because a silent skip is how
+a person comes to believe an apply did something it did not. A locked field a
+person edits stays locked; unlocking is its own action. Locking an empty field
+is refused: it would only stop the field ever being filled.
+
+## D-078 — A listing keeps its address once shoppers have seen it, and old addresses redirect
+
+Two rules close finding F5.
+
+First, the address follows the title only while the listing is a draft nobody
+has seen. `products.first_published_at` records the first time it reached a
+public status and is never reset, so a listing taken back to draft still keeps
+its address. After that the address changes only when a person sets it.
+
+Second, `product_slug_redirects` holds every address a listing has left, and the
+product page answers an old address with a permanent redirect to the current
+one. A redirect never shadows a live address: the row is refused if another
+listing holds that address now, and taking an address back deletes the redirect
+from it, so a loop cannot form.
+
+## D-079 — A canonical address may only point at this site
+
+`canonical_url` used to accept any http(s) address. A canonical pointing at
+another domain tells search engines that this page is a copy of that one, and
+the shop's own page drops out of the results — a one-field way to deindex a
+listing, reachable by anyone who can edit a product (finding F6). The field now
+takes a path (`/products/example`) or an absolute address on the site's own
+origin, and nothing else. Values stored before this are reported on the SEO
+health screen rather than silently rewritten.
+
+## D-080 — Structured data is built from the page and the knowledge base, never from either alone
+
+The product page's JSON-LD is assembled in `lib/seo/structured-data.ts` from
+three sources and no others.
+
+- **The page's own values.** The description is the visible product copy with
+  its markup stripped, not the meta description a shopper never sees (finding
+  F7). Prices come from the same query the buy box renders, and availability
+  from the same `stockState` function, so the rich result cannot contradict the
+  page (finding F16).
+- **Established knowledge.** Brand and identifiers come through
+  `publishableKnowledge`, which returns a value only when it is VERIFIED or
+  staff-entered (invariant I-11). An unchecked legacy identifier is not
+  published: in a rich result it is worse than none.
+- **Nothing else.** No rating without approved reviews, no shipping or return
+  policy the shop has not published, no invented GTIN.
+
+A listing whose offers differ by an option is a `ProductGroup` with one
+`Offer` per variant, each with its own price, availability and identifiers;
+several offers that do not differ by an option become an `AggregateOffer` with
+a real range. A listing with nothing to sell is still described, but states no
+price.
+
+## D-081 — Readiness is a list of measurable checks; there is no score
+
+`lib/seo/readiness.ts` replaces the two weighted 0–100 numbers (finding F13).
+Each check states a fact about a field on this listing — "38 characters", "2 of
+5 photographs need a description" — with a severity in words (`required`,
+`recommended`, `optional`) and, when it fails, the fix. Runs record how many
+checks passed out of how many were checked; the old score columns stay for
+runs recorded before Stage 4 and are labelled as such.
+
+The catalogue-wide view, `lib/seo/health.ts` behind `/admin/seo-health`, is the
+same idea at scale: every figure is a count from a query over published
+listings, with examples to start from, and there is deliberately no site score.
+A single number would invite arguing with the number instead of fixing the
+listings, and nothing this shop can compute predicts a ranking.
+
+## D-082 — The sitemap lists what exists and what changed
+
+Three corrections (finding F15). A category with nothing published in it or
+beneath it is left out, because a crawler that follows it finds an empty page.
+A listing hidden from search is left out. And `lastModified` is the latest of
+the listing row, its photographs and its offers, so a price or a new photograph
+tells a crawler the page changed — which `products.updated_at` alone did not.
+Gallery photographs are listed as image entries, in the order the page shows
+them.
+
+## D-083 — Internal links come from accepted relationships only
+
+A product page links to the accessory that fits it, the model it replaced and
+the rest of its series, from `pkb_relationships` — which holds only
+relationships a person accepted. Nothing infers a connection from text, and a
+relationship pointing at a knowledge product with no public listing is not
+rendered, because the link would be a dead end. With no recorded relationship
+the block does not appear and the page keeps the category row it always had.

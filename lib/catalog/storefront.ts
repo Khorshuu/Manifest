@@ -369,6 +369,8 @@ export async function getPublicVariants(productId: string) {
     .select({
       id: productVariants.id,
       sku: productVariants.sku,
+      /** The knowledge identity of this offer, for structured data (D-080). */
+      pkbVariantId: productVariants.pkbVariantId,
       /* The price as charged: a live sale price, otherwise the regular one.
          `listPriceBdt` is kept beside it so the page can show what a sale is
          a saving against, rather than asserting a discount it cannot show. */

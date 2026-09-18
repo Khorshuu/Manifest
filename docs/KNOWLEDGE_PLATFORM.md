@@ -36,7 +36,7 @@ fact; admin approval before mutation; deterministic logic before AI.
 | 1 | Repository audit, architecture, source-of-truth decisions | ULTRACODE | **COMPLETE** (2026-09-17) |
 | 2 | PKB database foundation: identity, families, attributes, normalization, variants, provenance, migrations, backfill | MAX | **COMPLETE** (2026-09-17) — see section 3A |
 | 3 | SeoPulse product intelligence: resolution, brand source registry, sources, claims, conflicts, review and apply | EXTRA HIGH | **COMPLETE** (2026-09-18) — see section 3B |
-| 4 | SEO engine: metadata states, structured data, technical SEO, image SEO, internal links, SEO Health Center | HIGH | NOT STARTED |
+| 4 | SEO engine: metadata states, structured data, technical SEO, image SEO, internal links, SEO Health Center | HIGH | **COMPLETE** (2026-09-18) — see section 3C |
 | 5 | SearchPulse: query understanding, aliases, attribute-aware search, typo tolerance, autocomplete, facets, analytics | EXTRA HIGH | NOT STARTED |
 | 6 | Google Search Console, opportunity detection, SEO change history, controlled learning | HIGH | NOT STARTED |
 | 7 | Hardening: security, SSRF, write safety, performance, legacy contract, observability, provider abstraction | MAX | NOT STARTED |
@@ -189,18 +189,18 @@ fixed in Stage 1; each names the stage that owns it.
 | F2 | Fill writes generated description and, with Claude configured, generated key features straight into empty fields of possibly published listings, with no per-field review. | `fillWithSeoPulse` | 3 |
 | F3 | Apply is several independent writes (product save, each alt text, each synonym, the run marker, audit) outside one transaction; a failure part-way leaves a partial apply. | `applySeoPulse` | 3 |
 | F4 | Research (including the AI and DataForSEO calls) runs inside the admin HTTP request. | `runSeoPulse` | 3, 7 |
-| F5 | Renaming a product changes its URL. The Basics panel sends `title` without `slug`, and `updateProduct` rebuilds the slug whenever the title changes, including on published listings; applying SeoPulse's H1 does the same. There is no redirect table, so the old address 404s. | `basics-section.tsx` payload; `updateProduct` slug rule | 4 |
-| F6 | `canonical_url` accepts any http(s) address, including another domain. | `httpUrl` in `lib/validation/catalog.ts` | 4 |
-| F7 | Product structured data takes `description` from the meta description, which is not visible on the page; carries no SKU/GTIN/MPN, no variants (`ProductGroup`), one image, one offer. | `lib/seo.ts`, product page | 4 |
+| F5 (CLOSED, Stage 4) | Renaming a product changes its URL. The Basics panel sends `title` without `slug`, and `updateProduct` rebuilds the slug whenever the title changes, including on published listings; applying SeoPulse's H1 does the same. There is no redirect table, so the old address 404s. | `basics-section.tsx` payload; `updateProduct` slug rule | 4 |
+| F6 (CLOSED, Stage 4) | `canonical_url` accepts any http(s) address, including another domain. | `httpUrl` in `lib/validation/catalog.ts` | 4 |
+| F7 (CLOSED, Stage 4) | Product structured data takes `description` from the meta description, which is not visible on the page; carries no SKU/GTIN/MPN, no variants (`ProductGroup`), one image, one offer. | `lib/seo.ts`, product page | 4 |
 | F8 | `updateProduct` reads the current row outside its transaction without a lock, so two concurrent saves can lose an update and record stale audit "before" values. | `lib/catalog/products.ts` | 7 |
-| F9 | The `product.updated` audit entry records only title, status, slug, searchable and boost; SEO and content field changes leave no before/after. | `updateProduct` | 4, 6 |
+| F9 (CLOSED, Stage 4) | The `product.updated` audit entry records only title, status, slug, searchable and boost; SEO and content field changes leave no before/after. | `updateProduct` | 4 — `seo_field_history` now keeps both |
 | F10 | Brand has no identity; spelling variants cannot be reconciled and the brand facet splits them. | schema | 2 |
 | F11 | Category specification units are free text and values raw strings; "256GB" and "256 GB" are different facet values and never compare numerically. | `category_attributes`, facets SQL | 2, 5 |
 | F12 | Option names are free text per product; "Color" and "Colour" become two filters. | D-030, facets | 2, 5 |
-| F13 | SeoPulse's "Optimization Score" and "Internal Search Score" are weighted 0–100 numbers; the brief rules out score-like ranking figures. | `lib/seo-pulse/scores.ts` | 4 |
+| F13 (CLOSED, Stage 4) | SeoPulse's "Optimization Score" and "Internal Search Score" are weighted 0–100 numbers; the brief rules out score-like ranking figures. | `lib/seo-pulse/scores.ts`, retired for `lib/seo/readiness.ts` | 4 |
 | F14 | `search_keywords` mixes aliases, AI-suggested misspellings, phrases and brand variations with no provenance; once stored, the AI label is lost. | fill merge | 5 |
-| F15 | Sitemap lists every category including empty ones; no image entries; a product's `lastModified` ignores variant and photo changes. | `app/sitemap.ts` | 4 |
-| F16 | SeoPulse decides a variant is available without the closing-date and D-058 rules the storefront uses, so schema readiness can disagree with the page. | `loadPulseInput` | 4 |
+| F15 (CLOSED, Stage 4) | Sitemap lists every category including empty ones; no image entries; a product's `lastModified` ignores variant and photo changes. | `app/sitemap.ts` | 4 |
+| F16 (CLOSED, Stage 4) | SeoPulse decides a variant is available without the closing-date and D-058 rules the storefront uses, so schema readiness can disagree with the page. | `loadPulseInput`; the page's schema now uses `stockState` | 4 |
 
 ---
 
@@ -323,6 +323,46 @@ unknown. `tests/seo-pulse.test.ts` (40) was updated for job-based research.
 - The label queue is grouped in TypeScript, not SQL: `labelKey` folds accents,
   punctuation and `&`, which SQL cannot reproduce, and a divergence would place
   a value under the wrong attribute.
+
+## 3C. Stage 4 — what was done
+
+The SEO engine: the shop's own pages state what it actually knows, and the
+screens say what is measurably missing.
+
+### 3C.1 Built
+
+| Area | What exists now |
+| --- | --- |
+| Field states and locks | `seo_field_states` and `lib/seo/fields.ts`: AUTO, SUGGESTED, MANUAL, LOCKED per field; `seo_field_history` keeps before and after with the actor and reason; an automatic path is refused on a locked field, and a staff save is recorded as a decision (D-077, findings F9) |
+| Addresses | `products.first_published_at` plus `product_slug_redirects` and `lib/seo/redirects.ts`: the address follows the title only while the listing is an unseen draft, and every address it leaves answers with a permanent redirect (D-078, finding F5) |
+| Canonical | `canonicalUrlField` in `lib/validation/catalog.ts`: a path, or an absolute address on this site's origin. Another domain is refused (D-079, finding F6) |
+| Structured data | `lib/seo/structured-data.ts` with `lib/pkb/publish.ts`: Product or ProductGroup, one Offer per variant with its own price and availability from `stockState`, identifiers and brand only when VERIFIED or staff-entered, description from the visible copy, `AggregateOffer` for a range, `CollectionPage`/`ItemList` for a category (D-080, findings F7 and F16) |
+| Readiness | `lib/seo/readiness.ts` replaces the weighted scores: each check states a fact and its fix, with a severity in words; runs record checks passed out of checks made (D-081, finding F13) |
+| SEO Health Center | `lib/seo/health.ts` behind `/admin/seo-health`: twelve counts from queries over published listings, each with examples, plus what a rich result can currently say across the catalogue |
+| Sitemap | `app/sitemap.ts`: empty categories and hidden listings left out, `lastModified` from the listing, its photographs and its offers, gallery images as image entries (D-082, finding F15) |
+| Internal links | `lib/seo/links.ts`: accessory, compatibility, series and successor links from accepted relationships, rendered on the product page only when they point at a public listing (D-083) |
+| Admin | The product editor gains a readiness panel with per-field locks and the addresses the listing has had; `/admin/seo-health` is in the navigation; one API route for locking (`refuseNonStaff()` first) |
+
+### 3C.2 Tested
+
+`tests/seo-engine.test.ts` (14) plus the readiness checks in
+`tests/seo-pulse.test.ts`. `e2e/seo.spec.ts` was updated for ProductGroup and
+image entries but was not run in this stage. The rendered structured data was
+checked by hand against the dev server: a two-variant listing produced one
+`ProductGroup`, two variant `Product`s and two `Offer`s whose availability
+differed (PreOrder and SoldOut), which is finding F16 closed in practice.
+
+### 3C.3 Found and fixed on the way
+
+- Nothing recorded whether a listing had ever been public: `publish_at` is a
+  schedule and `status` can go back to draft. Migration 0034 adds
+  `first_published_at`, which is what makes the address rule safe.
+- The mirror credits a save only with what it changes (D-070), so re-saving an
+  identifier unchanged leaves it LEGACY and therefore unpublishable. That is
+  correct, and worth knowing: a legacy value becomes publishable when someone
+  actually corrects it, or accepts a claim for it.
+- `lib/seo.ts` became `lib/seo/index.ts` so the engine could be several files
+  without changing a single import.
 
 ## 4. Target architecture
 
@@ -735,9 +775,9 @@ Open risks:
 - **R-2** A changed product save costs ≈28 ms more (8 → 36 ms median); a no-op
   sync ≈27 ms, mostly reloading the vocabulary per listing. Optimise in Stage 7
   (vocabulary cache keyed by a change signature).
-- **R-3** Findings still open: F5–F16. F1 to F4 are closed (D-075): fill no
-  longer writes generated wording or the two tables, an apply is one
-  transaction, and research with an external provider runs as a job.
+- **R-3** Findings still open: F8 (Stage 7), F10 to F12 and F14 (Stages 2 and 5
+  by design). F1 to F4 are closed (D-075), and Stage 4 closed F5, F6, F7, F9,
+  F13, F15 and F16.
 - **R-4** CLOSED. Outbound retrieval exists and is guarded by
   `lib/pkb/net/safe-fetch.ts` and `robots.ts`, proved by `tests/pkb-net.test.ts`
   (38 tests) and documented in SECURITY.md.
@@ -830,6 +870,12 @@ Entry checklist:
 | `lib/pkb/review.ts` | Accept, reject, correct, resolve a conflict, lock (D-076) |
 | `lib/pkb/intelligence.ts` | The admin read model: one product's intelligence, the queue, the vocabulary |
 | `lib/providers/research/` | `ProductResearchProvider`; the default reports NOT_CONFIGURED (A-6) |
+| `lib/seo/fields.ts` | Per-field SEO states, locks and history (D-077) |
+| `lib/seo/redirects.ts` | Address stability and old-address redirects (D-078) |
+| `lib/seo/structured-data.ts`, `lib/pkb/publish.ts` | Product/ProductGroup JSON-LD from established knowledge (D-080) |
+| `lib/seo/readiness.ts` | Measurable readiness checks, replacing the scores (D-081) |
+| `lib/seo/health.ts` | Catalogue-wide SEO health counts (D-081) |
+| `lib/seo/links.ts` | Internal links from accepted relationships (D-083) |
 
 ---
 
@@ -838,5 +884,6 @@ Entry checklist:
 | Date | Stage | Summary |
 | --- | --- | --- |
 | 2026-09-17 | 1 | Audit, classification, findings F1–F16, target architecture, source-of-truth matrix, migration strategy, invariants, decisions D-060 to D-069. Documentation only. |
+| 2026-09-18 | 4 | SEO engine: migrations 0033 and 0034; per-field states, locks and history; address stability with redirects; canonical restricted to this site; structured data from the knowledge base and the page (ProductGroup, per-variant offers); measurable readiness replacing the weighted scores; SEO Health Center at `/admin/seo-health`; sitemap corrections with image entries; internal links from accepted relationships. Findings F5, F6, F7, F9, F13, F15, F16 closed. 14 new tests; 0033 and 0034 applied to the dev database. |
 | 2026-09-18 | 3 | Owner decisions D-071 (A-7 approved, A-8 with a reviewed mapping workflow, A-9 modified, R-6, network safety first). Migration 0032 and `lib/pkb`: resolution, trust registry and policies, reviewed label mappings, attribute discovery, the enrichment pipeline with SSRF-safe retrieval and robots.txt, deterministic extraction, review actions, the intelligence read model. SeoPulse F2–F4 closed (D-075). Admin: `/admin/knowledge`, per-product intelligence screen, seven API routes. 26 new tests; 0032 applied to the dev database. |
 | 2026-09-17 | 2 | Owner revised A-4 and A-6. Migration 0031 and `lib/pkb`: normalization, vocabulary, families with versions, facts with history, legacy mirror (D-070), sources/evidence/claims, relationships, aliases, export rule, backfill and report, job, `knowledge.manage`. F1 closed for fill. Imported dev and scale databases cleanly. |

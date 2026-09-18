@@ -593,3 +593,13 @@ Adds the review, trust and retrieval tables. Brand status becomes
 **Columns added:** `pkb_evidence.document_id`; on `pkb_products` the resolution
 state, when it was last checked, the reasons, and who decided it with when — a
 VERIFIED resolution requires a person and a time.
+
+## Migrations 0033 and 0034 — the SEO engine (D-077 to D-082)
+
+| Table or column | Holds | Rules the database enforces |
+| --- | --- | --- |
+| `seo_field_states` | One state per listing field: AUTO, SUGGESTED, MANUAL, LOCKED | one row per listing and field; the field name is checked against the twelve that exist; MANUAL and LOCKED require a decider and a time, AUTO forbids them |
+| `seo_field_history` | Before and after of every SEO or content field change, with the actor, the reason and the run it came from | append-only (trigger) |
+| `product_slug_redirects` | Every address a listing has left | one row per address; deleted when that address becomes live again |
+| `products.first_published_at` | When shoppers could first see the listing | set once, never reset; backfilled for anything currently public, scheduled or archived |
+| `seo_research_runs.seo_checks_passed` / `_total`, `search_checks_passed` / `_total` | How many measurable checks passed | written from Stage 4 on; `seo_score` and `search_score` stay for older runs and are commented as legacy |

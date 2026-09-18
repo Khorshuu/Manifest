@@ -20,8 +20,8 @@ import {
   loadPulseInput,
   pulseStatus,
   runSeoPulse,
-  searchScore,
-  seoScore,
+  searchReadiness,
+  seoReadiness,
 } from "@/lib/seo-pulse";
 import { setSeoDataProviderForTesting, type SeoDataProvider } from "@/lib/seo-pulse/providers/data";
 import {
@@ -121,10 +121,10 @@ describe("slugs and lengths", () => {
   });
 });
 
-describe("scores", () => {
-  it("rises as fields are completed and stays within 0–100", () => {
-    const bare = seoScore(sampleInput());
-    const done = seoScore(
+describe("readiness checks", () => {
+  it("reports facts about the listing, with no score (finding F13)", () => {
+    const bare = seoReadiness(sampleInput());
+    const done = seoReadiness(
       sampleInput({
         seoFocusKeyword: "sony wh-1000xm5",
         seoMetaTitle: "Sony WH-1000XM5 Headphones – Price in Bangladesh",
@@ -139,15 +139,26 @@ describe("scores", () => {
         variants: [{ label: "SKU", priceBdt: 100, fulfillmentMode: "preorder", available: true, arrivesFrom: null, arrivesTo: null }],
       }),
     );
-    expect(bare.score).toBeGreaterThanOrEqual(0);
-    expect(done.score).toBe(100);
-    expect(done.score).toBeGreaterThan(bare.score);
+    // No total, no weighting: only how many facts hold.
+    expect(bare).not.toHaveProperty("score");
+    expect(done.failed).toBe(0);
+    expect(done.blocking).toBe(0);
+    expect(done.passed).toBe(done.checks.length);
+    expect(done.passed).toBeGreaterThan(bare.passed);
+    // A failing check names what is there and what to do about it.
+    const failing = bare.checks.find((check) => check.state === "fail");
+    expect(failing?.detail).toBeTruthy();
+    expect(failing?.fix).toBeTruthy();
+    // A missing description blocks; a missing focus keyword does not.
+    expect(bare.checks.find((check) => check.id === "description")?.severity).toBe("required");
+    expect(bare.checks.find((check) => check.id === "focus_keyword")?.severity).toBe("optional");
   });
 
-  it("keeps the internal-search score separate", () => {
-    const result = searchScore(sampleInput({ searchKeywords: ["a", "b", "c"], tags: ["x", "y", "z"] }));
-    expect(result.checks.map((check) => check.id)).toContain("aliases");
+  it("keeps site-search readiness separate from search-engine readiness", () => {
+    const result = searchReadiness(sampleInput({ searchKeywords: ["a", "b", "c"], tags: ["x", "y", "z"] }));
+    expect(result.checks.map((check) => check.id)).toContain("search_terms");
     expect(result.checks.map((check) => check.id)).not.toContain("meta_description");
+    expect(result.checks.every((check) => check.state === "pass" || check.fix)).toBe(true);
   });
 });
 
@@ -304,7 +315,10 @@ describe("running research", () => {
     expect(run.analysis?.generator.label).toMatch(/external research unavailable/);
     expect(run.research?.keywordMetrics).toEqual([]);
     expect(run.providerUsage.find((entry) => entry.kind === "external_data")?.status).toBe("unavailable");
-    expect(run.analysis?.scores.seo.score).toBeTypeOf("number");
+    // Measurable checks, not a weighted score (finding F13).
+    expect(run.analysis?.readiness.seo.checks.length).toBeGreaterThan(0);
+    expect(run.analysis?.readiness.seo.passed).toBeTypeOf("number");
+    expect(run.analysis?.scores).toBeUndefined();
   });
 
   it("reuses unchanged research, returns the same run for a retried request, and keeps old versions on refresh", async () => {

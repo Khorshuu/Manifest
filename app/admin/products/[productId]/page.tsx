@@ -21,6 +21,11 @@ import { ProductActionBar } from "./product-action-bar";
 import { ProductEditor, type EditorSection } from "./product-editor";
 import { ReadinessBox } from "./readiness-box";
 import { SeoPulseBox } from "./seo-pulse-box";
+import { SeoReadinessBox } from "./seo-readiness-box";
+import { db } from "@/db";
+import { fieldStates, seoFieldLabel } from "@/lib/seo/fields";
+import { slugHistory } from "@/lib/seo/redirects";
+import { SEO_FIELDS } from "@/db/schema";
 import { AssuranceSection } from "./sections/assurance-section";
 import { BasicsSection } from "./sections/basics-section";
 import { ContentSection } from "./sections/content-section";
@@ -344,6 +349,22 @@ export default async function AdminProductPage({
   const createdNotice = query.created === "1" || query.created === "copy";
   const lastRun = pulse?.latest ?? null;
 
+  /*
+   * Which SEO fields are a person's own, and which addresses this listing has
+   * had (D-077, D-078). Read here so the panel is server-rendered with the
+   * rest of the editor.
+   */
+  const [states, previousAddresses] = await Promise.all([
+    fieldStates(db, product.id),
+    slugHistory(db, product.id),
+  ]);
+  const LOCKABLE = ["seoMetaTitle", "seoMetaDescription", "seoFocusKeyword", "descriptionHtml", "slug"] as const;
+  const fieldStateRows = SEO_FIELDS.filter((field) => (LOCKABLE as readonly string[]).includes(field)).map((field) => ({
+    field,
+    label: seoFieldLabel(field),
+    state: states.get(field)?.state ?? ("AUTO" as const),
+  }));
+
   return (
     <div className="flex min-w-0 flex-col gap-5">
       <div>
@@ -394,6 +415,15 @@ export default async function AdminProductPage({
             paid={data.paid || ai.paid}
           />
           <ReadinessBox checks={checks} />
+          {pulse ? (
+            <SeoReadinessBox
+              productId={product.id}
+              seo={pulse.current.seo}
+              search={pulse.current.search}
+              fieldStates={fieldStateRows}
+              previousAddresses={previousAddresses.map((row: { fromSlug: string }) => row.fromSlug)}
+            />
+          ) : null}
           <section className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-4">
             <h2 className="text-sm font-medium text-ink">Product knowledge</h2>
             <p className="text-[0.75rem] text-ink/65">

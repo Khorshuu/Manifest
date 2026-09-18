@@ -106,8 +106,8 @@ export default async function SeoPulseAdminPage() {
                   <th className={th}>Version</th>
                   <th className={th}>Completed</th>
                   <th className={th}>By</th>
-                  <th className={th}>SEO score</th>
-                  <th className={th}>Search score</th>
+                  <th className={th}>Search-engine checks</th>
+                  <th className={th}>Site-search checks</th>
                   <th className={th}>Status</th>
                   <th className={th}>Download</th>
                 </tr>
@@ -126,8 +126,16 @@ export default async function SeoPulseAdminPage() {
                     <td className={`${td} tabular-nums`}>{run.version}</td>
                     <td className={td}>{when(run.completedAt ?? run.createdAt)}</td>
                     <td className={td}>{run.initiatedBy ?? "—"}</td>
-                    <td className={`${td} tabular-nums`}>{run.seoScore ?? "—"}</td>
-                    <td className={`${td} tabular-nums`}>{run.searchScore ?? "—"}</td>
+                    <td className={`${td} tabular-nums`}>
+                      {run.seoChecks ? `${run.seoChecks.passed}/${run.seoChecks.total}` : run.seoScore !== null ? `${run.seoScore}/100 (old score)` : "—"}
+                    </td>
+                    <td className={`${td} tabular-nums`}>
+                      {run.searchChecks
+                        ? `${run.searchChecks.passed}/${run.searchChecks.total}`
+                        : run.searchScore !== null
+                          ? `${run.searchScore}/100 (old score)`
+                          : "—"}
+                    </td>
                     <td className={td}>
                       <StatusBadge
                         tone={

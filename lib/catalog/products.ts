@@ -12,6 +12,9 @@ import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { staffChange, type Executor } from "@/lib/pkb/common";
 import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
+import { SEO_FIELDS } from "@/db/schema";
+import { recordFieldWrites } from "@/lib/seo/fields";
+import { recordSlugChange, slugMayFollowTitle } from "@/lib/seo/redirects";
 import { uniqueSlug } from "@/lib/slug";
 import type {
   ProductInputPayload,
@@ -492,6 +495,9 @@ export async function getPublicProductBySlug(
       seoMetaDescription: products.seoMetaDescription,
       seoNoIndex: products.seoNoIndex,
       canonicalUrl: products.canonicalUrl,
+      /** The knowledge identity, for structured data (D-080). */
+      pkbProductId: products.pkbProductId,
+      updatedAt: products.updatedAt,
     })
     .from(products)
     .where(
@@ -739,10 +745,19 @@ export async function updateProduct(
    * synonyms together, so a failure half-way leaves nothing behind (D-075).
    * The reads are made through the same executor, so they see its writes.
    */
-  options: { executor?: Executor } = {},
+  options: {
+    executor?: Executor;
+    /**
+     * Where the values came from, for the SEO field states (D-077). A staff
+     * save is a decision; an applied SEO Pulse recommendation is not, and a
+     * locked field refuses it.
+     */
+    fieldWrites?: { origin: "staff" | "generated" | "accepted"; reason: string; runId?: string | null };
+  } = {},
 ) {
   const staff = requirePermission(actor, "catalog.manage");
   const reader: Executor = options.executor ?? db;
+  const fieldWrites = options.fieldWrites ?? { origin: "staff" as const, reason: "Saved in the product editor" };
 
   const [current] = await reader
     .select()
@@ -773,16 +788,18 @@ export async function updateProduct(
   const title = input.title ?? current.title;
 
   /*
-   * The slug is only rebuilt when the title changed and no slug was sent.
-   * A published URL is not something to change behind a shopper's back, but
-   * a product still being drafted should not keep the slug of its first
-   * working title either — so a staff member can always set it by hand.
-   * Worked out before the transaction: it reads through the shared
-   * connection, which a transaction must not wait on.
+   * The address follows the title only while nobody has seen the listing
+   * (D-078, finding F5). Once it has been public, renaming the product keeps
+   * the address: links, search results and messages already point at it. A
+   * staff member can still set the address by hand, and the old one keeps
+   * working through a redirect.
+   *
+   * Worked out before the transaction: it reads through the shared connection,
+   * which a transaction must not wait on.
    */
   const slug =
     input.slug ??
-    (current.title === title
+    (current.title === title || !slugMayFollowTitle(current)
       ? current.slug
       : await uniqueSlug(title, (c) => slugTaken(c, productId, reader)));
 
@@ -793,6 +810,7 @@ export async function updateProduct(
 
     const before = current;
 
+    const nextStatus = input.status ?? before.status;
     const [updated] = await tx
       .update(products)
       .set({
@@ -800,11 +818,43 @@ export async function updateProduct(
         ...(attributeValues !== undefined ? { attributeValues } : {}),
         title,
         slug,
-        status: input.status ?? before.status,
+        status: nextStatus,
+        // The first time shoppers can see it is recorded once and never reset,
+        // because it is what decides whether the address may still change.
+        ...(before.firstPublishedAt === null && isPublic(nextStatus)
+          ? { firstPublishedAt: new Date() }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(products.id, productId))
       .returning();
+
+    // The address it is leaving keeps working (D-078).
+    if (updated.slug !== before.slug) {
+      await recordSlugChange(tx, productId, before.slug, updated.slug, staff.id);
+    }
+
+    /*
+     * What changed in the SEO and content fields, with before and after
+     * (finding F9). Written by a person here, so the fields become MANUAL and
+     * a generator will not overwrite them; a locked field is left to the lock
+     * check inside `recordFieldWrites`.
+     */
+    await recordFieldWrites(
+      tx,
+      productId,
+      staff.id,
+      SEO_FIELDS.filter((field) => field === "slug" || field === "title" || input[field as keyof typeof input] !== undefined).map(
+        (field) => ({
+          field,
+          before: (before as Record<string, unknown>)[field],
+          after: (updated as Record<string, unknown>)[field],
+          origin: fieldWrites.origin,
+          runId: fieldWrites.runId ?? null,
+          reason: fieldWrites.reason,
+        }),
+      ),
+    );
 
     // A SKU a saved product has carried stays spent: both the old and the new
     // one are on record, so neither can be generated for another product.

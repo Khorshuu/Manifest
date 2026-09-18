@@ -118,6 +118,8 @@ export const products = pgTable(
     searchBoost: smallint("search_boost").notNull().default(0),
     status: text("status").notNull().default("draft"),
     publishAt: timestamp("publish_at", { withTimezone: true }),
+    /** When shoppers could first see it: after that, the address stays put (D-078). */
+    firstPublishedAt: timestamp("first_published_at", { withTimezone: true }),
     unpublishAt: timestamp("unpublish_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     /**

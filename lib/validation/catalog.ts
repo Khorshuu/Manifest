@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { siteUrl } from "@/lib/seo";
 
 const slug = z
   .string()
@@ -58,6 +59,55 @@ const httpUrl = z
     (value) => value.length === 0 || /^https?:\/\/\S+$/i.test(value),
     "Enter a link starting with http:// or https://.",
   )
+  .transform((value) => (value.length === 0 ? null : value))
+  .nullable()
+  .optional();
+
+/**
+ * A canonical address may only point at this site (finding F6).
+ *
+ * A canonical pointing at another domain tells search engines that this page
+ * is a copy of that one, and the shop's own page drops out of the results. It
+ * is a one-field way to deindex a listing, so the field takes a path, or an
+ * absolute address on this site's own origin, and nothing else.
+ */
+const canonicalUrlField = z
+  .string()
+  .trim()
+  .max(2000)
+  .superRefine((value, ctx) => {
+    if (value.length === 0) return;
+    if (value.startsWith("/")) {
+      if (value.startsWith("//")) {
+        ctx.addIssue({ code: "custom", message: "Enter a path on this site, such as /products/example." });
+      }
+      return;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      ctx.addIssue({ code: "custom", message: "Enter a path on this site, such as /products/example." });
+      return;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      ctx.addIssue({ code: "custom", message: "A canonical address must be http or https." });
+      return;
+    }
+    const own = (() => {
+      try {
+        return new URL(siteUrl()).host;
+      } catch {
+        return null;
+      }
+    })();
+    if (own && parsed.host !== own) {
+      ctx.addIssue({
+        code: "custom",
+        message: `A canonical address must stay on ${own}. Pointing it elsewhere removes this page from search results.`,
+      });
+    }
+  })
   .transform((value) => (value.length === 0 ? null : value))
   .nullable()
   .optional();
@@ -204,7 +254,7 @@ const productFields = {
   seoMetaTitle: clearableText(200),
   seoMetaDescription: clearableText(400),
   seoNoIndex: z.boolean().optional(),
-  canonicalUrl: httpUrl,
+  canonicalUrl: canonicalUrlField,
   status: z.enum(PRODUCT_STATUS_VALUES).optional(),
   publishAt: z.coerce.date().optional().nullable(),
   unpublishAt: z.coerce.date().optional().nullable(),

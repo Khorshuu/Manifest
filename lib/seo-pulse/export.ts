@@ -144,8 +144,32 @@ export function exportCsv(run: RunDetail, productTitle: string): string {
     analysis.schemaReadiness.forEach((entry) => rows.push(rec({ section: "schema", item: entry.field, value: entry.status, note: entry.note, confidence: "fact" })));
     analysis.categoryNotes.forEach((value) => rows.push(rec({ section: "category", value })));
     analysis.competitorObservations.forEach((entry) => rows.push(rec({ section: "competitor_observation", value: entry.observation, note: entry.basis, confidence: "derived from research" })));
-    rows.push(rec({ section: "score", item: "SEO Pulse Optimization Score", value: analysis.scores.seo.score, confidence: "fact", note: "Listing completeness, not a Google ranking." }));
-    rows.push(rec({ section: "score", item: "Internal Search Score", value: analysis.scores.search.score, confidence: "fact" }));
+    // Counted checks, each one a fact about the listing (finding F13).
+    for (const [area, report] of [
+      ["search engines", analysis.readiness.seo],
+      ["site search", analysis.readiness.search],
+    ] as const) {
+      rows.push(
+        rec({
+          section: "readiness",
+          item: `Checks passed (${area})`,
+          value: `${report.passed} of ${report.checks.length}`,
+          confidence: "fact",
+          note: report.blocking > 0 ? `${report.blocking} required check(s) failing.` : "No required check is failing.",
+        }),
+      );
+      for (const check of report.checks) {
+        rows.push(
+          rec({
+            section: "readiness_check",
+            item: check.label,
+            value: `${check.state} (${check.severity})`,
+            note: check.fix ? `${check.detail}. ${check.fix}` : check.detail,
+            confidence: "fact",
+          }),
+        );
+      }
+    }
   }
 
   if (research) {
@@ -219,9 +243,17 @@ export function exportHtml(run: RunDetail, productTitle: string): string {
   const body = a
     ? `
 <p class=label>${e(a.generator.label)}</p>
-<h2>Scores</h2>
-<p><strong>SEO Pulse Optimization Score:</strong> ${e(a.scores.seo.score)}/100 &middot; <strong>Internal Search Score:</strong> ${e(a.scores.search.score)}/100</p>
-<p class=muted>These measure how complete this listing is. They are not Google ranking scores and do not predict ranking.</p>
+<h2>Readiness</h2>
+<p><strong>Search engines:</strong> ${e(a.readiness.seo.passed)} of ${e(a.readiness.seo.checks.length)} checks pass &middot; <strong>Site search:</strong> ${e(a.readiness.search.passed)} of ${e(a.readiness.search.checks.length)} checks pass</p>
+<p class=muted>Each check is a fact about this listing's own fields. There is no score, because nothing here can predict a ranking.</p>
+<table><thead><tr><th>Check</th><th>State</th><th>What is there</th><th>Fix</th></tr></thead><tbody>
+${[...a.readiness.seo.checks, ...a.readiness.search.checks]
+  .map(
+    (check) =>
+      `<tr><td>${e(check.label)}</td><td>${e(check.state)}</td><td>${e(check.detail)}</td><td>${e(check.fix ?? "")}</td></tr>`,
+  )
+  .join("\n")}
+</tbody></table>
 <h2>Keywords</h2>
 ${keywordTable([a.primaryKeyword, ...a.secondaryKeywords, ...a.longTailKeywords])}
 <h2>SEO recommendations</h2>

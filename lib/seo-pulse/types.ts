@@ -243,6 +243,10 @@ export type ScoreCheck = {
   hint: string;
 };
 
+import type { ReadinessCheck, ReadinessReport } from "@/lib/seo/readiness";
+
+export type { ReadinessCheck, ReadinessReport };
+
 export type ScoreResult = { score: number; checks: ScoreCheck[] };
 
 export type SeoAnalysis = GeneratedRecommendations & {
@@ -276,7 +280,15 @@ export type SeoAnalysis = GeneratedRecommendations & {
   specifications: { label: string; value: string }[];
   measurements: { label: string; value: string }[];
   competitorObservations: { observation: string; basis: string }[];
-  scores: { seo: ScoreResult; search: ScoreResult };
+  /**
+   * Measurable checks over the listing's own fields (D-081, finding F13).
+   * Each one states a fact and, when it fails, the field that fixes it. There
+   * is no total and no weighting: a weighted number reads like a ranking
+   * prediction, and nothing here can predict a ranking.
+   */
+  readiness: { seo: ReadinessReport; search: ReadinessReport };
+  /** Runs recorded before Stage 4 carry the old weighted scores instead. */
+  scores?: { seo: ScoreResult; search: ScoreResult };
 };
 
 /** The product fields an apply may write. */

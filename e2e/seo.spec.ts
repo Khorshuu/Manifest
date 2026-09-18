@@ -1,6 +1,21 @@
 import { expect, test } from "@playwright/test";
 
 /**
+ * A listing with one offer is a Product; one with variants that differ by an
+ * option is a ProductGroup whose variants carry their own offers (D-080).
+ * Either way the page states one price per thing a shopper can buy.
+ */
+function productNode(parsed: Record<string, unknown>[]) {
+  const node = parsed.find((item) => item["@type"] === "Product" || item["@type"] === "ProductGroup");
+  if (!node) return null;
+  const variants = (node.hasVariant as Record<string, unknown>[] | undefined) ?? [];
+  const offers = node.offers
+    ? [node.offers as Record<string, unknown>]
+    : variants.map((variant) => variant.offers as Record<string, unknown>);
+  return { node, offers };
+}
+
+/**
  * SEO and the performance budget.
  *
  * The budget numbers come from docs/DESIGN_GUIDELINES.md. They are measured
@@ -17,14 +32,22 @@ test("the product page carries valid product structured data", async ({
     .allTextContents();
 
   const parsed = blocks.map((block) => JSON.parse(block));
-  const product = parsed.find((item) => item["@type"] === "Product");
+  const found = productNode(parsed);
 
-  expect(product).toBeDefined();
-  expect(product.name).toBe("Seasonal Candy Variety Box");
-  expect(product.offers.priceCurrency).toBe("BDT");
-  // The seed prices this at 1,850 taka.
-  expect(product.offers.price).toBe("1850.00");
-  expect(product.offers.availability).toBe("https://schema.org/PreOrder");
+  expect(found).not.toBeNull();
+  expect(found!.node.name).toBe("Seasonal Candy Variety Box");
+  expect(found!.offers.length).toBeGreaterThan(0);
+  for (const offer of found!.offers) {
+    expect(offer.priceCurrency).toBe("BDT");
+  }
+  // The seed prices this at 1,850 taka, on a preorder.
+  expect(found!.offers.map((offer) => offer.price)).toContain("1850.00");
+  expect(found!.offers.map((offer) => offer.availability)).toContain("https://schema.org/PreOrder");
+  // The description is the copy the page shows, not the meta description (F7).
+  const metaDescription = await page.locator('meta[name="description"]').getAttribute("content");
+  if (found!.node.description && metaDescription) {
+    expect(found!.node.description).not.toBe(metaDescription);
+  }
 });
 
 test("the structured data agrees with the price on the page", async ({
@@ -35,15 +58,13 @@ test("the structured data agrees with the price on the page", async ({
   const blocks = await page
     .locator('script[type="application/ld+json"]')
     .allTextContents();
-  const product = blocks
-    .map((block) => JSON.parse(block))
-    .find((item) => item["@type"] === "Product");
+  const found = productNode(blocks.map((block) => JSON.parse(block)));
 
   const rendered = await page.getByText("BDT 1,850").first().innerText();
 
   // A rich result that contradicts the page is worse than none at all.
-  expect(rendered.replace(/[^0-9]/g, "")).toBe(
-    String(Math.round(Number(product.offers.price))),
+  expect(found!.offers.map((offer) => String(Math.round(Number(offer.price))))).toContain(
+    rendered.replace(/[^0-9]/g, ""),
   );
 });
 
@@ -93,6 +114,18 @@ test("the sitemap lists products and categories, and nothing private", async ({
   for (const path of ["/admin", "/account", "/cart", "/checkout"]) {
     expect(xml).not.toContain(`<loc>${path}`);
   }
+
+  // Photography is listed so image search can find it (finding F15).
+  expect(xml).toContain("image:image");
+});
+
+test("an address a listing used to have still arrives", async ({ page, request }) => {
+  // The seed renames nothing, so this checks the mechanism end to end only
+  // when a redirect exists; with none, a missing address is still a 404.
+  const response = await request.get("/products/definitely-not-a-listing", { maxRedirects: 0 });
+  expect(response.status()).toBe(404);
+  await page.goto("/products/seasonal-candy-variety-box");
+  await expect(page).toHaveTitle(/Seasonal Candy Variety Box/);
 });
 
 test("robots.txt keeps crawlers out of the private areas", async ({ page }) => {

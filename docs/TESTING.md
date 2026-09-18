@@ -305,3 +305,20 @@ When a change legitimately needs more JavaScript, raise the default in
 suites; nothing in it reaches the network, because retrieval is exercised
 through `safeFetch`'s test seams in `tests/pkb-net.test.ts` and through
 `provideDocument`, which takes the text a person supplies.
+
+### The SEO engine
+
+`tests/seo-engine.test.ts` (14 tests) covers Stage 4: a published listing keeps
+its address when renamed while a draft's follows the title, an address a listing
+leaves redirects and never shadows a live one, a canonical is refused unless it
+stays on this site, a staff save records who decided each field with its before
+and after, a locked field refuses an automatic change but not a person's,
+structured data is a Product or a ProductGroup with one offer per variant and
+availability from the same rule the buy box uses, an identifier is published
+only once it is verified or staff-entered, internal links come only from
+accepted relationships pointing at public listings, and the health screen counts
+real failures with examples.
+
+`e2e/seo.spec.ts` checks the rendered page: the JSON-LD on a real product, that
+its price matches the price on the page, the breadcrumb trail, the sitemap
+(including image entries) and robots.txt.

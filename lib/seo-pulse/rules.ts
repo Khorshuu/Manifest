@@ -5,7 +5,7 @@ import type {
   SeoResearchData,
 } from "./types";
 import { measurementRows, specificationRows } from "./facts";
-import { isGenericAlt } from "./scores";
+import { isGenericAlt } from "@/lib/seo/readiness";
 import {
   clampText,
   cleanTerms,

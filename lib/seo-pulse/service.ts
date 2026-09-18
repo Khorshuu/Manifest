@@ -47,7 +47,7 @@ import {
 } from "./providers/intelligence";
 import { coreName, generateByRules } from "./rules";
 import { sanitizeDescriptionHtml } from "./sanitize";
-import { searchScore, seoScore } from "./scores";
+import { searchReadiness, seoReadiness } from "@/lib/seo/readiness";
 import { hashValue, isSuperset, keywordKey, normalizeKeyword, stripHtml } from "./text";
 import {
   PULSE_VERSION,
@@ -479,7 +479,7 @@ export async function executeResearch(input: SeoPulseInput) {
     identifiers: identifierStatus(input),
     schemaReadiness: schemaReadiness(input),
     competitorObservations: competitorObservations(serp),
-    scores: { seo: seoScore(input), search: searchScore(input) },
+    readiness: { seo: seoReadiness(input), search: searchReadiness(input) },
   };
 
   return { research, analysis, usage };
@@ -495,8 +495,12 @@ export type RunSummary = {
   createdAt: string;
   completedAt: string | null;
   initiatedBy: string | null;
+  /** Legacy weighted scores, on runs recorded before Stage 4 (finding F13). */
   seoScore: number | null;
   searchScore: number | null;
+  /** How many measurable checks passed, out of how many were checked. */
+  seoChecks: { passed: number; total: number } | null;
+  searchChecks: { passed: number; total: number } | null;
   generatorLabel: string | null;
   appliedAt: string | null;
   appliedFields: string[];
@@ -531,6 +535,14 @@ function toSummary({ run, initiatedBy }: RunRow): RunSummary {
     initiatedBy,
     seoScore: run.seoScore,
     searchScore: run.searchScore,
+    seoChecks:
+      run.seoChecksTotal === null || run.seoChecksPassed === null
+        ? null
+        : { passed: run.seoChecksPassed, total: run.seoChecksTotal },
+    searchChecks:
+      run.searchChecksTotal === null || run.searchChecksPassed === null
+        ? null
+        : { passed: run.searchChecksPassed, total: run.searchChecksTotal },
     generatorLabel: analysis?.generator.label ?? null,
     appliedAt: run.appliedAt?.toISOString() ?? null,
     appliedFields: strings(run.appliedFields),
@@ -710,8 +722,11 @@ export async function runSeoPulse(
         research,
         analysis,
         providerUsage: usage,
-        seoScore: analysis.scores.seo.score,
-        searchScore: analysis.scores.search.score,
+        // Counted checks, not a weighted score (finding F13).
+        seoChecksPassed: analysis.readiness.seo.passed,
+        seoChecksTotal: analysis.readiness.seo.checks.length,
+        searchChecksPassed: analysis.readiness.search.passed,
+        searchChecksTotal: analysis.readiness.search.checks.length,
         completedAt: new Date(),
       })
       .where(eq(seoResearchRuns.id, row.id));
@@ -769,8 +784,10 @@ export async function completeQueuedResearch(runId: string): Promise<{ status: s
         research,
         analysis,
         providerUsage: usage,
-        seoScore: analysis.scores.seo.score,
-        searchScore: analysis.scores.search.score,
+        seoChecksPassed: analysis.readiness.seo.passed,
+        seoChecksTotal: analysis.readiness.seo.checks.length,
+        searchChecksPassed: analysis.readiness.search.passed,
+        searchChecksTotal: analysis.readiness.search.checks.length,
         completedAt: new Date(),
       })
       .where(eq(seoResearchRuns.id, runId));
@@ -831,7 +848,8 @@ export type PulseOverview = {
   status: ProductPulseStatus;
   latest: RunDetail | null;
   history: RunSummary[];
-  current: { seo: ReturnType<typeof seoScore>; search: ReturnType<typeof searchScore> };
+  /** The listing's readiness as it stands now, independent of any run. */
+  current: { seo: ReturnType<typeof seoReadiness>; search: ReturnType<typeof searchReadiness> };
   inputChanged: boolean;
   stale: boolean;
 };
@@ -858,7 +876,7 @@ export async function getSeoPulseOverview(
     status: pulseStatus(latestCompleted, hash, product.updatedAt),
     latest,
     history,
-    current: { seo: seoScore(input), search: searchScore(input) },
+    current: { seo: seoReadiness(input), search: searchReadiness(input) },
     inputChanged: latestCompleted !== null && latestCompleted.inputHash !== hash,
     stale:
       latestCompleted !== null &&
@@ -1221,7 +1239,12 @@ export async function applySeoPulse(
     if (!parsed.success) {
       throw new SeoPulseError(parsed.error.issues[0]?.message ?? "Check the values.", 400);
     }
-    await updateProduct(staff, productId, parsed.data, { executor: tx });
+    await updateProduct(staff, productId, parsed.data, {
+      executor: tx,
+      // Accepted by a person, from this run: the field becomes theirs, and a
+      // locked field refuses the apply rather than being overwritten (D-077).
+      fieldWrites: { origin: "accepted", reason: "Applied from SEO Pulse", runId: payload.runId },
+    });
     applied.push(...(Object.keys(patch) as ApplyField[]));
   }
 

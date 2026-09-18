@@ -48,8 +48,14 @@ export const seoResearchRuns = pgTable(
     research: jsonb("research"),
     /** SeoAnalysis — the recommendations. */
     analysis: jsonb("analysis"),
+    /** Legacy weighted scores (finding F13): not written from Stage 4 on. */
     seoScore: smallint("seo_score"),
     searchScore: smallint("search_score"),
+    /** Measurable checks: how many passed out of how many were checked. */
+    seoChecksPassed: smallint("seo_checks_passed"),
+    seoChecksTotal: smallint("seo_checks_total"),
+    searchChecksPassed: smallint("search_checks_passed"),
+    searchChecksTotal: smallint("search_checks_total"),
     /** ProviderUsage[] — which providers ran, requests made, reported cost. */
     providerUsage: jsonb("provider_usage"),
     pulseVersion: text("pulse_version").notNull(),
@@ -73,4 +79,91 @@ export const seoResearchRuns = pgTable(
     index("seo_research_runs_product_idx").on(table.productId, table.createdAt),
     index("seo_research_runs_created_idx").on(table.createdAt),
   ],
+);
+
+export const SEO_FIELDS = [
+  "seoFocusKeyword",
+  "seoMetaTitle",
+  "seoMetaDescription",
+  "canonicalUrl",
+  "seoNoIndex",
+  "slug",
+  "title",
+  "descriptionHtml",
+  "bulletFeatures",
+  "tags",
+  "searchKeywords",
+  "imageAlts",
+] as const;
+export type SeoField = (typeof SEO_FIELDS)[number];
+
+export const SEO_FIELD_STATES = ["AUTO", "SUGGESTED", "MANUAL", "LOCKED"] as const;
+export type SeoFieldState = (typeof SEO_FIELD_STATES)[number];
+
+/**
+ * Who decided each SEO field (migration 0033, D-077).
+ *
+ * A field a person wrote is MANUAL; a field they fixed is LOCKED and nothing
+ * automatic may touch it. A generator's wording is SUGGESTED until someone
+ * accepts it. Absence of a row means AUTO — nobody has decided yet.
+ */
+export const seoFieldStates = pgTable(
+  "seo_field_states",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    field: text("field").$type<SeoField>().notNull(),
+    state: text("state").$type<SeoFieldState>().notNull().default("AUTO"),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    sourceRunId: uuid("source_run_id").references(() => seoResearchRuns.id, { onDelete: "set null" }),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("seo_field_states_unique").on(table.productId, table.field),
+    index("seo_field_states_product_idx").on(table.productId),
+  ],
+);
+
+/** Before and after of every SEO or content field change (finding F9). Append-only. */
+export const seoFieldHistory = pgTable(
+  "seo_field_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    field: text("field").$type<SeoField>().notNull(),
+    beforeValue: text("before_value"),
+    afterValue: text("after_value"),
+    beforeState: text("before_state").$type<SeoFieldState>(),
+    afterState: text("after_state").$type<SeoFieldState>().notNull(),
+    actorUserId: uuid("actor_user_id").references(() => users.id),
+    sourceRunId: uuid("source_run_id").references(() => seoResearchRuns.id, { onDelete: "set null" }),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("seo_field_history_product_idx").on(table.productId, table.createdAt)],
+);
+
+/**
+ * The addresses a listing used to have (D-078). A renamed listing answers on
+ * its old address with a permanent redirect, so existing links still arrive.
+ */
+export const productSlugRedirects = pgTable(
+  "product_slug_redirects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fromSlug: text("from_slug").notNull().unique(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    actorUserId: uuid("actor_user_id").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("product_slug_redirects_product_idx").on(table.productId)],
 );
