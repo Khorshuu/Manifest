@@ -114,6 +114,12 @@ export const orderItems = pgTable(
     estimatedArrivalSnapshot: timestamp("estimated_arrival_snapshot", {
       withTimezone: true,
     }),
+    /**
+     * The search this line was found through, carried from the cart only until
+     * the payment is confirmed and then cleared (migration 0036, D-093). Not a
+     * lasting record of what a customer searched for.
+     */
+    searchQueryNorm: text("search_query_norm"),
   },
   (table) => [
     check("order_items_quantity_check", sql`${table.quantity} > 0`),

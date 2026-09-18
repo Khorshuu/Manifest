@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { loadKnowledgeMap, phrasesIn, type KnowledgeMap } from "./knowledge";
 import {
   cleanQuery,
   codeKey,
@@ -8,29 +9,54 @@ import {
   normalizeText,
   queryTokens,
   queryWords,
+  readableTsQuery,
 } from "./normalize";
 import { isPublicAs, queryRows, textArray, type SearchPlan } from "./sql";
 import { buildSlots, loadSynonymMap } from "./synonyms";
+import { productTerm, termKey } from "./terms";
 
 export type { SearchPlan } from "./sql";
 
 /**
+ * The products a search names outright.
+ *
+ * Only when the *whole* search is an approved alias of one product. "xm6" is
+ * that product; "xm6 case" is a search for a case, and treating it as the
+ * headphones would put the wrong thing first (D-091).
+ */
+function identityTerms(query: string, knowledge: KnowledgeMap): string[] {
+  const whole = knowledge.get(normalizeText(query));
+  if (!whole || whole.productIds.length === 0) return [];
+  return whole.productIds.map(productTerm);
+}
+
+/**
  * Reads a search: cleans it, splits it into words, applies the synonyms staff
- * have written, and builds the tsquery. Returns null when nothing searchable
- * is left — "???" narrows nothing rather than matching nothing, which is what
- * someone who typed it is better served by.
+ * have written and the knowledge base's approved aliases, and builds the
+ * tsquery. Returns null when nothing searchable is left — "???" narrows
+ * nothing rather than matching nothing, which is what someone who typed it is
+ * better served by.
  */
 export async function planSearch(
   raw: unknown,
-  options: { synonyms?: boolean } = {},
+  options: { synonyms?: boolean; knowledge?: boolean } = {},
 ): Promise<SearchPlan | null> {
   const query = cleanQuery(raw);
   const words = queryWords(query);
   if (words.length === 0) return null;
 
-  const synonyms =
-    options.synonyms === false ? new Map() : await loadSynonymMap(words);
-  const slots = buildSlots(words, synonyms);
+  const phrases = phrasesIn(words);
+  // Both lookups are one indexed query each and neither depends on the other.
+  const [synonyms, knowledge] = await Promise.all([
+    options.synonyms === false
+      ? Promise.resolve(new Map<string, string[][]>())
+      : loadSynonymMap(words),
+    options.knowledge === false
+      ? Promise.resolve(new Map() as KnowledgeMap)
+      : loadKnowledgeMap([...phrases, normalizeText(query)]),
+  ]);
+
+  const slots = buildSlots(words, synonyms, { knowledge, query });
 
   return {
     query,
@@ -38,10 +64,18 @@ export async function planSearch(
     words,
     slots,
     tsquery: combinedTsQuery(slots),
+    readableTsquery: readableTsQuery(slots),
+    readableWords: slots
+      .filter((slot) => !slot.structural)
+      .flatMap((slot) => slot.typed),
+    identityTerms: identityTerms(query, knowledge),
     code: looksLikeCode(query) ? codeKey(query) : null,
     correctedFrom: null,
   };
 }
+
+/** The term key of a phrase, for callers that compare against the index. */
+export { termKey };
 
 /** Words worth checking for a typo: long enough, not a number, not a stop word. */
 function checkable(words: string[]): string[] {

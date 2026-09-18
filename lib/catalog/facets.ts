@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { attributeValues, attributes, products } from "@/db/schema";
 import { slugify } from "@/lib/search/normalize";
 import { planSearch, type SearchPlan } from "@/lib/search/plan";
-import { queryRows, searchMatch } from "@/lib/search/sql";
+import { queryRows, searchMatch, textArray } from "@/lib/search/sql";
+import { termKey } from "@/lib/search/terms";
 import { effectivePriceExpression } from "./price";
 import { PUBLIC_STATUSES } from "./products";
 
@@ -151,42 +152,112 @@ function priceWithin(minBdt?: number, maxBdt?: number): SQL {
 }
 
 /**
- * An attribute filter: a live variant carrying one of the values, or a
- * specification answered with one of them. Compared case-insensitively, so a
- * hand-typed `?color=black` works as well as the link the panel wrote.
+ * An attribute filter, against the facet read model (D-090).
+ *
+ * The read model already holds one row per product, attribute and normalized
+ * value, whether the value came from the knowledge base or from an option
+ * group the knowledge base has not mapped yet — so this is one indexed lookup
+ * instead of two correlated subqueries over JSON.
+ *
+ * Both the attribute and the value are matched on their canonical key *or* on
+ * the older keys they used to travel under, which is what keeps a link someone
+ * shared last month working after "Color" and "Colour" became one filter and
+ * "256GB" and "256 GB" became one value.
  */
 function optionMatches(key: string, values: string[]): SQL {
-  const lowered = [...new Set(values.map((value) => value.toLowerCase()))];
-  const list = sql.join(
-    lowered.map((value) => sql`${value}`),
-    sql`, `,
-  );
+  const keys = textArray([...new Set([termKey(key), key])].filter(Boolean));
+  const valueKeys = textArray([
+    ...new Set(values.map((value) => termKey(value)).filter(Boolean)),
+  ]);
 
+  return sql`exists (
+    select 1
+    from product_search_attributes sa
+    where sa.product_id = ${products.id}
+      and sa.filterable
+      and (sa.url_key = ${key} or sa.alt_keys && ${keys})
+      and (sa.value_key = any(${valueKeys}) or sa.value_alt_keys && ${valueKeys})
+  )`;
+}
+
+/**
+ * The attribute and value keys a set of URL filters name (D-090).
+ *
+ * A filter arrives as whatever the link says: the key the attribute goes by
+ * today, one it went by before, and a value spelled any of the ways the
+ * catalogue spells it. This resolves each pair to the one key and the one
+ * value key the read model holds, so everything downstream — the WHERE, the
+ * counts, and which boxes are ticked — compares one thing rather than several
+ * spellings of it.
+ *
+ * A pair nothing recognises is kept as it arrived. It will match nothing,
+ * which is right, but it still gets its box and its chip so it can be removed.
+ */
+async function canonicaliseOptions(
+  options: Record<string, string[]>,
+): Promise<Record<string, string[]>> {
+  const pairs: { key: string; value: string }[] = [];
+  for (const [key, values] of Object.entries(options)) {
+    for (const value of values) {
+      const valueKey = termKey(value);
+      if (valueKey) pairs.push({ key: termKey(key) ? key : key, value: valueKey });
+    }
+  }
+  if (pairs.length === 0) return {};
+
+  const rows = await queryRows<{
+    asked_key: string;
+    asked_value: string;
+    url_key: string;
+    value_key: string;
+  }>(sql`
+    with asked(k, v) as (values ${sql.join(
+      pairs.map((pair) => sql`(${pair.key}::text, ${pair.value}::text)`),
+      sql`, `,
+    )})
+    select a.k as asked_key, a.v as asked_value, sa.url_key, sa.value_key
+    from asked a
+    join product_search_attributes sa
+      on sa.filterable
+     and (sa.url_key = a.k or sa.alt_keys @> array[a.k])
+     and (sa.value_key = a.v or sa.value_alt_keys @> array[a.v])
+    group by a.k, a.v, sa.url_key, sa.value_key
+  `);
+
+  const resolved: Record<string, string[]> = {};
+  const add = (key: string, value: string) => {
+    const list = (resolved[key] ??= []);
+    if (!list.includes(value)) list.push(value);
+  };
+
+  const matched = new Set<string>();
+  for (const row of rows) {
+    matched.add(`${row.asked_key} ${row.asked_value}`);
+    add(row.url_key, row.value_key);
+  }
+  for (const pair of pairs) {
+    if (!matched.has(`${pair.key} ${pair.value}`)) add(pair.key, pair.value);
+  }
+
+  return resolved;
+}
+
+/**
+ * A brand filter. Brands are compared by their key, so the several spellings
+ * the knowledge base has reconciled into one brand entity answer to each
+ * other's links (finding F10) and a link written before the reconciliation
+ * still opens the right page.
+ */
+function brandMatches(brands: string[]): SQL {
+  const keys = textArray([
+    ...new Set(brands.map((brand) => termKey(brand)).filter(Boolean)),
+  ]);
   return sql`(
-    exists (
-      select 1
-      from product_variants v
-      join variant_option_values vov on vov.variant_id = v.id
-      join attributes a on a.id = vov.attribute_id
-      join attribute_values av on av.id = vov.attribute_value_id
-      where v.product_id = ${products.id} and ${liveVariant}
-        and search_slug(a.name) = ${key}
-        and lower(av.value) in (${list})
-    )
+    coalesce(ps.brand_key, '') = any(${keys})
     or exists (
-      select 1
-      from category_attributes d
-      cross join lateral jsonb_array_elements_text(
-        case jsonb_typeof(${products.attributeValues} -> d.id::text)
-          when 'array' then ${products.attributeValues} -> d.id::text
-          when 'string' then jsonb_build_array(${products.attributeValues} -> d.id::text)
-          when 'number' then jsonb_build_array(${products.attributeValues} -> d.id::text)
-          else '[]'::jsonb
-        end
-      ) as x(value)
-      where d.is_filterable
-        and search_slug(d.name) = ${key}
-        and lower(x.value) in (${list})
+      select 1 from product_search_attributes sa
+      where sa.product_id = ${products.id} and sa.url_key = 'brand'
+        and (sa.value_key = any(${keys}) or sa.value_alt_keys && ${keys})
     )
   )`;
 }
@@ -229,7 +300,7 @@ async function prepare(filters: ProductFilters): Promise<Prepared> {
   merge(filters.options ?? {});
   merge(await optionsFromValueIds(filters.valueIds ?? []));
 
-  return { ...filters, plan, options };
+  return { ...filters, plan, options: await canonicaliseOptions(options) };
 }
 
 /**
@@ -248,7 +319,7 @@ function conditionsFor(filters: Prepared, omit?: FilterGroup): SQL[] {
   }
 
   if (filters.brands?.length && omit !== "brand") {
-    conditions.push(inArray(products.brand, filters.brands));
+    conditions.push(brandMatches(filters.brands));
   }
 
   // The search itself is never a facet: every count is within the results.
@@ -333,8 +404,14 @@ export type FacetValue = {
 };
 
 export type AttributeFacet = {
-  /** The URL key: "color", "screen-size". */
+  /** The canonical URL key: "color", "screen-size". */
   key: string;
+  /**
+   * Keys this same filter used to travel under, before the knowledge base
+   * reconciled the spellings. A link written under one of them still names
+   * this filter, and still gets a chip.
+   */
+  altKeys: string[];
   name: string;
   values: FacetValue[];
 };
@@ -400,18 +477,26 @@ type OptionFact = {
   key: string;
   name: string;
   value: string;
+  value_key: string;
   ord: number;
-  unit: string | null;
+  number: string | null;
   data_type: string;
   count: number;
+  alt_keys: string[];
 };
 
 /**
- * Every attribute value in the results, from both systems: variation options
- * on live variants, and category specifications that are marked as filters.
- * Grouped by the attribute's URL key and the value case-insensitively, and
- * counted by product, so a product whose three variants are all black counts
- * once.
+ * Every attribute value in the results, from the facet read model (D-090).
+ *
+ * One indexed read instead of the two correlated subqueries over JSON this
+ * used to be. The read model already decided what an attribute is called, what
+ * its values compare as, and whether it is a filter at all — which is what
+ * makes "Color" and "Colour" one group (finding F12) and "256GB" and "256 GB"
+ * one value (finding F11). Counted by product, so a listing whose three
+ * variants are all black counts once.
+ *
+ * The brand is left out: it has a control of its own, and offering it twice
+ * would be two filters for one thing.
  */
 async function optionFacts(
   filters: Prepared,
@@ -419,72 +504,29 @@ async function optionFacts(
 ): Promise<OptionFact[]> {
   return queryRows<OptionFact>(sql`
     with matching as (
-      select ${products.id} as id, ${products.attributeValues} as attribute_values
+      select ${products.id} as id
       from ${products}
       left join product_search ps on ps.product_id = ${products.id}
       where ${whereFor(filters, omit)}
-    ),
-    facts as (
-      select m.id as product_id,
-             search_slug(a.name) as key,
-             a.name as name,
-             av.value as value,
-             av.sort_order as ord,
-             null::text as unit,
-             'select'::text as data_type
-      from matching m
-      join product_variants v on v.product_id = m.id
-        and v.is_enabled = true and v.archived_at is null
-      join variant_option_values vov on vov.variant_id = v.id
-      join attributes a on a.id = vov.attribute_id
-      join attribute_values av on av.id = vov.attribute_value_id
-      union all
-      select m.id,
-             search_slug(d.name),
-             d.name,
-             x.value,
-             coalesce((
-               select t.ord::int
-               from jsonb_array_elements_text(
-                 case when jsonb_typeof(d.options) = 'array' then d.options else '[]'::jsonb end
-               ) with ordinality as t(option, ord)
-               where t.option = x.value
-             ), 1000),
-             d.unit,
-             d.data_type
-      from matching m
-      cross join lateral jsonb_each(
-        case when jsonb_typeof(m.attribute_values) = 'object'
-          then m.attribute_values else '{}'::jsonb end
-      ) as e(key, value)
-      join category_attributes d on d.id::text = e.key and d.is_filterable
-      cross join lateral jsonb_array_elements_text(
-        case jsonb_typeof(e.value)
-          when 'array' then e.value
-          else jsonb_build_array(e.value)
-        end
-      ) as x(value)
-      where x.value <> ''
     )
-    select key,
-           min(name) as name,
-           min(value) as value,
-           min(ord)::int as ord,
-           min(unit) as unit,
-           min(data_type) as data_type,
-           count(distinct product_id)::int as count
-    from facts
-    where key <> ''
-    group by key, lower(value)
+    select sa.url_key as key,
+           min(sa.label) as name,
+           min(sa.value_label) as value,
+           sa.value_key as value_key,
+           min(sa.sort_order)::int as ord,
+           min(sa.value_number) as number,
+           min(sa.data_type) as data_type,
+           count(distinct sa.product_id)::int as count,
+           coalesce(
+             (array_agg(distinct alt.key) filter (where alt.key is not null)),
+             '{}'::text[]
+           ) as alt_keys
+    from matching m
+    join product_search_attributes sa on sa.product_id = m.id
+    left join lateral unnest(sa.alt_keys) as alt(key) on true
+    where sa.filterable and sa.url_key <> 'brand'
+    group by sa.url_key, sa.value_key
   `);
-}
-
-/** How a stored value reads as a filter. */
-function facetLabel(fact: OptionFact): string {
-  if (fact.data_type === "boolean") {
-    return fact.value === "true" ? "Yes" : fact.value === "false" ? "No" : fact.value;
-  }
-  return fact.unit ? `${fact.value} ${fact.unit}` : fact.value;
 }
 
 const isNumeric = (value: string) => value.trim() !== "" && Number.isFinite(Number(value));
@@ -521,37 +563,58 @@ async function optionFacets(filters: Prepared): Promise<AttributeFacet[]> {
   const facets: AttributeFacet[] = [];
 
   for (const [key, facts] of byKey) {
+    // Values are compared by their key, not their spelling, so a link written
+    // when the value read "256GB" still ticks the box now labelled "256 GB".
     const selected = new Set(
-      (filters.options[key] ?? []).map((value) => value.toLowerCase()),
+      (filters.options[key] ?? []).map((value) => termKey(value)),
     );
 
     const values: FacetValue[] = facts.map((fact) => ({
       id: fact.value,
-      label: facetLabel(fact),
+      label: fact.value,
       count: fact.count,
-      selected: selected.has(fact.value.toLowerCase()),
+      selected: selected.has(fact.value_key),
     }));
 
     // A selected value the results no longer carry still needs its box, or it
     // could not be unticked.
+    const shown = new Set(facts.map((fact) => fact.value_key));
     for (const value of filters.options[key] ?? []) {
-      if (!values.some((entry) => entry.id.toLowerCase() === value.toLowerCase())) {
+      if (!shown.has(termKey(value))) {
         values.push({ id: value, label: value, count: 0, selected: true });
       }
     }
 
-    const numeric = facts.length > 0 && facts.every((fact) => isNumeric(fact.value));
+    // A quantity sorts by what it measures, not by how it reads: 1 TB comes
+    // after 512 GB because the knowledge base knows both in bytes.
+    const numeric =
+      facts.length > 0 &&
+      (facts.every((fact) => fact.number !== null) ||
+        facts.every((fact) => isNumeric(fact.value)));
+    const magnitude = new Map(
+      facts.map((fact) => [
+        fact.value,
+        fact.number !== null ? Number(fact.number) : Number(fact.value),
+      ]),
+    );
     const order = new Map(facts.map((fact) => [fact.value, fact.ord]));
     values.sort((a, b) =>
       numeric
-        ? Number(a.id) - Number(b.id)
+        ? (magnitude.get(a.id) ?? 0) - (magnitude.get(b.id) ?? 0)
         : (order.get(a.id) ?? 1000) - (order.get(b.id) ?? 1000) ||
           a.label.localeCompare(b.label),
     );
 
     if (values.length < 2 && !values.some((value) => value.selected)) continue;
 
-    facets.push({ key, name: facts[0]?.name ?? key, values: values.slice(0, 40) });
+    facets.push({
+      key,
+      altKeys: [...new Set(facts.flatMap((fact) => fact.alt_keys ?? []))].filter(
+        (alt) => alt !== key,
+      ),
+      name: facts[0]?.name ?? key,
+      values: values.slice(0, 40),
+    });
   }
 
   // What is being used first, then what covers the most of the results.
@@ -565,31 +628,45 @@ async function optionFacets(filters: Prepared): Promise<AttributeFacet[]> {
   );
 }
 
+/**
+ * Brands in the current results, grouped by the knowledge base's brand entity
+ * rather than by the exact string on each listing (finding F10). Two listings
+ * that spell one brand differently now count once, under the name the
+ * knowledge base holds; a listing whose brand the knowledge base has not
+ * reconciled still appears under its own spelling.
+ */
 async function brandFacet(filters: Prepared): Promise<FacetValue[]> {
-  const selected = new Set(filters.brands ?? []);
+  const selected = new Set((filters.brands ?? []).map((brand) => termKey(brand)));
 
-  const rows = await db
-    .select({
-      brand: products.brand,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(products)
-    .leftJoin(searchJoin.table, searchJoin.on)
-    .where(and(whereFor(filters, "brand"), sql`${products.brand} is not null`))
-    .groupBy(products.brand)
-    .orderBy(desc(sql`count(*)`), asc(products.brand));
+  const rows = await queryRows<{ key: string; label: string; count: number }>(sql`
+    with matching as (
+      select ${products.id} as id, ${products.brand} as brand
+      from ${products}
+      left join product_search ps on ps.product_id = ${products.id}
+      where ${whereFor(filters, "brand")}
+    )
+    select
+      coalesce(nullif(sa.value_key, ''), search_term_key(m.brand)) as key,
+      min(coalesce(sa.value_label, m.brand)) as label,
+      count(distinct m.id)::int as count
+    from matching m
+    left join product_search_attributes sa
+      on sa.product_id = m.id and sa.url_key = 'brand'
+    where coalesce(nullif(sa.value_key, ''), search_term_key(m.brand)) <> ''
+    group by 1
+    order by count(distinct m.id) desc, min(coalesce(sa.value_label, m.brand))
+  `);
 
-  const values: FacetValue[] = rows
-    .filter((row): row is { brand: string; count: number } => Boolean(row.brand))
-    .map((row) => ({
-      id: row.brand,
-      label: row.brand,
-      count: row.count,
-      selected: selected.has(row.brand),
-    }));
+  const values: FacetValue[] = rows.map((row) => ({
+    id: row.label,
+    label: row.label,
+    count: Number(row.count),
+    selected: selected.has(row.key),
+  }));
 
-  for (const brand of selected) {
-    if (!values.some((value) => value.id === brand)) {
+  const shown = new Set(rows.map((row) => row.key));
+  for (const brand of filters.brands ?? []) {
+    if (!shown.has(termKey(brand))) {
       values.push({ id: brand, label: brand, count: 0, selected: true });
     }
   }

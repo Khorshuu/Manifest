@@ -6,8 +6,10 @@ import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import type { Executor } from "@/lib/pkb/common";
 import type { SynonymInput } from "@/lib/validation/search";
-import type { Slot } from "./normalize";
+import { phrasesIn, type KnowledgeMap } from "./knowledge";
+import { wordSlot, type Slot } from "./normalize";
 import { textArray } from "./sql";
+import { quantitiesIn, valueTerm, type QuantityInQuery } from "./terms";
 
 /**
  * Synonyms: what else a word should find.
@@ -189,16 +191,6 @@ export async function deleteSynonym(
   });
 }
 
-/** Every run of one to three consecutive words, which is what an entry can match. */
-function phrasesIn(words: string[]): string[] {
-  const phrases = new Set<string>();
-  for (let start = 0; start < words.length; start++) {
-    for (let length = 1; length <= 3 && start + length <= words.length; length++) {
-      phrases.add(words.slice(start, start + length).join(" "));
-    }
-  }
-  return [...phrases];
-}
 
 /**
  * The synonyms that apply to a search: phrase to the phrases it should also
@@ -251,32 +243,128 @@ export async function loadSynonymMap(
 }
 
 /**
- * Splits a search into slots, taking the longest phrase an entry covers at
+ * Where each quantity in a search sits among its words.
+ *
+ * "512gb" is one word; "6.1 inch" is three once punctuation is split on. Both
+ * have to become one position, so the span is found by tokenising the quantity
+ * the same way the search was tokenised and looking for that run of words.
+ */
+function quantitySpans(
+  query: string,
+  words: string[],
+): Map<number, { length: number; quantity: QuantityInQuery }> {
+  const spans = new Map<number, { length: number; quantity: QuantityInQuery }>();
+  const taken = new Set<number>();
+
+  for (const quantity of quantitiesIn(query)) {
+    const needle = quantity.text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim()
+      .split(" ")
+      .filter(Boolean);
+    if (needle.length === 0) continue;
+
+    for (let start = 0; start + needle.length <= words.length; start++) {
+      if (taken.has(start)) continue;
+      if (!needle.every((word, offset) => words[start + offset] === word)) continue;
+      spans.set(start, { length: needle.length, quantity });
+      for (let offset = 0; offset < needle.length; offset++) taken.add(start + offset);
+      break;
+    }
+  }
+
+  return spans;
+}
+
+/** "256gb" as the two words a listing that wrote "256 GB" was indexed under. */
+function splitQuantityWords(word: string): string[] {
+  const match = /^(\d+)([\p{L}]+)$/u.exec(word);
+  return match ? [match[1], match[2]] : [word];
+}
+
+/**
+ * Splits a search into slots, taking the longest phrase anything covers at
  * each position, so "cell phone case" with an entry for "cell phone" becomes
  * [cell phone | phone | mobile] [case] rather than three separate words.
+ *
+ * Three things can claim a position, in this order:
+ *
+ *  1. a quantity — "512 gb" becomes one position carrying the canonical value,
+ *     so it cannot be broken up and half-matched;
+ *  2. a staff-written synonym, longest phrase first (unchanged);
+ *  3. the knowledge base — an approved alias, a brand or a family name, which
+ *     adds both the other spellings and the structured term.
+ *
+ * A word claimed by none of them is its own plain slot, exactly as before.
  */
 export function buildSlots(
   words: string[],
   synonyms: Map<string, string[][]>,
+  options: { knowledge?: KnowledgeMap; query?: string } = {},
 ): Slot[] {
+  const knowledge = options.knowledge ?? new Map();
+  const spans = options.query ? quantitySpans(options.query, words) : new Map();
   const slots: Slot[] = [];
   let index = 0;
 
   while (index < words.length) {
+    const span = spans.get(index);
+    if (span) {
+      const phrase = words.slice(index, index + span.length);
+      /*
+       * Still searched as words, in both the ways a quantity is written. A
+       * listing whose value the knowledge base has not mapped yet only has the
+       * text, and that text may say "512GB" or "512 GB" — someone typing
+       * either must find both. The canonical term is what matches a listing
+       * whose value *is* in the knowledge base, however it was written there.
+       */
+      const joined = phrase.join("");
+      const split = phrase.length === 1 ? splitQuantityWords(phrase[0]) : phrase;
+      const alternatives = new Map<string, string[]>();
+      for (const alternative of [phrase, split, [joined]]) {
+        if (alternative.length > 0) alternatives.set(alternative.join(" "), alternative);
+      }
+
+      slots.push({
+        typed: phrase,
+        alternatives: [...alternatives.values()],
+        terms: [span.quantity.term],
+        structural: true,
+      });
+      index += span.length;
+      continue;
+    }
+
     let taken = 0;
 
     for (let length = Math.min(3, words.length - index); length >= 1; length--) {
       const phrase = words.slice(index, index + length);
-      const alternatives = synonyms.get(phrase.join(" "));
-      if (alternatives && alternatives.length > 0) {
-        slots.push({ typed: phrase, alternatives: [phrase, ...alternatives] });
-        taken = length;
-        break;
-      }
+      const key = phrase.join(" ");
+      const synonymAlternatives = synonyms.get(key) ?? [];
+      const known = knowledge.get(key);
+      if (synonymAlternatives.length === 0 && !known) continue;
+
+      const alternatives = [phrase, ...synonymAlternatives, ...(known?.words ?? [])];
+      const unique = new Map(alternatives.map((entry) => [entry.join(" "), entry]));
+      slots.push({
+        typed: phrase,
+        alternatives: [...unique.values()],
+        terms: known?.terms ?? [],
+        structural: false,
+      });
+      taken = length;
+      break;
     }
 
     if (taken === 0) {
-      slots.push({ typed: [words[index]], alternatives: [[words[index]]] });
+      const word = words[index];
+      const slot = wordSlot(word);
+      // A bare word may still be a value the knowledge base holds — "black" is
+      // a colour whichever attribute records it. This can only widen: a
+      // product has to actually carry that value for the term to match.
+      slot.terms = [valueTerm(word)];
+      slots.push(slot);
       taken = 1;
     }
 

@@ -42,6 +42,13 @@ export const cartItems = pgTable(
       .notNull()
       .references(() => productVariants.id),
     quantity: integer("quantity").notNull(),
+    /**
+     * The search this line was found through, if any (migration 0036, D-093).
+     * Read once when the order is placed so the search can be counted as
+     * converting, then forgotten with the cart. Never leaves the shop, and
+     * never reaches the Product Knowledge Base.
+     */
+    searchQueryNorm: text("search_query_norm"),
     addedAt: timestamp("added_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

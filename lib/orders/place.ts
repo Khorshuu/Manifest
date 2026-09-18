@@ -218,6 +218,9 @@ export async function placeOrder(
           depositPercent: productVariants.depositPercent,
           estimatedArrivalFrom: productVariants.estimatedArrivalFrom,
           weightGrams: productVariants.weightGrams,
+          /* Carried onto the order line so the search can be counted when the
+             payment is confirmed, then erased there (D-093). */
+          searchQueryNorm: cartItems.searchQueryNorm,
         })
         .from(cartItems)
         .innerJoin(productVariants, eq(cartItems.variantId, productVariants.id))
@@ -335,6 +338,7 @@ export async function placeOrder(
           quantity: line.quantity,
           fulfillmentModeSnapshot: line.fulfillmentMode,
           estimatedArrivalSnapshot: line.estimatedArrivalFrom,
+          searchQueryNorm: line.searchQueryNorm,
         })),
       );
 

@@ -55,3 +55,32 @@ export const searchHistoryEntrySchema = z
     q: z.string().trim().min(1).max(MAX_QUERY_LENGTH),
   })
   .strict();
+
+/**
+ * Recording that a search someone ran is another name for something the shop
+ * sells (D-094). Creates a *suggested* alias only; approving it is a separate
+ * decision in the knowledge base, so a customer's words can never become
+ * search vocabulary in one step.
+ */
+export const aliasSuggestionSchema = z
+  .object({
+    targetKind: z.enum(["brand", "product", "family"]),
+    targetId: z.string().uuid(),
+    alias: z.string().trim().min(2).max(120),
+    aliasKind: z
+      .enum([
+        "spelling_variant",
+        "abbreviation",
+        "model_formatting",
+        "common_name",
+        "former_name",
+        "misspelling",
+        "translation",
+        "other",
+      ])
+      .default("common_name"),
+    evidenceNote: z.string().trim().max(500).optional(),
+  })
+  .strict();
+
+export type AliasSuggestionInput = z.infer<typeof aliasSuggestionSchema>;

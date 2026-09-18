@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
 import { logSearchClick } from "@/lib/search/analytics";
+import { rememberSearchAttribution } from "@/lib/search/attribution";
 import { allowRequest } from "@/lib/search/throttle";
 import { currentVisitorHash } from "@/lib/search/visitor";
 import { searchClickSchema } from "@/lib/validation/search";
@@ -38,6 +39,12 @@ export async function POST(request: Request) {
     position: parsed.data.position,
     visitorHash: visitor,
   });
+
+  // So that adding this product to a cart, and paying for it, can be counted
+  // against the search that found it (D-093). Nothing about the shopper is
+  // stored; the cookie names one search and one product and expires in half an
+  // hour.
+  await rememberSearchAttribution(parsed.data.q, parsed.data.productId);
 
   return new NextResponse(null, { status: 204 });
 }

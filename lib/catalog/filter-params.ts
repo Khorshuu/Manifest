@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { queryRows, textArray } from "@/lib/search/sql";
+import { termKey } from "@/lib/search/terms";
 import type { ProductFilters } from "./facets";
 
 /**
@@ -176,9 +177,16 @@ export function optionCandidates(
 }
 
 /**
- * Keeps only the keys that name a real attribute. Without this, an unrelated
- * parameter — a campaign tag, a share-tracking id — would be read as a filter
- * that matches nothing, and a shared link would open on an empty page.
+ * Keeps only the keys that name a real attribute, and answers under the name
+ * that attribute goes by now.
+ *
+ * Without the first half, an unrelated parameter — a campaign tag, a
+ * share-tracking id — would be read as a filter that matches nothing, and a
+ * shared link would open on an empty page. The second half is what the
+ * knowledge base adds (D-090): `?colour=black` and `?color=black` are the same
+ * filter, so both arrive here and both leave as the one key the facet is
+ * offered under. Values of the two are merged rather than ANDed, because a
+ * shopper who followed two links meant one filter with two values.
  */
 export async function resolveOptionKeys(
   candidates: Record<string, string[]>,
@@ -186,20 +194,24 @@ export async function resolveOptionKeys(
   const keys = Object.keys(candidates);
   if (keys.length === 0) return {};
 
-  const rows = await queryRows<{ key: string }>(sql`
-    select search_slug(name) as key
-    from attributes
-    where search_slug(name) = any(${textArray(keys)})
-    union
-    select search_slug(name)
-    from category_attributes
-    where is_filterable and search_slug(name) = any(${textArray(keys)})
+  const list = textArray(keys);
+  const rows = await queryRows<{ asked: string; key: string }>(sql`
+    select asked.key as asked, sa.url_key as key
+    from unnest(${list}) as asked(key)
+    join product_search_attributes sa
+      on sa.filterable
+     and (sa.url_key = asked.key or sa.alt_keys @> array[asked.key])
+    group by asked.key, sa.url_key
   `);
 
-  const known = new Set(rows.map((row) => row.key));
-  return Object.fromEntries(
-    Object.entries(candidates).filter(([key]) => known.has(key)),
-  );
+  const canonical = new Map(rows.map((row) => [row.asked, row.key]));
+  const resolved: Record<string, string[]> = {};
+  for (const [asked, values] of Object.entries(candidates)) {
+    const key = canonical.get(asked);
+    if (!key) continue;
+    resolved[key] = [...new Set([...(resolved[key] ?? []), ...values])];
+  }
+  return resolved;
 }
 
 /** Everything a listing URL can say, attribute filters included. */
@@ -306,7 +318,9 @@ export function activeFilterChips({
     if (!option) continue;
 
     for (const value of many(raw)) {
-      const label = option.labels.get(value.toLowerCase()) ?? value;
+      // Matched on the value's key, so a link written before the knowledge
+      // base normalized the value still reads as the value it names.
+      const label = option.labels.get(termKey(value)) ?? value;
       chips.push({
         key: `option-${key}-${value}`,
         label: option.showName ? `${option.name}: ${label}` : label,

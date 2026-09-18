@@ -2120,3 +2120,181 @@ They are not created. A relationship is a claim about the products, and a claim
 is decided in the knowledge base with evidence behind it (I-1, D-076). Inferring
 one from a shared brand would put an unevidenced fact into the same table that
 holds the reviewed ones.
+
+## D-089 — Search reads the knowledge base through one derived index; parity is by construction
+
+**Decision.** `product_search` gains four derived columns — `brand_key`,
+`family_keys`, `alias_keys` and `terms` — built by `refresh_product_search`
+from `pkb_facts`, `pkb_identifiers`, `pkb_aliases`, `pkb_brands` and
+`pkb_families` (migration 0036). `terms` is a prefixed text array: `p:` the
+knowledge product, `b:` its brand, `f:` a family it belongs to, `a:` a named
+attribute with a named value, `v:` that value whichever attribute holds it,
+`q:` a named quantity in its canonical unit, `u:` that quantity by dimension.
+A query is turned into the same forms by `lib/search/terms.ts` and
+`lib/search/knowledge.ts`, and a slot matches through its words *or* one of its
+terms — never both required, so adding the knowledge base to an existing search
+can only ever find more.
+
+Search holds no product truth of its own. Everything above is derived and can
+be dropped and rebuilt from `pkb_*` by `refresh_product_search` at any time,
+which is the test of whether a second source of truth has been created.
+
+**Normalization parity is structural, not maintained.** A quantity is
+normalized once, by `lib/pkb/units.ts`, when the fact is written; the index
+copies the canonical number. A query goes through the same registry at query
+time. There is no second unit table and no SQL unit conversion, so the two
+cannot drift by one being updated and the other forgotten. The one rule that
+does exist twice is the comparison key: `search_term_key` in SQL, because the
+index is trigger-built, and `termKey` in TypeScript. They are character for
+character the same, and `tests/search-knowledge.test.ts` runs both over the
+same inputs and fails if they ever differ.
+
+**Alternatives considered.** Building the index from application code after
+every write (D-026 rejected this once already: it depends on every present and
+future write path remembering to call it, and triggers cannot be forgotten).
+Normalizing quantities in SQL (would mean a second unit registry, which D-065
+rejected for the same reason). A separate search service (D-026 stands).
+
+**Cost.** `refresh_product_search` is a larger function and reads eight more
+tables. Accepting a claim or approving an alias now queues a listing for
+reindexing, through new triggers on `pkb_facts`, `pkb_identifiers`,
+`pkb_products`, `pkb_aliases`, `pkb_brands`, `pkb_attribute_definitions` and
+`pkb_family_versions`. They use the same deferred queue as migration 0014, so a
+listing changed many times in one transaction is still rebuilt once.
+
+**Accents are not folded**, on either side. D-026 already said so for the
+full-text side; folding on one side only would make "Crème" findable by neither
+spelling.
+
+## D-090 — Facets come from a derived read model, with the keys they used to travel under
+
+**Decision.** `product_search_attributes` holds one row per product, attribute
+and distinct value: the canonical URL key, the label, the comparison key of the
+value, the value as it reads, its number and unit, and whether it is searchable
+and filterable. It is built from the knowledge base where the knowledge base
+has the value, and from the listing's own option groups and category
+specifications where it does not — never both for one value, so nothing is
+counted twice. The storefront's filters, counts and facet lists all read it.
+
+This is what closes findings F11 and F12. "Color" and "Colour" are one filter
+because they are one attribute definition; "256GB" and "256 GB" are one value
+because both normalized to the same number of bytes.
+
+**Old links keep working.** Every row carries `alt_keys` (the keys the
+attribute used to answer to — its label, the category specifications mapped
+onto it, the option groups linked to it) and `value_alt_keys` (the spellings
+the value used to be filtered by, and the one it now reads as). A filter that
+arrives under any of them is resolved to the canonical pair before anything
+else sees it, so `?colour=black`, `?color=Black` and `?color=black` are one
+filter with one value, and a link shared before the reconciliation opens the
+same page it always did.
+
+**Legacy values stay in.** An option group the knowledge base has no definition
+for yet, and a category specification it has not mapped, are still indexed and
+still filterable, marked `legacy_option` and `legacy_spec`. Dropping them would
+have removed working filters from the storefront on the day the knowledge base
+happened not to know something. Stage 7 contracts them when nothing reads them.
+
+**Brand is not offered as an attribute facet**, although it is in the read
+model: it has a control of its own, and two filters for one thing is worse than
+one. The brand control now groups by the knowledge base's brand entity, which
+closes finding F10 for the storefront.
+
+## D-091 — Knowledge sits at the top and the bottom of the ranking, never in the middle
+
+**Decision.** The relevance tiers of D-027 keep their meaning and gain one at
+each end:
+
+- **10** the whole search is an approved alias of exactly one product;
+- **1** (the existing bottom tier) a listing that matched only through an
+  attribute term.
+
+An alias naming one product is as exact as a barcode, so it sits with the code
+tier. An attribute match — "black", "512gb" — is the weakest evidence there is,
+so a listing that answers only by carrying the right colour can never climb
+above one whose name is what was typed. Everything between is unchanged.
+
+An alias only names a product when it is the *entire* search. "xm6" is that
+product; "xm6 case" is a search for a case.
+
+**Typed quantities are left out of the tier judgement.** The tier asks how much
+of the search a listing's name, brand or specifications contain. "512gb" is not
+a word a name is expected to carry, so including it would drop every result of
+"iphone 512gb" into the bottom tier together and flatten the ranking of an
+otherwise ordinary search. `readableTsquery` is the tsquery without those
+positions; the full one is still what decides whether a listing matches at all.
+
+## D-092 — Autocomplete names things as the catalogue names them
+
+**Decision.** Suggestions add two knowledge-backed sources: brands, grouped by
+the knowledge base's brand entity so a brand spelled two ways is offered once;
+and approved aliases, which suggest the *name* they stand for rather than
+themselves — someone typing "xm" is offered "WH-1000XM6", because that is what
+the catalogue answers to best. Both go through the public predicate, both are
+capped, and nothing is loaded into the browser.
+
+## D-093 — First-party search events, and conversion measured only where it is real
+
+**Decision.** `search_events` records four kinds beside the existing query and
+click logs: a filter used, a search rephrased, a result added to a cart, and a
+search that ended in a confirmed payment. The privacy rules of D-029 hold
+throughout — a daily-rotating visitor hash, never an account id, and a search
+shaped like an email address or a phone number is not recorded at all. A
+**filter event keeps only the filter keys**, never the values: what someone
+narrows to is far more identifying than that they narrowed.
+
+**Conversion is attributed along a path that can honestly be followed.** When a
+result is opened, the click beacon leaves a short-lived first-party cookie
+naming that one search and that one product. If the product goes into the cart,
+the cart line remembers the search; at checkout the order line carries it; and
+when the payment is confirmed it becomes a `purchase` event and the column is
+**cleared**. So no order keeps a lasting record of what its customer searched
+for, the count is idempotent (a webhook delivered twice finds nothing left to
+count), and a purchase row carries no visitor at all, because by then it is a
+fact about the catalogue.
+
+**This supersedes part of D-029**, which said conversion could not be measured
+and would be reported as not measured. It can be measured along this path. What
+still cannot be — someone who searches, leaves, and buys tomorrow — is stated
+on the report rather than approximated, which is the rule D-029 was protecting.
+
+**Nothing here reaches the Product Knowledge Base** (invariant I-9). The
+knowledge base learns from search behaviour only through the zero-result
+screen, where a person decides.
+
+## D-094 — A search that found nothing gets a verdict, not a row in a list
+
+**Decision.** `zeroResultIntelligence` classifies each zero-result search as
+one of seven: a misspelling the catalogue can correct, another name for
+something the shop sells, a combination nothing has, something that exists but
+is not visible, a shelf with nothing on it, a product not stocked, or a search
+about something else. Each carries the evidence behind the verdict — the
+correction, the hidden listings, the part of the search that makes it
+impossible, the parts that do find something — and a recommendation in words.
+
+Four of the seven are not search faults at all, and saying so is the point: a
+list of words staff are expected to fix implies every one of them is fixable.
+
+**A customer's words never become search vocabulary on their own.** The screen
+can propose an alias; pressing the button creates a *suggested* one; approving
+it is a separate `search.manage` decision (D-067). Two deliberate human steps,
+because an alias taken from whatever people type would let anyone who searches
+enough teach the shop what their words mean.
+
+## D-095 — The legacy search path is kept until it is provably unused
+
+**Decision.** Migration 0036 adds to the search index and the facets; it
+removes nothing. The weighted document, the ranking tiers, the typo
+vocabulary, `search_synonyms`, `search_queries`, `search_clicks` and
+`search_history` all keep their meaning, and the legacy option groups and
+category specifications stay in the facet read model beside the knowledge ones.
+
+**Why.** The storefront's search and filters already worked. A migration that
+replaced their sources in one step would have been a rewrite of a working
+system, and any value the knowledge base did not happen to hold would have
+silently disappeared from the shop. Keeping both, with each row saying which it
+came from, makes the coverage measurable instead of assumed: `source` on
+`product_search_attributes` counts exactly how much of the catalogue has moved.
+
+Removal belongs to Stage 7, after the reconciliation report is clean on the
+target database and a test proves no reader remains (invariant I-12).

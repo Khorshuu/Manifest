@@ -4,6 +4,7 @@ import {
   customType,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   smallint,
@@ -50,11 +51,65 @@ export const productSearch = pgTable(
     textB: text("text_b").notNull().default(""),
     textC: text("text_c").notNull().default(""),
     textD: text("text_d").notNull().default(""),
+    /**
+     * Knowledge-base signals (migration 0036, D-089). The brand's key comes
+     * from `pkb_brands` when the listing has a knowledge brand, so spelling
+     * variants of one brand share it.
+     */
+    brandKey: text("brand_key").notNull().default(""),
+    familyKeys: text("family_keys").array().notNull().default(sql`'{}'::text[]`),
+    /** Approved aliases of the product and its live variants, as term keys. */
+    aliasKeys: text("alias_keys").array().notNull().default(sql`'{}'::text[]`),
+    /**
+     * Structured signals a query can match without a join. Prefixed by kind:
+     * `p:` the product, `b:` its brand, `f:` a family, `a:`/`v:` a named or
+     * bare attribute value, `q:`/`u:` a named or dimensioned quantity.
+     */
+    terms: text("terms").array().notNull().default(sql`'{}'::text[]`),
     indexedAt: timestamp("indexed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [index("product_search_document_idx").on(table.document)],
+);
+
+/**
+ * The facet read model (migration 0036, D-090): one row per product,
+ * attribute and distinct value, derived from the knowledge base where it has
+ * the value and from the listing's own option groups and category
+ * specifications where it does not. Rebuilt whole by
+ * `refresh_product_search_attributes`; never written by application code.
+ */
+export const productSearchAttributes = pgTable(
+  "product_search_attributes",
+  {
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    /** The canonical URL key: "screen-size". */
+    urlKey: text("url_key").notNull(),
+    /** Keys this same filter used to travel under, so old links still work. */
+    altKeys: text("alt_keys").array().notNull().default(sql`'{}'::text[]`),
+    label: text("label").notNull(),
+    /** The comparison form — a canonical number and unit for a quantity. */
+    valueKey: text("value_key").notNull(),
+    valueAltKeys: text("value_alt_keys").array().notNull().default(sql`'{}'::text[]`),
+    valueLabel: text("value_label").notNull(),
+    valueNumber: text("value_number"),
+    valueUnit: text("value_unit"),
+    displayUnit: text("display_unit"),
+    dataType: text("data_type").notNull(),
+    sortOrder: integer("sort_order").notNull().default(1000),
+    /** knowledge | legacy_option | legacy_spec — what the row was built from. */
+    source: text("source").$type<"knowledge" | "legacy_option" | "legacy_spec">().notNull(),
+    searchable: boolean("searchable").notNull().default(true),
+    filterable: boolean("filterable").notNull().default(true),
+    variantDefining: boolean("variant_defining").notNull().default(false),
+  },
+  (table) => [
+    primaryKey({ columns: [table.productId, table.urlKey, table.valueKey] }),
+    index("product_search_attributes_key_idx").on(table.urlKey, table.valueKey),
+  ],
 );
 
 /** Each listing's vocabulary — what a misspelling is corrected against. */
@@ -163,6 +218,35 @@ export const searchClicks = pgTable(
       table.windowStart,
     ),
   ],
+);
+
+export const SEARCH_EVENT_TYPES = ["filter", "refine", "add_to_cart", "purchase"] as const;
+export type SearchEventType = (typeof SEARCH_EVENT_TYPES)[number];
+
+/**
+ * First-party search behaviour beyond the query and the click (migration 0036,
+ * D-093): a filter used, a search rephrased, a result added to a cart, and a
+ * search that ended in a paid order.
+ *
+ * Same privacy rules as `search_queries`: a daily-rotating visitor hash, never
+ * an account id, and an email- or phone-shaped query is not stored at all. A
+ * purchase row carries no visitor at all — it is a fact about the catalogue.
+ */
+export const searchEvents = pgTable(
+  "search_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventType: text("event_type").$type<SearchEventType>().notNull(),
+    queryNorm: text("query_norm").notNull(),
+    productId: uuid("product_id").references(() => products.id, { onDelete: "cascade" }),
+    visitorHash: text("visitor_hash"),
+    units: integer("units"),
+    /** Small and bounded: the filter keys used, or the query that was refined. */
+    detail: jsonb("detail"),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("search_events_query_idx").on(table.queryNorm, table.createdAt)],
 );
 
 /** A signed-in customer's own recent searches. */

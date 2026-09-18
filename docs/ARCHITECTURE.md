@@ -74,9 +74,15 @@ db/
 
 ### Product Knowledge Base (in progress, staged)
 
-Stage 2 is built: `lib/pkb/` and the `pkb_*` tables hold the knowledge record,
-and the catalogue's write paths mirror their legacy columns into it in the same
-transaction (D-070). Nothing reads it yet on the storefront.
+Stages 2 to 5 are built. `lib/pkb/` and the `pkb_*` tables hold the knowledge
+record, and the catalogue's write paths mirror their legacy columns into it in
+the same transaction (D-070). Three readers now use it: structured data
+(`lib/seo/structured-data.ts` with `lib/pkb/publish.ts`, Stage 4), the search
+index (`product_search.terms` and friends, migration 0036) and the storefront's
+facets (`product_search_attributes`), both Stage 5. The product page's
+Specification and Measurements tabs still read the legacy columns, which the
+projection keeps in step; they move when those columns are contracted in
+Stage 7.
 
 Product facts are being moved into one Product Knowledge Base (`lib/pkb/`,
 tables `pkb_*`) that the storefront, SeoPulse (`lib/seo-pulse`) and SearchPulse
@@ -100,6 +106,21 @@ SEO), `duplicates.ts` (duplicate, near-duplicate and thin content),
 (one listing's page audit for the editor). Everything under `lib/seo/` reads;
 the only writers are `fields.ts` and `redirects.ts`, both called from the
 catalogue's own write paths. Reasoning: D-077 to D-088.
+
+`lib/search/` is SearchPulse, and since Stage 5 it reads the knowledge base
+through two derived tables rather than holding any product truth of its own.
+`terms.ts` holds the comparison forms a query and an indexed value must agree
+on — the TypeScript twin of `search_term_key` in SQL, and the reuse of
+`lib/pkb/units.ts` that makes quantity normalization identical on both sides.
+`knowledge.ts` turns the phrases of a search into brands, families, products
+and controlled values through approved aliases, in one indexed lookup.
+`plan.ts`, `synonyms.ts` and `normalize.ts` build the slots; `sql.ts` turns
+them into a match and a relevance tier, where an approved whole-query alias
+ranks with an exact code and an attribute-only match ranks last (D-091).
+`events.ts` and `attribution.ts` record what people do with a search, and
+`zero-results.ts` says why one found nothing. The index (`product_search`) and
+the facet read model (`product_search_attributes`) are built by triggers
+(migration 0036), never by application code. Reasoning: D-089 to D-095.
 
 The admin product editor is a set of independent panels
 (`app/admin/products/[productId]/sections/`), each posting only the fields it

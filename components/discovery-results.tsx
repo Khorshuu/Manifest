@@ -15,6 +15,7 @@ import {
   type OptionChipLabels,
   type SearchParamsRecord,
 } from "@/lib/catalog/filter-params";
+import { termKey } from "@/lib/search/terms";
 
 /**
  * Everything under a listing's heading, shared by the search page and every
@@ -48,20 +49,23 @@ export function DiscoveryResults({
   emptyTitle: string;
   emptyBody: string;
 }) {
+  // A facet is registered under the key it is offered as and under every key
+  // it used to travel under, so a link someone shared before the knowledge
+  // base reconciled "Color" and "Colour" still gets a removable chip.
   const options: OptionChipLabels = new Map(
-    result.facets.attributes.map((facet) => [
-      facet.key,
-      {
+    result.facets.attributes.flatMap((facet) => {
+      const entry = {
         name: facet.name,
-        labels: new Map(
-          facet.values.map((value) => [value.id.toLowerCase(), value.label]),
-        ),
+        labels: new Map(facet.values.map((value) => [termKey(value.id), value.label])),
         // "Yes" on its own says nothing; "5G: Yes" does.
         showName: facet.values.every(
           (value) => value.label === "Yes" || value.label === "No",
         ),
-      },
-    ]),
+      };
+      return [facet.key, ...facet.altKeys].map(
+        (key) => [key, entry] as [string, typeof entry],
+      );
+    }),
   );
 
   const chips = activeFilterChips({

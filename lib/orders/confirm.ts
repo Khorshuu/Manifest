@@ -9,7 +9,9 @@ import {
   deliverQueuedNotificationsInBackground,
   queueOrderNotification,
 } from "@/lib/notifications";
+import { logEvent } from "@/lib/observability/log";
 import { getPaymentProvider } from "@/lib/providers/payment";
+import { countSearchConversions } from "@/lib/search/events";
 
 /**
  * Payment confirmation.
@@ -113,6 +115,21 @@ export async function recordCapturedPayment(
       });
 
       await queueOrderNotification(tx, order.id, "payment_confirmed");
+
+      /*
+       * The searches these lines were found through converted (D-093). Done
+       * inside this transaction, and it erases what it counted, so a webhook
+       * delivered twice cannot count the same order twice. A failure here must
+       * not fail a confirmed payment.
+       */
+      try {
+        await countSearchConversions(tx, order.id);
+      } catch (error) {
+        await logEvent("warn", "search.conversion_count_failed", {
+          error,
+          orderId: order.id,
+        });
+      }
 
       return { orderId: order.id, status: "payment_confirmed", alreadyConfirmed: false };
     }

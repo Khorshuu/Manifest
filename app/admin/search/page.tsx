@@ -5,9 +5,12 @@ import { formatShortDate } from "@/lib/format";
 import { searchReport } from "@/lib/search/analytics";
 import { searchIndexStatus } from "@/lib/search/maintenance";
 import { listSynonyms } from "@/lib/search/synonyms";
+import { zeroResultIntelligence } from "@/lib/search/zero-results";
 import { ReindexButton } from "./reindex-button";
 import { SynonymManager } from "./synonym-manager";
+import { ZeroResultIntelligence } from "./zero-results";
 import { requireAdminPage } from "@/lib/auth/admin-page";
+import { can } from "@/lib/auth/authorize";
 
 /*
  * Cache Components (DECISIONS.md D-054): allowed to block while this route is
@@ -35,11 +38,16 @@ export default async function AdminSearchPage({
   const prefill = typeof params.term === "string" ? params.term.slice(0, 60) : "";
 
   const user = await requireAdminPage("search.manage");
-  const [report, status, synonyms] = await Promise.all([
+  const [report, status, synonyms, zeroResults] = await Promise.all([
     searchReport(user, days),
     searchIndexStatus(user),
     listSynonyms(user),
+    zeroResultIntelligence(user, { days }),
   ]);
+  // Recording vocabulary is a catalogue permission, not a search one: someone
+  // who may read the report is not automatically someone who may name things.
+  // The API checks it again — this only decides whether to offer the button.
+  const canSuggestAliases = can(user, "catalog.manage");
 
   const percent = (value: number | null) =>
     value === null ? "—" : `${Math.round(value * 100)}%`;
@@ -57,6 +65,19 @@ export default async function AdminSearchPage({
             )}`,
     },
     { label: "Followed by a click", value: percent(report.clickThroughRate) },
+    { label: "Then filtered", value: percent(report.filterRate) },
+    { label: "Rephrased", value: percent(report.refinementRate) },
+    {
+      label: "Added to a cart",
+      value: report.addToCartSearches.toLocaleString("en-GB"),
+    },
+    {
+      label: "Paid for",
+      value:
+        report.convertedSearches === 0
+          ? "—"
+          : `${report.convertedSearches.toLocaleString("en-GB")} · ${report.convertedUnits.toLocaleString("en-GB")} units`,
+    },
   ];
 
   /* Three things, each load-bearing: `min-w-0` so the box does not grow to
@@ -144,6 +165,8 @@ export default async function AdminSearchPage({
                     <th scope="col" className={`${th} text-right`}>People</th>
                     <th scope="col" className={`${th} text-right`}>Avg. results</th>
                     <th scope="col" className={`${th} text-right`}>Clicks</th>
+                    <th scope="col" className={`${th} text-right`}>Carts</th>
+                    <th scope="col" className={`${th} text-right`}>Bought</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -161,6 +184,8 @@ export default async function AdminSearchPage({
                       <td className={`${td} text-right tabular-nums`}>{row.visitors}</td>
                       <td className={`${td} text-right tabular-nums`}>{row.averageResults}</td>
                       <td className={`${td} text-right tabular-nums`}>{row.clicks}</td>
+                      <td className={`${td} text-right tabular-nums`}>{row.addToCarts}</td>
+                      <td className={`${td} text-right tabular-nums`}>{row.purchases}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -173,46 +198,19 @@ export default async function AdminSearchPage({
           <h2 id="zero-results" className="font-display text-h3 text-ink">
             Searches that found nothing
           </h2>
-          {report.zeroResults.length === 0 ? (
-            <div className="mt-4">
-              <EmptyState
-                title="Nothing unanswered"
-                body={`Every search in the last ${days} days found something.`}
-              />
-            </div>
-          ) : (
-            <div className={`mt-4 ${tableShell}`}>
-              <table className="w-full min-w-[520px] border-collapse text-body">
-                <thead>
-                  <tr className="bg-paper text-left">
-                    <th scope="col" className={th}>Search</th>
-                    <th scope="col" className={`${th} text-right`}>Times</th>
-                    <th scope="col" className={th}>Last</th>
-                    <th scope="col" className={th}>
-                      <span className="sr-only">Action</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.zeroResults.map((row, index) => (
-                    <tr key={row.query} className={index % 2 === 1 ? "bg-blue-200/40" : undefined}>
-                      <td className={`${td} [overflow-wrap:anywhere]`}>{row.query}</td>
-                      <td className={`${td} text-right tabular-nums`}>{row.searches}</td>
-                      <td className={`${td} text-ink/80`}>{formatShortDate(row.lastSearchedAt)}</td>
-                      <td className={td}>
-                        <Link
-                          href={`/admin/search?days=${days}&term=${encodeURIComponent(row.query)}#synonyms`}
-                          className="whitespace-nowrap text-meta font-semibold text-blue-600 hover:underline"
-                        >
-                          Add a synonym
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <p className="mt-2 max-w-[70ch] text-meta text-ink/70">
+            Each one says what is actually wrong. Four of the seven verdicts are
+            not search faults at all — an empty shelf, a product nobody stocks,
+            a combination nothing has, a search about something else — and
+            knowing which is which is the point.
+          </p>
+          <div className="mt-4">
+            <ZeroResultIntelligence
+              findings={zeroResults}
+              days={days}
+              canSuggestAliases={canSuggestAliases}
+            />
+          </div>
         </section>
       </div>
 

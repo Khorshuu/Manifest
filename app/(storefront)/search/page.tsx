@@ -19,6 +19,7 @@ import {
 import { cachedCategoryTree, cachedDiscover, discoveryKey } from "@/lib/catalog/cached";
 import type { SearchParamsRecord } from "@/lib/catalog/filter-params";
 import { logSearch } from "@/lib/search/analytics";
+import { logFilterUse, logRefinement } from "@/lib/search/events";
 import { recordSearchHistory } from "@/lib/search/history";
 import { cleanQuery } from "@/lib/search/normalize";
 import { currentVisitorHash, isPrefetchRequest } from "@/lib/search/visitor";
@@ -91,18 +92,34 @@ export default async function SearchPage({
     ]);
 
     if (!prefetch) {
+      const query = result.query;
       if (!filtered) {
-        const query = result.query;
         // A search rescued by a correction still found nothing as typed,
         // which is what the zero-results report needs to see.
         const resultsCount = result.correctedFrom ? 0 : result.total;
         const correctedQuery = result.correctedFrom ? (result.plan?.query ?? null) : null;
-        after(() =>
-          logSearch({ query, resultsCount, correctedQuery, visitorHash }),
-        );
+        after(async () => {
+          await logSearch({ query, resultsCount, correctedQuery, visitorHash });
+          // Recorded after the search it belongs to, so the one it replaced is
+          // the previous row rather than this one (D-093).
+          await logRefinement({ query, visitorHash });
+        });
+      } else {
+        // Which kinds of filter were used, never which values: what a person
+        // narrows to is far more identifying than that they narrowed at all.
+        const keys = Object.keys(result.filters.options ?? {});
+        if (result.filters.brands?.length) keys.push("brand");
+        if (result.filters.minPriceBdt !== undefined) keys.push("price");
+        if (result.filters.maxPriceBdt !== undefined) keys.push("price");
+        if (result.filters.fulfillment) keys.push("fulfillment");
+        if (result.filters.availableOnly) keys.push("available");
+        if (result.filters.minRating) keys.push("rating");
+        if (result.filters.onSale) keys.push("deal");
+        if (keys.length > 0) {
+          after(() => logFilterUse({ query, keys, visitorHash }));
+        }
       }
       if (user) {
-        const query = result.query;
         after(() => recordSearchHistory(user, query));
       }
     }

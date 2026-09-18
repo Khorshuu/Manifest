@@ -3261,4 +3261,55 @@ Blocked on your accounts or choices:
 - `[!]` On the development data no photograph has a recorded size, because the
   seeded images never went through the upload registry. Those counts will only
   be real for photographs uploaded through the admin.
-- `[ ]` Stage 5 (SearchPulse) waits for the go-ahead.
+
+## Product Knowledge Base programme — Stage 5 of 8 (SearchPulse)
+
+- `[x]` The search box now understands the shop's own product knowledge. A
+  search can name a brand, a kind of product, a model number, a barcode, a
+  colour or a capacity, and the search finds the right things because the
+  knowledge base already knows what each product is — not because someone
+  typed the right words into a keyword box.
+- `[x]` "256GB", "256 GB" and "256 gigabytes" are now one thing to the search,
+  and to the filters. So are "Color" and "Colour": what used to be two filter
+  boxes offering half the products each is one box offering all of them. Links
+  people saved under the old spellings still work.
+- `[x]` A brand spelled two different ways on two listings is now counted and
+  offered once, under the name the knowledge base holds.
+- `[x]` Staff can record that a word people use is another name for something
+  the shop sells — "XM6" for a set of headphones. It only affects the search
+  once someone approves it, so a customer's words can never quietly redefine
+  what a product is called.
+- `[x]` The search report says more than it could before: how often people
+  filter, how often they rephrase, how many searches ended in a cart, and how
+  many ended in a payment. The conversion figure counts only the path it can
+  honestly follow — someone opened a result and bought that product within half
+  an hour — and the screen says so rather than guessing at the rest.
+- `[x]` No order keeps a record of what its customer searched for. The phrase
+  travels from the result they clicked to the order, is counted when the
+  payment is confirmed, and is erased in the same step.
+- `[x]` Searches that found nothing now come with a verdict instead of being a
+  list of words: a misspelling, another name for something, a combination
+  nothing has, something that exists but is hidden, an empty shelf, a product
+  not stocked, or a search about something else. Four of those seven are not
+  search faults, and knowing which is which is the point.
+- `[x]` Checks: typecheck and lint clean; 54 new tests; the whole unit suite —
+  88 files, 1,302 tests — passes. Migration 0036 is applied to the development
+  database and to the 5,000-listing scale database, and the knowledge base
+  reconciles cleanly afterwards.
+- `[x]` Measured: the storefront's heaviest facet read is about three and a
+  half times faster than the query it replaced (377 ms → 107 ms at 5,000
+  listings), while answering a harder question. Full figures in
+  docs/KNOWLEDGE_PLATFORM.md section 3D.5.
+- `[!]` Re-indexing one product costs more than it did (43 ms at 5,000
+  listings), because the index now reads the knowledge base as well. It is paid
+  when a product is saved or a fact accepted, not when anyone shops. Recorded
+  as R-12.
+- `[!]` Conversion is a floor, not a total: a shopper who blocks the
+  first-party cookie, or reaches a product without clicking a result, is not
+  attributed. Recorded as R-14.
+- `[!]` Still not run: the end-to-end suite and a production build.
+- `[!]` The product page's Specification and Measurements tabs still read the
+  old columns, which are kept in step automatically. They move when those
+  columns are removed, in Stage 7.
+- `[ ]` Stage 6 (Google Search Console, opportunity detection, SEO change
+  history) waits for the go-ahead.

@@ -141,6 +141,34 @@ is under test is that choosing *a* product works.
 - `tests/search-analytics.test.ts` — the three-visitor threshold, no
   email/phone searches stored, daily-rotating visitor hash, report is staff
   only, pruning, and history per account removed on anonymisation.
+- `tests/search-knowledge.test.ts` — Stage 5, the knowledge-backed search. The
+  cases worth knowing about:
+  - **Normalization parity is asserted, not assumed.** `search_term_key` in SQL
+    and `termKey` in TypeScript are run over the same nine inputs — accents,
+    punctuation, `&`, padding, an empty string — and compared one to one. If
+    either is ever changed alone, this fails. A quantity typed three ways
+    ("256gb", "256 GB", "256 gigabytes") must produce the identical canonical
+    term, because that is the whole claim of D-089.
+  - **A negative case guards the normalization**: "2 in 1 case" must *not* be
+    read as a 50.8 mm length. Aggressive normalization does not fail loudly, it
+    quietly widens a search to unrelated products, so the rule that stops it has
+    a test of its own.
+  - **Ranking regressions** are the point of four cases: an exact product above
+    one that merely shares its colour, an exact model above five broad attribute
+    matches, the staff boost still unable to lift a weaker match, and a typed
+    quantity not flattening the ranking of everything else.
+  - **Aliases** are tested through their whole life: suggested (finds nothing),
+    approved (finds it), inside a longer search (does not name that product),
+    rejected (stops finding it). And that `zeroResultIntelligence` proposes one
+    without recording it.
+  - **Facets** — one filter from two spellings of one attribute, a value
+    filtered however the link spells it, a brand spelled twice counted once,
+    meaningless attributes not offered, the brand never offered twice, and 60
+    variants counted once.
+  - **Analytics** — a filter event keeps the keys and not the values, a
+    refinement points at the search it replaced, a personal-looking search is
+    recorded nowhere, and a conversion is counted once and erased (running it
+    twice, as a replayed webhook would, counts nothing the second time).
 - `e2e/search.spec.ts` — header box keyboard and Escape behaviour, recent
   searches, results page state in the URL, correction notice, empty page with
   related searches, chips, `noindex`, axe with filters on, staff hiding a

@@ -5,6 +5,7 @@ import { loadCardAggregates } from "@/lib/catalog/card-data";
 import { publicProductWhere } from "@/lib/catalog/facets";
 import { popularSearches, trendingSearches } from "./analytics";
 import { cleanQuery } from "./normalize";
+import { termKey } from "./terms";
 import { correctSearch, planSearch } from "./plan";
 import {
   isPublicAs,
@@ -186,23 +187,69 @@ async function tagCompletions(plan: SearchPlan): Promise<string[]> {
   return rows.map((row) => row.tag);
 }
 
+/**
+ * Brands that start with what has been typed, as the knowledge base names them
+ * (D-092). Grouped by the brand entity, so a brand spelled two ways on two
+ * listings is suggested once, under the name the knowledge base holds.
+ */
 async function brandSuggestions(plan: SearchPlan): Promise<string[]> {
-  const rows = await db
-    .selectDistinct({ brand: products.brand })
-    .from(products)
-    .where(
-      and(
-        publicProductWhere,
-        eq(products.searchable, true),
-        sql`search_normalize(${products.brand}) like ${`${plan.normalized}%`}`,
-      ),
-    )
-    .orderBy(asc(products.brand))
-    .limit(2);
+  const prefix = termKey(plan.normalized);
+  if (!prefix) return [];
 
-  return rows
-    .map((row) => row.brand)
-    .filter((brand): brand is string => Boolean(brand));
+  const rows = await queryRows<{ label: string }>(sql`
+    select min(sa.value_label) as label
+    from product_search_attributes sa
+    join products p on p.id = sa.product_id
+    where sa.url_key = 'brand'
+      and sa.value_key like ${`${prefix}%`}
+      and ${isPublicAs("p")}
+    group by sa.value_key
+    order by count(distinct sa.product_id) desc, min(sa.value_label)
+    limit 2
+  `);
+
+  return rows.map((row) => row.label).filter(Boolean);
+}
+
+/**
+ * Searches an approved alias suggests (D-092).
+ *
+ * Someone typing "xm" should be offered the product the shop calls
+ * "WH-1000XM6", not the alias itself — the alias is how people say it, the
+ * name is what the catalogue answers to best. Only approved aliases are read,
+ * and only where they lead to something a shopper can actually open.
+ */
+async function aliasCompletions(plan: SearchPlan): Promise<string[]> {
+  const prefix = termKey(plan.normalized);
+  if (prefix.length < 2) return [];
+
+  const rows = await queryRows<{ label: string }>(sql`
+    select distinct on (label) label from (
+      select k.name as label, count(*) over () as ignored
+      from pkb_aliases a
+      join pkb_products k on k.id = a.pkb_product_id and k.status = 'active'
+      join products p on p.pkb_product_id = k.id
+      where a.status = 'approved' and a.target_kind = 'product'
+        and search_term_key(a.alias) like ${`${prefix}%`}
+        and search_term_key(a.alias) <> ${prefix}
+        and ${isPublicAs("p")}
+      union all
+      select f.name, 0
+      from pkb_aliases a
+      join pkb_families f on f.id = a.family_id and f.status = 'approved'
+      where a.status = 'approved' and a.target_kind = 'family'
+        and search_term_key(a.alias) like ${`${prefix}%`}
+        and search_term_key(a.alias) <> ${prefix}
+        and exists (
+          select 1 from products p
+          join pkb_products k on k.id = p.pkb_product_id and k.family_id = f.id
+          where ${isPublicAs("p")}
+        )
+    ) as named(label, ignored)
+    limit 3
+  `);
+
+  return rows.map((row) => row.label).filter(Boolean);
 }
 
 /** Categories named like the search that have something public in them. */
@@ -254,17 +301,24 @@ export async function suggest(term: string): Promise<SuggestResult> {
   }
 
   const shown = found.slice(0, MAX_PRODUCTS);
-  const [aggregates, brands, namedCategories, tags, popular] = await Promise.all([
-    loadCardAggregates(shown.map((row) => row.id)),
-    brandSuggestions(plan),
-    categoriesByName(plan),
-    tagCompletions(plan),
-    popularSearches({ prefix: plan.query, limit: 3 }),
-  ]);
+  const [aggregates, brands, namedCategories, tags, popular, aliases] =
+    await Promise.all([
+      loadCardAggregates(shown.map((row) => row.id)),
+      brandSuggestions(plan),
+      categoriesByName(plan),
+      tagCompletions(plan),
+      popularSearches({ prefix: plan.query, limit: 3 }),
+      aliasCompletions(plan),
+    ]);
 
   const completions = [
     ...new Map(
-      [...popular, ...completionsFrom(plan, found.map((row) => row.title)), ...tags]
+      [
+        ...popular,
+        ...aliases,
+        ...completionsFrom(plan, found.map((row) => row.title)),
+        ...tags,
+      ]
         .filter((label) => label.toLowerCase() !== plan.normalized)
         .map((label) => [label.toLowerCase(), label] as const),
     ).values(),

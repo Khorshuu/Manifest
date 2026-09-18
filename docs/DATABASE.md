@@ -411,7 +411,23 @@ product_search                                        -- one row per product
   title_norm, title_core, title_words, brand_norm, category_norm
   codes               text[]     -- skus, identifiers, model/part numbers, unpunctuated
   text_a..text_d      text       -- what the document was built from
+  -- knowledge-backed, migration 0036 (D-089)
+  brand_key           text       -- the pkb_brands entity, not the listing string
+  family_keys         text[]     -- the product family and every family above it
+  alias_keys          text[]     -- approved aliases of the product and live variants
+  terms               text[]     -- p: product, b: brand, f: family, a:/v: value,
+                                 -- q:/u: canonical quantity        (GIN)
   indexed_at          timestamptz
+
+product_search_attributes                             -- the facet read model (D-090)
+  (product_id, url_key, value_key) pk
+  alt_keys            text[]     -- keys this filter used to travel under
+  label, value_label  text
+  value_alt_keys      text[]     -- spellings this value used to be filtered by
+  value_number        numeric    -- canonical; what makes 256 GB and 0.25 TB one value
+  value_unit, display_unit, data_type, sort_order
+  source              text       -- knowledge | legacy_option | legacy_spec
+  searchable, filterable, variant_defining  boolean
 
 product_search_words (product_id, word) pk, display, weight   -- trigram GIN on word
 product_search_queue (product_id pk, queued_at, attempts)
@@ -419,16 +435,40 @@ search_synonyms      (id, term unique, synonyms text[], bidirectional, created_b
 search_queries       (query, query_norm, results_count, corrected_query,
                       visitor_hash, window_start)  unique (visitor_hash, query_norm, window_start)
 search_clicks        (query_norm, product_id, position, visitor_hash, window_start)
+search_events        (event_type, query_norm, product_id, visitor_hash, units,
+                      detail jsonb, window_start)   -- filter | refine | add_to_cart | purchase
+                      check: a purchase row has no visitor_hash   (D-093)
 search_history       (user_id, query_norm) pk, query, searched_at
+
+cart_items.search_query_norm    text  -- the search this line was found through
+order_items.search_query_norm   text  -- carried until the payment is confirmed,
+                                      -- then cleared (D-093)
 ```
 
-Nothing in the application writes `product_search`, `product_search_words` or
-the queue. Triggers on `products`, `product_variants` (sku, enabled, archived
-only — never capacity), `variant_option_values`, `attribute_values`,
-`categories` and `category_attributes` queue the affected products, and a
-deferred constraint trigger calls `refresh_product_search(ids)` once per
-product at commit. `search_normalize`, `search_code` and `search_slug` are the
-normalisation functions both the index and the queries use.
+Nothing in the application writes `product_search`, `product_search_words`,
+`product_search_attributes` or the queue. Triggers on `products`,
+`product_variants` (sku, enabled, archived only — never capacity),
+`variant_option_values`, `attribute_values`, `categories` and
+`category_attributes` queue the affected products; migration 0036 adds the same
+for `pkb_facts`, `pkb_identifiers`, `pkb_products` (family or status),
+`pkb_aliases` (approval only), `pkb_brands` (rename or status),
+`pkb_attribute_definitions` (label, key, flags, unit) and `pkb_family_versions`
+(activation). A deferred constraint trigger calls `refresh_product_search(ids)`
+once per product at commit, which also rebuilds that product's rows in
+`product_search_attributes`.
+
+`search_normalize`, `search_code` and `search_slug` are the normalisation
+functions the index and the queries have always shared. `search_term_key`,
+`search_number` and `value_reads` (migration 0036) are what the
+knowledge-backed columns use — the last is the single definition of how a
+stored value is written for a person, so a filter and the words a listing is
+searched by cannot say it differently, and a value that already carries its
+unit is not given a second one. `termKey` in `lib/search/terms.ts` is
+`search_term_key`'s TypeScript twin, and
+`tests/search-knowledge.test.ts` runs both over the same inputs so they cannot
+drift. Quantities are *not* converted in SQL — they are normalized once by
+`lib/pkb/units.ts` when the fact is written, and the index copies the canonical
+number, so there is no second unit registry to keep in step (D-065, D-089).
 
 ## Open schema questions
 

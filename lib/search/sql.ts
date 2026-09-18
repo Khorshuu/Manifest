@@ -24,10 +24,22 @@ export type SearchPlan = {
   normalized: string;
   /** Normalised words, at most eight. */
   words: string[];
-  /** One per word or synonym-matched phrase. */
+  /** One per word, synonym- or alias-matched phrase, or quantity. */
   slots: Slot[];
   /** Every slot ANDed, as tsquery text; null when nothing usable remains. */
   tsquery: string | null;
+  /**
+   * The same over the positions a person reads — a typed quantity left out.
+   * This is what the relevance tier is judged on (D-091).
+   */
+  readableTsquery: string | null;
+  /** The words of those same positions, for judging how much of a name matched. */
+  readableWords: string[];
+  /**
+   * `p:` terms for the knowledge products the whole search names outright,
+   * through an approved alias. Empty for an ordinary search.
+   */
+  identityTerms: string[];
   /** The search as a code (SKU, barcode, model number), when it looks like one. */
   code: string | null;
   /** The original search, when this plan is a correction of one that found nothing. */
@@ -68,9 +80,14 @@ export function isPublicAs(alias: "p"): SQL {
  * Whether a listing answers the search.
  *
  * Every slot has to match (a second word narrows), and a slot matches through
- * the full-text document or as a substring of the name — the second is what
- * finds "board" inside "Keyboard". A search that looks like a code also
- * matches a product carrying exactly that code, whatever its words say.
+ * the full-text document, as a substring of the name — the second is what
+ * finds "board" inside "Keyboard" — or through one of the structured terms the
+ * knowledge base says the position stands for (D-089). A search that looks
+ * like a code also matches a product carrying exactly that code, whatever its
+ * words say.
+ *
+ * The three ways a slot can match are alternatives, never requirements, so
+ * adding the knowledge base to an existing search can only ever find more.
  */
 export function searchMatch(plan: SearchPlan): SQL {
   const slotConditions = plan.slots
@@ -82,6 +99,9 @@ export function searchMatch(plan: SearchPlan): SQL {
       }
       for (const pattern of slotTitlePatterns(slot)) {
         alternatives.push(sql`ps.title_norm like ${pattern}`);
+      }
+      if (slot.terms.length > 0) {
+        alternatives.push(sql`ps.terms && ${textArray(slot.terms)}`);
       }
       return alternatives.length > 0
         ? sql`(${sql.join(alternatives, sql` or `)})`
@@ -95,9 +115,18 @@ export function searchMatch(plan: SearchPlan): SQL {
       ? sql.join(slotConditions, sql` and `)
       : sql`ps.title_norm like ${`%${plan.normalized}%`}`;
 
-  const match = plan.code
-    ? sql`(ps.codes @> ${textArray([plan.code])} or (${words}))`
-    : sql`(${words})`;
+  const shortcuts: SQL[] = [];
+  if (plan.code) shortcuts.push(sql`ps.codes @> ${textArray([plan.code])}`);
+  // The whole search is an approved alias of one product: that product answers
+  // it even if not one of its words appears anywhere on the listing.
+  if (plan.identityTerms.length > 0) {
+    shortcuts.push(sql`ps.terms && ${textArray(plan.identityTerms)}`);
+  }
+
+  const match =
+    shortcuts.length > 0
+      ? sql`(${sql.join([...shortcuts, sql`(${words})`], sql` or `)})`
+      : sql`(${words})`;
 
   // Hidden from search means hidden from search, whatever the words.
   return sql`(${products.searchable} and ${match})`;
@@ -108,21 +137,37 @@ export function searchMatch(plan: SearchPlan): SQL {
  * computed within a tier — popularity, the staff boost, ratings — can lift a
  * weaker match above a stronger one (DECISIONS.md D-027).
  *
+ *  10  the whole search is an approved alias of this exact product
  *   9  the search is exactly one of its codes
  *   8  the search is its name (or its name after the brand)
  *   7  the search is its brand, or the brand followed by words from its name
  *   6  the search appears in its name, word for word
- *   5  every word appears in its name
- *   4  every word appears in its name, brand, model, keywords or shelf
+ *   5  every readable word appears in its name
+ *   4  every readable word appears in its name, brand, model, keywords or shelf
  *   3  … or in its highlights, options and specifications
  *   2  … or anywhere in the listing
- *   1  matched only inside a word of the name
+ *   1  matched only inside a word of the name, or only through an attribute
+ *
+ * The two knowledge tiers sit at the top and the bottom on purpose (D-091).
+ * An alias naming one product is as exact as a barcode. An attribute matching
+ * — "black", "512gb" — is the weakest evidence there is, so a product that
+ * answers a search only by carrying the right colour can never climb above one
+ * whose name is what was typed.
+ *
+ * The judgement is made on the *readable* part of the search: a typed quantity
+ * is not a word a name is expected to contain, so leaving it in would push
+ * every result of "iphone 512gb" into the bottom tier together.
  */
 export function relevanceTier(plan: SearchPlan): SQL {
   const q = plan.normalized;
-  const full = plan.tsquery
-    ? sql`to_tsquery('english', ${plan.tsquery})`
+  const full = plan.readableTsquery
+    ? sql`to_tsquery('english', ${plan.readableTsquery})`
     : null;
+
+  const identity =
+    plan.identityTerms.length > 0
+      ? sql`when ps.terms && ${textArray(plan.identityTerms)} then 10`
+      : sql``;
 
   const code = plan.code
     ? sql`when ps.codes @> ${textArray([plan.code])} then 9`
@@ -137,6 +182,7 @@ export function relevanceTier(plan: SearchPlan): SQL {
     : sql``;
 
   return sql`(case
+    ${identity}
     ${code}
     when ps.title_norm = ${q} or ps.title_core = ${q}
       or (ps.brand_norm <> '' and (
@@ -169,12 +215,14 @@ export function relevanceTier(plan: SearchPlan): SQL {
  */
 export function relevanceAdjustment(plan: SearchPlan): SQL {
   const q = plan.normalized;
+  // How much of the name the search covers, judged on what a name could
+  // contain: a typed quantity is not part of that measure.
   const counted = Math.max(
     1,
-    plan.words.filter((word) => !isStopword(word)).length,
+    plan.readableWords.filter((word) => !isStopword(word)).length,
   );
-  const rank = plan.tsquery
-    ? sql`+ 10 * ts_rank_cd(ps.document, to_tsquery('english', ${plan.tsquery}), 32)`
+  const rank = plan.readableTsquery
+    ? sql`+ 10 * ts_rank_cd(ps.document, to_tsquery('english', ${plan.readableTsquery}), 32)`
     : sql``;
 
   return sql`(

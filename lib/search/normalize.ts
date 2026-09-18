@@ -135,14 +135,34 @@ export function toTsQuery(term: string): string | null {
 }
 
 /**
- * One position in a search. Usually a single word; a phrase when a synonym
- * matched more than one word ("cell phone"). Its alternatives are the words
- * as typed plus whatever the synonyms add, and any of them will do.
+ * One position in a search. Usually a single word; a phrase when a synonym,
+ * an approved alias or a quantity covered more than one word ("cell phone",
+ * "256 GB"). Its alternatives are the words as typed plus whatever the
+ * synonyms and aliases add, and any of them will do.
+ *
+ * `terms` are the structured signals the knowledge base says this position
+ * stands for — a brand, a family, a value, a canonical quantity (D-089). They
+ * are a further alternative, never an extra requirement: a slot is satisfied
+ * by its words *or* by one of its terms, so adding knowledge can only ever
+ * find more, never less.
  */
 export type Slot = {
   typed: string[];
   alternatives: string[][];
+  terms: string[];
+  /**
+   * True when what was typed is a machine form rather than something a person
+   * reads — "512gb". A structural position is left out of the judgement of how
+   * well a product's *name* answers the search, because a name is not expected
+   * to contain it.
+   */
+  structural: boolean;
 };
+
+/** A plain slot for one word, with no knowledge behind it. */
+export function wordSlot(word: string): Slot {
+  return { typed: [word], alternatives: [[word]], terms: [], structural: false };
+}
 
 const prefix = (word: string) => `${word}:*`;
 
@@ -188,6 +208,18 @@ export function combinedTsQuery(slots: Slot[]): string | null {
     .map(slotTsQuery)
     .filter((part): part is string => part !== null);
   return parts.length === 0 ? null : parts.join(" & ");
+}
+
+/**
+ * The same, over the slots a person actually reads.
+ *
+ * The relevance tier asks how much of a search a product's *name*, brand or
+ * specifications contain. A quantity someone typed as "512gb" is not a word a
+ * name is expected to carry, so including it would drop every result to the
+ * bottom tier and flatten the ranking of an otherwise ordinary search.
+ */
+export function readableTsQuery(slots: Slot[]): string | null {
+  return combinedTsQuery(slots.filter((slot) => !slot.structural));
 }
 
 /**

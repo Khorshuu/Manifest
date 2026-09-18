@@ -37,7 +37,7 @@ fact; admin approval before mutation; deterministic logic before AI.
 | 2 | PKB database foundation: identity, families, attributes, normalization, variants, provenance, migrations, backfill | MAX | **COMPLETE** (2026-09-17) — see section 3A |
 | 3 | SeoPulse product intelligence: resolution, brand source registry, sources, claims, conflicts, review and apply | EXTRA HIGH | **COMPLETE** (2026-09-18) — see section 3B |
 | 4 | SEO engine: metadata states, structured data, technical SEO, image SEO, internal links, duplicate and thin content, SEO Health Center | HIGH | **COMPLETE** (2026-09-18) — see sections 3C and 3C.1b |
-| 5 | SearchPulse: query understanding, aliases, attribute-aware search, typo tolerance, autocomplete, facets, analytics | EXTRA HIGH | NOT STARTED |
+| 5 | SearchPulse: query understanding, aliases, attribute-aware search, typo tolerance, autocomplete, facets, analytics | EXTRA HIGH | **COMPLETE** (2026-09-18) — see section 3D |
 | 6 | Google Search Console, opportunity detection, SEO change history, controlled learning | HIGH | NOT STARTED |
 | 7 | Hardening: security, SSRF, write safety, performance, legacy contract, observability, provider abstraction | MAX | NOT STARTED |
 | 8 | Final production audit and full verification | ULTRACODE | NOT STARTED |
@@ -194,11 +194,11 @@ fixed in Stage 1; each names the stage that owns it.
 | F7 (CLOSED, Stage 4) | Product structured data takes `description` from the meta description, which is not visible on the page; carries no SKU/GTIN/MPN, no variants (`ProductGroup`), one image, one offer. | `lib/seo.ts`, product page | 4 |
 | F8 | `updateProduct` reads the current row outside its transaction without a lock, so two concurrent saves can lose an update and record stale audit "before" values. | `lib/catalog/products.ts` | 7 |
 | F9 (CLOSED, Stage 4) | The `product.updated` audit entry records only title, status, slug, searchable and boost; SEO and content field changes leave no before/after. | `updateProduct` | 4 — `seo_field_history` now keeps both |
-| F10 | Brand has no identity; spelling variants cannot be reconciled and the brand facet splits them. | schema | 2 |
-| F11 | Category specification units are free text and values raw strings; "256GB" and "256 GB" are different facet values and never compare numerically. | `category_attributes`, facets SQL | 2, 5 |
-| F12 | Option names are free text per product; "Color" and "Colour" become two filters. | D-030, facets | 2, 5 |
+| F10 (CLOSED, Stage 5) | Brand has no identity; spelling variants cannot be reconciled and the brand facet splits them. | schema | 2, 5 — `pkb_brands` since Stage 2; the storefront brand facet groups by the brand entity since Stage 5 (D-090) |
+| F11 (CLOSED, Stage 5) | Category specification units are free text and values raw strings; "256GB" and "256 GB" are different facet values and never compare numerically. | `category_attributes`, facets SQL | 5 — `product_search_attributes` compares the canonical number (D-090) |
+| F12 (CLOSED, Stage 5) | Option names are free text per product; "Color" and "Colour" become two filters. | D-030, facets | 5 — one attribute definition, with every older URL key still accepted (D-090) |
 | F13 (CLOSED, Stage 4) | SeoPulse's "Optimization Score" and "Internal Search Score" are weighted 0–100 numbers; the brief rules out score-like ranking figures. | `lib/seo-pulse/scores.ts`, retired for `lib/seo/readiness.ts` | 4 |
-| F14 | `search_keywords` mixes aliases, AI-suggested misspellings, phrases and brand variations with no provenance; once stored, the AI label is lost. | fill merge | 5 |
+| F14 (PARTLY CLOSED, Stage 5) | `search_keywords` mixes aliases, AI-suggested misspellings, phrases and brand variations with no provenance; once stored, the AI label is lost. | fill merge | 5 — entity aliases now live in `pkb_aliases` with a kind, an origin and an approval (D-067, D-089). `search_keywords` still exists as listing-level legacy text and is still indexed; it is contracted in Stage 7 |
 | F15 (CLOSED, Stage 4) | Sitemap lists every category including empty ones; no image entries; a product's `lastModified` ignores variant and photo changes. | `app/sitemap.ts` | 4 |
 | F16 (CLOSED, Stage 4) | SeoPulse decides a variant is available without the closing-date and D-058 rules the storefront uses, so schema readiness can disagree with the page. | `loadPulseInput`; the page's schema now uses `stockState` | 4 |
 
@@ -409,6 +409,158 @@ differed (PreOrder and SoldOut), which is finding F16 closed in practice.
 - Category reads were three different column lists in three functions; they are
   now one `CATEGORY_COLUMNS`, so a new column cannot reach one caller and not
   another.
+
+## 3D. Stage 5 — what was done
+
+SearchPulse now reads the Product Knowledge Base. The storefront's search and
+filters answer the same questions they did before, plus the ones the listing's
+own columns could never answer, and nothing about a product is stored twice.
+
+### 3D.1 Built
+
+| Area | Where | What |
+| --- | --- | --- |
+| Index | `db/migrations/0036_search_knowledge.sql` | `product_search` gains `brand_key`, `family_keys`, `alias_keys` and `terms`; `refresh_product_search` builds them from `pkb_facts`, `pkb_identifiers`, `pkb_aliases`, `pkb_brands` and `pkb_families`, keeping every 0014 source beside them (D-089, D-095) |
+| Facet read model | same migration, `refresh_product_search_attributes` | `product_search_attributes`: one row per product, attribute and value, from the knowledge base where it has the value and from the listing's option groups and category specifications where it does not, each row saying which (D-090) |
+| Comparison forms | `search_term_key`, `search_number` in SQL; `lib/search/terms.ts` in TypeScript | The two forms a query and an indexed value must agree on. Quantities are normalized once, by `lib/pkb/units.ts`, at write time — there is no second unit registry (D-089) |
+| Query understanding | `lib/search/knowledge.ts`, `plan.ts`, `synonyms.ts`, `normalize.ts` | One indexed lookup per search turns phrases into brands, families, products and controlled values; quantities are parsed from the search as typed, so "6.1 inch" survives tokenisation; a slot matches through its words *or* its terms |
+| Matching and ranking | `lib/search/sql.ts` | `searchMatch` gains the terms alternative; `relevanceTier` gains tier 10 for a whole-query product alias and judges the rest on the readable part of the search (D-091) |
+| Facets and filters | `lib/catalog/facets.ts`, `filter-params.ts`, `components/discovery-results.tsx` | Filters, counts and facet lists read the read model; incoming URL keys and values are resolved to their canonical pair, with every older key still accepted; the brand control groups by brand entity |
+| Autocomplete | `lib/search/suggest.ts` | Brands from the knowledge base, grouped by entity; approved aliases suggesting the name they stand for (D-092) |
+| Analytics | `db/schema/search.ts`, `lib/search/events.ts`, `attribution.ts` | `search_events` for filters, refinements, add-to-cart and purchase; a short-lived first-party cookie carries a search from the result a shopper opened to the order they pay for, and the phrase is erased the moment it is counted (D-093) |
+| Zero-result intelligence | `lib/search/zero-results.ts`, `app/admin/search/zero-results.tsx` | Seven verdicts with their evidence and a recommendation; an alias can be *proposed*, never recorded automatically (D-094) |
+| Admin | `app/admin/search/page.tsx`, `app/api/admin/search/aliases/route.ts` | Four new measures on the search report, carts and purchases per query, and the zero-result verdicts; the alias route checks the permission inside `lib/pkb`, not in the screen |
+
+Not built in Stage 5, by design: Search Console (Stage 6), removal of the
+legacy option and specification paths (Stage 7, D-095), and any change to
+`search_synonyms`, `search_history` or the typo vocabulary.
+
+**Relationships are deliberately not a search signal.** The brief allows
+"product relationships where relevant", and `pkb_relationships` holds accepted
+accessory, compatibility, series and successor links. They are not indexed.
+Letting a search for one product also return everything related to it makes the
+results *less* relevant, not more: someone searching for headphones is shown
+cases, and someone searching for a case is shown headphones. Relationships
+already do the useful version of this on the product page, where the context is
+"things that go with *this*" rather than "things that answer your search"
+(D-083). If the owner wants related products under a results page later, that
+is a merchandising row beneath the results, not a change to what matches — and
+it should be built as such.
+
+### 3D.2 Search architecture, before and after
+
+| | Before | After |
+| --- | --- | --- |
+| Index source | `products` columns: `brand`, `details`, `attribute_values` JSON, `spec_table`, variant option values, category specifications | the same, **plus** accepted knowledge facts, trade identifiers, approved aliases, the brand entity and the family lineage |
+| Brand | the exact string on the listing | the knowledge base's brand entity, with the listing's string as a fallback |
+| Attribute values | raw strings, compared with `lower()` | typed and normalized at write time; compared on a canonical key |
+| Quantities | text; "256GB" and "256 GB" never compared | one canonical number of bytes, whichever way either side is written |
+| Filter identity | `search_slug(name)` per attribute, per system | one attribute definition, with every older key kept as an alias |
+| Aliases | none; `search_keywords` free text | approved `pkb_aliases`, widening the text side and matching a structured term |
+| Ranking | nine tiers (D-027) | eleven: an approved whole-query alias at the top, an attribute-only match at the bottom, the nine unchanged between |
+| Typo tolerance | trigram correction over the listing vocabulary | unchanged, plus approved misspelling aliases, which match directly instead of needing a correction notice |
+| Facets | two correlated subqueries over JSON and option tables, per facet | one indexed read of `product_search_attributes` |
+| Analytics | queries and clicks | plus filters, refinements, add-to-cart and confirmed-payment attribution |
+| Zero results | a list of words | a verdict, its evidence and a recommendation |
+
+### 3D.3 Tested
+
+`tests/search-knowledge.test.ts` (54) is the new regression cover: term-key
+parity between SQL and TypeScript over nine inputs including accents and
+punctuation; a quantity normalizing identically from "256gb", "256 GB" and
+"256 gigabytes"; "2 in 1" *not* being read as a length; exact title, exact
+model in three punctuations, a UPC and its GTIN-14 form, brand, family name and
+family key; an attribute value and two attributes at once; an alias finding
+nothing until approved and nothing again once the approval is taken away; an
+alias inside a longer search not naming that product; an exact product above a
+listing that merely shares its colour; an exact model above five broad
+attribute matches; the staff boost still unable to lift a weaker match; a typed
+quantity not flattening the ranking; a prefix needing no correction and a real
+misspelling getting one; one filter from two spellings of one attribute; a
+value filtered however the link spells it; a brand spelled twice counted once;
+meaningless attributes not offered; sixty variants counted once; autocomplete
+from names, brands and aliases; a listing with no knowledge beyond its title;
+the seven zero-result verdicts and the two human steps before an alias exists;
+filter events keeping keys and not values; a refinement against the search it
+replaced; a personal-looking search recorded nowhere; a conversion counted once
+and erased; and the index following a knowledge change, a retired knowledge
+product and a brand key.
+
+Re-run unchanged: `search-engine` (25), `search` , `search-index`,
+`search-analytics`, `facets`, `discovery`, `filter-chips`, `catalog`,
+`migrations`, `schema`, `checkout`, `product-details`.
+
+One existing test was updated rather than weakened: `discovery.test.ts` asserted
+that a RAM facet's URL value was the bare number `8`. The value now travels as
+the label it is shown under, `8 GB`, and the bare number still filters — both
+are asserted, so the case is strictly stronger than it was.
+
+### 3D.4 Found and fixed on the way
+
+- A quantity typed without a space ("256gb") matched neither a listing whose
+  text says "256 GB" nor one whose knowledge value is in bytes, because the
+  tokeniser makes it one word. A structural slot now carries both written forms
+  as alternatives as well as the canonical term, so it finds a listing whose
+  value the knowledge base has never seen.
+- Reading a unit out of any number-then-letters pair turns "2 in 1 case" into a
+  50.8 mm length. A unit written apart from its number now has to be at least
+  two letters and not an English stop word; a unit written against it is always
+  taken.
+- The facet value's URL form had to change (a quantity's identity is its
+  canonical number, not its spelling), which would have broken shared links.
+  Both the attribute key and the value key keep every older form they answered
+  to, resolved before anything else sees the filter.
+- `ensureSystemDefinitions` seeds vocabulary aliases, so `pkb_aliases` is never
+  empty. A test asserting "no alias was created" has to name the alias.
+- A trigger function that reads `OLD` and `NEW` in one expression fails on the
+  operation that has only one of them. Each is read under its own branch.
+- On the running dev site, one specification read "16 – 300 ohm ohm". A
+  category specification whose unit the registry does not know ("ohm") becomes
+  a plain number with a display unit; the value staff typed already carried the
+  unit, and the code put it back a second time. How a stored value reads is now
+  one SQL function, `value_reads`, shared by the document and the filter, and
+  it appends the display unit only when the value does not already end with it.
+  Two places computing the same wording was the actual defect; one of them
+  having a bug was the symptom.
+- The migration's final rebuild was one call over the whole catalogue, as
+  migration 0014's was. The builder now reads eight more tables, and at 5,000
+  listings that one call took 71 seconds while holding every row it touched. It
+  is now batched at 200, which is the same total work in pieces short enough
+  that a large catalogue does not turn the migration into a long lock.
+
+### 3D.5 Measured
+
+Development database `preorder` (24 listings, 26 offers) and `manifest_scale`
+(5,000 listings, 18,731 offers, 100,000 orders), both real PostgreSQL. Medians
+over repeated runs, after a warm-up.
+
+| Measurement | `preorder` | `manifest_scale` |
+| --- | --- | --- |
+| Migration 0036 end to end, including the rebuild | 1.6 s | 17.6 s |
+| Facet read model built | 44 rows, 24 listings | 38,762 rows, 5,000 listings |
+| Rebuild one listing (the 20 most-variant) | — | 43 ms (worst 132 ms) |
+| Rebuild a chunk of 200 | — | 565 ms (worst 1.6 s) |
+| Rebuild the whole catalogue in one call | 53 ms | 71 s — why the migration batches |
+| Search: plan, count and one page of 24 | 4–11 ms | 26–79 ms |
+| Facets for a search | 8–13 ms | 24–201 ms |
+| Facets with no search (the whole catalogue) | 4 ms | 289 ms |
+
+The facet query is the one directly comparable before-and-after, because the
+pre-0036 query still runs against the same data:
+
+| Facet values over the whole public catalogue | `manifest_scale` |
+| --- | --- |
+| The query migration 0036 replaced (two subqueries over JSON and the option tables) | 377 ms |
+| The read model | **107 ms** |
+
+So the storefront's most expensive facet read is about three and a half times
+faster than it was, on the same data, while answering a harder question — one
+attribute where there used to be two, and quantities compared as numbers.
+
+What got more expensive is rebuilding: one listing costs 43 ms at scale, paid
+by the deferred trigger at the commit of whatever changed it. `rebuildSearchIndex`
+already chunks by 200, so the admin button costs about 14 s at 5,000 listings
+rather than 71. Recorded as R-12.
 
 ## 4. Target architecture
 
@@ -710,12 +862,13 @@ verified on PGlite and real PostgreSQL.
 | I-8 | Offer data (price, stock, capacity) is never stored in or read from the PKB. | schema has no such columns; triggers ignore those columns | HOLDS |
 | I-9 | No customer PII in `pkb_*`; customer-derived signals only aggregated and thresholded. | schema; actor columns reference staff | HOLDS |
 | I-10 | Provider-restricted data is never exportable. | `exportEligibility` | Rule built and tested; no export exists |
-| I-11 | Shoppers see only accepted facts; structured data identifiers only VERIFIED or MANUAL. | read models | Stages 4–5 (storefront still reads legacy columns) |
-| I-12 | After cut-over, a legacy column is written only by the projection. | code search test | Stage 4–5, when readers move |
+| I-11 | Shoppers see only accepted facts; structured data identifiers only VERIFIED or MANUAL. | read models | Structured data since Stage 4; search and facets since Stage 5 (`product_search.terms`, `product_search_attributes`). The product page's Specification and Measurements tabs still read the legacy columns, which the projection keeps in step (D-070) — they move when those columns are contracted in Stage 7 |
+| I-12 | After cut-over, a legacy column is written only by the projection. | code search test | Stage 7. Stage 5 deliberately kept the legacy option and specification paths as *readers* beside the knowledge ones (D-095), so the coverage can be measured before anything is removed |
 | I-13 | New categories, families and attributes are data operations. | design | HOLDS (only a new unit dimension needs code) |
 | I-14 | Every PKB mutation checks permission in `lib/`. | `requirePermission` in every service | HOLDS, tested for families, sources, claims, aliases, facts |
-| I-15 | No outbound fetch without SSRF guard, timeout, size cap and robots check. | Stage 3 fetcher | No fetching exists yet |
-| I-16 | Existing checkout, capacity, pricing and publish invariants are untouched. | existing suites | HOLDS — full unit project 1,159 passed |
+| I-15 | No outbound fetch without SSRF guard, timeout, size cap and robots check. | `lib/pkb/net/` | ENFORCED since Stage 3, proved by `tests/pkb-net.test.ts` (38) |
+| I-16 | Existing checkout, capacity, pricing and publish invariants are untouched. | existing suites | HOLDS — full unit project 1,302 passed after Stage 5 |
+| I-17 | SearchPulse proposes; it never writes reusable knowledge. An alias becomes search vocabulary only through a suggestion and then an approval. | `lib/pkb/aliases.ts` permission checks; the index reads only `status = 'approved'` | ENFORCED, tested (a suggested alias finds nothing; a rejected one stops finding) |
 
 ---
 
@@ -770,6 +923,26 @@ Not run in Stage 4: the end-to-end suite, a production build, and the
 real-PostgreSQL suites. `e2e/seo.spec.ts` was updated for ProductGroup and
 image entries earlier in the stage but has not been run; it belongs to the full
 verification in Stage 8.
+
+### Stage 5 (2026-09-18)
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS |
+| `tests/search-knowledge.test.ts` (new) | PASS — 54 |
+| `search-engine`, `search`, `search-index`, `search-analytics`, `facets`, `discovery`, `filter-chips`, `catalog`, `migrations`, `schema`, `checkout`, `product-details` | PASS — 214 across twelve files |
+| Whole Vitest `unit` project (PGlite) | PASS — 88 files, 1,302 tests, 226 s |
+| Migration 0036 on dev `preorder` and on `manifest_scale` | applied |
+| `npm run pkb:backfill -- --report` on dev, after the migration | clean |
+| Search, facets and the index rebuild timed on both databases | section 3D.5 |
+| The storefront and `/admin/search` exercised on the running dev site | done |
+
+Not run in Stage 5, by design: the end-to-end suite, a production build, and
+the real-PostgreSQL concurrency suites. `e2e/search.spec.ts` and
+`e2e/filters.spec.ts` exercise the paths this stage changed and belong to the
+full verification in Stage 8.
+
 
 ---
 
@@ -840,9 +1013,10 @@ Open risks:
 - **R-2** A changed product save costs ≈28 ms more (8 → 36 ms median); a no-op
   sync ≈27 ms, mostly reloading the vocabulary per listing. Optimise in Stage 7
   (vocabulary cache keyed by a change signature).
-- **R-3** Findings still open: F8 (Stage 7), F10 to F12 and F14 (Stages 2 and 5
-  by design). F1 to F4 are closed (D-075), and Stage 4 closed F5, F6, F7, F9,
-  F13, F15 and F16.
+- **R-3** Findings still open: F8 (Stage 7), and the remainder of F14 —
+  `search_keywords` survives as listing-level legacy text and is still indexed,
+  until Stage 7 contracts it. F1 to F4 are closed (D-075); Stage 4 closed F5,
+  F6, F7, F9, F13, F15 and F16; Stage 5 closed F10, F11 and F12 (D-090).
 - **R-4** CLOSED. Outbound retrieval exists and is guarded by
   `lib/pkb/net/safe-fetch.ts` and `robots.ts`, proved by `tests/pkb-net.test.ts`
   (38 tests) and documented in SECURITY.md.
@@ -873,6 +1047,24 @@ Open risks:
   dev photographs are in that state, which is reported as unknown rather than
   guessed at, but it means the too-small and heavy counts understate reality
   until uploads have been through the registry.
+- **R-12** (new, Stage 5) `refresh_product_search` now reads eight more tables,
+  and a *whole-catalogue* rebuild is much more expensive than before — see
+  section 3D.5 for the measured figures. It only matters for the "Rebuild search
+  index" button, which already chunks by 200, and for the final statement of
+  migration 0036. Normal running is unaffected, because a listing is rebuilt one
+  at a time by the deferred trigger. Worth profiling in Stage 7 before the
+  catalogue is much larger.
+- **R-13** (new, Stage 5) Accepting a claim or approving an alias now queues a
+  listing for reindexing through new row-level triggers on `pkb_facts` and
+  `pkb_identifiers`. During a bulk import that is one small upsert per fact
+  row. The Stage 2 backfill on `manifest_scale` took 176 s before these
+  triggers existed; re-measure it in Stage 7 and, if it has grown materially,
+  make the backfill queue per listing rather than per fact.
+- **R-14** (new, Stage 5) Purchase attribution depends on a first-party cookie
+  set by the click beacon. A shopper who blocks it, or who opens a result in a
+  way that does not fire the beacon, is simply not attributed — the count
+  understates rather than invents, which is the right direction, but the
+  conversion figure is a floor and the report says so.
 - **R-7** The dev seed's UPC `0812345678901` fails its check digit; it is stored
   as invalid and parked. Seed data only.
 
@@ -880,35 +1072,41 @@ Open risks:
 
 ## 8. Next stage
 
-**Stage 5 — EXTRA HIGH — SearchPulse.** Not started, and not to be started
-without the owner's `CONTINUE STAGE 5`.
+**Stage 6 — HIGH — Google Search Console, opportunity detection, SEO change
+history, controlled learning.** Not started, and not to be started without the
+owner's `CONTINUE STAGE 6`.
 
 Entry checklist:
 
-1. Read this file (sections 3A, 3B, 3C, 4.7, 4.9, 5, 7), D-060 to D-088, and
-   `git log` since the Stage 4 commits.
+1. Read this file (sections 3C, 3D, 4.8, 5, 7), D-077 to D-095, and `git log`
+   since the Stage 5 commit.
 2. Run `npm run pkb:backfill -- --report` against the dev database to confirm
-   the mirror is still clean.
-3. Query understanding: normalize a query with the same unit, identifier and
-   model-number rules facts are normalized with (`lib/pkb/normalize.ts`,
-   `units.ts`, `identifiers.ts`), so a query and a fact agree (D-065).
-4. Entity aliases: `pkb_aliases` approved through `search.manage`, separated
-   from the free-text `search_keywords` that finding F14 describes.
-5. Attribute-aware search and facets: rebuild `product_search` and the facet
-   read model from accepted, displayable, searchable facts rather than from
-   JSON columns, which is what closes F11 and F12.
-6. Typo tolerance and autocomplete on the existing trigram machinery; no new
-   engine (D-026 stands).
-7. Search analytics extended with privacy-safe events; no customer identifier
-   reaches the PKB (I-9).
-8. Targeted tests: normalization parity between query and fact, alias approval,
-   facet correctness against known facts, ranking regressions.
+   the mirror is still clean, and check `/admin/search` still renders.
+3. Search Console is an external integration with credentials the owner has to
+   supply. Build it behind the same provider shape `lib/providers/research/`
+   uses: an interface, a default that reports NOT_CONFIGURED, and no invented
+   data. Mark anything that cannot be exercised `UNVERIFIED — external
+   integration unavailable` (CLAUDE.md section 6).
+4. Search Console data is PROVIDER_RESTRICTED (D-063) and must never be
+   exportable (I-10) and never a source of facts (I-1).
+5. Opportunity detection has a ready-made precedent in Stage 5's zero-result
+   verdicts: a classification with its evidence and a recommendation, decided
+   by a person. Reuse that shape rather than inventing a score (D-081).
+6. `seo_change_history` was planned in section 4.4. Stage 4 already added
+   `seo_field_history`; check whether a second table is needed before adding
+   one.
+7. Controlled learning must stay inside the D-094 rule: a suggestion, then a
+   human decision, then reusable knowledge. Nothing external teaches the
+   catalogue anything on its own.
 
-Effort estimate for Stage 5: **EXTRA HIGH**. It is larger than Stage 4. Stage 4
-mostly added read-only modules beside an existing engine; Stage 5 changes the
-index and the facets the storefront already depends on, which means a migration
-to the search trigger, a backfill of `product_search`, and regression cover for
-ranking that the current suites only partly provide.
+**Effort estimate for Stage 6: HIGH** — lower than Stage 5. Stage 5 changed an
+index and a facet system the storefront depends on, with a migration, a
+backfill and regression cover for ranking. Stage 6 mostly adds read-only
+intelligence beside what exists, and its largest piece is an integration that
+cannot be fully verified without the owner's Search Console credentials. The
+parts that can be built without them — the tables, the provider boundary, the
+opportunity classification, the change history and the admin screen — are
+ordinary work on top of Stage 4's engine.
 
 ---
 
@@ -924,6 +1122,11 @@ ranking that the current suites only partly provide.
 | `lib/catalog/category-attributes.ts` | Current specification validation |
 | `lib/catalog/facets.ts` | Facets built from options and specifications |
 | `lib/search/{normalize,plan,sql,suggest,synonyms,analytics}.ts` | SearchPulse engine |
+| `db/migrations/0036_search_knowledge.sql` | The knowledge-backed index, the facet read model, `search_term_key`/`search_number`, the new queue triggers and `search_events` (D-089, D-090, D-093) |
+| `lib/search/terms.ts` | The comparison forms a query and an indexed value must agree on — the twin of `search_term_key` in SQL |
+| `lib/search/knowledge.ts` | What the knowledge base says a search means: brands, families, products, controlled values, approved aliases |
+| `lib/search/events.ts`, `lib/search/attribution.ts` | Filters, refinements, add-to-cart and conversion, and the cookie that carries a search to the order (D-093) |
+| `lib/search/zero-results.ts` | The seven verdicts and their evidence; proposes aliases, never records them (D-094) |
 | `lib/seo-pulse/service.ts` | Run, fill, apply (F1–F4) |
 | `lib/seo-pulse/facts.ts`, `scores.ts` | Derived tables (F1), scores (F13) |
 | `lib/seo.ts`, `app/(storefront)/products/[slug]/page.tsx` | Structured data and the specification tabs |
@@ -967,6 +1170,7 @@ ranking that the current suites only partly provide.
 
 | Date | Stage | Summary |
 | --- | --- | --- |
+| 2026-09-18 | 5 | SearchPulse on the knowledge base: migration 0036 (four derived columns on `product_search`, the `product_search_attributes` facet read model, `search_term_key`/`search_number`, seven new queue triggers, `search_events`, search attribution on the cart and order lines). Query understanding with approved aliases, brands, families and canonical quantities; attribute-aware matching; ranking tiers 10 and 1; facets and filters on the read model with every older URL key still accepted; knowledge-backed autocomplete; filter, refinement, add-to-cart and confirmed-payment analytics; seven zero-result verdicts with alias proposals. Findings F10, F11 and F12 closed, F14 partly. Decisions D-089 to D-095. 54 new tests; full unit project 1,302 passed. 0036 applied to the dev and scale databases. |
 | 2026-09-18 | 4 | Second half of the SEO engine: migration 0035 (category SEO columns, duplicate-check indexes); image SEO, duplicate/near-duplicate/thin content, technical auditing, internal-link intelligence; four new sections on the SEO Health Center and a Page audit panel in the product editor; shelf SEO written by staff and read by the storefront and sitemap. Decisions D-084 to D-088. 11 new tests. 0035 applied to the dev database. |
 | 2026-09-17 | 1 | Audit, classification, findings F1–F16, target architecture, source-of-truth matrix, migration strategy, invariants, decisions D-060 to D-069. Documentation only. |
 | 2026-09-18 | 4 | SEO engine: migrations 0033 and 0034; per-field states, locks and history; address stability with redirects; canonical restricted to this site; structured data from the knowledge base and the page (ProductGroup, per-variant offers); measurable readiness replacing the weighted scores; SEO Health Center at `/admin/seo-health`; sitemap corrections with image entries; internal links from accepted relationships. Findings F5, F6, F7, F9, F13, F15, F16 closed. 14 new tests; 0033 and 0034 applied to the dev database. |

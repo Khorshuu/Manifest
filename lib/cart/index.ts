@@ -12,6 +12,9 @@ import {
   summariseOptions,
   type VariantOption,
 } from "@/lib/catalog/variant-options";
+import { searchAttributionFor } from "@/lib/search/attribution";
+import { logAddToCart } from "@/lib/search/events";
+import { currentVisitorHash } from "@/lib/search/visitor";
 import {
   cartItems,
   carts,
@@ -303,6 +306,7 @@ export async function addToCart(
       preorderClosesAt: productVariants.preorderClosesAt,
       isClosed: sql<boolean>`(${productVariants.preorderClosesAt} is not null
         and ${productVariants.preorderClosesAt} <= now())`,
+      productId: products.id,
       productArchivedAt: products.archivedAt,
       priceBdt: effectivePriceSql,
     })
@@ -360,15 +364,37 @@ export async function addToCart(
     );
   }
 
+  /*
+   * Which search led here, if any (D-093). Read from the short-lived cookie
+   * the click beacon left, and only when it names this very product. Counting
+   * fails silently: a shopper whose cart line cannot be attributed still gets
+   * their cart line.
+   */
+  const attributedTo = await searchAttributionFor(variant.productId).catch(
+    () => null,
+  );
+
   if (existing) {
     await db
       .update(cartItems)
       .set({ quantity: desired })
       .where(eq(cartItems.id, existing.id));
-    return;
+  } else {
+    await db
+      .insert(cartItems)
+      .values({ cartId, variantId, quantity, searchQueryNorm: attributedTo });
   }
 
-  await db.insert(cartItems).values({ cartId, variantId, quantity });
+  if (attributedTo) {
+    const visitor = await currentVisitorHash().catch(() => null);
+    if (visitor) {
+      await logAddToCart({
+        query: attributedTo,
+        productId: variant.productId,
+        visitorHash: visitor,
+      });
+    }
+  }
 }
 
 export async function updateCartItem(

@@ -132,8 +132,14 @@ describe("dynamic attribute filters", () => {
     expect(await countProducts({ options: { ram: ["16", "32"] } })).toBe(2);
 
     const [ram] = (await listFacets({ query: "laptop", options: { ram: ["16"] } })).attributes;
-    expect(ram.values.find((value) => value.id === "8")?.count).toBe(1);
-    expect(ram.values.find((value) => value.id === "16")?.selected).toBe(true);
+    // The value travels under the label it is shown as ("16 GB"). The bare
+    // number an older link carries still selects it (D-090).
+    expect(ram.values.find((value) => value.id === "8 GB")?.count).toBe(1);
+    expect(ram.values.find((value) => value.id === "16 GB")?.selected).toBe(true);
+
+    expect(
+      (await listProductCards({ options: { ram: ["16 GB"] } })).map((card) => card.title),
+    ).toEqual(["Work Laptop"]);
   });
 
   it("drops a key it does not know rather than filtering everything out", async () => {
