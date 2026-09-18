@@ -178,6 +178,15 @@ The limiter fails open if the database will not answer. Signing in needs the dat
   (spreadsheet formula injection). Exports are `no-store`.
 - Audit log: `seo_pulse.researched`, `seo_pulse.applied`, plus the usual
   `product.updated` from the save itself.
+- A category's introductory copy (`categories.intro_html`, D-084) is
+  staff-authored HTML rendered on a public shelf. It goes through the same
+  `sanitizeRichText` allow-list as a product description before it is stored, so
+  a staff role with catalogue access cannot store a script that runs for every
+  shopper. A canonical address on a category is checked by the same rule as a
+  listing's: a path on this site, or nothing (D-079).
+- The SEO auditing modules (`lib/seo/{technical,images,duplicates,audit}.ts`)
+  only read. `listingAudit` checks `catalog.manage` itself rather than relying
+  on the screen that calls it, and nothing in them reaches the network.
 
 ## Signing in with Google (D-042)
 

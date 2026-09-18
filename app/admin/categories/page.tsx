@@ -52,6 +52,10 @@ export default async function AdminCategoriesPage() {
           0,
         ),
         childCount: node.children.length,
+        seoMetaTitle: node.seoMetaTitle,
+        seoMetaDescription: node.seoMetaDescription,
+        seoNoIndex: node.seoNoIndex,
+        introHtml: node.introHtml,
       },
       ...walk(node.children),
     ]);

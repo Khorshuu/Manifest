@@ -89,6 +89,18 @@ columns described on this page remain authoritative. Status, target model,
 source-of-truth matrix and migration plan: [KNOWLEDGE_PLATFORM.md](KNOWLEDGE_PLATFORM.md);
 reasoning: DECISIONS.md D-060 to D-069.
 
+`lib/seo/` is the SEO engine that reads from both: `index.ts` (origin, JSON-LD
+helpers), `structured-data.ts` with `lib/pkb/publish.ts` (Product and
+ProductGroup from established knowledge), `fields.ts` (per-field state, locks,
+history), `redirects.ts` (address stability), `readiness.ts` (measurable checks
+in place of scores), `health.ts` (catalogue-wide counts), `links.ts` (rendered
+links from accepted relationships, plus link intelligence), `images.ts` (image
+SEO), `duplicates.ts` (duplicate, near-duplicate and thin content),
+`technical.ts` (indexability, canonicals, redirects, shelves) and `audit.ts`
+(one listing's page audit for the editor). Everything under `lib/seo/` reads;
+the only writers are `fields.ts` and `redirects.ts`, both called from the
+catalogue's own write paths. Reasoning: D-077 to D-088.
+
 The admin product editor is a set of independent panels
 (`app/admin/products/[productId]/sections/`), each posting only the fields it
 owns to a partial `PATCH`. They share their save behaviour, their controls and

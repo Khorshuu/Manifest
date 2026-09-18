@@ -40,11 +40,20 @@ export async function generateMetadata({
   const query = await searchParams;
   const varied = Object.keys(query).length > 0;
 
+  /*
+   * The shelf's own wording when someone has written it (D-084). Until then
+   * the fallback sentence stands, and the SEO Health Center counts the shelf
+   * as having no copy of its own: every shelf saying the same sentence with a
+   * single word swapped is the shop publishing its own duplicate content.
+   */
+  const written = category.seoMetaDescription?.trim();
+
   return {
-    title: category.name,
-    description: `Preorder ${category.name.toLowerCase()} from the US, delivered in Bangladesh at a fixed landed price.`,
-    alternates: { canonical: `/categories/${category.slug}` },
-    ...(varied ? { robots: { index: false, follow: true } } : {}),
+    title: category.seoMetaTitle?.trim() || category.name,
+    description:
+      written || `Preorder ${category.name.toLowerCase()} from the US, delivered in Bangladesh at a fixed landed price.`,
+    alternates: { canonical: category.canonicalUrl?.trim() || `/categories/${category.slug}` },
+    ...(varied || category.seoNoIndex ? { robots: { index: false, follow: true } } : {}),
   };
 }
 
@@ -142,6 +151,16 @@ async function CategoryShelf({ slug, listingKey }: { slug: string; listingKey: s
           }
         />
       </div>
+
+      {category.introHtml ? (
+        /* Staff-authored copy, reduced to the allow-list before it was stored
+           (lib/html/rich-text.ts). It is what makes this shelf a page of its
+           own rather than a list with a generated sentence on top (D-084). */
+        <div
+          className="product-copy mt-4 max-w-[68ch] text-body text-ink/80"
+          dangerouslySetInnerHTML={{ __html: category.introHtml }}
+        />
+      ) : null}
 
       {node && node.children.length > 0 ? (
         <ul className="mt-6 flex flex-wrap gap-2">

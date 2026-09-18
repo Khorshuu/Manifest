@@ -3224,4 +3224,41 @@ Blocked on your accounts or choices:
 - `[!]` On the development data nothing yet carries a verified brand or
   identifier, so those parts of the rich result are deliberately absent until
   facts are accepted on the knowledge screens.
+- `[x]` Category pages have their own SEO now. Each shelf can carry its own
+  search title, its own description and a paragraph or two of real copy at the
+  top, and can be hidden from search engines. Until you write one, the shelf
+  falls back to the sentence it always had — and the SEO health screen counts
+  how many shelves are still on the fallback, because a dozen pages saying the
+  same sentence with one word changed is duplicate content we write ourselves.
+  Editing a category name or moving it never wipes the copy.
+- `[x]` Photography is checked. Per listing and across the shop: a photograph
+  nobody described, two photographs with the same description, a picture too
+  small to be shown in image search, a file heavy enough to slow the page, and
+  files whose size we have no record of. Alt text can be suggested from what we
+  have actually established about the product; it is never written for you, and
+  it never describes a picture the system has not seen.
+- `[x]` Duplicate and thin pages are found. Listings sharing a search title, a
+  description or a product name word for word are grouped together, as are
+  descriptions that open identically and diverge later. Pages with very little
+  on them are listed with what is actually there. Nothing is rewritten: which
+  page keeps the wording is your call.
+- `[x]` Technical checks. Whether a page can be indexed at all and why not,
+  where its canonical points, an old address that a newer listing has taken
+  over (so the redirect silently stops working), a redirect that now leads to a
+  draft, a shelf hidden above a visible listing, and a page with nothing to buy.
+- `[x]` Links between listings. How many listings nothing points at, accepted
+  relationships that cannot be shown because the other side is not public, and
+  pairs that share a brand and a product family with no link between them —
+  shown as suggestions. Nothing creates a relationship on its own.
+- `[x]` The product editor gained a **Page audit** panel with the same findings
+  for the listing you are on, including what it says that another listing
+  already says.
+- `[x]` Checks: typecheck and lint clean; 11 more tests (25 for the stage), and
+  the SEO, catalogue, migration and write-path suites pass. The new columns are
+  applied to the development database, the new screens were opened on the
+  running site, and a shelf saved through the admin appeared on the storefront.
+- `[!]` Still not run: the end-to-end suite and a production build.
+- `[!]` On the development data no photograph has a recorded size, because the
+  seeded images never went through the upload registry. Those counts will only
+  be real for photographs uploaded through the admin.
 - `[ ]` Stage 5 (SearchPulse) waits for the go-ahead.

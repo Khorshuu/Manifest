@@ -36,7 +36,7 @@ fact; admin approval before mutation; deterministic logic before AI.
 | 1 | Repository audit, architecture, source-of-truth decisions | ULTRACODE | **COMPLETE** (2026-09-17) |
 | 2 | PKB database foundation: identity, families, attributes, normalization, variants, provenance, migrations, backfill | MAX | **COMPLETE** (2026-09-17) — see section 3A |
 | 3 | SeoPulse product intelligence: resolution, brand source registry, sources, claims, conflicts, review and apply | EXTRA HIGH | **COMPLETE** (2026-09-18) — see section 3B |
-| 4 | SEO engine: metadata states, structured data, technical SEO, image SEO, internal links, SEO Health Center | HIGH | **COMPLETE** (2026-09-18) — see section 3C |
+| 4 | SEO engine: metadata states, structured data, technical SEO, image SEO, internal links, duplicate and thin content, SEO Health Center | HIGH | **COMPLETE** (2026-09-18) — see sections 3C and 3C.1b |
 | 5 | SearchPulse: query understanding, aliases, attribute-aware search, typo tolerance, autocomplete, facets, analytics | EXTRA HIGH | NOT STARTED |
 | 6 | Google Search Console, opportunity detection, SEO change history, controlled learning | HIGH | NOT STARTED |
 | 7 | Hardening: security, SSRF, write safety, performance, legacy contract, observability, provider abstraction | MAX | NOT STARTED |
@@ -343,9 +343,43 @@ screens say what is measurably missing.
 | Internal links | `lib/seo/links.ts`: accessory, compatibility, series and successor links from accepted relationships, rendered on the product page only when they point at a public listing (D-083) |
 | Admin | The product editor gains a readiness panel with per-field locks and the addresses the listing has had; `/admin/seo-health` is in the navigation; one API route for locking (`refuseNonStaff()` first) |
 
+### 3C.1b Built in the second half of the stage
+
+The first half covered field states, addresses, structured data, readiness, the
+Health Center, the sitemap and internal links. The rest of the stage's scope —
+technical auditing, image SEO, duplicate and thin content, and shelf SEO — is
+built here.
+
+| Area | What exists now |
+| --- | --- |
+| Shelf SEO | Migration 0035 adds `seo_meta_title`, `seo_meta_description`, `seo_no_index`, `canonical_url` and `intro_html` to `categories`; the shelf page uses them, the sitemap leaves a hidden shelf out, and the category tree edits them. The absent-means-leave-alone rule stops a rename wiping the copy (D-084) |
+| Image SEO | `lib/seo/images.ts`: per listing, a photograph with no description, two photographs described identically, a file under 800px, a file over 600 KB, a file with no recorded size; the same checks counted over the catalogue; `suggestAltText` builds a sentence only from established values and never describes the picture (D-085) |
+| Duplicate and thin content | `lib/seo/duplicates.ts`: exact groups on SEO title, meta description, product name and description body; bodies that open identically and diverge later; thin pages by what is on them; shelves still relying on the generated sentence. Index-backed, never pairwise, never rewritten (D-086) |
+| Technical auditing | `lib/seo/technical.ts`: why a page is or is not indexed, a canonical pointing elsewhere, an old address taken over by a live listing, a redirect that now leads to a draft, a hidden shelf above an indexable listing, an address under a robots.txt disallow, a page with no offer; plus the catalogue-wide counts (D-087) |
+| Link intelligence | `linkIntelligence` in `lib/seo/links.ts`: listings nothing links to, accepted relationships that cannot be rendered, and pairs sharing an established brand and family with no relationship — suggestions only (D-088) |
+| Admin | `/admin/seo-health` gains four sections (crawlability, photography, shared wording, links); the product editor gains a **Page audit** panel from `lib/seo/audit.ts`, which checks `catalog.manage` itself rather than relying on the screen |
+
 ### 3C.2 Tested
 
-`tests/seo-engine.test.ts` (14) plus the readiness checks in
+`tests/seo-audit.test.ts` (11) covers the second half: the image findings and
+that looking changes no alt text, the catalogue counts ignoring drafts, an alt
+suggestion built only from established values, duplicate groups and a shared
+opening told apart from a copy, thin pages and shelves with no copy, why a page
+is not indexed, a shadowed redirect, empty and hidden shelves, orphan counts
+before and after a relationship, a relationship that leads nowhere, and shelf
+SEO surviving a rename with its HTML reduced to the allow-list.
+
+Re-run unchanged: `seo-engine` (14), `seo-pulse` (40), `seo`, `catalog`,
+`migrations`, `pkb-write-paths` — 98 tests in six files. Migration 0035 was
+applied to the dev database, and the four new modules were run against it: 24
+indexable listings, 12 shelves with no copy of their own, 26 photographs with
+no recorded size (the seed never went through the media registry), 2 thin
+listings, 24 listings nothing links to. The admin screens and a shelf save were
+exercised on the running dev site: the Page audit panel and the four new health
+sections render, and a saved shelf title and paragraph appear on the storefront
+with a `<script>` stripped.
+
+Earlier in the stage: `tests/seo-engine.test.ts` (14) plus the readiness checks in
 `tests/seo-pulse.test.ts`. `e2e/seo.spec.ts` was updated for ProductGroup and
 image entries but was not run in this stage. The rendered structured data was
 checked by hand against the dev server: a two-variant listing produced one
@@ -363,6 +397,18 @@ differed (PreOrder and SoldOut), which is finding F16 closed in practice.
   actually corrects it, or accepts a claim for it.
 - `lib/seo.ts` became `lib/seo/index.ts` so the engine could be several files
   without changing a single import.
+- Near-duplicate detection was nearly given its own fingerprint table. It was
+  not: a derived table has to be kept in step with every copy edit, and a stale
+  fingerprint reports a duplicate that is not there. Bucketing on the opening of
+  the stripped body, with an index on that expression, needs nothing kept in
+  step and can be checked by hand in SQL.
+- The broken-link query first used a filtered `left join`, which made "no
+  listing at all" and "a listing shoppers cannot reach" indistinguishable. The
+  join is now unfiltered and the reason is decided afterwards, because those two
+  are different problems with different fixes.
+- Category reads were three different column lists in three functions; they are
+  now one `CATEGORY_COLUMNS`, so a new column cannot reach one caller and not
+  another.
 
 ## 4. Target architecture
 
@@ -477,8 +523,9 @@ Links added to existing tables: `products.pkb_product_id`,
 `categories.default_family_id` — all nullable, all FK.
 
 Stage 3 adds `pkb_brand_source_domains` (official product, official support,
-approved secondary, blocked; tier; notes). Stage 4 adds `seo_field_states`,
-`url_redirects`, category SEO columns. Stage 6 adds Search Console tables and
+approved secondary, blocked; tier; notes). Stage 4 added `seo_field_states`,
+`seo_field_history`, `product_slug_redirects` and the category SEO columns
+(migrations 0033 to 0035). Stage 6 adds Search Console tables and
 `seo_change_history`.
 
 JSON is used only where the shape is small, bounded and never queried on
@@ -706,6 +753,24 @@ Not run in Stage 2: the end-to-end suite and a production build (no pages or
 routes changed; the storefront reads the same columns), and the real-PostgreSQL
 concurrency suites other than the new one.
 
+### Stage 4 (2026-09-18)
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS |
+| `tests/seo-engine.test.ts` | PASS — 14 |
+| `tests/seo-audit.test.ts` (new) | PASS — 11 |
+| `tests/seo-pulse.test.ts`, `seo`, `catalog`, `migrations`, `pkb-write-paths` | PASS — 98 across six files with `seo-engine` |
+| Migrations 0033, 0034, 0035 on the dev database | applied |
+| The four audit modules run against the dev database | real counts returned (section 3C.2) |
+| `/admin/seo-health`, the product editor's Page audit, a shelf save round trip | exercised on the running dev site |
+
+Not run in Stage 4: the end-to-end suite, a production build, and the
+real-PostgreSQL suites. `e2e/seo.spec.ts` was updated for ProductGroup and
+image entries earlier in the stage but has not been run; it belongs to the full
+verification in Stage 8.
+
 ---
 
 ## 7. Unresolved issues and assumptions
@@ -797,6 +862,17 @@ Open risks:
 - **R-9** (new) `getProductIntelligence` runs `evaluateVerification` once per
   open claim (several queries each). Fine for a product with a handful of open
   claims; batch it in Stage 7 if a run ever proposes dozens.
+- **R-10** (new) The SEO Health Center runs five catalogue-wide reads on every
+  load. The title and meta-description checks use the expression indexes
+  migration 0035 adds; the description-body checks trim before hashing, so they
+  do not match that index and scan the published listings instead. Measured only
+  on the 24-listing dev database. Measure on the scale database and, if needed,
+  cache the screen or align the index in Stage 7.
+- **R-11** (new) Photograph dimensions and weight come from the media registry, so
+  a file that did not go through the media registry has no recorded size. All 26
+  dev photographs are in that state, which is reported as unknown rather than
+  guessed at, but it means the too-small and heavy counts understate reality
+  until uploads have been through the registry.
 - **R-7** The dev seed's UPC `0812345678901` fails its check digit; it is stored
   as invalid and parked. Seed data only.
 
@@ -804,32 +880,35 @@ Open risks:
 
 ## 8. Next stage
 
-**Stage 3 — EXTRA HIGH — SeoPulse product intelligence.**
+**Stage 5 — EXTRA HIGH — SearchPulse.** Not started, and not to be started
+without the owner's `CONTINUE STAGE 5`.
 
 Entry checklist:
 
-1. Read this file (sections 3A, 4.5, 4.8, 5, 7), D-060 to D-070, and `git log`
-   since the Stage 2 commit.
+1. Read this file (sections 3A, 3B, 3C, 4.7, 4.9, 5, 7), D-060 to D-088, and
+   `git log` since the Stage 4 commits.
 2. Run `npm run pkb:backfill -- --report` against the dev database to confirm
    the mirror is still clean.
-3. Product resolution states on `pkb_products.resolution_state` (VERIFIED,
-   HIGH_CONFIDENCE, AMBIGUOUS, UNRESOLVED) with candidate evidence; block
-   factual enrichment until resolved.
-4. Brand Source Registry (`pkb_brand_source_domains`): official product,
-   official support, approved secondary, blocked; tiers; provider-agnostic
-   acquisition (A-6) with NOT_CONFIGURED/UNAVAILABLE states.
-5. Source retrieval as a background job, with the SSRF guard, timeouts, size
-   caps and robots.txt built together with it.
-6. Verification policy engine (A-4): which evidence may support VERIFIED per
-   family/attribute; accept/reject/edit/resolve conflict/lock in `lib/pkb`
-   with history; "Accept verified" only for claims a policy qualifies.
-7. Attribute discovery proposals (add to family / product only / ignore);
-   mapping screen for `pkb_unmapped_values`.
-8. Product Intelligence admin view; replace one-click fill with the proposal
-   and review flow (A-5); close F2–F4.
-9. Closing risks R-5 and R-6.
-10. Targeted tests: resolution, sources, verification, conflicts, approvals,
-    transaction safety.
+3. Query understanding: normalize a query with the same unit, identifier and
+   model-number rules facts are normalized with (`lib/pkb/normalize.ts`,
+   `units.ts`, `identifiers.ts`), so a query and a fact agree (D-065).
+4. Entity aliases: `pkb_aliases` approved through `search.manage`, separated
+   from the free-text `search_keywords` that finding F14 describes.
+5. Attribute-aware search and facets: rebuild `product_search` and the facet
+   read model from accepted, displayable, searchable facts rather than from
+   JSON columns, which is what closes F11 and F12.
+6. Typo tolerance and autocomplete on the existing trigram machinery; no new
+   engine (D-026 stands).
+7. Search analytics extended with privacy-safe events; no customer identifier
+   reaches the PKB (I-9).
+8. Targeted tests: normalization parity between query and fact, alias approval,
+   facet correctness against known facts, ranking regressions.
+
+Effort estimate for Stage 5: **EXTRA HIGH**. It is larger than Stage 4. Stage 4
+mostly added read-only modules beside an existing engine; Stage 5 changes the
+index and the facets the storefront already depends on, which means a migration
+to the search trigger, a backfill of `product_search`, and regression cover for
+ranking that the current suites only partly provide.
 
 ---
 
@@ -876,6 +955,11 @@ Entry checklist:
 | `lib/seo/readiness.ts` | Measurable readiness checks, replacing the scores (D-081) |
 | `lib/seo/health.ts` | Catalogue-wide SEO health counts (D-081) |
 | `lib/seo/links.ts` | Internal links from accepted relationships (D-083) |
+| `lib/seo/images.ts` | Image SEO findings, catalogue counts, alt suggestions from established values (D-085) |
+| `lib/seo/duplicates.ts` | Duplicate, near-duplicate and thin content over the published catalogue (D-086) |
+| `lib/seo/technical.ts` | Indexability, canonicals, redirects, shelves and robots (D-087) |
+| `lib/seo/audit.ts` | One listing's page audit for the editor |
+| `db/migrations/0035_seo_audit.sql` | Category SEO columns and the indexes the duplicate checks use (D-084) |
 
 ---
 
@@ -883,6 +967,7 @@ Entry checklist:
 
 | Date | Stage | Summary |
 | --- | --- | --- |
+| 2026-09-18 | 4 | Second half of the SEO engine: migration 0035 (category SEO columns, duplicate-check indexes); image SEO, duplicate/near-duplicate/thin content, technical auditing, internal-link intelligence; four new sections on the SEO Health Center and a Page audit panel in the product editor; shelf SEO written by staff and read by the storefront and sitemap. Decisions D-084 to D-088. 11 new tests. 0035 applied to the dev database. |
 | 2026-09-17 | 1 | Audit, classification, findings F1–F16, target architecture, source-of-truth matrix, migration strategy, invariants, decisions D-060 to D-069. Documentation only. |
 | 2026-09-18 | 4 | SEO engine: migrations 0033 and 0034; per-field states, locks and history; address stability with redirects; canonical restricted to this site; structured data from the knowledge base and the page (ProductGroup, per-variant offers); measurable readiness replacing the weighted scores; SEO Health Center at `/admin/seo-health`; sitemap corrections with image entries; internal links from accepted relationships. Findings F5, F6, F7, F9, F13, F15, F16 closed. 14 new tests; 0033 and 0034 applied to the dev database. |
 | 2026-09-18 | 3 | Owner decisions D-071 (A-7 approved, A-8 with a reviewed mapping workflow, A-9 modified, R-6, network safety first). Migration 0032 and `lib/pkb`: resolution, trust registry and policies, reviewed label mappings, attribute discovery, the enrichment pipeline with SSRF-safe retrieval and robots.txt, deterministic extraction, review actions, the intelligence read model. SeoPulse F2–F4 closed (D-075). Admin: `/admin/knowledge`, per-product intelligence screen, seven API routes. 26 new tests; 0032 applied to the dev database. |

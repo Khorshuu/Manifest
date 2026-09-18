@@ -46,6 +46,17 @@ export const categories = pgTable(
      * a forced assignment. Foreign key declared in the migration.
      */
     defaultFamilyId: uuid("default_family_id"),
+    /**
+     * Shelf SEO (migration 0035, D-084). A shelf is a landing page in its own
+     * right, so it carries the same fields a listing does. Null means nothing
+     * was written and the page falls back to the category name.
+     */
+    seoMetaTitle: text("seo_meta_title"),
+    seoMetaDescription: text("seo_meta_description"),
+    seoNoIndex: boolean("seo_no_index").notNull().default(false),
+    canonicalUrl: text("canonical_url"),
+    /** A sentence or two of real copy at the top of the shelf. */
+    introHtml: text("intro_html"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -594,7 +594,7 @@ Adds the review, trust and retrieval tables. Brand status becomes
 state, when it was last checked, the reasons, and who decided it with when — a
 VERIFIED resolution requires a person and a time.
 
-## Migrations 0033 and 0034 — the SEO engine (D-077 to D-082)
+## Migrations 0033 to 0035 — the SEO engine (D-077 to D-088)
 
 | Table or column | Holds | Rules the database enforces |
 | --- | --- | --- |
@@ -603,3 +603,11 @@ VERIFIED resolution requires a person and a time.
 | `product_slug_redirects` | Every address a listing has left | one row per address; deleted when that address becomes live again |
 | `products.first_published_at` | When shoppers could first see the listing | set once, never reset; backfilled for anything currently public, scheduled or archived |
 | `seo_research_runs.seo_checks_passed` / `_total`, `search_checks_passed` / `_total` | How many measurable checks passed | written from Stage 4 on; `seo_score` and `search_score` stay for older runs and are commented as legacy |
+| `categories.seo_meta_title`, `seo_meta_description`, `seo_no_index`, `canonical_url`, `intro_html` | A shelf's own SEO fields and its introductory copy (migration 0035, D-084) | null means nothing written and the page falls back to the category name; `seo_no_index` defaults to false; `intro_html` is reduced to the rich-text allow-list before it is stored |
+
+Migration 0035 also adds four expression indexes on `products` — the normalized
+SEO title, meta description and title, and the hash of a description's opening —
+so the duplicate checks in `lib/seo/duplicates.ts` are index lookups rather than
+a scan per check. They are indexes only: no derived fingerprint table exists,
+because one would have to be kept in step with every copy edit and a stale
+fingerprint reports a duplicate that is not there.

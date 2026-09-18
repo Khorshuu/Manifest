@@ -319,6 +319,18 @@ only once it is verified or staff-entered, internal links come only from
 accepted relationships pointing at public listings, and the health screen counts
 real failures with examples.
 
+`tests/seo-audit.test.ts` (11 tests) covers the auditing half of Stage 4: the
+image findings (a filename for alt text, two photographs described identically,
+a file too small, a file too heavy, a file with no recorded size) and that
+auditing changes no alt text; the catalogue image counts ignoring drafts; an alt
+suggestion built only from established values, with nothing invented about the
+picture; duplicate groups and a shared opening told apart from an exact copy;
+thin pages and shelves still relying on the generated sentence; why a page is
+not indexed and where its canonical points; an old address taken over by a live
+listing; empty and hidden shelves; how many listings nothing links to, before
+and after a relationship exists; a relationship that leads nowhere; and a shelf's
+SEO fields surviving a rename with their HTML reduced to the allow-list.
+
 `e2e/seo.spec.ts` checks the rendered page: the JSON-LD on a real product, that
 its price matches the price on the page, the breadcrumb trail, the sitemap
 (including image entries) and robots.txt.

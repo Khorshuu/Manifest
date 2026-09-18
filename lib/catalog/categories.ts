@@ -4,6 +4,7 @@ import { categories, products } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
+import { sanitizeRichText } from "@/lib/html/rich-text";
 import { staffChange } from "@/lib/pkb/common";
 import { syncLegacyFamilies } from "@/lib/pkb/families";
 
@@ -13,6 +14,12 @@ export type Category = {
   name: string;
   slug: string;
   sortOrder: number;
+  /** Shelf SEO (D-084). Null means nothing written; the page falls back to the name. */
+  seoMetaTitle: string | null;
+  seoMetaDescription: string | null;
+  seoNoIndex: boolean;
+  canonicalUrl: string | null;
+  introHtml: string | null;
 };
 
 export type CategoryNode = Category & {
@@ -40,13 +47,7 @@ export class CycleError extends Error {
 
 export async function listCategories(): Promise<Category[]> {
   return db
-    .select({
-      id: categories.id,
-      parentId: categories.parentId,
-      name: categories.name,
-      slug: categories.slug,
-      sortOrder: categories.sortOrder,
-    })
+    .select(CATEGORY_COLUMNS)
     .from(categories)
     .orderBy(asc(categories.sortOrder), asc(categories.name));
 }
@@ -146,7 +147,45 @@ export type CategoryInput = {
   slug: string;
   parentId?: string | null;
   sortOrder?: number;
+  /*
+   * The SEO fields follow the product patch rule: absent leaves the stored
+   * value alone, null clears it. That is what lets the category tree keep
+   * sending a rename without echoing the SEO copy back and risking losing it.
+   */
+  seoMetaTitle?: string | null;
+  seoMetaDescription?: string | null;
+  seoNoIndex?: boolean;
+  canonicalUrl?: string | null;
+  introHtml?: string | null;
 };
+
+/** The columns every read of a category returns. */
+const CATEGORY_COLUMNS = {
+  id: categories.id,
+  parentId: categories.parentId,
+  name: categories.name,
+  slug: categories.slug,
+  sortOrder: categories.sortOrder,
+  seoMetaTitle: categories.seoMetaTitle,
+  seoMetaDescription: categories.seoMetaDescription,
+  seoNoIndex: categories.seoNoIndex,
+  canonicalUrl: categories.canonicalUrl,
+  introHtml: categories.introHtml,
+};
+
+/** Only the SEO fields the caller actually sent (undefined = leave alone). */
+function seoPatch(input: CategoryInput) {
+  return {
+    ...(input.seoMetaTitle === undefined ? {} : { seoMetaTitle: input.seoMetaTitle }),
+    ...(input.seoMetaDescription === undefined ? {} : { seoMetaDescription: input.seoMetaDescription }),
+    ...(input.seoNoIndex === undefined ? {} : { seoNoIndex: input.seoNoIndex }),
+    ...(input.canonicalUrl === undefined ? {} : { canonicalUrl: input.canonicalUrl }),
+    // Staff-authored HTML is reduced to the allow-list before storage (D-057).
+    ...(input.introHtml === undefined
+      ? {}
+      : { introHtml: input.introHtml ? sanitizeRichText(input.introHtml) || null : null }),
+  };
+}
 
 export async function createCategory(
   actor: SessionUser | null,
@@ -163,14 +202,9 @@ export async function createCategory(
         slug: input.slug,
         parentId: input.parentId ?? null,
         sortOrder: input.sortOrder ?? 0,
+        ...seoPatch(input),
       })
-      .returning({
-        id: categories.id,
-        parentId: categories.parentId,
-        name: categories.name,
-        slug: categories.slug,
-        sortOrder: categories.sortOrder,
-      });
+      .returning(CATEGORY_COLUMNS);
 
     await recordAudit(
       {
@@ -213,16 +247,11 @@ export async function updateCategory(
         slug: input.slug,
         parentId: input.parentId ?? null,
         sortOrder: input.sortOrder ?? before.sortOrder,
+        ...seoPatch(input),
         updatedAt: new Date(),
       })
       .where(eq(categories.id, categoryId))
-      .returning({
-        id: categories.id,
-        parentId: categories.parentId,
-        name: categories.name,
-        slug: categories.slug,
-        sortOrder: categories.sortOrder,
-      });
+      .returning(CATEGORY_COLUMNS);
 
     await recordAudit(
       {
@@ -297,13 +326,7 @@ export async function deleteCategory(
 
 export async function getRootCategories(): Promise<Category[]> {
   return db
-    .select({
-      id: categories.id,
-      parentId: categories.parentId,
-      name: categories.name,
-      slug: categories.slug,
-      sortOrder: categories.sortOrder,
-    })
+    .select(CATEGORY_COLUMNS)
     .from(categories)
     .where(isNull(categories.parentId))
     .orderBy(asc(categories.sortOrder));

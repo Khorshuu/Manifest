@@ -11,16 +11,6 @@ const slug = z
     "Use lowercase letters, numbers, and single hyphens.",
   );
 
-export const categoryInputSchema = z
-  .object({
-    name: z.string().trim().min(1, "Enter a name.").max(120),
-    slug,
-    parentId: z.string().uuid().nullable().optional(),
-    sortOrder: z.number().int().min(0).max(9999).optional(),
-  })
-  .strict();
-
-export type CategoryInputPayload = z.infer<typeof categoryInputSchema>;
 
 export const PRODUCT_STATUS_VALUES = [
   "draft",
@@ -119,6 +109,27 @@ const stringList = (max: number, itemMax: number) =>
     .transform((values) => values.filter((value) => value.length > 0))
     .nullable()
     .optional();
+
+export const categoryInputSchema = z
+  .object({
+    name: z.string().trim().min(1, "Enter a name.").max(120),
+    slug,
+    parentId: z.string().uuid().nullable().optional(),
+    sortOrder: z.number().int().min(0).max(9999).optional(),
+    /*
+     * Shelf SEO (D-084). Absent leaves the stored value alone and null clears
+     * it, the same rule the product patch uses, so the tree's rename form can
+     * keep sending only name, slug and parent.
+     */
+    seoMetaTitle: clearableText(120),
+    seoMetaDescription: clearableText(320),
+    seoNoIndex: z.boolean().optional(),
+    canonicalUrl: canonicalUrlField,
+    introHtml: clearableText(4000),
+  })
+  .strict();
+
+export type CategoryInputPayload = z.infer<typeof categoryInputSchema>;
 
 export const PRODUCT_IDENTIFIER_TYPE_VALUES = [
   "gtin",

@@ -217,10 +217,17 @@ describe("category tree", () => {
   });
 
   it("builds a tree from a flat list without querying per level", () => {
+    const seo = {
+      seoMetaTitle: null,
+      seoMetaDescription: null,
+      seoNoIndex: false,
+      canonicalUrl: null,
+      introHtml: null,
+    };
     const tree = buildCategoryTree([
-      { id: "a", parentId: null, name: "A", slug: "a", sortOrder: 0 },
-      { id: "b", parentId: "a", name: "B", slug: "b", sortOrder: 0 },
-      { id: "c", parentId: "b", name: "C", slug: "c", sortOrder: 0 },
+      { id: "a", parentId: null, name: "A", slug: "a", sortOrder: 0, ...seo },
+      { id: "b", parentId: "a", name: "B", slug: "b", sortOrder: 0, ...seo },
+      { id: "c", parentId: "b", name: "C", slug: "c", sortOrder: 0, ...seo },
     ]);
     expect(tree[0].children[0].children[0].id).toBe("c");
   });

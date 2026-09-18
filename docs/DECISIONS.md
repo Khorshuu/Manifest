@@ -2043,3 +2043,80 @@ relationships a person accepted. Nothing infers a connection from text, and a
 relationship pointing at a knowledge product with no public listing is not
 rendered, because the link would be a dead end. With no recorded relationship
 the block does not appear and the page keeps the category row it always had.
+
+## D-084 — A shelf is a page of its own, with its own SEO fields
+
+Every category page carried the same generated sentence with the shelf name
+swapped in, and its title was the bare name. That is the shop publishing its
+own near-duplicate content across a dozen pages. Migration 0035 gives
+`categories` the same four fields a listing has — `seo_meta_title`,
+`seo_meta_description`, `seo_no_index`, `canonical_url` — plus `intro_html`, a
+paragraph or two of real copy shown at the top of the shelf. The generated
+sentence remains the fallback, and the SEO Health Center counts every shelf
+that still relies on it. The category tree's rename form keeps sending only
+name, slug and parent: the SEO fields follow the product patch rule, where an
+absent field is left alone and null clears it, so a rename can never wipe copy
+somebody wrote. `intro_html` is staff-authored HTML and is reduced to the
+allow-list in `lib/html/rich-text.ts` before it is stored (D-057). A shelf
+hidden from search leaves the sitemap and sends a noindex header; it stays
+reachable on the site, because hiding a page from Google is not the same as
+taking it away from shoppers.
+
+## D-085 — Image SEO reports what is measurable and suggests only what is established
+
+`lib/seo/images.ts` says, per listing and across the catalogue: a photograph
+with nothing describing it, the same sentence pasted onto two angles, a file
+under 800px on its longest edge, a file over 600 KB, and a file with no size
+recorded at all. Dimensions and weight come from `media_objects`, the registry
+every upload writes to; a photograph with no row there has an *unknown* size,
+which is reported as unknown rather than assumed.
+
+`suggestAltText` builds a sentence from the brand, the listing's name and a
+colour or material — and only when the knowledge base holds that value as
+VERIFIED or a person typed it. It never describes the picture itself ("front
+view", "on a wooden desk"), because the module has not seen the picture, and
+alt text that describes the wrong photograph is worse than none. The suggestion
+is shown to a person; no job writes it.
+
+## D-086 — Duplicate and thin content are detected, never rewritten
+
+`lib/seo/duplicates.ts` finds listings that share an SEO title, a meta
+description, a product name or a description body word for word, plus bodies
+that open with the same 160 characters and diverge later — the shape a template
+leaves behind. Thin pages are counted by what is actually on them: characters
+of readable text, key features, specifications.
+
+Exact matches group on the normalized value, which migration 0035 indexes.
+Near-duplicates bucket on the opening of the stripped body and compare only
+inside a bucket, so the work grows with the catalogue rather than with its
+square, and no derived fingerprint table has to be kept in step with the copy.
+
+Nothing is rewritten. Which of two pages keeps the wording is a merchandising
+decision, and the module's job is to put the pair in front of somebody.
+
+## D-087 — Technical auditing asks what this shop can answer
+
+`lib/seo/technical.ts` checks only what the shop's own rows can settle: whether
+a page is public and indexable and why not, whether its canonical points at
+itself, whether an old address has been taken over by a live listing so the
+redirect never runs, whether a redirect now leads to a draft, whether the shelf
+above it is hidden, whether the address falls under a robots.txt disallow, and
+whether the page has an offer to state a price with. What Google has actually
+done with the page is Search Console's answer and belongs to Stage 6; guessing
+at it here would be a fabricated number.
+
+Nothing is repaired automatically. A redirect that shadows a live address, for
+instance, is reported: deleting either side could break a link that is already
+out in the world, and which one to move is a person's call.
+
+## D-088 — Link intelligence suggests pairs; relationships stay claims
+
+`linkIntelligence` counts listings nothing links to, accepted relationships
+that cannot be rendered because the other side has no public listing, and pairs
+that share an established brand and product family with no relationship between
+them. The last are suggestions with their reason stated, shown to staff.
+
+They are not created. A relationship is a claim about the products, and a claim
+is decided in the knowledge base with evidence behind it (I-1, D-076). Inferring
+one from a shared brand would put an unevidenced fact into the same table that
+holds the reviewed ones.

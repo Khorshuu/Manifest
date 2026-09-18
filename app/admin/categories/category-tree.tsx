@@ -18,6 +18,11 @@ export type TreeNode = {
   /** Products in this category and everything beneath it. */
   subtreeTotal: number;
   childCount: number;
+  /** Shelf SEO (D-084); null means nothing written and the page falls back. */
+  seoMetaTitle: string | null;
+  seoMetaDescription: string | null;
+  seoNoIndex: boolean;
+  introHtml: string | null;
 };
 
 /**
@@ -256,6 +261,10 @@ export function CategoryTree({
             name: String(form.get("name") ?? ""),
             slug: String(form.get("slug") ?? ""),
             parentId: parent || null,
+            seoMetaTitle: String(form.get("seoMetaTitle") ?? ""),
+            seoMetaDescription: String(form.get("seoMetaDescription") ?? ""),
+            introHtml: String(form.get("introHtml") ?? ""),
+            seoNoIndex: form.get("seoNoIndex") === "on",
           });
           if (ok) {
             setEditing(null);
@@ -288,6 +297,46 @@ export function CategoryTree({
                 </option>
               ))}
           </select>
+        </label>
+        {/* Shelf SEO (D-084). A shelf is a landing page of its own; until
+            somebody writes a line for it, every shelf carries the same
+            generated sentence with one word swapped. */}
+        <label className="flex w-full flex-col gap-1 text-[0.75rem] text-ink/70 md:w-auto md:flex-1">
+          Search title
+          <input
+            name="seoMetaTitle"
+            defaultValue={node.seoMetaTitle ?? ""}
+            maxLength={120}
+            placeholder={node.name}
+            className="admin-input w-full"
+          />
+        </label>
+        <label className="flex w-full flex-col gap-1 text-[0.75rem] text-ink/70">
+          Search description
+          <textarea
+            name="seoMetaDescription"
+            defaultValue={node.seoMetaDescription ?? ""}
+            maxLength={320}
+            rows={2}
+            className="admin-input w-full"
+          />
+        </label>
+        <label className="flex w-full flex-col gap-1 text-[0.75rem] text-ink/70">
+          Shelf copy
+          <textarea
+            name="introHtml"
+            defaultValue={node.introHtml ?? ""}
+            maxLength={4000}
+            rows={3}
+            className="admin-input w-full"
+          />
+          <span className="text-[0.7rem] text-ink/50">
+            Shown at the top of the shelf. Paragraphs, headings, lists, bold, italic and links.
+          </span>
+        </label>
+        <label className="flex items-center gap-2 text-[0.75rem] text-ink/70">
+          <input type="checkbox" name="seoNoIndex" defaultChecked={node.seoNoIndex} />
+          Hide this shelf from search engines
         </label>
         <button
           type="submit"

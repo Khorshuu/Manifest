@@ -86,7 +86,8 @@ async function sitemapRows() {
     )
     select c.slug, c.updated_at
     from categories c
-    where exists (
+    where c.seo_no_index = false
+      and exists (
       select 1 from descendants d
       join products p on p.category_id = d.node_id
       where d.root_id = c.id
