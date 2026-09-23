@@ -19,6 +19,7 @@ import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import { enqueueJob } from "@/lib/jobs/runner";
 import type { Executor } from "@/lib/pkb/common";
+import { beginListingChange } from "@/lib/pkb/sync";
 import type { SessionUser } from "@/lib/auth/session";
 import { resolveCategoryAttributes } from "@/lib/catalog/category-attributes";
 import { updateProductImageAltText } from "@/lib/catalog/media";
@@ -1164,55 +1165,74 @@ export async function applySeoPulse(
     throw new SeoPulseError("Only completed research can be applied.", 409);
   }
 
-  const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
-  if (!product) throw new SeoPulseError("That product was not found.", 404);
-
-  const conflicts: { field: ApplyField; existing: unknown }[] = [];
-
-  for (const field of TEXT_FIELDS) {
-    const next = fields[field];
-    if (next === undefined) continue;
-    const current = (product[field] as string | null) ?? "";
-    if (current.trim() && current.trim() !== next.trim() && !overwrite.has(field)) {
-      conflicts.push({ field, existing: current });
-    }
-  }
-  for (const field of ["tags", "searchKeywords", "bulletFeatures"] as const) {
-    const next = fields[field];
-    if (next === undefined) continue;
-    const current = strings(product[field]);
-    if (current.length > 0 && !isSuperset(next, current) && !overwrite.has(field)) {
-      conflicts.push({ field, existing: current });
-    }
-  }
-
   /*
-   * The specification and measurement tables are no longer written from here
-   * at all. Their facts belong to the knowledge base, which mirrors them into
-   * the listing with provenance; writing them from an analysis would create a
-   * second, unattributed copy (finding F1, D-070).
+   * What the apply would overwrite, read through whichever handle is given.
+   *
+   * It is asked twice on purpose. Once before the transaction, so a staff
+   * member gets the "choose Replace" answer without a lock being taken; and
+   * again inside it, after the listing's knowledge lock, because the first
+   * answer is already out of date by the time the write happens. Two people
+   * applying two different runs at the same moment would otherwise both pass
+   * the check and the second would replace the first's wording without anybody
+   * confirming it — the same shape of stale read as finding F8, on the guard
+   * rather than on the patch.
    */
+  async function conflictsAgainst(executor: Executor) {
+    const [current] = await executor.select().from(products).where(eq(products.id, productId)).limit(1);
+    if (!current) throw new SeoPulseError("That product was not found.", 404);
 
-  const images = fields.imageAlts?.length
-    ? await db.select().from(productImages).where(eq(productImages.productId, productId))
-    : [];
-  const imageById = new Map(images.map((image) => [image.id, image]));
-  for (const entry of fields.imageAlts ?? []) {
-    const image = imageById.get(entry.imageId);
-    if (!image) throw new SeoPulseError("One of those photographs does not belong to this product.", 400);
-    if (image.altText.trim() && image.altText.trim() !== entry.altText && !overwrite.has("imageAlts")) {
-      conflicts.push({ field: "imageAlts", existing: image.altText });
-      break;
+    const found: { field: ApplyField; existing: unknown }[] = [];
+
+    for (const field of TEXT_FIELDS) {
+      const next = fields[field];
+      if (next === undefined) continue;
+      const existing = (current[field] as string | null) ?? "";
+      if (existing.trim() && existing.trim() !== next.trim() && !overwrite.has(field)) {
+        found.push({ field, existing });
+      }
     }
+    for (const field of ["tags", "searchKeywords", "bulletFeatures"] as const) {
+      const next = fields[field];
+      if (next === undefined) continue;
+      const existing = strings(current[field]);
+      if (existing.length > 0 && !isSuperset(next, existing) && !overwrite.has(field)) {
+        found.push({ field, existing });
+      }
+    }
+
+    /*
+     * The specification and measurement tables are no longer written from here
+     * at all. Their facts belong to the knowledge base, which mirrors them into
+     * the listing with provenance; writing them from an analysis would create a
+     * second, unattributed copy (finding F1, D-070).
+     */
+
+    const images: (typeof productImages.$inferSelect)[] = fields.imageAlts?.length
+      ? await executor.select().from(productImages).where(eq(productImages.productId, productId))
+      : [];
+    const imageById = new Map(images.map((image) => [image.id, image]));
+    for (const entry of fields.imageAlts ?? []) {
+      const image = imageById.get(entry.imageId);
+      if (!image) throw new SeoPulseError("One of those photographs does not belong to this product.", 400);
+      if (image.altText.trim() && image.altText.trim() !== entry.altText && !overwrite.has("imageAlts")) {
+        found.push({ field: "imageAlts", existing: image.altText });
+        break;
+      }
+    }
+
+    return { product: current, conflicts: found };
   }
 
-  if (conflicts.length > 0) {
+  function refuse(conflicts: { field: ApplyField }[]): never {
     throw new SeoPulseError(
       "Some fields already have values. Choose Replace for each one you want SEO Pulse to overwrite.",
       409,
       { conflicts: conflicts.map((conflict) => conflict.field) },
     );
   }
+
+  const { product, conflicts } = await conflictsAgainst(db);
+  if (conflicts.length > 0) refuse(conflicts);
 
   const applied: ApplyField[] = [];
   const skipped: string[] = [];
@@ -1224,6 +1244,19 @@ export async function applySeoPulse(
   return db.transaction(async (tx) => applyInside(tx));
 
   async function applyInside(tx: Executor) {
+  /*
+   * The lock first, then the re-check.
+   *
+   * Re-reading inside the transaction is not enough on its own: both callers
+   * read before either had the lock, so both still saw an empty field.
+   * `beginListingChange` is the same lock `updateProduct` takes a moment later
+   * — taking it twice in one transaction costs nothing — and it is what makes
+   * the second caller's read happen after the first has committed.
+   */
+  await beginListingChange(tx, productId);
+  const settled = await conflictsAgainst(tx);
+  if (settled.conflicts.length > 0) refuse(settled.conflicts);
+
 
   const patch: Record<string, unknown> = {};
   for (const field of TEXT_FIELDS) {
