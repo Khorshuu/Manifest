@@ -33,6 +33,13 @@ export {
 } from "./facts";
 export { listClaims, proposeFactClaim, recordEvidence, recordSource } from "./evidence";
 export { decideAlias, suggestAlias } from "./aliases";
+export {
+  legacyCoverage,
+  listingKeywordMigration,
+  suggestAliasesFromKeywords,
+  type LegacyCoverage,
+  type LegacySystemCoverage,
+} from "./legacy-coverage";
 export { addRelationship, listRelationships, removeRelationship } from "./relationships";
 export {
   backfillKnowledge,

@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/empty-state";
 import { requireAdminPage } from "@/lib/auth/admin-page";
 import { can } from "@/lib/auth/authorize";
 import { getVocabularyView, intelligenceQueue } from "@/lib/pkb/intelligence";
+import { legacyCoverage } from "@/lib/pkb/legacy-coverage";
 import { LabelMapper } from "./label-mapper";
 import { TrustManager } from "./trust-manager";
 
@@ -25,7 +26,11 @@ export const metadata: Metadata = { title: "Knowledge" };
  */
 export default async function AdminKnowledgePage() {
   const user = await requireAdminPage("catalog.manage");
-  const [queue, vocabulary] = await Promise.all([intelligenceQueue(user, { limit: 40 }), getVocabularyView(user)]);
+  const [queue, vocabulary, coverage] = await Promise.all([
+    intelligenceQueue(user, { limit: 40 }),
+    getVocabularyView(user),
+    legacyCoverage(user),
+  ]);
   const mayDecide = can(user, "knowledge.manage");
 
   const tiles = [
@@ -109,6 +114,48 @@ export default async function AdminKnowledgePage() {
         relations={vocabulary.brandRelations}
         mayDecide={mayDecide}
       />
+
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 className="font-display text-lg text-ink">What still lives in the old tables</h2>
+          <p className="max-w-3xl text-sm text-ink/70">
+            The knowledge base was built beside the original catalogue tables rather than on top of them, so both
+            still hold the same facts. An old table is only removed once everything in it is also in here and
+            nothing reads it any more — these are the counts that decide that, taken from the database each time
+            this page is drawn.
+          </p>
+        </div>
+        <div className="overflow-x-auto rounded-xl border border-line bg-surface">
+          <table className="w-full min-w-[40rem] text-sm">
+            <thead className="border-b border-line text-left text-[0.7rem] uppercase tracking-wide text-ink/55">
+              <tr>
+                <th className="px-4 py-3">Where it lives</th>
+                <th className="px-4 py-3">In the knowledge base</th>
+                <th className="px-4 py-3">What is in the way</th>
+              </tr>
+            </thead>
+            <tbody>
+              {coverage.systems.map((system) => (
+                <tr key={system.system} className="border-b border-line/60 last:border-0 align-top">
+                  <td className="px-4 py-3">{system.system}</td>
+                  <td className="px-4 py-3 tabular-nums">
+                    {system.covered.toLocaleString("en-GB")} of {system.total.toLocaleString("en-GB")}
+                  </td>
+                  <td className="px-4 py-3 text-ink/70">
+                    {system.blocking ?? "Nothing — everything here is also in the knowledge base."}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {coverage.parkedValues > 0 ? (
+          <p className="text-sm text-ink/70">
+            {coverage.parkedValues.toLocaleString("en-GB")} value(s) are parked, waiting for someone to say what
+            they are. They are shown against their listings and nothing is guessed on their behalf.
+          </p>
+        ) : null}
+      </section>
     </div>
   );
 }

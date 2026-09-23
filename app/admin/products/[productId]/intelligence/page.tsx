@@ -8,6 +8,8 @@ import { requireAdminPage } from "@/lib/auth/admin-page";
 import { can } from "@/lib/auth/authorize";
 import { getProductIntelligence } from "@/lib/pkb/intelligence";
 import { getVocabularyView } from "@/lib/pkb/intelligence";
+import { listingKeywordMigration } from "@/lib/pkb";
+import { KeywordAliasesPanel } from "../keyword-aliases-panel";
 import { IntelligencePanels } from "./panels";
 
 /*
@@ -53,6 +55,7 @@ export default async function ProductIntelligencePage({ params }: PageProps<"/ad
   const intelligence = await getProductIntelligence(user, listing.pkbProductId);
   if (!intelligence) notFound();
   const vocabulary = await getVocabularyView(user);
+  const keywords = await listingKeywordMigration(user, productId);
 
   return (
     <div className="flex flex-col gap-6">
@@ -69,6 +72,8 @@ export default async function ProductIntelligencePage({ params }: PageProps<"/ad
         definitions={vocabulary.definitions}
         mayDecideVocabulary={can(user, "knowledge.manage")}
       />
+
+      <KeywordAliasesPanel productId={productId} terms={keywords.terms} />
     </div>
   );
 }
