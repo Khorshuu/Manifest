@@ -805,5 +805,11 @@ export const pkbProductSources = pgTable(
     addedBy: uuid("added_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.pkbProductId, table.sourceId] })],
+  (table) => [
+    primaryKey({ columns: [table.pkbProductId, table.sourceId] }),
+    // The primary key leads with the product, so the cascade from a deleted
+    // source had no index to use. `releaseListingKnowledge` deletes unused
+    // sources whenever a listing goes (migration 0041, D-106).
+    index("pkb_product_sources_source_id_idx").on(table.sourceId),
+  ],
 );

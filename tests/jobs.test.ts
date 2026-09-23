@@ -12,6 +12,7 @@ import {
   backoffSeconds,
   enqueueJob,
   enqueueUniquePending,
+  jobSummary,
   retryDeadJob,
   runDueJobs,
   scheduleRecurringJobs,
@@ -200,6 +201,49 @@ describe("retrying a dead job", () => {
     await expect(retryDeadJob(staff, row.id)).rejects.toThrow(AuthorizationError);
     await retryDeadJob(owner, row.id);
     expect(await job(row.id)).toMatchObject({ status: "queued", attempts: 0 });
+  });
+});
+
+/*
+ * What a job *reported* was being written to `jobs.result` and read by nobody:
+ * an operator could see that the scheduler was running and that something had
+ * died, and nothing in between. The summary now carries the last finished run
+ * of each kind, which is what the Background work screen shows.
+ */
+describe("what the summary says about finished work", () => {
+  it("carries the last finished run of each kind, with what it reported", async () => {
+    await enqueueJob({ kind: "sweep" });
+    await runDueJobs({ sweep: async () => ({ deleted: 3, unregisteredOwned: 0 }) });
+    await enqueueJob({ kind: "sweep" });
+    await runDueJobs({ sweep: async () => ({ deleted: 7, unregisteredOwned: 2 }) });
+    await enqueueJob({ kind: "drain" });
+    await runDueJobs({ drain: async () => ({ rebuilt: 12, remaining: 0 }) });
+
+    const summary = await jobSummary(owner);
+    const byKind = new Map(summary.lastRuns.map((run) => [run.kind, run]));
+
+    // The *last* run of each kind, not the first and not both.
+    expect(summary.lastRuns).toHaveLength(2);
+    expect(byKind.get("sweep")).toMatchObject({ status: "succeeded", result: { deleted: 7, unregisteredOwned: 2 } });
+    expect(byKind.get("drain")).toMatchObject({ status: "succeeded", result: { rebuilt: 12, remaining: 0 } });
+  });
+
+  it("names the reason a run failed rather than only that it did", async () => {
+    await enqueueJob({ kind: "flaky", maxAttempts: 1 });
+    await runDueJobs({
+      flaky: async () => {
+        throw new Error("the provider refused");
+      },
+    });
+
+    const summary = await jobSummary(owner);
+    expect(summary.lastRuns[0]).toMatchObject({ kind: "flaky", status: "dead", lastError: "the provider refused" });
+    expect(summary.problems[0]).toMatchObject({ kind: "flaky", status: "dead" });
+  });
+
+  it("leaves out a job that has not finished, so nothing is reported before it happened", async () => {
+    await enqueueJob({ kind: "later", runAt: new Date(Date.now() + 60_000) });
+    expect((await jobSummary(owner)).lastRuns).toEqual([]);
   });
 });
 

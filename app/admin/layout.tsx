@@ -35,6 +35,7 @@ const navigation: { href: string; label: string; permission: Permission | null }
   { href: "/admin/seo-performance", label: "Search performance", permission: "seo.view" },
   { href: "/admin/knowledge", label: "Knowledge", permission: "catalog.manage" },
   { href: "/admin/notifications", label: "Notifications", permission: "notifications.view" },
+  { href: "/admin/jobs", label: "Background work", permission: "notifications.view" },
   { href: "/admin/analytics", label: "Analytics", permission: "analytics.view" },
   { href: "/admin/audit", label: "Audit log", permission: "audit.view" },
   { href: "/admin/staff", label: "Staff", permission: "staff.manage" },

@@ -126,6 +126,11 @@ export const seoFieldStates = pgTable(
   (table) => [
     unique("seo_field_states_unique").on(table.productId, table.field),
     index("seo_field_states_product_idx").on(table.productId),
+    // Deleting a listing deletes its research runs, which sets this column to
+    // null on every row that names one (migration 0041, D-106).
+    index("seo_field_states_source_run_id_idx")
+      .on(table.sourceRunId)
+      .where(sql`${table.sourceRunId} is not null`),
   ],
 );
 
@@ -188,6 +193,11 @@ export const seoFieldHistory = pgTable(
     index("seo_field_history_product_idx").on(table.productId, table.createdAt),
     index("seo_field_history_category_idx").on(table.categoryId, table.createdAt),
     index("seo_field_history_changed_idx").on(table.createdAt),
+    // As on the states table: the run this row came from is set to null when
+    // that run is deleted, and history is append-only so it only grows.
+    index("seo_field_history_source_run_id_idx")
+      .on(table.sourceRunId)
+      .where(sql`${table.sourceRunId} is not null`),
   ],
 );
 

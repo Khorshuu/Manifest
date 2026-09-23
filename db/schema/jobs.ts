@@ -46,6 +46,10 @@ export const jobs = pgTable(
     index("jobs_due_idx").on(table.runAt).where(sql`${table.status} = 'queued'`),
     index("jobs_running_idx").on(table.lockedAt).where(sql`${table.status} = 'running'`),
     index("jobs_kind_status_idx").on(table.kind, table.status),
+    // The last finished run of each kind, for the job screen (migration 0041).
+    index("jobs_kind_finished_idx")
+      .on(table.kind, table.finishedAt.desc())
+      .where(sql`${table.finishedAt} is not null`),
   ],
 );
 

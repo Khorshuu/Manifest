@@ -318,7 +318,7 @@ export async function retryDeadJob(actor: SessionUser | null, jobId: string) {
 /** Counts by kind and status, and the most recent failures, for staff. */
 export async function jobSummary(actor: SessionUser | null) {
   requirePermission(actor, "notifications.view");
-  const [counts, problems] = await Promise.all([
+  const [counts, problems, lastRuns] = await Promise.all([
     db
       .select({ kind: jobs.kind, status: jobs.status, total: count() })
       .from(jobs)
@@ -337,8 +337,51 @@ export async function jobSummary(actor: SessionUser | null) {
       .where(inArray(jobs.status, ["dead", "queued"]))
       .orderBy(sql`${jobs.updatedAt} desc`)
       .limit(20),
+    /*
+     * The most recent finished run of each kind, with what it reported.
+     *
+     * Counts say how many jobs are in each state and the problem list says
+     * which failed, but neither answers the question an operator actually
+     * has: *what did it do?* The media sweep reports how many files it
+     * reclaimed and how many it stores with no row behind them; the search
+     * drain reports what is left to rebuild; the prune reports what it
+     * removed. All of that was being written to `jobs.result` and read by
+     * nobody.
+     */
+    // `distinct on` with the matching index reads one row per kind rather than
+    // every finished job — the every-minute delivery job alone leaves ten
+    // thousand of those inside its retention (migration 0041).
+    db.execute(sql`
+      select distinct on (kind)
+             kind, status, finished_at, attempts, result, last_error
+      from jobs
+      where finished_at is not null
+      order by kind, finished_at desc
+    `),
   ]);
-  return { counts, problems: problems.filter((job) => job.status === "dead" || job.lastError) };
+
+  return {
+    counts,
+    problems: problems.filter((job) => job.status === "dead" || job.lastError),
+    lastRuns: rowsOf(lastRuns).map((row) => {
+      const run = row as {
+        kind: string;
+        status: string;
+        finished_at: Date | string;
+        attempts: number;
+        result: unknown;
+        last_error: string | null;
+      };
+      return {
+        kind: run.kind,
+        status: run.status,
+        finishedAt: new Date(run.finished_at),
+        attempts: Number(run.attempts),
+        result: run.result,
+        lastError: run.last_error,
+      };
+    }),
+  };
 }
 
 /** Deletes finished jobs older than the given age; failures are kept longer. */

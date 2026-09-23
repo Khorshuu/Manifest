@@ -224,6 +224,9 @@ export const searchClicks = pgTable(
       table.productId,
       table.windowStart,
     ),
+    // Deleting a listing cascades here, and this table grows with traffic
+    // rather than with the catalogue (migration 0041, D-106).
+    index("search_clicks_product_id_idx").on(table.productId),
   ],
 );
 
@@ -253,7 +256,12 @@ export const searchEvents = pgTable(
     windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("search_events_query_idx").on(table.queryNorm, table.createdAt)],
+  (table) => [
+    index("search_events_query_idx").on(table.queryNorm, table.createdAt),
+    // As above: the cascade from a deleted listing had no index to use, and
+    // the scan is linear in a table that grows with traffic (migration 0041).
+    index("search_events_product_id_idx").on(table.productId),
+  ],
 );
 
 /** A signed-in customer's own recent searches. */
