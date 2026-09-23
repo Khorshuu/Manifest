@@ -222,8 +222,11 @@ export default async function SeoHealthPage() {
           <h2 className="font-display text-lg text-ink">Photography</h2>
           <p className="max-w-2xl text-sm text-ink/70">
             {images.photographs.toLocaleString("en-GB")} photograph(s) across {images.listings.toLocaleString("en-GB")}{" "}
-            indexable listing(s). Size and weight come from the media registry; a file uploaded outside it has no
-            recorded size, which is reported rather than guessed at.
+            indexable listing(s). Size and weight come from the media registry, which records every upload. A
+            photograph that arrived some other way — an illustration shipped with the site, an address entered by
+            hand — has no recorded size, so it is counted as unknown rather than guessed at, and the &ldquo;too
+            small&rdquo; and &ldquo;over 600 KB&rdquo; counts are floors until every photograph has been uploaded
+            through the shop.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

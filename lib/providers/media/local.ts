@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { normalizeImage } from "@/lib/images/normalize";
 import {
@@ -66,6 +66,29 @@ export class LocalMediaProvider implements MediaProvider {
       height: image.height,
       sha256: image.sha256,
     };
+  }
+
+  /**
+   * The key behind an address this provider serves, or null. A generated
+   * filename and nothing else: anything with a separator in it did not come
+   * from `upload` (risk R-11).
+   */
+  keyFor(url: string): string | null {
+    const prefix = `${this.publicPath}/`;
+    if (!url.startsWith(prefix)) return null;
+    const key = url.slice(prefix.length);
+    if (!key || key.includes("/") || key.includes("\\") || key.includes("..")) return null;
+    return key;
+  }
+
+  /**
+   * The stored bytes, so the reconciliation can measure a file it is recording
+   * (risk R-11). The same key rule as `delete`: a bare generated filename, so
+   * a key with a separator in it is refused rather than followed.
+   */
+  async read(key: string): Promise<Buffer | null> {
+    if (!key || key.includes("/") || key.includes("\\") || key.includes("..")) return null;
+    return readFile(join(/*turbopackIgnore: true*/ this.directory, key)).catch(() => null);
   }
 
   async delete(key: string): Promise<void> {

@@ -3,7 +3,7 @@ import { pruneUnreachableGuestCarts } from "@/lib/cart";
 import { applyPublishSchedule } from "@/lib/catalog/schedule";
 import { releaseExpiredSkuReservations } from "@/lib/catalog/sku";
 import { deliverQueuedNotifications } from "@/lib/notifications";
-import { sweepUnreferencedMedia } from "@/lib/media/registry";
+import { mediaCoverage, registerExistingMedia, sweepUnreferencedMedia } from "@/lib/media/registry";
 import { expireUnpaidOrders } from "@/lib/orders/expiry";
 import { reconcilePayments } from "@/lib/payments/reconcile";
 import { pruneRateLimits } from "@/lib/rate-limit";
@@ -36,7 +36,11 @@ export const JOB_HANDLERS: JobHandlers = {
   },
   "notifications.deliver": () => deliverQueuedNotifications(100),
   "payments.reconcile": () => reconcilePayments(),
-  "search.process_queue": () => processSearchQueue(),
+  // Bounded by rows and by time, and continues itself while it is making
+  // progress, so a whole-catalogue rebuild drains across several runs instead
+  // of inside one request (risk R-12). It is handed its own job id so the
+  // successor it enqueues is not refused by its own running row.
+  "search.process_queue": (_payload, context) => processSearchQueue({ jobId: context.jobId }),
   // Research that calls an external provider, off the admin request path. A
   // run that is no longer running is left untouched, so a retry is safe.
   "seo.research_product": (payload) => completeQueuedResearch(String(payload.runId)),
@@ -62,7 +66,33 @@ export const JOB_HANDLERS: JobHandlers = {
     const guestCarts = await pruneUnreachableGuestCarts();
     return { rateLimits, searchLogs, searchConsoleMetrics, finishedJobs, guestCarts };
   },
-  "media.sweep_unreferenced": () => sweepUnreferencedMedia(getMediaProvider()),
+  // Reconciles, then sweeps, then reports what the registry covers (risk R-11).
+  //
+  // Reconciling first is deliberate and is also what makes it safe: a row it
+  // writes is created now, so the sweep's grace period puts that file out of
+  // reach of this same run, and the file is referenced at the moment it is
+  // recorded. Registering is confined to addresses the provider says it stores,
+  // so an illustration shipped with the site never gains a row and so never
+  // becomes something the sweep may delete.
+  //
+  // Both halves are idempotent: registration conflicts on the key, and the
+  // sweep claims each file by deleting its row under the same reference check.
+  "media.sweep_unreferenced": async () => {
+    const provider = getMediaProvider();
+    const reconciled = await registerExistingMedia(provider);
+    const swept = await sweepUnreferencedMedia(provider);
+    const coverage = await mediaCoverage(provider);
+    return {
+      ...swept,
+      registeredNow: reconciled.registered,
+      measuredNow: reconciled.measured,
+      referenced: coverage.referenced,
+      registered: coverage.registered,
+      unregisteredOwned: coverage.unregisteredOwned,
+      foreignOrStatic: coverage.foreignOrStatic,
+      registeredWithoutDimensions: coverage.registeredWithoutDimensions,
+    };
+  },
   "catalog.apply_publish_schedule": () => applyPublishSchedule(),
 };
 

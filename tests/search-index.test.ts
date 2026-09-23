@@ -242,18 +242,33 @@ describe("the index follows the catalogue", () => {
 });
 
 describe("maintenance", () => {
-  it("rebuilds every row on request, for staff only, and audits it", async () => {
+  /*
+   * Risk R-12: the rebuild queues the work instead of doing it inline. What a
+   * request must do is bounded by the catalogue's *count*, not by the
+   * cost of reindexing it, and the queue is what makes the rest resumable.
+   */
+  it("queues every row on request, for staff only, and audits it", async () => {
     await seed("Everyday Laptop");
     await seed("Travel Laptop");
 
     await expect(rebuildSearchIndex(customer)).rejects.toMatchObject({ status: 403 });
-    expect(await rebuildSearchIndex(staff)).toEqual({ products: 2 });
+    expect(await rebuildSearchIndex(staff)).toEqual({ products: 2, queued: 2 });
+    expect(await queued()).toBe(2);
+    // Pressing it again queues nothing new: the queue is keyed by listing.
+    expect(await rebuildSearchIndex(staff)).toEqual({ products: 2, queued: 2 });
+    expect(await queued()).toBe(2);
 
     const audit = await harness.db
       .select({ action: auditLog.action })
       .from(auditLog)
       .where(eq(auditLog.action, "search.reindexed"));
-    expect(audit).toHaveLength(1);
+    expect(audit).toHaveLength(2);
+
+    // And draining it rebuilds both, leaving nothing queued and nothing to
+    // continue.
+    const drained = await processSearchQueue();
+    expect(drained).toMatchObject({ rebuilt: 2, failed: 0, remaining: 0, continued: false });
+    expect(await searchIndexStatus(staff)).toMatchObject({ missing: 0, queued: 0 });
   });
 
   it("retries a product a failed rebuild left queued", async () => {
@@ -273,7 +288,7 @@ describe("maintenance", () => {
     expect(await searchIndexStatus(staff)).toMatchObject({ missing: 1, queued: 1 });
     expect(await titles("everyday")).toEqual([]);
 
-    expect(await processSearchQueue()).toEqual({ rebuilt: 1, failed: 0 });
+    expect(await processSearchQueue()).toEqual({ rebuilt: 1, failed: 0, remaining: 0, continued: false });
     expect(await searchIndexStatus(staff)).toMatchObject({ missing: 0, queued: 0 });
     expect(await titles("everyday")).toEqual(["Everyday Laptop"]);
   });

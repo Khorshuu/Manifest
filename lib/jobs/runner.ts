@@ -48,6 +48,13 @@ export type EnqueueInput = {
   maxAttempts?: number;
 };
 
+/** postgres-js returns an array; other drivers wrap it in `.rows`. */
+function rowsOf(result: unknown): unknown[] {
+  if (Array.isArray(result)) return result;
+  const rows = (result as { rows?: unknown[] } | null)?.rows;
+  return rows ?? [];
+}
+
 /** Enqueues a job, inside the caller's transaction when one is passed. */
 export async function enqueueJob(input: EnqueueInput, executor: Executor = db): Promise<boolean> {
   const rows = await executor.execute(sql`
@@ -59,6 +66,68 @@ export async function enqueueJob(input: EnqueueInput, executor: Executor = db): 
   `);
   const list = Array.isArray(rows) ? rows : (rows.rows ?? []);
   return list.length > 0;
+}
+
+/**
+ * Enqueues a job unless one of the same kind is already waiting or running.
+ *
+ * `dedupeKey` cannot express this. Its unique index is not scoped to a status,
+ * so a constant key is claimed by the first job for ever and every later
+ * enqueue is silently dropped, while a key that varies — a time slot, a UUID —
+ * stops deduplicating the thing that actually matters: *is this work already
+ * going to happen?*
+ *
+ * That is the question a drain worker asks. `rebuildSearchIndex` queues the
+ * catalogue and wants a worker started; `processSearchQueue` wants to continue
+ * itself past one function's time budget. Both are satisfied by one pending
+ * job, and a press-happy operator must not be able to fill the table with
+ * workers that will race each other over the same queue.
+ *
+ * **Why this is a transaction and not one clever statement.** The obvious
+ * version — `insert … select … where not exists (…)`, with an advisory lock
+ * taken in the `from` clause — looks race-free and is not. Under READ
+ * COMMITTED a statement takes its snapshot when it *starts*, not when it stops
+ * waiting for a lock, so twenty callers arriving together all take a snapshot
+ * showing no pending job, then serialise on the lock, then each insert against
+ * the stale snapshot. The lock changes the order and nothing else. The check
+ * has to be a separate statement issued *after* the wait, because that is what
+ * gets a snapshot including whatever the previous holder committed.
+ *
+ * `excludeJobId` is how a handler continues itself: while it runs, its own row
+ * is `running` and would otherwise be the reason it refuses to enqueue its
+ * successor. A handler passes the `jobId` it was given, which excludes exactly
+ * one row and still refuses when any *other* worker of that kind is pending.
+ *
+ * Returns true when this call is the one that enqueued.
+ */
+export async function enqueueUniquePending(
+  input: EnqueueInput & { excludeJobId?: string },
+  executor: Executor = db,
+): Promise<boolean> {
+  const exclude = input.excludeJobId ?? null;
+
+  return executor.transaction(async (tx: Executor) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`jobs:pending:${input.kind}`}, 0))`);
+
+    // Issued after the wait, so its snapshot includes the row the previous
+    // holder of the lock committed.
+    const found = await tx.execute(sql`
+      select 1 from jobs
+      where kind = ${input.kind}
+        and status in ('queued', 'running')
+        and (${exclude}::uuid is null or id <> ${exclude}::uuid)
+      limit 1
+    `);
+    if (rowsOf(found).length > 0) return false;
+
+    const inserted = await tx.execute(sql`
+      insert into jobs (kind, payload, run_at, max_attempts)
+      values (${input.kind}, ${JSON.stringify(input.payload ?? {})}::jsonb,
+              ${(input.runAt ?? new Date()).toISOString()}::timestamptz, ${input.maxAttempts ?? 5})
+      returning id
+    `);
+    return rowsOf(inserted).length > 0;
+  });
 }
 
 export type RecurringJob = { kind: string; everyMinutes: number; maxAttempts?: number };

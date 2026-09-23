@@ -30,6 +30,29 @@ export interface MediaProvider {
   readonly name: string;
   upload(input: UploadInput): Promise<StoredMedia>;
   delete(key: string): Promise<void>;
+  /**
+   * Whether this provider stores the file behind an address, and the key it
+   * would use for it. Null for anything else — a file that shipped with the
+   * site, an address typed in by hand, another provider's store.
+   *
+   * Only the reconciliation in `lib/media/registry.ts` needs this, and it needs
+   * it to be conservative: a file the provider does not own must never gain a
+   * registry row, because a row is what makes the sweep willing to delete a
+   * file (risk R-11). A provider that cannot tell may leave this out.
+   */
+  keyFor?(url: string): string | null;
+  /**
+   * The bytes behind a key this provider stores, or null when it no longer has
+   * them. Only the reconciliation in `lib/media/registry.ts` needs this, so it
+   * can *measure* a file it is recording instead of writing nulls: a dimension
+   * read from the file is established, and a dimension guessed from a filename
+   * would not be (risk R-11).
+   *
+   * A provider that cannot read its own store back may leave this out, and the
+   * reconciliation then records the file with its measurements unknown, which
+   * every report already distinguishes from a measurement.
+   */
+  read?(key: string): Promise<Buffer | null>;
 }
 
 /**

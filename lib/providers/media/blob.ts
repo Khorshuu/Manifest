@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { del, put } from "@vercel/blob";
+import { del, head, put } from "@vercel/blob";
 import { normalizeImage } from "@/lib/images/normalize";
 import {
   extensionFor,
@@ -25,6 +25,10 @@ import {
  * so the Content-Security-Policy and the image loader both have to know that
  * host — see next.config.ts.
  */
+
+/** A stored photograph is capped well below this; anything larger is a surprise. */
+const MAX_READ_BYTES = 25 * 1024 * 1024;
+
 export class BlobMediaProvider implements MediaProvider {
   readonly name = "blob";
 
@@ -66,6 +70,49 @@ export class BlobMediaProvider implements MediaProvider {
       height: image.height,
       sha256: image.sha256,
     };
+  }
+
+  /**
+   * The pathname behind a blob address, or null. A blob URL is absolute and
+   * lives on a `*.public.blob.vercel-storage.com` host, and only this store's
+   * own prefix is claimed (risk R-11).
+   */
+  keyFor(url: string): string | null {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return null;
+    }
+    if (!parsed.hostname.endsWith(".blob.vercel-storage.com")) return null;
+    const key = parsed.pathname.startsWith("/") ? parsed.pathname.slice(1) : parsed.pathname;
+    if (!key || key.includes("..") || !key.startsWith(`${this.prefix}/`)) return null;
+    return key;
+  }
+
+  /**
+   * The stored bytes, so the reconciliation can measure a file it is recording
+   * (risk R-11).
+   *
+   * The store is public, so this is an ordinary read of the blob's own URL —
+   * no token, and nothing that is not already served to any shopper. It is
+   * deliberately *not* `safeFetch`: that guards retrieval of an address
+   * somebody supplied, and refuses the kind of host this one is. The host here
+   * is this store's own, built from the key rather than taken from a caller,
+   * and the size cap is what keeps a surprise from becoming a memory problem.
+   */
+  async read(key: string): Promise<Buffer | null> {
+    if (!key || key.includes("..") || !key.startsWith(`${this.prefix}/`)) return null;
+
+    const address = await head(key, { token: this.token }).catch(() => null);
+    if (!address) return null;
+    if (address.size > MAX_READ_BYTES) return null;
+
+    const response = await fetch(address.url, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
+    if (!response?.ok) return null;
+
+    const body = Buffer.from(await response.arrayBuffer());
+    return body.length > MAX_READ_BYTES ? null : body;
   }
 
   async delete(key: string): Promise<void> {

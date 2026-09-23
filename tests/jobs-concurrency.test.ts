@@ -3,8 +3,9 @@
  * workers draining at once must run each job once and send each message once.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq, sql } from "drizzle-orm";
 import { jobs, notifications } from "@/db/schema";
-import { enqueueJob, runDueJobs } from "@/lib/jobs/runner";
+import { enqueueJob, enqueueUniquePending, runDueJobs } from "@/lib/jobs/runner";
 import { deliverQueuedNotifications } from "@/lib/notifications";
 import { setNotificationProviderForTesting, type NotificationProvider } from "@/lib/providers/notification";
 import { createRealTestDatabase, realServerAvailable } from "./helpers/real-database";
@@ -75,6 +76,56 @@ describe.skipIf(!available)("several workers at once", () => {
 
     expect(sends.size).toBe(30);
     expect([...sends.values()].every((times) => times === 1)).toBe(true);
+  }, 120_000);
+});
+
+/*
+ * `enqueueUniquePending` is what keeps one drain worker on a kind however many
+ * callers ask for one (risk R-12). On PGlite nothing can genuinely race — it
+ * serves one connection — so the claim is proved here or not at all.
+ */
+describe.skipIf(!available)("enqueueing one pending job of a kind", () => {
+  it("lets exactly one of twenty simultaneous callers enqueue", async () => {
+    await harness.db.delete(jobs);
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => enqueueUniquePending({ kind: "drain" })),
+    );
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const rows = await harness.db.select({ id: jobs.id }).from(jobs).where(eq(jobs.kind, "drain"));
+    expect(rows).toHaveLength(1);
+  }, 120_000);
+
+  /*
+   * The version this replaced, kept as a control, because it is the version
+   * anyone would write next and it does not work.
+   *
+   * One statement — `insert … select … where not exists (…)` — with the
+   * advisory lock taken in the `from` clause, so the lock is held across the
+   * whole statement. It reads as airtight and is not: under READ COMMITTED the
+   * statement's snapshot is taken when it *starts*, and waiting on a lock does
+   * not refresh it. All twenty take a snapshot showing nothing pending, queue
+   * up on the lock, and each inserts against what it saw before it waited. The
+   * lock orders them and prevents nothing.
+   *
+   * If this ever stops over-enqueueing, the guarantee above has become a
+   * coincidence and this file should say so loudly.
+   */
+  it("is not fixed by holding the lock across one statement", async () => {
+    await harness.db.delete(jobs);
+    const lockOnly = async () => {
+      const rows = await harness.db.execute(sql`
+        insert into jobs (kind, payload, run_at, max_attempts)
+        select 'racy', '{}'::jsonb, now(), 5
+        from (select pg_advisory_xact_lock(hashtextextended('jobs:pending:racy', 0))) as guard
+        where not exists (select 1 from jobs j where j.kind = 'racy' and j.status in ('queued', 'running'))
+        returning id
+      `);
+      return (rows as unknown[]).length > 0;
+    };
+
+    const results = await Promise.all(Array.from({ length: 20 }, lockOnly));
+    expect(results.filter(Boolean).length).toBeGreaterThan(1);
   }, 120_000);
 });
 

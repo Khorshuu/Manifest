@@ -11,6 +11,7 @@ import type { SessionUser } from "@/lib/auth/session";
 import {
   backoffSeconds,
   enqueueJob,
+  enqueueUniquePending,
   retryDeadJob,
   runDueJobs,
   scheduleRecurringJobs,
@@ -79,6 +80,37 @@ describe("enqueueing", () => {
 
   it("has a handler for every recurring kind", () => {
     for (const recurring of RECURRING_JOBS) expect(JOB_HANDLERS[recurring.kind]).toBeTypeOf("function");
+  });
+
+  /*
+   * `enqueueUniquePending` answers a question `dedupeKey` cannot: is this work
+   * already going to happen? A drain worker needs that — several pressings of
+   * "Rebuild search index" want one worker, not one each (risk R-12) — and a
+   * constant dedupe key cannot give it, because the unique index is not scoped
+   * to a status and the first job would claim the key for ever.
+   */
+  it("enqueues one pending job of a kind, and again once it has finished", async () => {
+    expect(await enqueueUniquePending({ kind: "drain" })).toBe(true);
+    expect(await enqueueUniquePending({ kind: "drain" })).toBe(false);
+    // A different kind is unaffected.
+    expect(await enqueueUniquePending({ kind: "other" })).toBe(true);
+
+    const [pending] = await harness.db.select().from(jobs).where(eq(jobs.kind, "drain"));
+    await harness.db.update(jobs).set({ status: "running" }).where(eq(jobs.id, pending.id));
+    // Running still counts as pending: the work is happening.
+    expect(await enqueueUniquePending({ kind: "drain" })).toBe(false);
+    // Unless the asker is that very row, which is how a worker continues itself.
+    expect(await enqueueUniquePending({ kind: "drain", excludeJobId: pending.id })).toBe(true);
+
+    await harness.db.update(jobs).set({ status: "succeeded" }).where(eq(jobs.kind, "drain"));
+    expect(await enqueueUniquePending({ kind: "drain" })).toBe(true);
+  });
+
+  it("does not let a dead job block its kind for ever", async () => {
+    expect(await enqueueUniquePending({ kind: "drain" })).toBe(true);
+    await harness.db.update(jobs).set({ status: "dead" }).where(eq(jobs.kind, "drain"));
+    // A job nobody will run again must not be the reason the work never starts.
+    expect(await enqueueUniquePending({ kind: "drain" })).toBe(true);
   });
 });
 

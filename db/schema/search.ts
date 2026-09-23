@@ -141,6 +141,13 @@ export const productSearchQueue = pgTable("product_search_queue", {
     .notNull()
     .defaultNow(),
   attempts: integer("attempts").notNull().default(0),
+  /**
+   * Why the row is here (migration 0039, D-103). `change` is rebuilt at the
+   * commit that queued it, so a shopper searching a second later finds the new
+   * words. `rebuild` is left for the background worker, because queueing the
+   * whole catalogue would otherwise put every rebuild inside one commit.
+   */
+  source: text("source").$type<"change" | "rebuild">().notNull().default("change"),
 });
 
 /**

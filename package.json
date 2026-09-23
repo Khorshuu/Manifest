@@ -29,7 +29,8 @@
     "perf:ux": "node scripts/perf/ux-sweep.mjs",
     "perf:budget": "node scripts/perf/budget.mjs",
     "jobs:dev": "node scripts/jobs/dev-scheduler.mjs",
-    "vercel-build": "tsx db/migrate.ts && next build"
+    "vercel-build": "tsx db/migrate.ts && next build",
+    "perf:search-rebuild": "tsx scripts/perf/search-rebuild-bench.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
