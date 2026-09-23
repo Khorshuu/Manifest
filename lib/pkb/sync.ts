@@ -867,7 +867,7 @@ export type QueueReport = { processed: number; failed: number; remaining: number
  */
 export async function processKnowledgeQueue(
   executor: Executor,
-  options: { limit?: number; workerId?: string; timeBudgetMs?: number } = {},
+  options: { limit?: number; workerId?: string; timeBudgetMs?: number; bulk?: boolean } = {},
 ): Promise<QueueReport> {
   const limit = options.limit ?? 200;
   const workerId = options.workerId ?? `pkb-${process.pid}`;
@@ -890,9 +890,17 @@ export async function processKnowledgeQueue(
   for (const row of claimed) {
     if (Date.now() > deadline) break;
     try {
-      await executor.transaction((tx: Executor) =>
-        syncListingKnowledge(tx, row.product_id, { kind: "legacy" }, { dequeueIfQueuedAt: row.queued_at }),
-      );
+      await executor.transaction(async (tx: Executor) => {
+        // A bulk import declares itself, so the triggers on `pkb_facts` and
+        // `pkb_identifiers` queue the listing for the background rebuild
+        // instead of rebuilding its index at this commit (migration 0040,
+        // risk R-13). `set local` cannot outlive this transaction, so a run
+        // that fails half-way leaves nothing deferred by accident.
+        if (options.bulk) {
+          await tx.execute(sql`set local manifest.search_queue_source = 'rebuild'`);
+        }
+        return syncListingKnowledge(tx, row.product_id, { kind: "legacy" }, { dequeueIfQueuedAt: row.queued_at });
+      });
       report.processed += 1;
     } catch (error) {
       report.failed += 1;

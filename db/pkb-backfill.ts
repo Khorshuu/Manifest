@@ -5,8 +5,15 @@
  * Safe to run any number of times: listings already mirrored are no-ops, and
  * nothing is ever marked VERIFIED. Exits 1 when the report is not clean.
  *
- * Run with: npm run pkb:backfill            (the database in DATABASE_URL)
- *           npm run pkb:backfill -- --report (report only, no import)
+ * The search index is queued rather than rebuilt per listing (risk R-13), so an
+ * import leaves listings waiting for `search.process_queue`. The report says
+ * how many; `--drain-search` rebuilds them here instead of leaving them to the
+ * background worker, which is what a one-off migration on a quiet database
+ * usually wants.
+ *
+ * Run with: npm run pkb:backfill                  (the database in DATABASE_URL)
+ *           npm run pkb:backfill -- --report      (report only, no import)
+ *           npm run pkb:backfill -- --drain-search (import, then rebuild the index)
  */
 import "../lib/load-env";
 import { backfillKnowledge, knowledgeReport } from "../lib/pkb/maintenance";
@@ -14,8 +21,17 @@ import { backfillKnowledge, knowledgeReport } from "../lib/pkb/maintenance";
 async function main() {
   const reportOnly = process.argv.includes("--report");
   if (!reportOnly) {
-    const result = await backfillKnowledge({ log: (line) => process.stdout.write(`${line}\n`) });
+    const result = await backfillKnowledge({
+      log: (line) => process.stdout.write(`${line}\n`),
+      drainSearch: process.argv.includes("--drain-search"),
+    });
     process.stdout.write(`Import: ${JSON.stringify(result)}\n`);
+    if (result.searchQueued > 0) {
+      process.stdout.write(
+        `Search index: ${result.searchQueued} listing(s) queued for the background rebuild. ` +
+          `Run again with --drain-search, or let search.process_queue drain it.\n`,
+      );
+    }
   }
   const report = await knowledgeReport();
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

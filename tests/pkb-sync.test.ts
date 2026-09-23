@@ -15,6 +15,8 @@ import {
   pkbSyncQueue,
   pkbUnmappedValues,
   pkbVariants,
+  productSearch,
+  productSearchQueue,
   products,
   productVariants,
   users,
@@ -447,6 +449,95 @@ describe("writing in the knowledge base", () => {
       valueStatus: "not_applicable",
       rawValue: null,
       valueNumber: null,
+    });
+  });
+});
+
+/*
+ * Risk R-13. A staff edit and a bulk import reach the search queue through the
+ * same triggers, and they want opposite things from it: an edit should be
+ * searchable at its own commit, an import of forty thousand facts should not
+ * rebuild five thousand index rows one at a time and throw each away. Migration
+ * 0040 lets the transaction say which it is, and the whole safety argument is
+ * that the *default* is the staff one.
+ */
+describe("what a bulk import does to the search index", () => {
+  async function searchQueue() {
+    return harness.db
+      .select({ productId: productSearchQueue.productId, source: productSearchQueue.source })
+      .from(productSearchQueue);
+  }
+
+  it("leaves a staff edit searchable at its own commit", async () => {
+    const category = await createCategory(staff, { name: "Audio", slug: "audio" });
+    const product = await createProduct(staff, { title: "Speaker", categoryId: category.id });
+
+    await updateProduct(staff, product.id, { brand: "Harbor Acoustics" });
+
+    // Nothing waiting: the deferred trigger rebuilt it as part of that commit.
+    expect(await searchQueue()).toEqual([]);
+    const [indexed] = await harness.db
+      .select({ brandNorm: productSearch.brandNorm })
+      .from(productSearch)
+      .where(eq(productSearch.productId, product.id));
+    expect(indexed.brandNorm).toContain("harbor");
+  });
+
+  it("defers the rebuild when the transaction says it is a bulk import", async () => {
+    const category = await createCategory(staff, { name: "Audio", slug: "audio" });
+    const product = await createProduct(staff, { title: "Speaker", categoryId: category.id });
+    await harness.db.delete(productSearchQueue);
+
+    await harness.db.transaction(async (tx) => {
+      await tx.execute(sql`set local manifest.search_queue_source = 'rebuild'`);
+      await tx.execute(sql`select queue_product_search(array[${product.id}]::uuid[])`);
+    });
+
+    // Queued, not rebuilt: that is the 305 s to 181 s on the scale database.
+    expect(await searchQueue()).toEqual([{ productId: product.id, source: "rebuild" }]);
+  });
+
+  it("cannot downgrade a listing somebody is editing into the import's backlog", async () => {
+    const category = await createCategory(staff, { name: "Audio", slug: "audio" });
+    const product = await createProduct(staff, { title: "Speaker", categoryId: category.id });
+    await harness.db.delete(productSearchQueue);
+
+    // A change queued first, then an import sweeping past the same listing.
+    await harness.db.transaction(async (tx) => {
+      await tx.execute(sql`set constraints all deferred`);
+      await tx.execute(sql`select queue_product_search(array[${product.id}]::uuid[])`);
+      await tx.execute(sql`set local manifest.search_queue_source = 'rebuild'`);
+      await tx.execute(sql`select queue_product_search(array[${product.id}]::uuid[])`);
+      // Read before the deferred trigger fires at commit.
+      const rows = await tx
+        .select({ source: productSearchQueue.source })
+        .from(productSearchQueue)
+        .where(eq(productSearchQueue.productId, product.id));
+      expect(rows).toEqual([{ source: "change" }]);
+    });
+  });
+
+  it("does not leave the setting behind for the next transaction", async () => {
+    const category = await createCategory(staff, { name: "Audio", slug: "audio" });
+    const product = await createProduct(staff, { title: "Speaker", categoryId: category.id });
+
+    await harness.db.transaction(async (tx) => {
+      await tx.execute(sql`set local manifest.search_queue_source = 'rebuild'`);
+    });
+    await harness.db.delete(productSearchQueue);
+
+    // `set local` ends with its transaction, so this one is an ordinary
+    // change — a crashed import can never leave the shop quietly not
+    // reindexing. Read inside the transaction, because outside one the
+    // deferred trigger fires at the end of the statement and consumes the row.
+    await harness.db.transaction(async (tx) => {
+      await tx.execute(sql`set constraints all deferred`);
+      await tx.execute(sql`select queue_product_search(array[${product.id}]::uuid[])`);
+      const rows = await tx
+        .select({ source: productSearchQueue.source })
+        .from(productSearchQueue)
+        .where(eq(productSearchQueue.productId, product.id));
+      expect(rows).toEqual([{ source: "change" }]);
     });
   });
 });

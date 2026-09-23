@@ -4,6 +4,8 @@ import { products } from "@/db/schema";
 import { LEGACY, queryRows, type Executor } from "./common";
 import { syncLegacyFamilies } from "./families";
 import { legacyStructuredFields, loadProjections, sameStructuredFields, type LegacyStructuredFields } from "./projection";
+import { enqueueUniquePending } from "@/lib/jobs/runner";
+import { processSearchQueue } from "@/lib/search/maintenance";
 import { processKnowledgeQueue } from "./sync";
 import { ensureSystemVocabulary, LEGACY_DETAIL_DEFINITIONS, LEGACY_DETAIL_IDENTIFIERS } from "./vocabulary";
 
@@ -26,10 +28,26 @@ export async function runKnowledgeSync(options: { limit?: number; timeBudgetMs?:
 /**
  * Imports every listing (idempotent: already-mirrored listings are no-ops).
  * Values arrive as LEGACY with UNKNOWN_LEGACY origin — never VERIFIED (I-3).
+ *
+ * The search index is *queued* rather than rebuilt per listing (risk R-13,
+ * migration 0040). Rebuilding it at each listing's own commit is right when a
+ * member of staff accepts one claim and wrong forty thousand facts in a row:
+ * the work is thrown away as soon as the next listing is synced, and it is the
+ * difference between 305 s and 181 s on the 5,000-listing scale database. The
+ * report says how many listings are waiting, so an import never claims the
+ * search index is current when it is not, and `drainSearch` finishes the job
+ * for a caller that would rather wait than leave it to the worker.
  */
 export async function backfillKnowledge(
-  options: { batch?: number; log?: (line: string) => void } = {},
-): Promise<{ processed: number; failed: number; remaining: number; durationMs: number }> {
+  options: { batch?: number; log?: (line: string) => void; drainSearch?: boolean } = {},
+): Promise<{
+  processed: number;
+  failed: number;
+  remaining: number;
+  durationMs: number;
+  searchQueued: number;
+  searchRebuilt: number;
+}> {
   const log = options.log ?? (() => undefined);
   const started = Date.now();
   await db.transaction((tx) => ensureSystemVocabulary(tx));
@@ -41,14 +59,46 @@ export async function backfillKnowledge(
   let failed = 0;
   let remaining = Number.POSITIVE_INFINITY;
   for (let round = 0; remaining > 0; round++) {
-    const report = await processKnowledgeQueue(db, { limit: options.batch ?? 200, timeBudgetMs: 10 * 60_000, workerId: "pkb-backfill" });
+    const report = await processKnowledgeQueue(db, {
+      limit: options.batch ?? 200,
+      timeBudgetMs: 10 * 60_000,
+      workerId: "pkb-backfill",
+      bulk: true,
+    });
     processed += report.processed;
     failed += report.failed;
     remaining = report.remaining;
     log(`Round ${round + 1}: ${report.processed} synced, ${report.failed} failed, ${report.remaining} queued.`);
     if (report.processed === 0) break;
   }
-  return { processed, failed, remaining: Number.isFinite(remaining) ? remaining : 0, durationMs: Date.now() - started };
+
+  let searchRebuilt = 0;
+  if (options.drainSearch) {
+    for (;;) {
+      const pass = await processSearchQueue({ limit: 5_000, budgetMs: 120_000, continueWhenMore: false });
+      searchRebuilt += pass.rebuilt;
+      log(`Search index: ${pass.rebuilt} rebuilt, ${pass.remaining} queued.`);
+      if (pass.remaining === 0 || pass.rebuilt === 0) break;
+    }
+  } else {
+    // Left for `search.process_queue`; ask it to start rather than waiting for
+    // the ten-minute sweep.
+    await enqueueUniquePending({ kind: "search.process_queue" });
+  }
+
+  const [queued] = await queryRows<{ n: number }>(
+    db,
+    sql`select count(*)::int as n from product_search_queue`,
+  );
+
+  return {
+    processed,
+    failed,
+    remaining: Number.isFinite(remaining) ? remaining : 0,
+    durationMs: Date.now() - started,
+    searchQueued: Number(queued?.n ?? 0),
+    searchRebuilt,
+  };
 }
 
 /**
