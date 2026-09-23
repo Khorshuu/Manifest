@@ -14,7 +14,7 @@ const schema = z.object({
   field: z.enum(SEO_FIELDS),
   lock: z.boolean(),
   note: z.string().max(500).nullish(),
-});
+}).strict();
 
 export async function POST(request: Request, context: RouteContext<"/api/admin/products/[productId]/seo/lock">) {
   const refused = await refuseNonStaff();

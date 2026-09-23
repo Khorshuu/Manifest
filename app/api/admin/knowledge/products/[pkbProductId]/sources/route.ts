@@ -11,14 +11,14 @@ import { proposeClaimFromEvidence } from "@/lib/pkb/review";
  * evidence they are reading it from. None of them writes a fact.
  */
 const schema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("url"), url: z.string().url().max(2000), note: z.string().max(500).nullish() }),
+  z.object({ kind: z.literal("url"), url: z.string().url().max(2000), note: z.string().max(500).nullish() }).strict(),
   z.object({
     kind: z.literal("document"),
     title: z.string().min(1).max(200),
     content: z.string().min(1).max(400_000),
     contentType: z.enum(["text/plain", "text/html", "application/json"]).optional(),
     url: z.string().url().max(2000).nullish(),
-  }),
+  }).strict(),
   z.object({
     kind: z.literal("value"),
     evidenceId: z.string().uuid(),
@@ -28,7 +28,7 @@ const schema = z.discriminatedUnion("kind", [
     notApplicable: z.boolean().optional(),
     ordinal: z.number().int().min(0).max(50).optional(),
     pkbVariantId: z.string().uuid().nullish(),
-  }),
+  }).strict(),
 ]);
 
 export async function POST(

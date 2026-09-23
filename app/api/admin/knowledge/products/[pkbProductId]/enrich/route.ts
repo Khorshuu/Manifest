@@ -12,7 +12,7 @@ import { requestEnrichment } from "@/lib/pkb/enrichment";
 const schema = z.object({
   urls: z.array(z.string().url().max(2000)).max(10).optional(),
   note: z.string().max(500).nullish(),
-});
+}).strict();
 
 export async function POST(
   request: Request,

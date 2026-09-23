@@ -36,6 +36,19 @@ describe("address policy", () => {
     "::ffff:127.0.0.1",
     "::ffff:7f00:1",
     "::ffff:a9fe:a9fe",
+    // The same three addresses, uncompressed. A check that recognises only the
+    // short spellings is a check somebody writes around.
+    "0:0:0:0:0:ffff:127.0.0.1",
+    "0000:0000:0000:0000:0000:ffff:7f00:0001",
+    "0:0:0:0:0:ffff:a9fe:a9fe",
+    // The deprecated IPv4-compatible form. This one used to be allowed
+    // through: it is not a mapped address, and no blocked IPv6 range covers
+    // it, so a retrieval could reach loopback by asking for "::127.0.0.1".
+    "::127.0.0.1",
+    "::169.254.169.254",
+    "0:0:0:0:0:0:7f00:1",
+    // An address with a zone index names a local interface.
+    "fe80::1%eth0",
     "64:ff9b::a9fe:a9fe",
     "2002:7f00:1::",
     "2001:db8::1",
@@ -44,8 +57,23 @@ describe("address policy", () => {
     expect(isPublicAddress(address)).toBe(false);
   });
 
-  it.each(["93.184.216.34", "8.8.8.8", "2606:2800:220:1:248:1893:25c8:1946"])("allows public %s", (address) => {
+  it.each([
+    "93.184.216.34",
+    "8.8.8.8",
+    "2606:2800:220:1:248:1893:25c8:1946",
+    // A public address written as IPv4-mapped. This used to be refused —
+    // every mapped address was, whatever it wrapped — which would have shut
+    // out a manufacturer's site reachable only that way.
+    "::ffff:8.8.8.8",
+    "0:0:0:0:0:ffff:808:808",
+  ])("allows public %s", (address) => {
     expect(isPublicAddress(address)).toBe(true);
+  });
+
+  it("refuses an address it cannot make sense of, rather than assuming it is public", () => {
+    for (const address of ["", "not-an-address", ":::1", "1:2:3:4:5:6:7:8:9", "::ffff:999.1.1.1", "12345::"]) {
+      expect(isPublicAddress(address), address).toBe(false);
+    }
   });
 
   it("refuses internal host names and IP literals before any lookup", () => {

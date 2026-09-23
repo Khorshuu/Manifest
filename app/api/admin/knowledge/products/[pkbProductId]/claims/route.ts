@@ -16,25 +16,25 @@ const schema = z.discriminatedUnion("action", [
     asVerified: z.boolean().optional(),
     overrideDecided: z.boolean().optional(),
     note: z.string().max(500).nullish(),
-  }),
+  }).strict(),
   z.object({
     action: z.literal("reject"),
     claimIds: z.array(z.string().uuid()).min(1).max(100),
     note: z.string().max(500).nullish(),
-  }),
+  }).strict(),
   z.object({
     action: z.literal("resolve_conflict"),
     claimId: z.string().uuid(),
     keepCurrent: z.boolean().optional(),
     overrideDecided: z.boolean().optional(),
     note: z.string().max(500).nullish(),
-  }),
+  }).strict(),
   z.object({
     action: z.literal("correct"),
     claimId: z.string().uuid(),
     raw: z.string().min(1).max(500),
     note: z.string().max(500).nullish(),
-  }),
+  }).strict(),
 ]);
 
 export async function POST(

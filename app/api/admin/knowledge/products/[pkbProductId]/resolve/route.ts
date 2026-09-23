@@ -11,12 +11,12 @@ import { confirmIdentity, refreshResolution } from "@/lib/pkb/resolution";
  * Confirming needs a note, and it is what unlocks factual enrichment (D-072).
  */
 const schema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("refresh") }),
+  z.object({ action: z.literal("refresh") }).strict(),
   z.object({
     action: z.literal("confirm"),
     note: z.string().min(5).max(500),
     distinctFrom: z.array(z.string().uuid()).max(20).optional(),
-  }),
+  }).strict(),
 ]);
 
 export async function POST(

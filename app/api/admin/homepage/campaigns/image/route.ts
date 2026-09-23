@@ -23,7 +23,7 @@ const targetSchema = z.object({
   slot: z.coerce.number().int().min(0).max(CAMPAIGN_SLOTS - 1),
   target: z.enum(["hero", "tile"]),
   tile: z.coerce.number().int().min(0).max(SHOWCASE_SLOTS - 1).optional(),
-});
+}).strict();
 
 function toTarget(input: z.infer<typeof targetSchema>): ImageTarget | null {
   if (input.target === "hero") return { kind: "hero" };

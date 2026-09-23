@@ -34,12 +34,12 @@ const schema = z.discriminatedUnion("action", [
     urlTemplate: z.string().max(500).nullish(),
     preference: z.number().int().min(0).max(999).optional(),
     note: z.string().max(500).nullish(),
-  }),
+  }).strict(),
   z.object({
     action: z.literal("decide"),
     entryId: z.string().uuid(),
     decision: z.enum(["approved", "rejected", "retired"]),
-  }),
+  }).strict(),
 ]);
 
 export async function POST(request: Request) {

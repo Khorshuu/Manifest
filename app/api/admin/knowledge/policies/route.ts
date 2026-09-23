@@ -10,7 +10,7 @@ import { setPolicyStatus } from "@/lib/pkb/trust";
  * Turning one on or off changes what may be verified from now on; nothing
  * already verified is re-decided by it.
  */
-const schema = z.object({ policyId: z.string().uuid(), status: z.enum(["active", "retired"]) });
+const schema = z.object({ policyId: z.string().uuid(), status: z.enum(["active", "retired"]) }).strict();
 
 export async function POST(request: Request) {
   const refused = await refuseNonStaff();

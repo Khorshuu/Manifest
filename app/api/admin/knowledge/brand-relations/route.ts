@@ -16,8 +16,8 @@ const schema = z.discriminatedUnion("action", [
     relatedBrandId: z.string().uuid(),
     kind: z.enum(["manufactured_by", "subsidiary_of", "formerly_known_as"]),
     note: z.string().max(500).nullish(),
-  }),
-  z.object({ action: z.literal("decide"), relationId: z.string().uuid(), decision: z.enum(["approved", "rejected"]) }),
+  }).strict(),
+  z.object({ action: z.literal("decide"), relationId: z.string().uuid(), decision: z.enum(["approved", "rejected"]) }).strict(),
 ]);
 
 export async function POST(request: Request) {

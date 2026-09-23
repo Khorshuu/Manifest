@@ -18,15 +18,15 @@ const schema = z.discriminatedUnion("action", [
     familyId: z.string().uuid().nullish(),
     definitionId: z.string().uuid(),
     note: z.string().max(500).nullish(),
-  }),
+  }).strict(),
   z.object({
     action: z.literal("ignore"),
     label: z.string().min(1).max(200),
     context: z.enum(["spec_table", "measurements", "variant_option", "source_document", "any"]),
     familyId: z.string().uuid().nullish(),
     note: z.string().max(500).nullish(),
-  }),
-  z.object({ action: z.literal("retire"), mappingId: z.string().uuid() }),
+  }).strict(),
+  z.object({ action: z.literal("retire"), mappingId: z.string().uuid() }).strict(),
 ]);
 
 export async function POST(request: Request) {

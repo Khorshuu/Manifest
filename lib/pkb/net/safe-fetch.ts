@@ -204,10 +204,15 @@ function exchange(
         }
 
         const encoding = String(response.headers["content-encoding"] ?? "identity").toLowerCase();
+        // The cap is given to zlib as well as counted below. Counting bytes as
+        // they arrive stops a bomb, but only *after* the decompressor has
+        // already produced the chunk; `maxOutputLength` makes it stop instead,
+        // so a single enormously expanding chunk is never allocated.
+        const limits = { maxOutputLength: options.maxBytes + 1 };
         let stream: NodeJS.ReadableStream = response;
-        if (encoding === "gzip" || encoding === "x-gzip") stream = response.pipe(zlib.createGunzip());
-        else if (encoding === "deflate") stream = response.pipe(zlib.createInflate());
-        else if (encoding === "br") stream = response.pipe(zlib.createBrotliDecompress());
+        if (encoding === "gzip" || encoding === "x-gzip") stream = response.pipe(zlib.createGunzip(limits));
+        else if (encoding === "deflate") stream = response.pipe(zlib.createInflate(limits));
+        else if (encoding === "br") stream = response.pipe(zlib.createBrotliDecompress(limits));
         else if (encoding !== "identity") {
           response.resume();
           settle({ kind: "refused", result: refusal("CONTENT_TYPE", `content encoding ${encoding} is not supported`, url.toString(), status) });
@@ -227,9 +232,19 @@ function exchange(
           chunks.push(chunk);
         });
         stream.on("end", () => settle({ kind: "response", status, contentType: type, charset, body: Buffer.concat(chunks) }));
-        stream.on("error", () =>
-          settle({ kind: "refused", result: refusal("NETWORK", "the response could not be read", url.toString(), status) }),
-        );
+        stream.on("error", (error: NodeJS.ErrnoException) => {
+          // zlib stopping at `maxOutputLength` is a document that was too
+          // large, not a network fault, and saying so is what tells an
+          // operator the difference between a bomb and a broken connection.
+          const tooLarge = error?.code === "ERR_BUFFER_TOO_LARGE";
+          settle({
+            kind: "refused",
+            result: tooLarge
+              ? refusal("TOO_LARGE", `the document is larger than ${options.maxBytes} bytes`, url.toString(), status)
+              : refusal("NETWORK", "the response could not be read", url.toString(), status),
+          });
+          request.destroy();
+        });
       },
     );
 

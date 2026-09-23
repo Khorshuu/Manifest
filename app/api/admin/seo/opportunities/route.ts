@@ -20,7 +20,7 @@ const schema = z.object({
   decision: z.enum(["acted", "dismissed", "watching"]),
   note: z.string().max(500).nullish(),
   evidence: z.record(z.string(), z.union([z.string(), z.number(), z.null()])).nullish(),
-});
+}).strict();
 
 export async function POST(request: Request) {
   const refused = await refuseNonStaff();

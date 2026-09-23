@@ -25,7 +25,7 @@ const schema = z.object({
       displayUnit: z.string().max(40).nullish(),
     })
     .optional(),
-});
+}).strict();
 
 export async function POST(
   request: Request,
