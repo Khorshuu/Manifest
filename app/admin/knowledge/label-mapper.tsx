@@ -22,11 +22,18 @@ export function LabelMapper({
   definitions,
   mappings,
   mayDecide,
+  heading = true,
 }: {
   groups: VocabularyView["unmappedLabels"];
   definitions: VocabularyView["definitions"];
   mappings: VocabularyView["labelMappings"];
   mayDecide: boolean;
+  /**
+   * The Intelligence workspace gives every block the same heading treatment,
+   * so it renders this one without its own title (task section 18). The
+   * standalone Knowledge screen keeps it.
+   */
+  heading?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState<string | null>(null);
@@ -72,13 +79,15 @@ export function LabelMapper({
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        <h2 className="font-display text-lg text-ink">Labels to place</h2>
-        <p className="max-w-2xl text-sm text-ink/70">
-          Written labels that match no attribute exactly. Say what each one means once, and every product that uses it
-          follows. Mark it ignored when it is not an attribute at all.
-        </p>
-      </div>
+      {heading ? (
+        <div className="flex flex-col gap-1">
+          <h2 className="admin-h2">Labels to place</h2>
+          <p className="max-w-[74ch] text-[0.8125rem] text-ink/65">
+            Written labels that match no attribute exactly. Say what each one means once, and every product that uses
+            it follows. Mark it ignored when it is not an attribute at all.
+          </p>
+        </div>
+      ) : null}
 
       {error ? <p role="alert" className="text-sm text-stamp-red-text">{error}</p> : null}
       {message ? <p className="text-sm text-ink/70">{message}</p> : null}
@@ -90,7 +99,7 @@ export function LabelMapper({
           {groups.map((group) => {
             const key = `${group.context}|${group.familyId ?? "*"}|${group.labelNormalized}`;
             return (
-              <li key={key} className="rounded-xl border border-line bg-surface p-4">
+              <li key={key} className="admin-card p-3.5">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <div className="flex flex-col gap-0.5">
                     <p className="font-medium text-ink">{group.label}</p>
@@ -112,7 +121,7 @@ export function LabelMapper({
                 </div>
 
                 {open === key ? (
-                  <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
+                  <div className="mt-3 flex flex-col gap-2 border-t border-blue-200 pt-3">
                     <label className="flex flex-col gap-1 text-[0.75rem] text-ink/70">
                       This label means
                       <select className={inputClass} value={definitionId} onChange={(event) => setDefinitionId(event.target.value)}>
@@ -156,7 +165,7 @@ export function LabelMapper({
       )}
 
       {mappings.length > 0 ? (
-        <details className="rounded-xl border border-line bg-surface p-4">
+        <details className="admin-card p-3.5">
           <summary className="cursor-pointer text-sm font-medium text-ink">Decisions already made ({mappings.length})</summary>
           <ul className="mt-2 flex flex-col gap-1 text-[0.75rem] text-ink/70">
             {mappings.map((mapping) => (

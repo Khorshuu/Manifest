@@ -295,3 +295,141 @@ export async function getVocabularyView(
 
   return { definitions, families, labelMappings, registry, policies, brandRelations, unmappedLabels };
 }
+
+// ------------------------------------------------------------- attention
+
+/**
+ * What the knowledge base has waiting for a person, as counts.
+ *
+ * The Intelligence overview needs figures, not rows, and
+ * `intelligenceQueue` answers a different question: it returns the products
+ * that need attention, capped at a page of them. Summing a capped page would
+ * understate every total, so the counts come from aggregates over the same
+ * tables instead — one query per subject, each one a plain count with no join
+ * fan-out to double it.
+ *
+ * Reading is a catalogue permission, exactly as the queue is.
+ */
+export type KnowledgeAttention = {
+  /** Products whose identity nobody has settled. */
+  unresolvedIdentities: number;
+  /** Products where more than one candidate still fits. */
+  ambiguousIdentities: number;
+  /** Proposed values waiting for somebody to accept or reject them. */
+  openClaims: number;
+  /** Values that disagree with what is already recorded. */
+  conflicts: number;
+  /** Attributes the knowledge base does not have yet, proposed by a run. */
+  openProposals: number;
+  /** Supplied labels no attribute answers to yet. */
+  unmappedValues: number;
+  /** Source registry entries suggested but not decided. */
+  suggestedSources: number;
+  /** Brand relations suggested but not decided. */
+  suggestedBrandRelations: number;
+  /** Verification policies currently in force. */
+  activePolicies: number;
+};
+
+export async function knowledgeAttention(
+  actor: SessionUser | null,
+  executor: Executor = db,
+): Promise<KnowledgeAttention> {
+  requirePermission(actor, "catalog.manage");
+
+  const [rows] = await queryRows<{
+    unresolved_identities: number;
+    ambiguous_identities: number;
+    open_claims: number;
+    conflicts: number;
+    open_proposals: number;
+    unmapped_values: number;
+    suggested_sources: number;
+    suggested_brand_relations: number;
+    active_policies: number;
+  }>(
+    executor,
+    sql`
+      select
+        (select count(*)::int from pkb_products
+          where status = 'active' and resolution_state = 'UNRESOLVED') as unresolved_identities,
+        (select count(*)::int from pkb_products
+          where status = 'active' and resolution_state = 'AMBIGUOUS') as ambiguous_identities,
+        (select count(*)::int from pkb_claims where status = 'SUGGESTED') as open_claims,
+        (select count(*)::int from pkb_claims where status = 'CONFLICT') as conflicts,
+        (select count(*)::int from pkb_attribute_proposals where status = 'open') as open_proposals,
+        (select count(*)::int from pkb_unmapped_values where status = 'open') as unmapped_values,
+        (select count(*)::int from pkb_source_registry where status = 'suggested') as suggested_sources,
+        (select count(*)::int from pkb_brand_relations where status = 'suggested') as suggested_brand_relations,
+        (select count(*)::int from pkb_verification_policies where status = 'active') as active_policies
+    `,
+  );
+
+  return {
+    unresolvedIdentities: rows?.unresolved_identities ?? 0,
+    ambiguousIdentities: rows?.ambiguous_identities ?? 0,
+    openClaims: rows?.open_claims ?? 0,
+    conflicts: rows?.conflicts ?? 0,
+    openProposals: rows?.open_proposals ?? 0,
+    unmappedValues: rows?.unmapped_values ?? 0,
+    suggestedSources: rows?.suggested_sources ?? 0,
+    suggestedBrandRelations: rows?.suggested_brand_relations ?? 0,
+    activePolicies: rows?.active_policies ?? 0,
+  };
+}
+
+export type IdentityRow = {
+  pkbProductId: string;
+  listingId: string | null;
+  title: string;
+  resolutionState: string;
+  updatedAt: Date;
+};
+
+/**
+ * Active knowledge records in one resolution state, newest first.
+ *
+ * The queue above only returns products that have a claim, a proposal or an
+ * unplaced label waiting. A product whose identity nobody has settled may have
+ * none of those and still be the most important thing on the screen, so it is
+ * listed separately rather than by widening the queue's HAVING clause.
+ */
+export async function listIdentities(
+  actor: SessionUser | null,
+  state: "UNRESOLVED" | "AMBIGUOUS",
+  options: { limit?: number } = {},
+  executor: Executor = db,
+): Promise<IdentityRow[]> {
+  requirePermission(actor, "catalog.manage");
+  const limit = Math.min(Math.max(options.limit ?? 25, 1), 200);
+  const rows = await queryRows<{
+    pkb_product_id: string;
+    listing_id: string | null;
+    title: string;
+    resolution_state: string;
+    updated_at: Date | string;
+  }>(
+    executor,
+    sql`
+      select kp.id as pkb_product_id,
+             p.id as listing_id,
+             coalesce(p.title, kp.name) as title,
+             kp.resolution_state,
+             kp.updated_at
+      from pkb_products kp
+      left join products p on p.pkb_product_id = kp.id
+      where kp.status = 'active' and kp.resolution_state = ${state}
+      order by kp.updated_at desc
+      limit ${limit}
+    `,
+  );
+  return rows.map((row) => ({
+    pkbProductId: row.pkb_product_id,
+    listingId: row.listing_id,
+    title: row.title,
+    resolutionState: row.resolution_state,
+    // Raw SQL, so the driver decides whether a timestamp arrives as a Date or
+    // as a string. The caller is handed a Date either way.
+    updatedAt: new Date(row.updated_at),
+  }));
+}

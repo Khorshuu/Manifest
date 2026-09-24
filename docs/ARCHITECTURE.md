@@ -258,3 +258,62 @@ is true, whether a domain may be trusted, whether generated wording goes on the
 page — belongs to `lib/pkb` or to a person, and each of those paths checks its
 own permission. The worker acts as the staff member who asked, so it has exactly
 their authority and no more (invariant I-24).
+
+## The Intelligence admin workspace (D-117)
+
+`/admin/intelligence` is one admin destination over the systems that decide how
+the catalogue is understood and found. It is an information architecture, not a
+system: it owns no data, no schema and no API route of its own.
+
+```
+app/admin/intelligence/
+  layout.tsx          gate + permission-filtered tab bar
+  tabs.ts             the seven tabs, and which permission opens each
+  filters.ts          the deep-link query parameters, and their guards
+  ui.tsx              TabHeading / Section / Metric / MetricGrid / TableShell
+  page.tsx            Overview
+  seo-pulse/ knowledge/ searchpulse/ seo-health/ search-console/ sources/
+  panels/             one server component per tab, shared with the old routes
+```
+
+| Tab | Route | Permission to open | Reads |
+| --- | --- | --- | --- |
+| Overview | `/admin/intelligence` | any of the three below | each section's own system, per permission |
+| SeoPulse | `…/seo-pulse` | `catalog.manage` | `lib/preparation`, `lib/seo-pulse` |
+| Product Knowledge | `…/knowledge` | `catalog.manage` | `lib/pkb/intelligence`, `lib/pkb/legacy-coverage` |
+| SearchPulse | `…/searchpulse` | `search.manage` | `lib/search` analytics, zero-results, synonyms, maintenance |
+| SEO Health | `…/seo-health` | `catalog.manage` | `lib/seo` health, technical, images, duplicates, links |
+| Search Console | `…/search-console` | `seo.view` | `lib/search-console` |
+| Sources & Policies | `…/sources` | `catalog.manage` to read, `knowledge.manage` to decide | `lib/pkb/intelligence` vocabulary view, `lib/pkb/trust` |
+
+**Tabs are routes.** Each is a page, so the selected tab is in the URL, a
+refresh keeps it, back and forward work and a deep link opens the right tab
+already filtered. `filters.ts` validates every parameter; an unrecognised value
+opens the tab unfiltered.
+
+**The panels are shared, not copied.** `app/admin/search`,
+`app/admin/seo-pulse`, `app/admin/seo-health`, `app/admin/seo-performance` and
+`app/admin/knowledge` still answer at their old addresses and render exactly the
+same panel components, so a bookmark, an older report's link and the existing
+tests keep working against one implementation.
+
+**Overview data sources.** Preparation stage counts from
+`preparationSummary`; never-researched total from `listUnresearchedProducts`;
+knowledge counts from `knowledgeAttention`, one aggregate query added to
+`lib/pkb/intelligence`; SEO findings from `seoHealth`, grouped by the audit's
+own severities; search figures from `searchIndexStatus` and `zeroResultQueries`;
+Search Console state from `searchConsoleStatus`, with `opportunityReport` read
+only when a property is connected. Nothing is stored for this screen and nothing
+is estimated.
+
+**Search Console unconfigured.** `searchConsoleStatus` answers `not_configured`
+with a sentence, the tab explains what connecting would add, and the overview
+says so in one card. Every other tab is unaffected: the SEO change history is
+recorded by Manifest and still renders, and no zero is shown as if it were a
+measurement.
+
+**What stays separate.** Background Work (`/admin/jobs`) runs platform-wide
+jobs and remains its own destination; the overview only indicates when an
+intelligence job has given up. Product Intelligence
+(`/admin/products/[productId]/intelligence`) remains the per-product drill-down
+reached from the product editor.

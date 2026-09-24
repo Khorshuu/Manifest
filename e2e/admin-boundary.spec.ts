@@ -100,6 +100,10 @@ test("an anonymous visitor is refused by every admin route handler", async ({ pa
 });
 
 test("a customer is turned away from every admin page", async ({ page }) => {
+  // One full navigation per admin page, and the admin has passed thirty of
+  // them. The assertion is unchanged; this only admits that the loop takes
+  // longer than one test's ordinary budget.
+  test.slow();
   await signIn(page, "customer@example.com");
   const reached: string[] = [];
   for (const url of pages) {

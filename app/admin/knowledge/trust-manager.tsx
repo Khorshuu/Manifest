@@ -31,11 +31,18 @@ export function TrustManager({
   policies,
   relations,
   mayDecide,
+  heading = true,
 }: {
   registry: VocabularyView["registry"];
   policies: VocabularyView["policies"];
   relations: VocabularyView["brandRelations"];
   mayDecide: boolean;
+  /**
+   * The Intelligence workspace gives every block the same heading treatment,
+   * so it renders this one without its own title (task section 18). The
+   * standalone Knowledge screen keeps it.
+   */
+  heading?: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState<string | null>(null);
@@ -60,19 +67,21 @@ export function TrustManager({
 
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="font-display text-lg text-ink">Sources and trust</h2>
-        <p className="max-w-2xl text-sm text-ink/70">
-          Where a fact may come from. A domain is only authoritative once it is approved here, and a verification policy
-          decides what evidence is enough to call a value verified.
-        </p>
-      </div>
+      {heading ? (
+        <div className="flex flex-col gap-1">
+          <h2 className="admin-h2">Sources and trust</h2>
+          <p className="max-w-[74ch] text-[0.8125rem] text-ink/65">
+            Where a fact may come from. A domain is only authoritative once it is approved here, and a verification
+            policy decides what evidence is enough to call a value verified.
+          </p>
+        </div>
+      ) : null}
 
       {error ? <p role="alert" className="text-sm text-stamp-red-text">{error}</p> : null}
 
-      <div className="overflow-x-auto rounded-xl border border-line bg-surface">
+      <div className="overflow-x-auto admin-card p-0">
         <table className="w-full min-w-[42rem] text-sm">
-          <thead className="border-b border-line text-left text-[0.7rem] uppercase tracking-wide text-ink/55">
+          <thead className="border-b border-blue-200 text-left text-[0.7rem] uppercase tracking-wide text-ink/55">
             <tr>
               <th className="px-4 py-3">Brand</th>
               <th className="px-4 py-3">Source</th>
@@ -92,7 +101,7 @@ export function TrustManager({
               </tr>
             ) : (
               registry.map((entry) => (
-                <tr key={entry.id} className="border-b border-line/60 last:border-0">
+                <tr key={entry.id} className="border-b border-blue-200 last:border-0">
                   <td className="px-4 py-3">{entry.brandName ?? "Any brand"}</td>
                   <td className="px-4 py-3">
                     {entry.domain ?? entry.providerKey ?? "—"}
@@ -142,11 +151,11 @@ export function TrustManager({
         </table>
       </div>
 
-      <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-4">
+      <div className="flex flex-col gap-2 admin-card p-3.5">
         <h3 className="text-sm font-medium text-ink">Verification policies</h3>
         <ul className="flex flex-col gap-2">
           {policies.map((policy) => (
-            <li key={policy.id} className="flex flex-wrap items-start justify-between gap-2 border-b border-line/60 pb-2 last:border-0 last:pb-0">
+            <li key={policy.id} className="flex flex-wrap items-start justify-between gap-2 border-b border-blue-200 pb-2 last:border-0 last:pb-0">
               <div className="flex flex-col gap-0.5">
                 <p className="text-sm text-ink">
                   {policy.name} <span className="text-[0.7rem] text-ink/55">({policy.status})</span>
@@ -176,7 +185,7 @@ export function TrustManager({
       </div>
 
       {relations.length > 0 ? (
-        <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-4">
+        <div className="flex flex-col gap-2 admin-card p-3.5">
           <h3 className="text-sm font-medium text-ink">Brand relations</h3>
           <ul className="flex flex-col gap-1 text-[0.8rem] text-ink/75">
             {relations.map((relation) => (

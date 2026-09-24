@@ -503,3 +503,38 @@ What is asserted is mostly what preparation refuses to do:
 | A customer | Refused at every entry point |
 | A staff-entered value and an unaccepted claim | The first reaches `loadPulseInput().knowledge`, the second does not |
 | Anything a run reports | No stack trace, no raw error; a message and a remedy on every failure |
+
+## The Intelligence workspace (Stage 11)
+
+`tests/intelligence-workspace.test.ts` (14 tests) covers the reads and the
+rules, against a real database.
+
+| Case | Expected |
+| --- | --- |
+| The owner opens Intelligence | All seven tabs offered, in order |
+| Marketing opens Intelligence | Overview, SearchPulse and Search Console only — no catalogue tab |
+| Order manager, support, finance, a customer | No tab at all, so no Intelligence entry |
+| The workspace gate | Exactly the permissions its tabs ask for, and no role widened |
+| Every deep-link parameter | A known value accepted, an unknown one ignored, `?days` clamped to 7, 30 or 90 |
+| Each SeoPulse filter | Maps to the stages the backend actually stores, and returns only those runs |
+| Preparation counts | One row per stage from `preparationSummary`; a stage with no runs is absent, not zero-filled |
+| A failed run on screen | The backend's own message, never an error string |
+| Knowledge counts | Identity states, suggested sources and brand relations counted from the tables; approving a source removes it from the count |
+| Every workspace read | A customer and a staff role without the permission are both refused |
+
+`e2e/intelligence.spec.ts` (11 tests per project) covers the browser
+behaviour consolidation can break.
+
+| Case | Expected |
+| --- | --- |
+| The admin navigation | One Intelligence entry; Search, SEO Pulse, SEO health, Search performance and Knowledge gone; Orders, Products, Background work, Analytics and Settings still there |
+| Each tab clicked in turn | The right route, the right heading, `aria-current="page"`, and back/forward moving through them |
+| A refresh on `?severity=required` | Same tab, same filter, same heading |
+| An overview card clicked | The tab that lists what it counted, already filtered |
+| `?filter=nonsense` | The tab, unfiltered — not an error |
+| Search Console with nothing connected | "Search Console not connected", an explanation, no provider enum on screen, and the rest of the workspace still usable |
+| The five old addresses | Still answer, each saying which tab it is now |
+| `/admin/search?days=90` | Still works, still at that address |
+| `/admin/products/[id]/intelligence` and `/admin/jobs` | Still their own destinations |
+| A marketing account | Three tabs offered, four absent; typing a forbidden tab's address redirects; the API behind it answers 403 |
+| Every tab at 320px | No horizontal page overflow, and the last tab reachable by scrolling the tab row |

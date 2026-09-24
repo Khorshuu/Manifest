@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { productPreparationRuns, products, users, type ProductPreparationRun } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
@@ -10,7 +10,7 @@ import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { enqueueJob } from "@/lib/jobs/runner";
 import { addProductSource, provideDocument } from "@/lib/pkb/enrichment";
 import { productPatchSchema } from "@/lib/validation/catalog";
-import { FINISHED_STAGES, PREPARATION_CODES, type PreparationView } from "./types";
+import { FINISHED_STAGES, PREPARATION_CODES, type PreparationStage, type PreparationView } from "./types";
 
 /**
  * Product preparation: the staff-facing half (D-112).
@@ -404,4 +404,70 @@ export async function preparationSummary(actor: SessionUser | null) {
     .select({ stage: productPreparationRuns.stage, total: sql<number>`count(*)::int` })
     .from(productPreparationRuns)
     .groupBy(productPreparationRuns.stage);
+}
+
+export type PreparationRunRow = {
+  id: string;
+  productId: string;
+  productTitle: string;
+  stage: PreparationStage;
+  /** What has to be decided, or what stopped it — already in plain words. */
+  headline: string | null;
+  requestedBy: string | null;
+  seoRunId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  finishedAt: Date | null;
+};
+
+/**
+ * Recent preparation runs across the catalogue, optionally narrowed to a few
+ * stages so a screen can link to "the blocked ones" without filtering a whole
+ * table in the browser.
+ *
+ * Read-only, and it reports nothing the run did not record: the headline is
+ * the run's own first review note or its failure note, both of which the
+ * orchestrator writes in the words a staff member can act on.
+ */
+export async function listPreparationRuns(
+  actor: SessionUser | null,
+  options: { stages?: readonly PreparationStage[]; limit?: number } = {},
+): Promise<PreparationRunRow[]> {
+  requirePermission(actor, "catalog.manage");
+  const limit = Math.min(Math.max(options.limit ?? 30, 1), 200);
+  const stages = options.stages && options.stages.length > 0 ? options.stages : null;
+
+  const rows = await db
+    .select({
+      id: productPreparationRuns.id,
+      productId: productPreparationRuns.productId,
+      productTitle: products.title,
+      stage: productPreparationRuns.stage,
+      review: productPreparationRuns.review,
+      failure: productPreparationRuns.failure,
+      requestedBy: users.email,
+      seoRunId: productPreparationRuns.seoRunId,
+      createdAt: productPreparationRuns.createdAt,
+      updatedAt: productPreparationRuns.updatedAt,
+      finishedAt: productPreparationRuns.finishedAt,
+    })
+    .from(productPreparationRuns)
+    .innerJoin(products, eq(products.id, productPreparationRuns.productId))
+    .leftJoin(users, eq(users.id, productPreparationRuns.requestedBy))
+    .where(stages ? inArray(productPreparationRuns.stage, [...stages]) : undefined)
+    .orderBy(desc(productPreparationRuns.updatedAt))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    id: row.id,
+    productId: row.productId,
+    productTitle: row.productTitle,
+    stage: row.stage,
+    headline: row.failure?.message ?? row.review[0]?.message ?? null,
+    requestedBy: row.requestedBy,
+    seoRunId: row.seoRunId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    finishedAt: row.finishedAt,
+  }));
 }

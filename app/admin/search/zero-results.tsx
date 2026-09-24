@@ -36,11 +36,18 @@ export function ZeroResultIntelligence({
   findings,
   days,
   canSuggestAliases,
+  basePath = "/admin/search",
 }: {
   findings: ZeroResultFinding[];
   days: number;
   /** Whether this member of staff may record vocabulary at all. */
   canSuggestAliases: boolean;
+  /**
+   * Where "add a synonym instead" goes. The same list is rendered on the
+   * standalone Search screen and on the Intelligence workspace's SearchPulse
+   * tab, and a link back to the other one would lose the tab.
+   */
+  basePath?: string;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState<string | null>(null);
@@ -183,7 +190,7 @@ export function ZeroResultIntelligence({
 
               <p className="mt-3 text-meta">
                 <Link
-                  href={`/admin/search?days=${days}&term=${encodeURIComponent(finding.query)}#synonyms`}
+                  href={`${basePath}?days=${days}&term=${encodeURIComponent(finding.query)}#synonyms`}
                   className="font-semibold text-blue-600 hover:underline"
                 >
                   Add a synonym instead

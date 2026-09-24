@@ -407,7 +407,7 @@ export function IntelligencePanels({
             ))}
           </ul>
           <p className="text-[0.75rem] text-ink/60">
-            Place them on the <a className="text-blue-600 hover:underline" href="/admin/knowledge">knowledge screen</a>, where the
+            Place them on <a className="text-blue-600 hover:underline" href="/admin/intelligence/sources">Sources &amp; Policies</a>, where the
             decision is remembered for every product that uses the same label.
           </p>
         </section>

@@ -3658,3 +3658,88 @@ grounding. `docs/KNOWLEDGE_PLATFORM.md` section 3I is the detail.
   as Stage 9 left them. A normal product-entry employee does not need them; a
   conflict between two sources still sends them there, which is where that
   decision belongs.
+
+## Stage 11 — the Intelligence admin workspace (2026-09-24)
+
+Five top-level admin destinations over one subject became one destination with
+seven tabs. An information-architecture and interface change only: no backend
+system was rewritten, no schema changed, no migration was needed.
+
+- `[x]` **One entry in the main navigation.** Search, SEO Pulse, SEO health,
+  Search performance and Knowledge are replaced by Intelligence. The sixteen-item
+  admin navigation is now twelve. Orders, Products, Categories, Customers,
+  Homepage, Reviews, Notifications, Background work, Analytics, Audit log, Staff
+  and Settings are untouched.
+- `[x]` **Seven tabs, as real routes.** Overview, SeoPulse, Product Knowledge,
+  SearchPulse, SEO Health, Search Console, Sources & Policies under
+  `/admin/intelligence`. The selected tab is in the address bar, a refresh keeps
+  it, back and forward work, and a deep link opens the right tab already
+  filtered. No custom router; the client router does the navigation, so a tab
+  change is not a page load.
+- `[x]` **Deep links are validated query parameters.**
+  `?filter=needs-review|blocked|failed|active`, `?focus=conflicts|claims|
+  proposals|labels|unresolved|ambiguous`, `?severity=required|recommended|
+  optional`, `?days=7|30|90`. Guards live in
+  `app/admin/intelligence/filters.ts`; an unrecognised value opens the tab
+  unfiltered rather than failing.
+- `[x]` **The overview answers "what needs my attention".** Every figure is a
+  count from the system that owns the thing counted, and every figure with a
+  list behind it is a link to the tab that lists it, filtered. Nothing is
+  invented to fill a card and there is still no aggregate SEO score.
+- `[x]` **One aggregate query added, nothing duplicated.**
+  `knowledgeAttention` in `lib/pkb/intelligence` counts what the knowledge base
+  has waiting; `listIdentities` lists products in one resolution state;
+  `listPreparationRuns` in `lib/preparation` lists runs, optionally by stage.
+  All three are reads over existing tables under the existing permissions.
+  `seoHealth`'s own counts, `searchIndexStatus`, `zeroResultQueries`,
+  `preparationSummary` and `searchConsoleStatus` were already there and are used
+  as they stand. The opportunity report — the most expensive read — is not run
+  at all when Search Console is not connected.
+- `[x]` **Old addresses still answer, sharing one implementation.**
+  `/admin/search`, `/admin/seo-pulse`, `/admin/seo-health`,
+  `/admin/seo-performance` and `/admin/knowledge` render exactly the panel their
+  tab renders, with a line saying where the screen now lives. Not redirected, so
+  `?days=90` and the existing specs keep working; not copied, so nothing drifts.
+- `[x]` **Permission-aware, with nothing widened.** A tab is offered only to a
+  role holding a permission that opens it; every tab's page checks it again with
+  `requireAdminPage`, and `lib/` checks it a third time. A role holding none is
+  not offered Intelligence and is redirected if it types the address. Sources &
+  Policies is readable with `catalog.manage` and decidable only with
+  `knowledge.manage`, exactly as the Knowledge screen always was.
+- `[x]` **Search Console unconfigured is a polished state, not an error.** A
+  sentence, an explanation of what connecting would add, and the stored-row
+  figures. The rest of the workspace is unaffected.
+- `[x]` **Background Work stayed separate.** It runs platform-wide jobs. The
+  overview shows one indicator when an intelligence job has given up, linking to
+  the job screen.
+- `[x]` **Product Intelligence stayed separate.**
+  `/admin/products/[productId]/intelligence` is untouched and still reached from
+  the product editor's advanced tools.
+- `[x]` **One design language across the seven tabs.** `ui.tsx` holds the tab
+  heading, section, metric, metric grid and table shell; every tab uses the
+  admin design tokens (`admin-card`, `admin-h1/h2`, `admin-table`,
+  `admin-chip`, `admin-kpi-*`). `label-mapper.tsx` and `trust-manager.tsx` were
+  using `border-line` and `bg-surface`, which are not defined tokens and
+  therefore rendered as nothing; they now use the real ones and take a `heading`
+  prop so the workspace supplies its own.
+- `[x]` **Progressive disclosure.** Providers and versions, the legacy-table
+  coverage, the rich-result/photography/link figures and the "not measured yet"
+  list are all behind a details control. The primary view of every tab is
+  countable work.
+- `[x]` **Dead components removed.** `readiness-box.tsx` and
+  `page-audit-box.tsx` under `app/admin/products/[productId]` were verified
+  unreferenced by any route, import or test and deleted.
+- `[x]` **Tests.** `tests/intelligence-workspace.test.ts` (14 tests) covers tab
+  visibility per role, the deep-link guards, the overview counts against a real
+  database, and that every workspace read still refuses a customer and a staff
+  role without the permission. `e2e/intelligence.spec.ts` (11 tests per project)
+  covers the navigation change, every tab opening, back/forward, refresh with a
+  filter, overview drill-down, the unknown-filter fallback, the Search Console
+  unconfigured state, the five old addresses, a bookmarked `?days=90`, Product
+  Intelligence and Background Work still being their own destinations, a
+  restricted role's tab set and its server-side refusal, and no horizontal
+  overflow on any tab at 320px.
+- `[x]` **Verified.** Typecheck clean, lint clean, 112 test files (1,536 tests,
+  8 skipped) — 14 more than Stage 10. Production build passed. The whole browser
+  suite against that production build: 521 passed, 7 skipped, from 499 before.
+  No migration.

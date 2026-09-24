@@ -10,7 +10,7 @@ export type AdminNavItem = { href: string; label: string };
 /**
  * The admin chrome.
  *
- * Ten section links across the top wrapped into three rows on a phone, with
+ * The section links across the top wrapped into rows on a phone, with
  * the account row underneath — CLAUDE.md section 8 asks for admin to stay
  * usable on mobile and this was the clearest place it was not. The links move
  * behind a button below `md`, exactly as the storefront header does, so the
@@ -18,7 +18,7 @@ export type AdminNavItem = { href: string; label: string };
  *
  * The current section is marked rather than left to be inferred from the page
  * title, which is the `nav-state-active` rule and the thing that makes a
- * ten-item nav navigable at all.
+ * long nav navigable at all.
  */
 export function AdminNav({
   items,
@@ -92,7 +92,7 @@ export function AdminNav({
       {/*
        * Desktop: the sections get a row of their own.
        *
-       * Ten links, a wordmark, an email address and a sign-out button do not
+       * A dozen links, a wordmark, an email address and a sign-out button do not
        * fit across 1280px, so sharing one row meant the nav wrapped underneath
        * itself and the current section was impossible to find. A second row is
        * the honest answer.

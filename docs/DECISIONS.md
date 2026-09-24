@@ -2948,3 +2948,70 @@ creates the same product and stops, which is the only sensible path for a
 private-label or locally sourced product no manufacturer's page describes.
 Removing the manual path would have made the shop unable to sell things it
 sells.
+
+## D-117 — Intelligence is one admin destination over five unchanged systems
+
+**Decision (Stage 11.)** Manifest had grown five separate top-level admin
+destinations — Search, SEO Pulse, SEO health, Search performance and
+Knowledge — over systems that all answer one question: what does this
+catalogue need me to do about how it is understood and found? Five entries out
+of sixteen in the admin navigation, each with its own heading style, its own
+card border and its own table, is how a platform starts to read as a pile of
+screens rather than a product.
+
+They are now the tabs of `/admin/intelligence`: Overview, SeoPulse, Product
+Knowledge, SearchPulse, SEO Health, Search Console, Sources & Policies. The
+main navigation carries one entry, Intelligence.
+
+**Nothing underneath moved.** SeoPulse, the Product Knowledge Base, product
+preparation, SearchPulse, the SEO audit and Search Console each still own their
+own data, their own permissions and their own API routes. No table, no policy
+system, no registry and no audit engine was duplicated or rewritten. The
+workspace is a reading of what those systems already return.
+
+**Tabs are routes, not state.** Each tab is a real page under
+`app/admin/intelligence`, so the selected tab is in the address bar, a refresh
+keeps it, the browser's back and forward buttons work, and a link with a filter
+on it opens the right tab already filtered. Next's client router does the
+navigation, so moving between tabs does not reload the page. No custom router
+and no state-management framework was introduced: a deep link is a query
+parameter, validated by a guard in `app/admin/intelligence/filters.ts`, and an
+unrecognised value opens the tab unfiltered rather than failing.
+
+**The old addresses still answer, with the same component.** `/admin/search`,
+`/admin/seo-pulse`, `/admin/seo-health`, `/admin/seo-performance` and
+`/admin/knowledge` render exactly the panel their tab renders, with a line
+saying where the screen now lives. They were not redirected, because a redirect
+would have thrown away `?days=90` and the tests and bookmarks that use them,
+and they were not copied, because two implementations of one screen drift.
+
+**The overview answers "what needs my attention", and every count is a link.**
+Each figure is a count returned by the system that owns the thing counted —
+preparation stages from `lib/preparation`, knowledge counts from one aggregate
+over the knowledge tables, SEO findings from the deterministic audit, search
+figures from recorded searches, Search Console figures from stored
+measurements. Nothing is invented to fill a card. A metric that has a list
+behind it is a link to the tab that lists it, already filtered; a metric that
+cannot be derived is not shown at all. There is still no aggregate SEO score
+(D-095): a single figure would invite arguing with the number instead of fixing
+the listings.
+
+**One destination is not one permission.** A tab is offered only to a role that
+holds a permission opening it, and every tab's page checks the same permission
+with `requireAdminPage`, and every function it calls in `lib/` checks it again.
+A role that can open no tab is not offered Intelligence at all and is redirected
+if it types the address. Nothing was widened: marketing still sees SearchPulse
+and Search Console and no catalogue tab; approving a source, a policy or a label
+mapping still needs `knowledge.manage`, and a reader without it sees the rules
+and no buttons.
+
+**Background Work stays its own destination.** It runs platform-wide jobs —
+notification delivery, order expiry, media sweeps, prunes — not only
+intelligence ones. The overview shows a single indicator when an intelligence
+job has given up after its retries, and links to the job screen rather than
+absorbing it.
+
+**Product Intelligence stays its own screen.** `/admin/products/[productId]/intelligence`
+is the advanced drill-down for one product, reached from that product's editor.
+The workspace is the catalogue-wide surface. They answer different questions and
+neither replaces the other.

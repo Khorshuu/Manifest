@@ -8,6 +8,7 @@ import {
   type Permission,
 } from "@/lib/auth";
 import { AdminNav } from "./admin-nav";
+import { INTELLIGENCE_PERMISSIONS } from "./intelligence/tabs";
 import { LogoutButton } from "./logout-button";
 
 /*
@@ -17,29 +18,40 @@ import { LogoutButton } from "./logout-button";
 export const instant = false;
 
 /**
- * Each section with the permission that opens it. The page checks the same
+ * Each section with the permissions that open it — any one of them is enough,
+ * and an empty list means every staff role. The page checks the same
  * permission itself, and so does every `lib/` function behind it — this list
  * only decides what the navigation offers (CLAUDE.md §7).
  */
-const navigation: { href: string; label: string; permission: Permission | null }[] = [
-  { href: "/admin", label: "Overview", permission: null },
-  { href: "/admin/orders", label: "Orders", permission: "orders.view" },
-  { href: "/admin/products", label: "Products", permission: "catalog.manage" },
-  { href: "/admin/categories", label: "Categories", permission: "catalog.manage" },
-  { href: "/admin/customers", label: "Customers", permission: "customers.view" },
-  { href: "/admin/homepage", label: "Homepage", permission: "homepage.manage" },
-  { href: "/admin/reviews", label: "Reviews", permission: "reviews.moderate" },
-  { href: "/admin/search", label: "Search", permission: "search.manage" },
-  { href: "/admin/seo-pulse", label: "SEO Pulse", permission: "catalog.manage" },
-  { href: "/admin/seo-health", label: "SEO health", permission: "catalog.manage" },
-  { href: "/admin/seo-performance", label: "Search performance", permission: "seo.view" },
-  { href: "/admin/knowledge", label: "Knowledge", permission: "catalog.manage" },
-  { href: "/admin/notifications", label: "Notifications", permission: "notifications.view" },
-  { href: "/admin/jobs", label: "Background work", permission: "notifications.view" },
-  { href: "/admin/analytics", label: "Analytics", permission: "analytics.view" },
-  { href: "/admin/audit", label: "Audit log", permission: "audit.view" },
-  { href: "/admin/staff", label: "Staff", permission: "staff.manage" },
-  { href: "/admin/settings", label: "Settings", permission: "settings.manage" },
+const navigation: { href: string; label: string; permissions: readonly Permission[] }[] = [
+  { href: "/admin", label: "Overview", permissions: [] },
+  { href: "/admin/orders", label: "Orders", permissions: ["orders.view"] },
+  { href: "/admin/products", label: "Products", permissions: ["catalog.manage"] },
+  { href: "/admin/categories", label: "Categories", permissions: ["catalog.manage"] },
+  { href: "/admin/customers", label: "Customers", permissions: ["customers.view"] },
+  { href: "/admin/homepage", label: "Homepage", permissions: ["homepage.manage"] },
+  { href: "/admin/reviews", label: "Reviews", permissions: ["reviews.moderate"] },
+  /*
+   * One entry for the whole of Intelligence.
+   *
+   * Search, SEO Pulse, SEO health, Search performance and Knowledge were five
+   * separate top-level destinations over systems that answer the same
+   * question, which is five of the sixteen links here. They are now the tabs
+   * of /admin/intelligence; their own routes still work for bookmarks and
+   * deep links, they are simply no longer offered separately. Any one of these
+   * permissions opens at least one tab, and each tab checks its own.
+   */
+  {
+    href: "/admin/intelligence",
+    label: "Intelligence",
+    permissions: INTELLIGENCE_PERMISSIONS,
+  },
+  { href: "/admin/notifications", label: "Notifications", permissions: ["notifications.view"] },
+  { href: "/admin/jobs", label: "Background work", permissions: ["notifications.view"] },
+  { href: "/admin/analytics", label: "Analytics", permissions: ["analytics.view"] },
+  { href: "/admin/audit", label: "Audit log", permissions: ["audit.view"] },
+  { href: "/admin/staff", label: "Staff", permissions: ["staff.manage"] },
+  { href: "/admin/settings", label: "Settings", permissions: ["settings.manage"] },
 ];
 
 /**
@@ -56,7 +68,11 @@ export default async function AdminLayout({
   if (!isStaff(user)) redirect("/");
 
   const visible = navigation
-    .filter((item) => item.permission === null || can(user, item.permission))
+    .filter(
+      (item) =>
+        item.permissions.length === 0 ||
+        item.permissions.some((permission) => can(user, permission)),
+    )
     .map(({ href, label }) => ({ href, label }));
 
   const roleLabel = isStaffRole(user.role) ? ROLE_DETAILS[user.role].label : "Staff";

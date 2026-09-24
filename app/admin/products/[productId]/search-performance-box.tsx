@@ -92,8 +92,8 @@ export function SearchPerformanceBox({ performance }: { performance: ListingPerf
       ) : null}
 
       <p className="text-meta">
-        <Link href="/admin/seo-performance" className="text-blue-600 hover:underline">
-          All search performance
+        <Link href="/admin/intelligence/search-console" className="text-blue-600 hover:underline">
+          All Search Console reporting
         </Link>
       </p>
     </section>
