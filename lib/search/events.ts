@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { orderItems, productVariants, searchEvents } from "@/db/schema";
 import type { Executor } from "@/lib/pkb/common";
 import { logEvent } from "@/lib/observability/log";
+import { pruneInBatches } from "@/lib/prune";
 import { looksPersonal, normalizeText } from "./normalize";
 import { queryRows } from "./sql";
 import { analyticsWindow } from "./visitor";
@@ -190,11 +191,8 @@ export async function countSearchConversions(
 export async function pruneSearchEvents(olderThanDays = 180): Promise<number> {
   try {
     const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
-    const removed = await db
-      .delete(searchEvents)
-      .where(lt(searchEvents.createdAt, cutoff))
-      .returning({ id: searchEvents.id });
-    return removed.length;
+    const removed = await pruneInBatches(searchEvents, lt(searchEvents.createdAt, cutoff));
+    return removed.removed;
   } catch (error) {
     await logEvent("warn", "search.event_prune_failed", { error });
     return 0;

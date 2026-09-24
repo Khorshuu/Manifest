@@ -4,7 +4,9 @@ import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { PkbError, queryRows, type Executor } from "./common";
 import { suggestAlias } from "./aliases";
+import { contextForLegacyRef, loadLabelMappings, resolveLabel } from "./mappings";
 import { labelKey } from "./normalize";
+import { loadDefinitions } from "./vocabulary";
 
 /**
  * What still depends on the legacy catalogue tables, counted (D-105).
@@ -199,6 +201,197 @@ export async function legacyCoverage(
     systems,
     parkedValues: Number(parked?.n ?? 0),
     allCovered: systems.every((system) => system.contractable),
+  };
+}
+
+// --------------------------------------------------- the parked values, sorted
+
+/**
+ * What each parked value is, decided from the database (Stage 8, D-109).
+ *
+ * `pkb_unmapped_values` is where a legacy value goes when the pipeline will not
+ * guess where it belongs (A-8). The coverage report above counts them; this one
+ * says what they *are*, because "72 values parked" is not something a person can
+ * act on and a bare count invites the wrong action — either discarding them or
+ * placing them by hand in the database.
+ *
+ * Five classes, in the order they are decided. Nothing here writes, nothing
+ * infers meaning, and a row is only ever called migratable when the knowledge
+ * base already holds an attribute that answers to its label:
+ *
+ *  - `unusable` — not a value anything could hold: an identifier that failed
+ *    its check digit (kept as supplied and never corrected, D-071/R-6), or an
+ *    empty value.
+ *  - `obsolete` — the listing behind it is archived, or has no knowledge record
+ *    any more. Kept for history; there is nothing to migrate into.
+ *  - `already_represented` — an approved attribute answers to this label *and*
+ *    the slot it would fill already holds a value. The parked row is a
+ *    duplicate of what is stored.
+ *  - `migratable` — an approved attribute answers to this label, by its own
+ *    label, its key or an approved alias, or an approved mapping already covers
+ *    it, and the slot is empty. Approving the mapping on the knowledge screen
+ *    places it through the normal pipeline with its provenance intact; no value
+ *    is edited in place.
+ *  - `ambiguous` — no approved attribute answers to this label, or more than
+ *    one does. It needs a person to say what it means. This is the honest
+ *    remainder, and it is the reason `category_attributes` is still here.
+ */
+export const PARKED_CLASSES = ["migratable", "already_represented", "ambiguous", "obsolete", "unusable"] as const;
+
+export type ParkedClass = (typeof PARKED_CLASSES)[number];
+
+export type ParkedValueGroup = {
+  parkedClass: ParkedClass;
+  /** The written label, or the identifier type for an identifier row. */
+  label: string;
+  /** Where it was written: `products.spec_table`, `variant_option_values.<id>`, … */
+  legacyRef: string;
+  /** Why the pipeline parked it. */
+  reason: string;
+  /** The attribute this label already means, when one does. */
+  definition: { id: string; label: string } | null;
+  rows: number;
+  listings: number;
+  samples: { title: string; value: string }[];
+};
+
+export type ParkedValueReport = {
+  total: number;
+  counts: Record<ParkedClass, number>;
+  groups: ParkedValueGroup[];
+  /** Values that need a person before anything can be contracted. */
+  needingDecision: number;
+};
+
+type ParkedRow = {
+  product_id: string;
+  variant_id: string | null;
+  pkb_product_id: string | null;
+  pkb_variant_id: string | null;
+  archived: boolean;
+  title: string;
+  label: string | null;
+  value: string;
+  reason: string;
+  legacy_ref: string;
+  family_id: string | null;
+};
+
+export async function classifyParkedValues(
+  actor: SessionUser | null,
+  executor: Executor = db,
+): Promise<ParkedValueReport> {
+  requirePermission(actor, "catalog.manage");
+
+  const rows = await queryRows<ParkedRow>(
+    executor,
+    sql`
+      select u.product_id, u.variant_id, p.pkb_product_id, pv.pkb_variant_id,
+             (p.archived_at is not null) as archived,
+             p.title, u.label, u.value, u.reason, u.legacy_ref, kp.family_id
+      from pkb_unmapped_values u
+      join products p on p.id = u.product_id
+      left join product_variants pv on pv.id = u.variant_id
+      left join pkb_products kp on kp.id = p.pkb_product_id
+      where u.status = 'open'
+      order by u.legacy_ref, u.label nulls first, p.title
+    `,
+  );
+
+  const definitions = await loadDefinitions(executor);
+  const mappings = await loadLabelMappings(executor);
+
+  // Which (product or variant, definition) slots already hold a value, so a
+  // parked row can be told from a duplicate of something already stored.
+  const filled = new Set<string>();
+  if (rows.length > 0) {
+    const factRows = await queryRows<{ pkb_product_id: string; pkb_variant_id: string | null; definition_id: string }>(
+      executor,
+      sql`
+        select pkb_product_id, pkb_variant_id, definition_id
+        from pkb_facts
+        where pkb_product_id = any(${`{${[...new Set(rows.map((row) => row.pkb_product_id).filter(Boolean))].join(",")}}`}::uuid[])
+      `,
+    );
+    for (const fact of factRows) {
+      filled.add(`${fact.pkb_product_id}|${fact.pkb_variant_id ?? ""}|${fact.definition_id}`);
+    }
+  }
+
+  const groups = new Map<string, ParkedValueGroup>();
+  const counts: Record<ParkedClass, number> = {
+    migratable: 0,
+    already_represented: 0,
+    ambiguous: 0,
+    obsolete: 0,
+    unusable: 0,
+  };
+
+  for (const row of rows) {
+    const label = row.label ?? "";
+    let definition: { id: string; label: string } | null = null;
+    let parkedClass: ParkedClass;
+
+    if (row.reason === "invalid_identifier" || !row.value.trim() || !label.trim()) {
+      parkedClass = "unusable";
+    } else if (row.archived || !row.pkb_product_id) {
+      parkedClass = "obsolete";
+    } else {
+      const context = contextForLegacyRef(row.legacy_ref);
+      const resolution = context
+        ? resolveLabel(definitions, mappings, label, context, row.family_id)
+        : { kind: "none" as const };
+      if (resolution.kind === "match") {
+        definition = { id: resolution.definition.id, label: resolution.definition.label };
+        const slot = `${row.pkb_product_id}|${row.pkb_variant_id ?? ""}|${resolution.definition.id}`;
+        parkedClass = filled.has(slot) ? "already_represented" : "migratable";
+      } else {
+        // `ignored` cannot appear here: a row covered by an ignore decision is
+        // settled by the sync rather than left open.
+        parkedClass = "ambiguous";
+      }
+    }
+
+    counts[parkedClass] += 1;
+    const key = `${parkedClass}|${row.legacy_ref}|${labelKey(label)}`;
+    const group = groups.get(key) ?? {
+      parkedClass,
+      label: label || row.reason,
+      legacyRef: row.legacy_ref,
+      reason: row.reason,
+      definition,
+      rows: 0,
+      listings: 0,
+      samples: [],
+    };
+    group.rows += 1;
+    if (group.samples.length < 3) group.samples.push({ title: row.title, value: row.value });
+    groups.set(key, group);
+  }
+
+  // Listings per group, counted separately so one listing with three parked
+  // rows is one listing.
+  const listingsPerGroup = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const label = row.label ?? "";
+    for (const [key, group] of groups) {
+      if (group.legacyRef === row.legacy_ref && key.endsWith(`|${labelKey(label)}`)) {
+        const seen = listingsPerGroup.get(key) ?? new Set<string>();
+        seen.add(row.product_id);
+        listingsPerGroup.set(key, seen);
+      }
+    }
+  }
+  for (const [key, group] of groups) group.listings = listingsPerGroup.get(key)?.size ?? 0;
+
+  const order = new Map(PARKED_CLASSES.map((name, index) => [name, index]));
+  return {
+    total: rows.length,
+    counts,
+    groups: [...groups.values()].sort(
+      (a, b) => (order.get(a.parkedClass)! - order.get(b.parkedClass)!) || b.rows - a.rows || a.label.localeCompare(b.label),
+    ),
+    needingDecision: counts.ambiguous + counts.migratable,
   };
 }
 

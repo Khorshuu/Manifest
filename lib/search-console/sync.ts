@@ -13,6 +13,7 @@ import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { enqueueJob } from "@/lib/jobs/runner";
 import { logEvent } from "@/lib/observability/log";
+import { pruneInBatches } from "@/lib/prune";
 import type { Executor } from "@/lib/pkb/common";
 import { getSearchConsoleProvider, type SearchConsoleRow } from "@/lib/providers/search-console";
 import { termKey } from "@/lib/search/terms";
@@ -501,9 +502,12 @@ export async function runSearchConsoleSync(syncId: string): Promise<SyncReport> 
 export async function pruneSearchConsoleMetrics(now: Date = new Date()): Promise<number> {
   const config = getSearchConsoleConfig();
   const cutoff = addDays(isoDay(now), -config.SEARCH_CONSOLE_RETENTION_DAYS);
-  const removed = await db
-    .delete(searchConsoleMetrics)
-    .where(sql`${searchConsoleMetrics.measuredOn} < ${cutoff}::date`)
-    .returning({ id: searchConsoleMetrics.id });
-  return removed.length;
+  // Batched: the size of this table is decided by Google rather than by the
+  // catalogue, so how much a prune finds is not something this shop controls
+  // (D-111).
+  const removed = await pruneInBatches(
+    searchConsoleMetrics,
+    sql`${searchConsoleMetrics.measuredOn} < ${cutoff}::date`,
+  );
+  return removed.removed;
 }

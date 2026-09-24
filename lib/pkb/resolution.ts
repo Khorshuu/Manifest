@@ -237,6 +237,35 @@ export async function refreshResolution(executor: Executor, pkbProductId: string
 }
 
 /**
+ * Re-assesses one product's resolution at somebody's request (Stage 8).
+ *
+ * `refreshResolution` above takes an executor rather than an actor, because
+ * every other caller is already inside a gated write: accepting a claim about
+ * an identifier, or an enrichment run. The admin screen's "check again" button
+ * had no such gate — it reached `refreshResolution` directly, so any staff
+ * account could write the knowledge base: the state, a history row, and, where
+ * the state is no longer VERIFIED, the confirmed-identity decision, cleared.
+ * Invariant I-14 says every knowledge mutation asks for permission inside
+ * `lib/`, so this is where it asks.
+ *
+ * `catalog.manage` is the permission every other resolution write uses, and
+ * re-assessing is a write however much it reads like a refresh.
+ */
+export async function reassessResolution(
+  actor: SessionUser | null,
+  pkbProductId: string,
+): Promise<ResolutionAssessment> {
+  requirePermission(actor, "catalog.manage");
+  return db.transaction(async (tx) => {
+    // The lock the other writers take, so two people pressing the button at
+    // once cannot each append a history row for the same change.
+    const [product] = await tx.select({ id: pkbProducts.id }).from(pkbProducts).where(eq(pkbProducts.id, pkbProductId)).for("update");
+    if (!product) throw new PkbError("That product is not in the knowledge base.", 404);
+    return refreshResolution(tx, pkbProductId);
+  });
+}
+
+/**
  * A person resolves the identity: confirms it, stating any candidates are
  * different products. Refused while sources still disagree about identifiers —
  * those claims are resolved first.

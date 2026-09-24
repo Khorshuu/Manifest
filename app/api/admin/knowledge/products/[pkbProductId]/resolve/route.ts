@@ -3,8 +3,7 @@ import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { toErrorResponse } from "@/lib/api-error";
 import { refuseNonStaff } from "@/lib/auth/api-guard";
-import { db } from "@/db";
-import { confirmIdentity, refreshResolution } from "@/lib/pkb/resolution";
+import { confirmIdentity, reassessResolution } from "@/lib/pkb/resolution";
 
 /**
  * Product resolution: re-check the state, or confirm which product this is.
@@ -38,8 +37,9 @@ export async function POST(
 
   try {
     if (parsed.data.action === "refresh") {
-      // Reading the state is a staff action; the guard above is the check.
-      return NextResponse.json(await db.transaction((tx) => refreshResolution(tx, pkbProductId)));
+      // Re-assessing writes the state, a history row, and clears a confirmed
+      // identity that no longer holds, so the permission is checked in lib/.
+      return NextResponse.json(await reassessResolution(await getCurrentUser(), pkbProductId));
     }
     return NextResponse.json(
       await confirmIdentity(await getCurrentUser(), pkbProductId, {

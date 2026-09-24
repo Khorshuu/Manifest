@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   pkbAliases,
@@ -81,18 +81,33 @@ export async function suggestAlias(
   });
 }
 
+/**
+ * Approves or rejects one suggested alias.
+ *
+ * The row is read inside the transaction and locked first (Stage 8). It used to
+ * be read outside, and the "already decided" check made against that read, so
+ * two decisions arriving together both passed it and the second simply
+ * overwrote the first: an approved alias could become rejected, or the other
+ * way round, attributed to whoever committed last and with nothing on the row
+ * to say it had been decided twice. That is the shape Stage 7 fixed on the
+ * listing save and on the SEO apply (D-110) — a guard is only a guard if the
+ * lock comes before it. The `where` clause carries the status as well, so even
+ * a caller that finds another way in cannot re-decide a decided alias.
+ */
 export async function decideAlias(actor: SessionUser | null, aliasId: string, decision: "approved" | "rejected") {
-  const [row] = await db.select().from(pkbAliases).where(eq(pkbAliases.id, aliasId));
-  if (!row) throw new PkbError("That alias does not exist.", 404);
-  const staff = requirePermission(actor, APPROVER[row.targetKind]);
-  if (row.status !== "suggested") throw new PkbError(`That alias is already ${row.status}.`, 409);
-
   return db.transaction(async (tx) => {
+    const [row] = await tx.select().from(pkbAliases).where(eq(pkbAliases.id, aliasId)).for("update");
+    if (!row) throw new PkbError("That alias does not exist.", 404);
+    const staff = requirePermission(actor, APPROVER[row.targetKind]);
+    if (row.status !== "suggested") throw new PkbError(`That alias is already ${row.status}.`, 409);
+
     try {
-      await tx
+      const decided = await tx
         .update(pkbAliases)
         .set({ status: decision, decidedBy: staff.id, decidedAt: new Date() })
-        .where(eq(pkbAliases.id, aliasId));
+        .where(and(eq(pkbAliases.id, aliasId), eq(pkbAliases.status, "suggested")))
+        .returning({ id: pkbAliases.id });
+      if (decided.length === 0) throw new PkbError("That alias has just been decided by somebody else.", 409);
     } catch (error) {
       const text = `${error instanceof Error ? error.message : ""} ${error instanceof Error && error.cause ? String(error.cause) : ""}`;
       if (/pkb_aliases_approved_unique|duplicate key/i.test(text)) {

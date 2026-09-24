@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { lt, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { pruneInBatches } from "@/lib/prune";
 import { rateLimitHits } from "@/db/schema";
 import { logEvent } from "@/lib/observability/log";
 
@@ -99,12 +100,9 @@ export async function pruneRateLimits(
   olderThan: Date = new Date(Date.now() - 24 * 60 * 60 * 1000),
 ): Promise<number> {
   try {
-    const deleted = await db
-      .delete(rateLimitHits)
-      .where(lt(rateLimitHits.windowStart, olderThan))
-      .returning({ key: rateLimitHits.key });
+    const deleted = await pruneInBatches(rateLimitHits, lt(rateLimitHits.windowStart, olderThan));
 
-    return deleted.length;
+    return deleted.removed;
   } catch (error) {
     await logEvent("warn", "rate_limit.prune_failed", { error });
     return 0;

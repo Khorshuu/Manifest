@@ -33,7 +33,7 @@ import { identityVerdict } from "@/lib/pkb/enrichment";
 import { recordEvidence, recordSource } from "@/lib/pkb/evidence";
 import { getProductIntelligence, intelligenceQueue } from "@/lib/pkb/intelligence";
 import { decideLabelMapping, listUnmappedLabels } from "@/lib/pkb/mappings";
-import { assessResolution, confirmIdentity } from "@/lib/pkb/resolution";
+import { assessResolution, confirmIdentity, reassessResolution } from "@/lib/pkb/resolution";
 import { acceptClaims, createClaim, rejectClaims, resolveConflict } from "@/lib/pkb/review";
 import { processKnowledgeQueue } from "@/lib/pkb/sync";
 import { decideRegistryEntry, evaluateVerification, suggestRegistryEntry } from "@/lib/pkb/trust";
@@ -44,6 +44,8 @@ let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 const staff: SessionUser = { id: "", email: "staff@example.com", role: "staff_admin" };
 const manager: SessionUser = { id: "", email: "manager@example.com", role: "product_manager" };
 const customer: SessionUser = { id: "", email: "shopper@example.com", role: "customer" };
+/** Staff, and holds seo.view — but not catalog.manage. */
+const marketing: SessionUser = { id: "", email: "marketing@example.com", role: "marketing" };
 
 beforeAll(async () => {
   harness = await createTestDatabase();
@@ -61,11 +63,13 @@ beforeEach(async () => {
       { email: "staff@example.com", passwordHash: "x", role: "staff_admin" },
       { email: "manager@example.com", passwordHash: "x", role: "product_manager" },
       { email: "shopper@example.com", passwordHash: "x", role: "customer" },
+      { email: "marketing@example.com", passwordHash: "x", role: "marketing" },
     ])
     .returning({ id: users.id, email: users.email });
   staff.id = rows.find((row) => row.email === "staff@example.com")!.id;
   manager.id = rows.find((row) => row.email === "manager@example.com")!.id;
   customer.id = rows.find((row) => row.email === "shopper@example.com")!.id;
+  marketing.id = rows.find((row) => row.email === "marketing@example.com")!.id;
 });
 
 async function makeListing(input: { title: string; brand?: string; details?: Record<string, string>; specTable?: { label: string; value: string }[] }) {
@@ -165,6 +169,34 @@ describe("product resolution", () => {
   it("refuses a customer", async () => {
     const { pkbProductId } = await makeListing({ title: "HP-900", brand: "Harbor Acoustics" });
     await expect(requestEnrichment(customer, { pkbProductId })).rejects.toBeInstanceOf(AuthorizationError);
+  });
+
+  /*
+   * Stage 8. Re-assessing reads like a refresh and writes like a decision: it
+   * stores the state, appends a history row, and clears a confirmed identity
+   * that no longer holds. The admin screen's button used to reach the
+   * executor-level function directly, so any staff account could do all three.
+   */
+  it("re-assessing is a knowledge write, so a staff account without catalogue access is refused", async () => {
+    const { pkbProductId } = await makeListing({
+      title: "HP-900 Headphones",
+      brand: "Harbor Acoustics",
+      details: { modelNumber: "HP-900" },
+    });
+    await confirmIdentity(staff, pkbProductId, { note: "Matched the model number on the manufacturer's page." });
+
+    await expect(reassessResolution(marketing, pkbProductId)).rejects.toBeInstanceOf(AuthorizationError);
+    await expect(reassessResolution(customer, pkbProductId)).rejects.toBeInstanceOf(AuthorizationError);
+    await expect(reassessResolution(null, pkbProductId)).rejects.toBeTruthy();
+
+    // The decision it could have cleared is still there.
+    const [untouched] = await harness.db.select().from(pkbProducts).where(eq(pkbProducts.id, pkbProductId));
+    expect(untouched.resolutionState).toBe("VERIFIED");
+    expect(untouched.resolutionDecidedBy).toBe(staff.id);
+
+    // And somebody who may manage the catalogue still can.
+    const assessment = await reassessResolution(manager, pkbProductId);
+    expect(assessment.state).toBeTruthy();
   });
 });
 

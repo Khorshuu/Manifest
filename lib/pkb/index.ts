@@ -34,11 +34,16 @@ export {
 export { listClaims, proposeFactClaim, recordEvidence, recordSource } from "./evidence";
 export { decideAlias, suggestAlias } from "./aliases";
 export {
+  classifyParkedValues,
   legacyCoverage,
   listingKeywordMigration,
   suggestAliasesFromKeywords,
+  PARKED_CLASSES,
   type LegacyCoverage,
   type LegacySystemCoverage,
+  type ParkedClass,
+  type ParkedValueGroup,
+  type ParkedValueReport,
 } from "./legacy-coverage";
 export { addRelationship, listRelationships, removeRelationship } from "./relationships";
 export {

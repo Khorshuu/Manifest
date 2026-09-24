@@ -4,7 +4,7 @@ import { EmptyState } from "@/components/empty-state";
 import { requireAdminPage } from "@/lib/auth/admin-page";
 import { can } from "@/lib/auth/authorize";
 import { getVocabularyView, intelligenceQueue } from "@/lib/pkb/intelligence";
-import { legacyCoverage } from "@/lib/pkb/legacy-coverage";
+import { classifyParkedValues, legacyCoverage, type ParkedClass } from "@/lib/pkb/legacy-coverage";
 import { LabelMapper } from "./label-mapper";
 import { TrustManager } from "./trust-manager";
 
@@ -16,6 +16,23 @@ export const instant = false;
 
 export const metadata: Metadata = { title: "Knowledge" };
 
+/** What each class of parked value means, in the words an operator would use (D-109). */
+const PARKED_CAPTIONS: Record<ParkedClass, string> = {
+  migratable: "An attribute already answers to this label. Map it and it is placed.",
+  already_represented: "The knowledge base already holds this value.",
+  ambiguous: "No attribute means this yet. Somebody has to say what it is.",
+  obsolete: "The listing is archived. Kept for history only.",
+  unusable: "Not a value anything can hold — kept exactly as supplied.",
+};
+
+const PARKED_LABELS: [ParkedClass, string][] = [
+  ["migratable", "Ready to place"],
+  ["already_represented", "Already held"],
+  ["ambiguous", "Needs a decision"],
+  ["obsolete", "Archived listing"],
+  ["unusable", "Unusable"],
+];
+
 /**
  * The knowledge screen: what is waiting for a person, the labels no attribute
  * names yet, and the trust decisions — which domains speak for a brand, and
@@ -26,10 +43,11 @@ export const metadata: Metadata = { title: "Knowledge" };
  */
 export default async function AdminKnowledgePage() {
   const user = await requireAdminPage("catalog.manage");
-  const [queue, vocabulary, coverage] = await Promise.all([
+  const [queue, vocabulary, coverage, parked] = await Promise.all([
     intelligenceQueue(user, { limit: 40 }),
     getVocabularyView(user),
     legacyCoverage(user),
+    classifyParkedValues(user),
   ]);
   const mayDecide = can(user, "knowledge.manage");
 
@@ -156,6 +174,70 @@ export default async function AdminKnowledgePage() {
           </p>
         ) : null}
       </section>
+
+      {parked.total > 0 ? (
+        <section className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <h2 className="font-display text-lg text-ink">What the parked values are</h2>
+            <p className="max-w-3xl text-sm text-ink/70">
+              Every value the pipeline would not place, sorted by what can be done with it. A value is only called
+              &ldquo;ready to place&rdquo; when the knowledge base already holds an attribute that answers to its
+              label — approving the mapping above then places it through the normal pipeline, with its provenance.
+              Nothing here is decided by guessing what a label means.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+            {PARKED_LABELS.map(([name, caption]) => (
+              <div key={name} className="rounded-xl border border-line bg-surface p-4">
+                <p className="text-[0.7rem] uppercase tracking-wide text-ink/55">{caption}</p>
+                <p className="font-display text-2xl text-ink">
+                  {parked.counts[name].toLocaleString("en-GB")}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-line bg-surface">
+            <table className="w-full min-w-[44rem] text-sm">
+              <thead className="border-b border-line text-left text-[0.7rem] uppercase tracking-wide text-ink/55">
+                <tr>
+                  <th className="px-4 py-3">Label</th>
+                  <th className="px-4 py-3">What it is</th>
+                  <th className="px-4 py-3">Values</th>
+                  <th className="px-4 py-3">Example</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parked.groups.slice(0, 40).map((group) => (
+                  <tr
+                    key={`${group.parkedClass}-${group.legacyRef}-${group.label}`}
+                    className="border-b border-line/60 align-top last:border-0"
+                  >
+                    <td className="px-4 py-3">
+                      <span className="text-ink">{group.label}</span>
+                      <span className="block text-[0.7rem] text-ink/55">{group.legacyRef}</span>
+                    </td>
+                    <td className="px-4 py-3 text-ink/70">
+                      {PARKED_CAPTIONS[group.parkedClass]}
+                      {group.definition ? <span className="block text-[0.7rem]">→ {group.definition.label}</span> : null}
+                    </td>
+                    <td className="px-4 py-3 tabular-nums">
+                      {group.rows.toLocaleString("en-GB")} on {group.listings.toLocaleString("en-GB")} listing(s)
+                    </td>
+                    <td className="px-4 py-3 text-ink/70">
+                      {group.samples[0] ? `${group.samples[0].title}: ${group.samples[0].value}` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {parked.groups.length > 40 ? (
+            <p className="text-sm text-ink/60">
+              Showing the 40 largest groups of {parked.groups.length.toLocaleString("en-GB")}.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }

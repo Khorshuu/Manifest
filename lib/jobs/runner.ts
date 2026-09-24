@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, count, eq, inArray, lt, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { pruneInBatches } from "@/lib/prune";
 import { logEvent } from "@/lib/observability/log";
 import { jobs } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/authorize";
@@ -387,12 +388,10 @@ export async function jobSummary(actor: SessionUser | null) {
 /** Deletes finished jobs older than the given age; failures are kept longer. */
 export async function pruneFinishedJobs(options: { succeededDays?: number; deadDays?: number } = {}) {
   const now = Date.now();
-  const removed = await db
-    .delete(jobs)
-    .where(
-      sql`(${jobs.status} = 'succeeded' and ${jobs.finishedAt} < ${new Date(now - (options.succeededDays ?? 7) * 86_400_000).toISOString()}::timestamptz)
+  const removed = await pruneInBatches(
+    jobs,
+    sql`(${jobs.status} = 'succeeded' and ${jobs.finishedAt} < ${new Date(now - (options.succeededDays ?? 7) * 86_400_000).toISOString()}::timestamptz)
         or (${jobs.status} = 'dead' and ${jobs.finishedAt} < ${new Date(now - (options.deadDays ?? 30) * 86_400_000).toISOString()}::timestamptz)`,
-    )
-    .returning({ id: jobs.id });
-  return removed.length;
+  );
+  return removed.removed;
 }

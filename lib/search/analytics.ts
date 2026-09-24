@@ -8,6 +8,7 @@ import { looksPersonal, normalizeText } from "./normalize";
 import { queryRows } from "./sql";
 import { analyticsWindow } from "./visitor";
 import { logEvent } from "@/lib/observability/log";
+import { pruneInBatches } from "@/lib/prune";
 
 /**
  * What people search for, and what they do next.
@@ -335,20 +336,15 @@ export async function pruneSearchLogs(
   try {
     const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
 
-    const queries = await db
-      .delete(searchQueries)
-      .where(lt(searchQueries.createdAt, cutoff))
-      .returning({ id: searchQueries.id });
-
-    const clicks = await db
-      .delete(searchClicks)
-      .where(lt(searchClicks.createdAt, cutoff))
-      .returning({ id: searchClicks.id });
+    // Batched, because how much there is to delete is decided by traffic
+    // rather than by the catalogue (D-111).
+    const queries = await pruneInBatches(searchQueries, lt(searchQueries.createdAt, cutoff));
+    const clicks = await pruneInBatches(searchClicks, lt(searchClicks.createdAt, cutoff));
 
     // Filters, refinements, carts and conversions age out on the same clock.
     const events = await pruneSearchEvents(olderThanDays);
 
-    return { queries: queries.length, clicks: clicks.length, events };
+    return { queries: queries.removed, clicks: clicks.removed, events };
   } catch (error) {
     await logEvent("warn", "search.prune_failed", { error });
     return { queries: 0, clicks: 0, events: 0 };
