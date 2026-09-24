@@ -526,3 +526,51 @@ describe("a preparation run's own record", () => {
     expect(live).toHaveLength(1);
   });
 });
+
+/*
+ * The staff editor's Product identity panel (D-116).
+ *
+ * The panel sends the manufacturer's model fields as an `identity` block
+ * rather than as `details`, which is what lets it share a product with the
+ * specifications panel without either one erasing the other. That is a
+ * property of `identityColumns` rather than of the screen, so it is asserted
+ * here: if it ever stopped holding, a staff member saving a model number
+ * would silently wipe the weight and the dimensions.
+ */
+describe("the identity panel's save shape", () => {
+  it("folds model fields into details without disturbing the rest of them", async () => {
+    const { listing } = await makeListing({
+      title: "HP-900 Headphones",
+      brand: "Harbor Acoustics",
+      details: { itemWeight: "250 g", packageDimensions: "20 x 18 x 8 cm" },
+    });
+
+    await updateProduct(staff, listing.id, {
+      identity: { modelName: "HP-900", modelNumber: "HP-900B", mpn: "HA-HP900-BLK" },
+    });
+
+    const [after] = await harness.db.select().from(products).where(eq(products.id, listing.id));
+    const details = after.details as Record<string, string>;
+    expect(details.modelName).toBe("HP-900");
+    expect(details.modelNumber).toBe("HP-900B");
+    expect(details.manufacturerPartNumber).toBe("HA-HP900-BLK");
+    // Untouched by a save that never mentioned them.
+    expect(details.itemWeight).toBe("250 g");
+    expect(details.packageDimensions).toBe("20 x 18 x 8 cm");
+  });
+
+  it("accepts a part number alongside the listing's own trade identifier", async () => {
+    const { listing } = await makeListing({ title: "HP-900 Headphones", brand: "Harbor Acoustics" });
+
+    await updateProduct(staff, listing.id, {
+      identifierType: "gtin",
+      identifierValue: "4006381333931",
+      identity: { modelNumber: "HP-900", mpn: "HA-HP900-BLK" },
+    });
+
+    const [after] = await harness.db.select().from(products).where(eq(products.id, listing.id));
+    expect(after.identifierType).toBe("gtin");
+    expect(after.identifierValue).toBe("4006381333931");
+    expect((after.details as Record<string, string>).manufacturerPartNumber).toBe("HA-HP900-BLK");
+  });
+});

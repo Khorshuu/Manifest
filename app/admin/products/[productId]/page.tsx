@@ -19,9 +19,9 @@ import type {
 } from "@/db/schema";
 import { ProductActionBar } from "./product-action-bar";
 import { ProductEditor, type EditorSection } from "./product-editor";
-import { ReadinessBox } from "./readiness-box";
+import { PreparationPanel } from "./preparation-panel";
+import { PublishingReadinessBox } from "./publishing-readiness-box";
 import { SeoPulseBox } from "./seo-pulse-box";
-import { PageAuditBox } from "./page-audit-box";
 import { SearchPerformanceBox } from "./search-performance-box";
 import { SeoReadinessBox } from "./seo-readiness-box";
 import { db } from "@/db";
@@ -34,6 +34,7 @@ import { AssuranceSection } from "./sections/assurance-section";
 import { BasicsSection } from "./sections/basics-section";
 import { ContentSection } from "./sections/content-section";
 import { MediaSection } from "./sections/media-section";
+import { SellingSection } from "./sections/selling-section";
 import { SeoSection } from "./sections/seo-section";
 import { SpecsSection } from "./sections/specs-section";
 import { VisibilitySection } from "./sections/visibility-section";
@@ -44,6 +45,11 @@ import {
   describeIntelligenceProvider,
   getSeoPulseOverview,
 } from "@/lib/seo-pulse";
+import { getPreparation } from "@/lib/preparation";
+import { describeIdentityState } from "@/lib/preparation/presentation";
+import { getProductResearchProvider } from "@/lib/providers/research";
+import { eq } from "drizzle-orm";
+import { pkbProducts } from "@/db/schema";
 
 /*
  * Cache Components (DECISIONS.md D-054): allowed to block while this route is
@@ -88,13 +94,13 @@ function dateInputValue(date: Date | null): string {
 
 /** Older links name sections that were renamed or merged (D-040). */
 const SECTION_ALIASES: Record<string, string> = {
-  inventory: "variants",
-  pricing: "variants",
-  variations: "variants",
-  content: "information",
-  specifications: "information",
-  seo: "information",
-  "seo-pulse": "information",
+  basics: "identity",
+  inventory: "selling",
+  pricing: "selling",
+  variations: "selling",
+  variants: "selling",
+  information: "content",
+  "seo-pulse": "seo",
   publishing: "visibility",
 };
 
@@ -117,7 +123,7 @@ export default async function AdminProductPage({
 
   if (!product) notFound();
 
-  const [tree, definitions, pulse, options, variants, checks] = await Promise.all([
+  const [tree, definitions, pulse, options, variants, checks, preparation] = await Promise.all([
     getCategoryTree(),
     // The specifications this product's category asks for — its own and
     // everything inherited from its ancestors.
@@ -126,8 +132,25 @@ export default async function AdminProductPage({
     listProductOptions(product.id),
     listVariants(user, product.id),
     getReadiness(user, product.id),
+    /*
+     * The latest preparation run, read on the server so a refresh in the
+     * middle of one comes back to the same run rather than to an empty panel
+     * that then fills in (D-116). The panel never starts a run itself.
+     */
+    getPreparation(user, product.id),
   ]);
   const categories = flatten(tree);
+
+  // How settled this product's identity is, as the knowledge base last
+  // assessed it. Read, never written from here.
+  const [knowledge] = product.pkbProductId
+    ? await db
+        .select({ resolutionState: pkbProducts.resolutionState })
+        .from(pkbProducts)
+        .where(eq(pkbProducts.id, product.pkbProductId))
+    : [];
+  const identityStatus = describeIdentityState(knowledge?.resolutionState ?? null);
+  const discoveryConfigured = getProductResearchProvider().key !== "none";
 
   const warranty = (product.warranty as ProductWarranty | null) ?? null;
   const compliance = (product.compliance as ProductCompliance | null) ?? null;
@@ -150,15 +173,29 @@ export default async function AdminProductPage({
   const requested = typeof query.section === "string" ? query.section : undefined;
   const initialSection = requested ? (SECTION_ALIASES[requested] ?? requested) : undefined;
 
+  /*
+   * The editor's order of work (D-116): who this product is, what it says,
+   * what it is made of, what it looks like, what it costs, how it is found,
+   * and only then the optional panels. It is the order a product-entry
+   * employee actually fills a product in, and it is the order SeoPulse
+   * prepares it in, so the two read the same way.
+   *
+   * Every panel below is an existing one. Nothing was rewritten to reorder
+   * them, and no field moved to a second form: the Manifest SKU left Product
+   * identity for Selling information because it is commercial data and not
+   * manufacturer identity, and that is the only field that changed panel.
+   */
   const sections: EditorSection[] = [
     {
-      id: "basics",
-      label: "Basic information",
-      summary: "Fields marked * are required. The category decides which specifications are asked for.",
+      id: "identity",
+      label: "Product identity",
+      summary: "Which product this is: what it is called, who makes it, and the numbers that tell versions apart.",
       content: (
         <BasicsSection
           key={`${archived ? "archived" : "live"}-${appliedKey}`}
           categories={categories}
+          identityStatus={identityStatus}
+          intelligenceHref={`/admin/products/${product.id}/intelligence`}
           product={{
             id: product.id,
             title: product.title,
@@ -168,6 +205,9 @@ export default async function AdminProductPage({
             sku: product.sku,
             identifierType: product.identifierType,
             identifierValue: product.identifierValue,
+            modelName: (details?.modelName as string | undefined) ?? null,
+            modelNumber: (details?.modelNumber as string | undefined) ?? null,
+            mpn: (details?.manufacturerPartNumber as string | undefined) ?? null,
             status: product.status,
             archived,
           }}
@@ -175,9 +215,45 @@ export default async function AdminProductPage({
       ),
     },
     {
+      id: "content",
+      label: "Product content",
+      summary: "The key features and description a shopper reads. Anything SeoPulse prepared is yours to edit.",
+      content: (
+        <ContentSection
+          key={appliedKey}
+          product={{
+            id: product.id,
+            descriptionHtml: product.descriptionHtml,
+            bulletFeatures: stringList(product.bulletFeatures),
+            boxContents: stringList(product.boxContents),
+          }}
+        />
+      ),
+    },
+    {
+      id: "specifications",
+      label: "Specifications",
+      summary:
+        "What this product's category asks for. Leave anything you do not know blank — an unknown fact is better than a wrong one.",
+      content: (
+        <SpecsSection
+          categoryName={findName(tree, product.categoryId) ?? "This category"}
+          definitions={definitions}
+          product={{
+            id: product.id,
+            attributeValues: (product.attributeValues as Record<string, string | string[]>) ?? {},
+            details: (details ?? {}) as Record<string, string | null>,
+            specTable: (product.specTable as { label: string; value: string }[] | null) ?? [],
+            measurements:
+              (product.measurements as { label: string; value: string }[] | null) ?? [],
+          }}
+        />
+      ),
+    },
+    {
       id: "media",
-      label: "Media",
-      summary: "At least one photograph is required. The first is the main image; drag to reorder. Variant photos are chosen under Variants.",
+      label: "Images",
+      summary: "At least one photograph is required. The first is the main image; drag to reorder. Variant photos are chosen below.",
       content: (
         <MediaSection
           key={appliedKey}
@@ -189,101 +265,83 @@ export default async function AdminProductPage({
       ),
     },
     {
-      id: "variants",
-      label: "Variants, pricing & inventory",
-      summary: "What this product comes in, each version's price and stock. These belong to this product only — a new product starts empty.",
-      content: (
-        <VariantMatrix
-          productId={product.id}
-          productTitle={product.title}
-          options={options.map((option) => ({
-            id: option.id,
-            name: option.name,
-            values: option.values.map((value) => ({ id: value.id, value: value.value })),
-          }))}
-          photos={[...product.images, ...product.lifestyleImages].map((image) => ({
-            id: image.id,
-            url: image.url,
-            altText: image.altText,
-          }))}
-          variants={variants.map((variant) => ({
-            id: variant.id,
-            sku: variant.sku,
-            label: variant.label,
-            priceBdt: variant.priceBdt,
-            salePriceBdt: variant.salePriceBdt,
-            isEnabled: variant.isEnabled,
-            fulfillmentMode: variant.fulfillmentMode,
-            stockQuantity: variant.stockQuantity,
-            lowStockThreshold: variant.lowStockThreshold,
-            preorderCapacity: variant.preorderCapacity,
-            preorderReserved: variant.preorderReserved,
-            closesAt: dateInputValue(variant.preorderClosesAt),
-            arrivesFrom: dateInputValue(variant.estimatedArrivalFrom),
-            arrivesTo: dateInputValue(variant.estimatedArrivalTo),
-            paymentMode: variant.paymentMode,
-            depositPercent: variant.depositPercent,
-            archived: variant.archivedAt !== null,
-            imageUrl: variant.imageUrl,
-            imageId: variant.imageId,
-          }))}
-        />
-      ),
-    },
-    {
-      id: "information",
-      label: "Product information",
+      id: "selling",
+      label: "Selling information",
       summary:
-        "Description, specifications and how it is found in search. Enter the facts, then let SEO Pulse (right) fill the SEO and search fields.",
+        "What this shop charges, holds and promises: your SKU, then each version's price, stock and preorder terms. None of this comes from research.",
       content: (
         <div className="flex flex-col gap-8">
           <div className="flex flex-col gap-3">
-            <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/70">Description & key features</h3>
-            <ContentSection
-              key={appliedKey}
-              product={{
-                id: product.id,
-                descriptionHtml: product.descriptionHtml,
-                bulletFeatures: stringList(product.bulletFeatures),
-                boxContents: stringList(product.boxContents),
-              }}
-            />
+            <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/70">Your reference</h3>
+            <SellingSection key={appliedKey} product={{ id: product.id, sku: product.sku }} />
           </div>
           <div className="flex flex-col gap-3 border-t border-blue-200 pt-6">
-            <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/70">Specifications</h3>
-            <SpecsSection
-              categoryName={findName(tree, product.categoryId) ?? "This category"}
-              definitions={definitions}
-              product={{
-                id: product.id,
-                attributeValues: (product.attributeValues as Record<string, string | string[]>) ?? {},
-                details: (details ?? {}) as Record<string, string | null>,
-                specTable: (product.specTable as { label: string; value: string }[] | null) ?? [],
-                measurements:
-                  (product.measurements as { label: string; value: string }[] | null) ?? [],
-              }}
-            />
-          </div>
-          <div className="flex flex-col gap-3 border-t border-blue-200 pt-6">
-            <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/70">Search & SEO</h3>
-            <SeoSection
-              key={appliedKey}
-              product={{
-                id: product.id,
-                title: product.title,
-                slug: product.slug,
-                seoMetaTitle: product.seoMetaTitle,
-                seoMetaDescription: product.seoMetaDescription,
-                searchKeywords: stringList(product.searchKeywords),
-                tags: stringList(product.tags),
-                seoNoIndex: product.seoNoIndex,
-                canonicalUrl: product.canonicalUrl,
-                searchable: product.searchable,
-                searchBoost: product.searchBoost,
-              }}
+            <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/70">
+              Variants, pricing &amp; stock
+            </h3>
+            <p className="max-w-[70ch] text-meta text-ink/65">
+              What this product comes in, and what each version costs and holds. A new product starts with none.
+            </p>
+            <VariantMatrix
+              productId={product.id}
+              productTitle={product.title}
+              options={options.map((option) => ({
+                id: option.id,
+                name: option.name,
+                values: option.values.map((value) => ({ id: value.id, value: value.value })),
+              }))}
+              photos={[...product.images, ...product.lifestyleImages].map((image) => ({
+                id: image.id,
+                url: image.url,
+                altText: image.altText,
+              }))}
+              variants={variants.map((variant) => ({
+                id: variant.id,
+                sku: variant.sku,
+                label: variant.label,
+                priceBdt: variant.priceBdt,
+                salePriceBdt: variant.salePriceBdt,
+                isEnabled: variant.isEnabled,
+                fulfillmentMode: variant.fulfillmentMode,
+                stockQuantity: variant.stockQuantity,
+                lowStockThreshold: variant.lowStockThreshold,
+                preorderCapacity: variant.preorderCapacity,
+                preorderReserved: variant.preorderReserved,
+                closesAt: dateInputValue(variant.preorderClosesAt),
+                arrivesFrom: dateInputValue(variant.estimatedArrivalFrom),
+                arrivesTo: dateInputValue(variant.estimatedArrivalTo),
+                paymentMode: variant.paymentMode,
+                depositPercent: variant.depositPercent,
+                archived: variant.archivedAt !== null,
+                imageUrl: variant.imageUrl,
+                imageId: variant.imageId,
+              }))}
             />
           </div>
         </div>
+      ),
+    },
+    {
+      id: "seo",
+      label: "SEO & search",
+      summary: "How shoppers find this product. SeoPulse prepares these; change anything that does not sound like you.",
+      content: (
+        <SeoSection
+          key={appliedKey}
+          product={{
+            id: product.id,
+            title: product.title,
+            slug: product.slug,
+            seoMetaTitle: product.seoMetaTitle,
+            seoMetaDescription: product.seoMetaDescription,
+            searchKeywords: stringList(product.searchKeywords),
+            tags: stringList(product.tags),
+            seoNoIndex: product.seoNoIndex,
+            canonicalUrl: product.canonicalUrl,
+            searchable: product.searchable,
+            searchBoost: product.searchBoost,
+          }}
+        />
       ),
     },
     {
@@ -411,17 +469,33 @@ export default async function AdminProductPage({
         justCreated={createdNotice}
       />
 
+      {/*
+       * Preparation is the first thing on the page because it is the first
+       * thing that happens to a product (D-116). It reports its own state and
+       * asks for what it needs; it never starts itself.
+       */}
+      <PreparationPanel
+        productId={product.id}
+        discoveryConfigured={discoveryConfigured}
+        justStarted={query.preparing === "1"}
+        initialRun={
+          preparation
+            ? {
+                id: preparation.id,
+                stage: preparation.stage,
+                steps: preparation.steps,
+                review: preparation.review,
+                failure: preparation.failure,
+                seoRunId: preparation.seoRunId,
+                updatedAt: preparation.updatedAt.toISOString(),
+              }
+            : null
+        }
+      />
+
       <div className="grid min-w-0 grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_17.5rem]">
         <aside className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-24 lg:order-2">
-          <SeoPulseBox
-            productId={product.id}
-            lastRunId={lastRun?.id ?? null}
-            lastRunAt={lastRun ? (lastRun.completedAt ?? lastRun.createdAt) : null}
-            stale={Boolean(pulse && (pulse.stale || pulse.inputChanged))}
-            paid={data.paid || ai.paid}
-          />
-          <ReadinessBox checks={checks} />
-          <PageAuditBox audit={audit} />
+          <PublishingReadinessBox checks={checks} audit={audit} />
           <SearchPerformanceBox performance={searchPerformance} />
           {pulse ? (
             <SeoReadinessBox
@@ -432,15 +506,33 @@ export default async function AdminProductPage({
               previousAddresses={previousAddresses.map((row: { fromSlug: string }) => row.fromSlug)}
             />
           ) : null}
-          <section className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-4">
-            <h2 className="text-sm font-medium text-ink">Product knowledge</h2>
-            <p className="text-[0.75rem] text-ink/65">
-              The facts behind this listing, where each came from, and anything waiting for a decision.
-            </p>
-            <Link className="text-[0.8rem] text-blue-600 hover:underline" href={`/admin/products/${product.id}/intelligence`}>
-              Open product intelligence
-            </Link>
-          </section>
+          {/*
+           * Advanced tools, folded away (D-116). Everything that used to
+           * compete for attention up here still works and is still one click
+           * from the product — it is simply no longer the way a normal staff
+           * member is expected to prepare a listing.
+           */}
+          <details className="admin-card p-3.5">
+            <summary className="cursor-pointer text-[0.8125rem] font-medium text-ink">Advanced tools</summary>
+            <div className="mt-3 flex flex-col gap-3">
+              <Link
+                className="text-[0.8rem] text-blue-600 hover:underline"
+                href={`/admin/products/${product.id}/intelligence`}
+              >
+                Open product intelligence
+              </Link>
+              <p className="text-[0.75rem] text-ink/65">
+                The facts behind this listing, where each came from, and anything waiting for a decision.
+              </p>
+              <SeoPulseBox
+                productId={product.id}
+                lastRunId={lastRun?.id ?? null}
+                lastRunAt={lastRun ? (lastRun.completedAt ?? lastRun.createdAt) : null}
+                stale={Boolean(pulse && (pulse.stale || pulse.inputChanged))}
+                paid={data.paid || ai.paid}
+              />
+            </div>
+          </details>
         </aside>
         <div className="min-w-0 lg:order-1">
           <ProductEditor sections={sections} initialSection={initialSection} />

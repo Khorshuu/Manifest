@@ -19,6 +19,21 @@ export {
 } from "./service";
 export { advancePreparation, stalePreparationRuns } from "./runner";
 export {
+  attentionSummary,
+  describeDiscovery,
+  describeIdentityState,
+  describeIssue,
+  preparationPhases,
+  shouldKeepPolling,
+  STAGE_LABEL,
+  STAGE_SUMMARY,
+  STEP_LABEL,
+  type IssueAction,
+  type PhaseState,
+  type PreparationIssue,
+  type PreparationPhase,
+} from "./presentation";
+export {
   FINISHED_STAGES,
   PREPARATION_CODES,
   PREPARATION_STEPS,

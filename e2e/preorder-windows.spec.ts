@@ -26,8 +26,8 @@ async function signIn(page: Page, email: string) {
 async function productWithVariant(page: Page): Promise<string> {
   const title = `Window Test ${crypto.randomUUID().slice(0, 8)}`;
   await page.goto("/admin/products/new");
-  await page.getByLabel("Title").fill(title);
-  await page.getByRole("button", { name: "Save product" }).click();
+  await page.getByLabel("Product name").fill(title);
+  await page.getByRole("button", { name: "Save without SeoPulse" }).click();
 
   // Creating opens the product editor.
   await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));

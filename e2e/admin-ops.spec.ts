@@ -104,8 +104,8 @@ test("the audit log shows who made each change", async ({ page }) => {
   // Make a change worth recording.
   await page.goto("/admin/products/new");
   const title = `Audited ${crypto.randomUUID().slice(0, 8)}`;
-  await page.getByLabel("Title").fill(title);
-  await page.getByRole("button", { name: "Save product" }).click();
+  await page.getByLabel("Product name").fill(title);
+  await page.getByRole("button", { name: "Save without SeoPulse" }).click();
   // Creating opens the product editor.
   await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
 

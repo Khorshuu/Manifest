@@ -31,8 +31,8 @@ async function startWizard(page: Page): Promise<{ id: string; title: string }> {
   const title = `Wizard ${crypto.randomUUID().slice(0, 8)}`;
 
   await page.goto("/admin/products/new");
-  await page.getByLabel("Title").fill(title);
-  await page.getByRole("button", { name: "Save product" }).click();
+  await page.getByLabel("Product name").fill(title);
+  await page.getByRole("button", { name: "Save without SeoPulse" }).click();
   // Creating opens the product editor.
   await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
 

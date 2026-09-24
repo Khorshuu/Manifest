@@ -2897,3 +2897,54 @@ should have it. Product preparation reads the verdict and stops at NEEDS_REVIEW
 with what is missing, rather than reporting the product READY. **Nothing is
 invented to clear the bar** — the answer to too little knowledge is more
 knowledge, which is what the rest of the pipeline is for.
+
+## D-116 — The staff product-entry screen translates preparation; it never re-decides it
+
+**Decision (Stage 10.)** Stage 9 left a durable, honest preparation backend and
+no way for a normal employee to use it. The vocabulary it reports in —
+`PREPARING_SEARCH`, `AUTOMATIC_SOURCE_DISCOVERY_NOT_CONFIGURED`, a remedy that
+assumes the reader knows what the Brand Source Registry is — is correct and
+internal. The product-entry screen is a translation of it, and nothing more.
+
+`lib/preparation/presentation.ts` is that translation, and it is a pure module
+with no database access, so the mapping is unit-tested rather than only
+observed in a browser. Three rules hold it:
+
+**Nothing is shown as finished unless the run recorded it finishing.** The
+checklist is built from `steps`, which the orchestrator writes only when a step
+genuinely completes. A `degraded` or `skipped` step reads as done-with-limits,
+not as done. There is no percentage and no animation standing in for progress,
+because a fabricated bar is exactly the thing that makes a real delay look like
+a hang.
+
+**Every issue on screen is a note the backend returned.** The heading and the
+buttons are chosen here; the message and the remedy are the backend's own
+words. A code this module has never heard of still renders, with those words
+and a retry — the alternative, hiding it, would leave a staff member looking at
+a stopped run with no explanation.
+
+**Which service does automatic discovery is not staff information.** They are
+told whether it is available. The provider's name and configuration stay on the
+administrator's screens (D-114).
+
+The screen decides nothing the backend decides. It cannot confirm an identity,
+accept a claim, approve a domain or apply generated wording: those go to
+Product Intelligence under their own permissions, and preparation continues
+through the existing `continue` action once they are settled. Preparing a
+product remains `catalog.manage`, checked server-side on every route; a simpler
+interface does not widen access.
+
+**Add Product asks for the product, not for a catalogue record.** Name, brand
+and category, then optionally the manufacturer's model, part number, barcode
+and page. The description, key points and SEO fields it used to ask for are
+what SeoPulse now writes, and asking a person for them before anything is known
+was asking them to do the work twice. The Manifest SKU stays on the form and
+stays visually apart from the manufacturer's numbers, because staff were typing
+one where the other belonged.
+
+**Both paths out of the screen are real.** "Research & Prepare with SeoPulse"
+creates the product and starts a run in one movement; "Save without SeoPulse"
+creates the same product and stops, which is the only sensible path for a
+private-label or locally sourced product no manufacturer's page describes.
+Removing the manual path would have made the shop unable to sell things it
+sells.

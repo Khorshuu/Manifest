@@ -10,12 +10,12 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * The editor is one page of sections (D-040); search fields sit under
- * Product information. The jump bar scrolls there.
+ * SEO & search. The jump bar scrolls there.
  */
 async function openSearchListing(page: Page) {
   await page
     .getByRole("navigation", { name: "Product sections" })
-    .getByRole("button", { name: /Product information/ })
+    .getByRole("button", { name: /SEO & search/ })
     .click();
   await expect(page.locator("#seoMetaTitle")).toBeVisible();
 }
@@ -161,7 +161,7 @@ test("staff can hide a product from search without unpublishing it", async ({
   const toggle = page.getByLabel("Show this product in search results and suggestions");
   await toggle.uncheck();
   await page
-    .locator("#section-information form:has(#seoMetaTitle)")
+    .locator("#section-seo form:has(#seoMetaTitle)")
     .getByRole("button", { name: "Save", exact: true })
     .click();
   await expect(page.getByText("Saved.").first()).toBeVisible();
@@ -180,7 +180,7 @@ test("staff can hide a product from search without unpublishing it", async ({
   await openSearchListing(page);
   await page.getByLabel("Show this product in search results and suggestions").check();
   await page
-    .locator("#section-information form:has(#seoMetaTitle)")
+    .locator("#section-seo form:has(#seoMetaTitle)")
     .getByRole("button", { name: "Save", exact: true })
     .click();
   await expect(page.getByText("Saved.").first()).toBeVisible();

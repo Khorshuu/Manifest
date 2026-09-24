@@ -42,6 +42,7 @@ fact; admin approval before mutation; deterministic logic before AI.
 | 7 | Hardening: security, SSRF, write safety, performance, legacy contract, observability, provider abstraction | MAX | **COMPLETE** (2026-09-24) — see section 3F. The legacy contraction was deliberately not done; the coverage report says why (D-103, D-105) |
 | 8 | Final production audit and full verification | ULTRACODE | **COMPLETE** (2026-09-24) — see section 3G |
 | 9 | Product preparation: identity on the product save, automatic resolution, the durable orchestration behind "Research & Prepare with SeoPulse", the research provider boundary, and the PKB → SeoPulse grounded context | MAX | **BACKEND COMPLETE** (2026-09-24) — see section 3H. The product-entry interface is deliberately a separate piece of work |
+| 10 | The staff product-entry screen: Add Product, "Research & Prepare with SeoPulse", the one progress surface, review-only-exceptions, and the reordered product editor | HIGH | **COMPLETE** (2026-09-24) — see section 3I. No backend change |
 
 ---
 
@@ -1043,6 +1044,138 @@ or evidence row; cancellation; a failing provider blocking without corrupting;
 a customer refused at every entry point; established knowledge reaching
 `loadPulseInput` while an unaccepted claim does not; and nothing in a run's
 reported failure that reads like a stack trace.
+
+## 3I. Stage 10 — the staff product-entry screen
+
+The interface Stage 9 deliberately left out (D-116). No backend was changed:
+the preparation service, the orchestrator, the state model, the research
+provider boundary and the SEO Pulse grounding are exactly as Stage 9 left
+them. What is new is one translation module and the screens that use it.
+
+### 3I.1 What a product-entry employee does
+
+1. **Add Product** asks for three things: product name, brand, category. An
+   optional section — "Help SeoPulse identify the exact product" — takes the
+   model, the model number, the manufacturer part number, one barcode and the
+   official product URL. These are the fields `productIdentitySchema` already
+   accepts; nothing is stored twice. The Manifest SKU is on the same page, in
+   its own panel, described as this shop's own code.
+2. **Research & Prepare with SeoPulse** creates the product and starts a
+   preparation run in one movement, then opens the product editor with the run
+   already reporting itself. **Save without SeoPulse** creates the same product
+   and stops.
+3. The editor shows **one progress surface**, then only what needs a decision.
+4. The employee adds price, stock and photographs, and publishes.
+
+Nothing in that sequence requires them to know what the knowledge base, a
+claim, an evidence row, an enrichment run or a research provider is.
+
+### 3I.2 The translation layer
+
+`lib/preparation/presentation.ts`. Pure functions, no database, unit-tested in
+`tests/preparation-presentation.test.ts`.
+
+| Backend | On screen |
+| --- | --- |
+| `IDENTIFYING` | Identifying product |
+| `FINDING_SOURCES` | Finding trusted sources |
+| `RESEARCHING` | Collecting product information |
+| `VERIFYING` | Checking product information |
+| `NEEDS_REVIEW` | *n* things need your attention |
+| `PREPARING_CONTENT` | Preparing product content |
+| `PREPARING_SEARCH` | Preparing search |
+| `CHECKING_PAGE` | Checking product page |
+| `READY` | Ready |
+| `BLOCKED` | Preparation cannot continue yet |
+| `FAILED` | Preparation stopped |
+| `CANCELLED` | Preparation cancelled |
+
+The checklist under the headline is built from the run's recorded `steps`, so
+a step is shown as finished only when it finished. A `degraded` or `skipped`
+step reads as done-with-limits. There is no percentage.
+
+Failure and review codes become a heading and a set of buttons; the message and
+the remedy are the backend's own words. `AUTOMATIC_SOURCE_DISCOVERY_NOT_CONFIGURED`
+becomes "SeoPulse needs a product source" with *Add a source* and *Continue
+manually*. `INSUFFICIENT_KNOWLEDGE` becomes "SeoPulse needs more product
+information" with *Add a source*, *Add specifications* and *Check again*.
+`CLAIMS_CONFLICT` and `CLAIMS_WAITING` lead to Product Intelligence, where the
+decision actually belongs. A code the module has never seen still renders.
+
+### 3I.3 Durability and polling
+
+The product page reads the latest run on the server (`getPreparation`) and
+hands it to the panel, so a refresh in the middle of a run comes back to the
+same run rather than to an empty panel. The panel never starts a run on mount:
+starting is always a press, and the press carries a request key, so a double
+press or a retried request returns the run the server already made. Polling
+runs every three seconds while the stage is one the run moves out of on its
+own, pauses on a hidden tab, and stops at READY, NEEDS_REVIEW, BLOCKED, FAILED
+and CANCELLED. A lost connection says so and keeps trying; it never reports the
+preparation as failed.
+
+### 3I.4 Supplying what a run is waiting for
+
+The panel's two small forms both post to the existing
+`POST /api/admin/products/:id/preparation/:runId` with `action: "continue"`:
+
+- **identity** — model, model number, MPN, one barcode, official URL. Applied
+  through the product save, so the identity is validated and re-resolved
+  exactly as if it were typed into the editor.
+- **sources** — official URL, one additional address, and a pasted document.
+  Documents are text, and the screen says so: *Paste product specification or
+  document text*, with a line explaining that attached files and photographs of
+  a specification are not read. That is the real `provideDocument` contract and
+  it is not dressed up.
+
+### 3I.5 The editor's order
+
+Product identity · Product content · Specifications · Images · Selling
+information · SEO & search · Warranty & safety · Visibility & schedule.
+
+Every panel is an existing one. The only field that changed panel is the
+Manifest SKU, which left Product identity for Selling information because it is
+commercial data and not manufacturer identity. Prices, stock, preorder capacity
+and closing dates were not duplicated into a new form: they belong to a
+variant, and the variants table stays where it is.
+
+`Before publishing` in the sidebar now answers the publishing question once,
+from `getReadiness`'s checks and `listingAudit`'s findings — the two engines
+that already existed. No third readiness engine was written.
+
+The old "Fill with SEO Pulse" panel still works and still has its route. It is
+inside *Advanced tools*, folded away, along with the link to Product
+Intelligence and the run's report.
+
+### 3I.6 Permissions
+
+Unchanged. Preparing and editing a product is `catalog.manage`, checked on the
+server by `refuseNonStaff` and `requirePermission` on every route. Trust,
+policy and vocabulary decisions are still `knowledge.manage` and still taken on
+their own screens. `e2e/admin-boundary.spec.ts` walks `app/api/admin` and
+`app/admin` from disk, so the preparation routes are covered by it without
+being named.
+
+### 3I.7 Tested
+
+`tests/preparation-presentation.test.ts` — 16 tests over the mapping: every
+stage has a sentence that is not its code; polling stops at every finished or
+waiting stage; nothing is finished until recorded; exactly one step is active
+and only while the run moves; a degraded step is honest; every backend code has
+a heading that is not the code; an unknown code still renders with the
+backend's words; the provider is never named.
+
+`tests/product-preparation.test.ts` — two further tests for the identity
+panel's save shape: model fields fold into `details` without disturbing the
+weight or the dimensions, and a part number is accepted alongside the listing's
+trade identifier.
+
+`e2e/product-preparation.spec.ts` — the Add Product screen's fields and the
+absence of the ones SeoPulse now writes; Research & Prepare creating the
+product and one run that survives a reload; Save without SeoPulse leaving a
+usable product that offers preparation later; the editor's section order, the
+single publishing answer and the folded advanced tools; the primary control's
+touch target and no sideways scroll on a phone.
 
 ---
 

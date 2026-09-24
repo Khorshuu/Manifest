@@ -3,6 +3,7 @@ import { IconArrowLeft } from "@/components/icons";
 import Link from "next/link";
 import { requireAdminPage } from "@/lib/auth/admin-page";
 import { getCategoryTree, type CategoryNode } from "@/lib/catalog";
+import { getProductResearchProvider } from "@/lib/providers/research";
 import { ProductForm } from "./product-form";
 
 /*
@@ -25,6 +26,12 @@ export default async function NewProductPage() {
   await requireAdminPage("catalog.manage");
   const tree = await getCategoryTree();
   const categories = flatten(tree);
+  /*
+   * Whether automatic source discovery is set up at all — not which service
+   * does it. Staff care about the first; the second is an administrator's
+   * concern and stays on the administrator's screens (D-116).
+   */
+  const discoveryConfigured = getProductResearchProvider().key !== "none";
 
   return (
     <div className="flex flex-col gap-6">
@@ -49,7 +56,7 @@ export default async function NewProductPage() {
           </p>
         </div>
       ) : (
-        <ProductForm categories={categories} />
+        <ProductForm categories={categories} discoveryConfigured={discoveryConfigured} />
       )}
     </div>
   );

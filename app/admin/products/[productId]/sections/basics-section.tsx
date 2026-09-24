@@ -21,6 +21,10 @@ export type BasicsSectionValues = {
   sku: string | null;
   identifierType: string | null;
   identifierValue: string | null;
+  /** Manufacturer identity, stored in `products.details` (D-112). */
+  modelName: string | null;
+  modelNumber: string | null;
+  mpn: string | null;
   status: string;
   archived: boolean;
 };
@@ -46,10 +50,16 @@ const IDENTIFIER_TYPES = [
 export function BasicsSection({
   product,
   categories,
+  identityStatus,
+  intelligenceHref,
   onCategoryChange,
 }: {
   product: BasicsSectionValues;
   categories: CategoryOption[];
+  /** Identified / Needs review / Needs information, from the knowledge base. */
+  identityStatus?: { label: string; tone: "good" | "warn" | "plain"; detail: string };
+  /** Where the underlying resolution evidence lives, for whoever wants it. */
+  intelligenceHref?: string;
   /** The specifications panel follows the category, so it is told about it. */
   onCategoryChange?: (categoryId: string) => void;
 }) {
@@ -62,13 +72,15 @@ export function BasicsSection({
   const [title, setTitle] = useState(product.title);
   const [categoryId, setCategoryId] = useState(product.categoryId);
   const [brand, setBrand] = useState(product.brand ?? "");
-  const [sku, setSku] = useState(product.sku ?? "");
   const [identifierType, setIdentifierType] = useState(
     product.identifierType ?? "",
   );
   const [identifierValue, setIdentifierValue] = useState(
     product.identifierValue ?? "",
   );
+  const [modelName, setModelName] = useState(product.modelName ?? "");
+  const [modelNumber, setModelNumber] = useState(product.modelNumber ?? "");
+  const [mpn, setMpn] = useState(product.mpn ?? "");
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,9 +91,22 @@ export function BasicsSection({
       title,
       categoryId,
       brand: orNull(brand),
-      sku: orNull(sku),
+      // The SKU is the Selling information panel's field, not this one's: a
+      // panel never sends a field it does not show, or it would save a stale
+      // copy over whatever the other panel just wrote.
       identifierType: identifierType === "" ? null : identifierType,
       identifierValue: orNull(identifierValue),
+      /*
+       * The manufacturer's own names for the product (D-112). Sent as an
+       * identity block rather than as `details`, so the save folds them into
+       * the stored details instead of replacing that object — the
+       * specifications panel owns the rest of it.
+       */
+      identity: {
+        modelName: modelName.trim(),
+        modelNumber: modelNumber.trim(),
+        mpn: mpn.trim(),
+      },
       // Status is not sent from here: publishing, unpublishing and archiving
       // go through the action bar and the Visibility tab, which check the
       // listing is ready before it goes in front of shoppers.
@@ -90,6 +115,32 @@ export function BasicsSection({
 
   return (
     <form onSubmit={submit} className="flex max-w-2xl flex-col gap-6" noValidate>
+      {identityStatus ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-blue-200 bg-blue-50/40 px-3 py-2">
+          <p className="flex items-center gap-2 text-meta">
+            <span
+              aria-hidden="true"
+              className={
+                identityStatus.tone === "good"
+                  ? "text-transit-green-text"
+                  : identityStatus.tone === "warn"
+                    ? "text-brass-text"
+                    : "text-ink/50"
+              }
+            >
+              {identityStatus.tone === "good" ? "✓" : identityStatus.tone === "warn" ? "!" : "○"}
+            </span>
+            <span className="font-medium text-ink">{identityStatus.label}</span>
+            <span className="text-ink/65">{identityStatus.detail}</span>
+          </p>
+          {intelligenceHref ? (
+            <a href={intelligenceHref} className="shrink-0 text-meta text-blue-600 underline-offset-4 hover:underline">
+              View product intelligence
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+
       <LabelledField
         label="Product name"
         htmlFor="title"
@@ -145,22 +196,58 @@ export function BasicsSection({
         />
       </LabelledField>
 
-      <LabelledField
-        label="SKU"
-        htmlFor="sku"
-        hint="The shop's own code for this listing. No two products may share one."
-      >
-        <input
-          id="sku"
-          name="sku"
-          value={sku}
-          onChange={(event) => {
-            setSku(event.target.value);
-            markDirty();
-          }}
-          className={inputClass}
-        />
-      </LabelledField>
+      <div className="flex flex-col gap-4 border-t border-blue-200 pt-5">
+        <div>
+          <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/70">
+            How the manufacturer names it
+          </h3>
+          <p className="mt-0.5 max-w-[60ch] text-meta text-ink/65">
+            Optional, and what lets Manifest tell two similar versions apart. These are the
+            manufacturer&rsquo;s numbers, not your own — the Manifest SKU is under Selling information.
+          </p>
+        </div>
+
+        <LabelledField label="Model" htmlFor="modelName" hint="The manufacturer's name for it, such as WH-1000XM6.">
+          <input
+            id="modelName"
+            name="modelName"
+            value={modelName}
+            onChange={(event) => {
+              setModelName(event.target.value);
+              markDirty();
+            }}
+            className={inputClass}
+          />
+        </LabelledField>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <LabelledField label="Model number" htmlFor="modelNumber" hint="Where it differs from the model name.">
+            <input
+              id="modelNumber"
+              name="modelNumber"
+              value={modelNumber}
+              onChange={(event) => {
+                setModelNumber(event.target.value);
+                markDirty();
+              }}
+              className={inputClass}
+            />
+          </LabelledField>
+
+          <LabelledField label="Manufacturer part number (MPN)" htmlFor="mpn">
+            <input
+              id="mpn"
+              name="mpn"
+              value={mpn}
+              onChange={(event) => {
+                setMpn(event.target.value);
+                markDirty();
+              }}
+              className={inputClass}
+            />
+          </LabelledField>
+        </div>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <LabelledField label="Identifier type" htmlFor="identifierType">

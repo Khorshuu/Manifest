@@ -42,8 +42,8 @@ async function openSection(page: Page, label: string) {
 async function createProduct(page: Page): Promise<string> {
   const title = `Photo Test ${crypto.randomUUID().slice(0, 8)}`;
   await page.goto("/admin/products/new");
-  await page.getByLabel("Title").fill(title);
-  await page.getByRole("button", { name: "Save product" }).click();
+  await page.getByLabel("Product name").fill(title);
+  await page.getByRole("button", { name: "Save without SeoPulse" }).click();
 
   // Creating opens the setup wizard; these tests want the product page.
   // Creating opens the product editor.
@@ -59,8 +59,8 @@ test("staff upload a photograph and it appears on the product", async ({
   await signIn(page, "staff@example.com");
   await createProduct(page);
 
-  // Photography lives in the editor's Media panel.
-  await openSection(page, "Media");
+  // Photography lives in the editor's Images panel.
+  await openSection(page, "Images");
 
   await expect(page.getByText("No photography yet.")).toBeVisible();
 
@@ -197,15 +197,15 @@ test("an uploaded photograph reaches the storefront", async ({ page }) => {
   // A new listing starts as a draft (D-056); the file is served either way.
   const title = `Shown ${crypto.randomUUID().slice(0, 8)}`;
   await page.goto("/admin/products/new");
-  await page.getByLabel("Title").fill(title);
-  await page.getByRole("button", { name: "Save product" }).click();
+  await page.getByLabel("Product name").fill(title);
+  await page.getByRole("button", { name: "Save without SeoPulse" }).click();
 
   // Creating opens the product editor.
   await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
   await page.goto(page.url().split("?")[0]);
 
   // Photography lives in the editor's Media panel.
-  await openSection(page, "Media");
+  await openSection(page, "Images");
 
   await page.getByLabel("Photograph", { exact: true }).setInputFiles({
     name: "product.png",

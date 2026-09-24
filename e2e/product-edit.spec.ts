@@ -30,8 +30,8 @@ async function signIn(page: Page, email: string) {
  * older names these tests use map onto the sections they now live in.
  */
 const SECTIONS: Record<string, string> = {
-  Description: "Product information",
-  "Search listing": "Product information",
+  Description: "Product content",
+  "Search listing": "SEO & search",
   Visibility: "Visibility & schedule",
 };
 
@@ -46,8 +46,8 @@ async function openSection(page: Page, label: string) {
 async function createProduct(page: Page): Promise<string> {
   const title = `Edit Test ${crypto.randomUUID().slice(0, 8)}`;
   await page.goto("/admin/products/new");
-  await page.getByLabel("Title").fill(title);
-  await page.getByRole("button", { name: "Save product" }).click();
+  await page.getByLabel("Product name").fill(title);
+  await page.getByRole("button", { name: "Save without SeoPulse" }).click();
 
   // Creating opens the setup wizard; this test wants the product page itself.
   // Creating opens the product editor.
@@ -63,7 +63,7 @@ test("staff edit a product and the change sticks", async ({ page }) => {
 
   await page.getByLabel("Brand").fill("Northfield Supply");
   const sku = `NF-${crypto.randomUUID().slice(0, 8)}`;
-  await page.getByLabel("SKU").fill(sku);
+  await page.getByLabel("Manifest SKU").fill(sku);
 
   const saved = page.waitForResponse(
     (r) =>
@@ -75,10 +75,18 @@ test("staff edit a product and the change sticks", async ({ page }) => {
 
   await expect(page.getByText("Saved.")).toBeVisible();
 
+  // The SKU is Selling information's own field and has its own save: it is
+  // commercial data, not part of who the product is (D-116).
+  const skuSaved = page.waitForResponse(
+    (r) => r.url().includes("/api/admin/products/") && r.request().method() === "PATCH",
+  );
+  await page.getByRole("button", { name: "Save SKU" }).click();
+  expect((await skuSaved).status()).toBe(200);
+
   // Reload rather than trusting the optimistic message.
   await page.reload();
   await expect(page.getByLabel("Brand")).toHaveValue("Northfield Supply");
-  await expect(page.getByLabel("SKU")).toHaveValue(sku);
+  await expect(page.getByLabel("Manifest SKU")).toHaveValue(sku);
   // Status is no longer a field here: a new product is a draft until published.
   await expect(page.getByText("Not visible to customers.")).toBeVisible();
 });
@@ -108,9 +116,9 @@ test("saving one section leaves the others alone", async ({ page }) => {
       r.url().includes("/api/admin/products/") &&
       r.request().method() === "PATCH",
   );
-  // The description form within Product information has its own Save.
+  // The description form within Product content has its own Save.
   await page
-    .locator("#section-information form:has(#descriptionHtml)")
+    .locator("#section-content form:has(#descriptionHtml)")
     .getByRole("button", { name: "Save", exact: true })
     .click();
   expect((await saved).status()).toBe(200);
@@ -135,13 +143,13 @@ test("a duplicate SKU is refused, with the clash named", async ({ page }) => {
   const sku = `SHARED-${crypto.randomUUID().slice(0, 8)}`;
 
   await createProduct(page);
-  await page.getByLabel("SKU").fill(sku);
-  await page.getByRole("button", { name: "Save changes" }).click();
+  await page.getByLabel("Manifest SKU").fill(sku);
+  await page.getByRole("button", { name: "Save SKU" }).click();
   await expect(page.getByText("Saved.")).toBeVisible();
 
   await createProduct(page);
-  await page.getByLabel("SKU").fill(sku);
-  await page.getByRole("button", { name: "Save changes" }).click();
+  await page.getByLabel("Manifest SKU").fill(sku);
+  await page.getByRole("button", { name: "Save SKU" }).click();
 
   await expect(page.getByText(/already belongs to/)).toBeVisible();
 });

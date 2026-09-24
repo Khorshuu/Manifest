@@ -3591,3 +3591,70 @@ The product-entry interface is deliberately a separate piece of work.
 - `[!]` The product-entry interface, the consolidated Intelligence screens and a
   staff-facing view of a preparation run are deliberately not built yet. The
   backend reports everything such a screen needs.
+
+## Stage 10 — the staff product-entry screen (2026-09-24)
+
+The interface over the Stage 9 backend (D-116). No backend was changed: no
+migration, no new table, no change to the preparation service, the
+orchestrator, the state model, the research provider boundary or the SEO Pulse
+grounding. `docs/KNOWLEDGE_PLATFORM.md` section 3I is the detail.
+
+- `[x]` **Add Product asks for the product, not a catalogue record.** Product
+  name, brand and category, then an optional "Help SeoPulse identify the exact
+  product" section — model, model number, MPN, one barcode, official product
+  URL. Those are the fields `productIdentitySchema` already accepts, so nothing
+  is stored a second time. The Manifest SKU is on the page, in its own panel,
+  visually separated from the manufacturer's numbers.
+- `[x]` **One press does the whole thing.** "Research & Prepare with SeoPulse"
+  creates the product, records the identity, attaches the official URL as a
+  source and starts a preparation run, then opens the editor with the run
+  already reporting itself. The employee never saves, navigates elsewhere,
+  resolves an identity, opens intelligence and comes back.
+- `[x]` **The manual path is untouched.** "Save without SeoPulse" creates the
+  same product and stops, for private-label and locally sourced products no
+  manufacturer's page describes.
+- `[x]` **One progress surface, in the words of the product.** `IDENTIFYING`
+  reads as "Identifying product", `PREPARING_SEARCH` as "Preparing search". The
+  checklist comes from the run's recorded steps, so nothing is shown as
+  finished until it finished, and there is no percentage.
+- `[x]` **Review only exceptions.** A run at NEEDS_REVIEW says "2 things need
+  your attention" and lists only those, each with the backend's own message and
+  remedy and a button that does something: supply identity, add a source, paste
+  a specification, open Product Intelligence, check again, try again.
+- `[x]` **Blocked states are actions, not codes.**
+  `AUTOMATIC_SOURCE_DISCOVERY_NOT_CONFIGURED` reads as "SeoPulse needs a
+  product source". `INSUFFICIENT_KNOWLEDGE` reads as "SeoPulse needs more
+  product information", followed by the backend's own count of what is missing.
+- `[x]` **Durable, and honest about it.** The latest run is read on the server,
+  so a refresh comes back to the same run. The panel never starts a run because
+  it remounted; starting is always a press, and the press carries a request key.
+  Polling stops at every finished or waiting stage, and a dropped connection
+  says so rather than reporting a failure.
+- `[x]` **The provider is not staff business.** Staff are told whether
+  automatic source discovery is available. Which service implements it stays on
+  the administrator's screens.
+- `[x]` **The editor is ordered for daily work.** Product identity, Product
+  content, Specifications, Images, Selling information, SEO & search, then the
+  optional panels. Every panel is an existing one; the only field that changed
+  panel is the Manifest SKU, which is commercial data rather than manufacturer
+  identity. Prices, stock and preorder terms were not duplicated — they belong
+  to a variant and stay in the variants table.
+- `[x]` **One publishing answer.** "Before publishing" now merges the existing
+  readiness checks and the existing page audit's findings. No third readiness
+  engine was written, and the audit's full reasoning is one click away.
+- `[x]` **Advanced tools preserved and demoted.** "Fill with SEO Pulse", its
+  route, the report exports and Product Intelligence all still work, folded
+  into an "Advanced tools" panel rather than competing for attention.
+- `[x]` **Permissions unchanged.** `catalog.manage` on the server for every
+  preparation and catalogue route; `knowledge.manage` still required for trust,
+  policy and vocabulary decisions. The boundary suite walks the route tree from
+  disk, so the preparation routes are covered without being named.
+- `[x]` **Verified.** Typecheck clean, lint clean, 111 test files (1,522 tests,
+  18 of them new, 8 skipped), production build passed, the whole browser suite
+  against that build (499 passed, 7 skipped). Flows A–F exercised by hand
+  against the production build with the job runner driven through
+  `/api/cron/jobs`; the observed states are recorded in the stage report.
+- `[!]` The consolidated Intelligence screens remain a separate piece of work,
+  as Stage 9 left them. A normal product-entry employee does not need them; a
+  conflict between two sources still sends them there, which is where that
+  decision belongs.

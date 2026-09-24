@@ -3,14 +3,14 @@
  * focus when there is one. Shared by the action bar and the checklist box.
  */
 export const FIX_TARGETS: Record<string, { section: string; field?: string }> = {
-  category: { section: "basics", field: "categoryId" },
+  category: { section: "identity", field: "categoryId" },
   image: { section: "media", field: "file-gallery" },
-  variant: { section: "variants" },
-  price: { section: "variants" },
-  capacity: { section: "variants" },
-  arrival: { section: "variants" },
-  description: { section: "information", field: "descriptionHtml" },
-  seo: { section: "information", field: "seoMetaDescription" },
+  variant: { section: "selling" },
+  price: { section: "selling" },
+  capacity: { section: "selling" },
+  arrival: { section: "selling" },
+  description: { section: "content", field: "descriptionHtml" },
+  seo: { section: "seo", field: "seoMetaDescription" },
 };
 
 /** Opens the section that fixes a check and focuses its field. */

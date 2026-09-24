@@ -221,8 +221,8 @@ test("autosuggest never leaks a draft product", async ({ page }) => {
   await page.waitForURL((url) => !url.pathname.startsWith("/login"));
 
   await page.goto("/admin/products/new");
-  await page.getByLabel("Title").fill(title);
-  await page.getByRole("button", { name: "Save product" }).click();
+  await page.getByLabel("Product name").fill(title);
+  await page.getByRole("button", { name: "Save without SeoPulse" }).click();
   // Creating opens the product editor.
   await page.waitForURL((url) => /^[/]admin[/]products[/][0-9a-f-]{36}$/.test(url.pathname));
 
