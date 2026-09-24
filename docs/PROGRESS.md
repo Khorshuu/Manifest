@@ -3374,6 +3374,69 @@ Blocked on your accounts or choices:
   deleted automatically after sixteen months; nothing yet reports the size back
   to an operator. Recorded as R-17.
 - `[!]` Still not run: the end-to-end suite and a production build.
-- `[ ]` Stage 7 (hardening: security, write safety, performance, removing the
-  legacy columns) waits for the go-ahead.
+- `[x]` Stage 7 is done; see below.
+
+## Product Knowledge Base programme — Stage 7 of 8 (hardening)
+
+- `[x]` Nothing new was added to the shop in this stage. It went back over what
+  the last five stages built and asked, of each part, whether it is safe to be
+  wrong about: who may call it, what happens when two people save at once, what
+  it costs when the shop is large, and whether an operator can see it working.
+- `[x]` Outward retrieval now judges an address rather than how it was spelled.
+  Two ways of writing a loopback address, and one of writing the cloud metadata
+  address, were treated as public and could have been fetched; one perfectly
+  ordinary public address was refused. All three are decided correctly now, and
+  an address that cannot be read at all is refused rather than assumed safe.
+- `[x]` A downloaded file that expands enormously is stopped while it is being
+  decompressed, not after. Twelve admin routes now refuse an unexpected field
+  instead of quietly dropping it, which is what the security documentation has
+  promised since Phase 14. Two source-level guards fail the build if a rich-text
+  column is ever written without the sanitiser, or a new admin route is written
+  loosely.
+- `[x]` Two write paths that could lose one person's work were fixed: saving a
+  listing while somebody else saves it, and applying two SEO runs at the same
+  moment. Both are now proved by tests that race real concurrent writes against
+  real PostgreSQL, and both are confirmed to fail when the fix is removed.
+- `[x]` Bulk imports no longer rebuild the search index once per listing while
+  they run. A staff member accepting one fact still rebuilds immediately, so a
+  shopper searching a second later finds the new words; an import hands the work
+  to the background queue instead, and says how many listings are waiting. The
+  5,000-listing backfill went from 305 s to 181 s.
+- `[x]` The search report on a large property is no longer slow: 4.9 s to 0.7 s
+  at 20,000 pages, with identical output. Neither cost was reading the rows —
+  one was counting distinct dates per page, the other multiplying a decimal
+  column a million times. Risk R-16 is closed, and the assumption the faster
+  count relies on is asserted by a test rather than trusted.
+- `[x]` Five foreign keys that a delete has to scan are indexed, chosen by
+  measurement: deleting one listing's search events took 41 ms scanning and
+  0.6 ms indexed, and the scan grows for ever. The other seventeen candidates
+  are deliberately left alone, with the reason recorded in the migration.
+- `[x]` A new **Background work** screen shows every scheduled job: how often it
+  runs, when it last finished, and what it reported — how many files the media
+  sweep reclaimed, how many listings are left to reindex, what the prune
+  removed. All of that was already being recorded and nothing read it back, so
+  an operator could see that the scheduler was alive and nothing in between.
+- `[x]` The promises made about the knowledge base are now tests rather than
+  review notes: no knowledge table may hold anything about a customer or
+  anything they bought, none of it may reference an order, a cart, an address or
+  a payment, and nothing in the SEO code may state a search volume, a keyword
+  difficulty, a cost per click or a backlink count — figures this shop cannot
+  measure.
+- `[x]` Legacy columns were **not** removed, because the database says they are
+  not ready. A report on the knowledge screen counts, for each old system, how
+  much of it the knowledge base actually holds: shelf specification definitions
+  are fully covered, three variant option groups and two option selections are
+  not, and 72 values are parked waiting for somebody to say what they are.
+  Removing a column today would drop values with nothing behind them. The report
+  is the gate a later removal has to pass.
+- `[x]` A listing's search terms are kept on purpose, and Stage 7 adds the way
+  out: a term can be proposed as a product alias and approved one at a time. A
+  term is never converted automatically, because that would turn text nobody
+  approved into vocabulary the shop treats as approved.
+- `[x]` Checks: typecheck and lint clean; the whole unit suite passes — 106
+  files, 1,471 tests, 8 skipped. The concurrency suites run against real
+  PostgreSQL. Migrations 0038 to 0041 are applied to the development database.
+  The opportunity engine was measured on a 1,120,000-row scratch database.
+- `[!]` Still not run: the end-to-end suite and a production build.
+- `[ ]` Stage 8 waits for the go-ahead.
 

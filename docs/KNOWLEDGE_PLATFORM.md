@@ -1214,14 +1214,22 @@ Open risks:
   and a mismatch surfaces as a provider failure on the sync rather than as a
   stored number, but the first real connection is the first real test. The
   owner supplying credentials, or a staging property, closes this.
-- **R-16** (new, Stage 6) `opportunityReport` reads up to 500 pages and 500
-  page-and-query rows per window and does the banding in TypeScript. That is one
-  indexed read each and fine at this catalogue's size; at a property with tens of
-  thousands of pages the limits start truncating rather than slowing, which would
-  silently narrow the report. Measure at scale in Stage 7, and either raise the
-  limits or say on the screen that the list is truncated. The product editor's
-  box deliberately does *not* run this report — it makes three scoped reads —
-  so the listing editor does not get slower as the catalogue grows.
+- **R-16** (CLOSED, Stage 7) `opportunityReport` reads up to 500 pages and 500
+  page-and-query rows per window and does the banding in TypeScript. Stage 6
+  predicted that at a large property the limits would truncate rather than slow.
+  Measured at 20,000 pages and 1,120,000 stored measurements
+  (`scripts/perf/search-console-bench.ts`), the truncation prediction was right
+  and the timing prediction was wrong: the report took **4,867 ms**, of which
+  4,422 ms was two calls to `pagePerformance`. Neither cost was the scan.
+  `count(distinct measured_on)` per page cannot be aggregated in parallel and
+  sorts each group, and multiplying `numeric` positions per row cost more than
+  reading them. Counting rows (safe: a page has at most one row per day, which
+  `search_console_metrics_unique` enforces and a test now asserts) and
+  multiplying in `float8` brings the same report to **737 ms** with identical
+  output. The limits stay where they are, and the screen already says the list is
+  partial — it reported 500 of 20,000 pages throughout. The product editor's box
+  deliberately does *not* run this report — it makes three scoped reads — so the
+  listing editor does not get slower as the catalogue grows.
 - **R-17** (new, Stage 6) The sync stores whatever Search Console reports,
   including pages this shop no longer has. That is deliberate (it is how a
   mis-sent address becomes visible), but it means the table's size is driven by

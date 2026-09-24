@@ -259,7 +259,7 @@ export async function totalsFor(
       select
         coalesce(sum(clicks), 0)::int as clicks,
         coalesce(sum(impressions), 0)::int as impressions,
-        sum(position * impressions)::float8 as weighted,
+        sum(position::float8 * impressions) as weighted,
         count(distinct measured_on)::int as days
       from search_console_metrics
       where property = ${property}
@@ -326,7 +326,23 @@ export type PagePerformance = {
   daysWithData: number;
 };
 
-/** One row per page in the window, worst CTR last — the opportunity engine's input. */
+/**
+ * One row per page in the window, worst CTR last — the opportunity engine's input.
+ *
+ * This is the engine's most expensive read, so two details in the aggregate are
+ * deliberate (measured at 20,000 pages; see scripts/perf/search-console-bench.ts):
+ *
+ *  - `position` is `numeric`, and multiplying it per row costs more than the
+ *    scan does. The weighted average only ever becomes a JavaScript number, so
+ *    the multiplication is done in `float8` — 896 ms to 154 ms on its own.
+ *  - `days` counts rows rather than distinct dates. A per-group
+ *    `count(distinct …)` cannot be aggregated in parallel and sorts each group,
+ *    which cost about 1.4 seconds here. It is safe because a page row carries
+ *    no query (`sync.ts` stores `''` for `dimension = 'page'`) and
+ *    `search_console_metrics_unique` covers
+ *    (property, measured_on, dimension, page_path, query), so a page has at
+ *    most one row per day. `tests/search-console-metrics.test.ts` asserts that.
+ */
 export async function pagePerformance(
   executor: Executor,
   property: string,
@@ -350,8 +366,8 @@ export async function pagePerformance(
         max(category_id::text) as category_id,
         sum(clicks)::int as clicks,
         sum(impressions)::int as impressions,
-        sum(position * impressions)::float8 as weighted,
-        count(distinct measured_on)::int as days
+        sum(position::float8 * impressions) as weighted,
+        count(*)::int as days
       from search_console_metrics
       where property = ${property}
         and dimension = 'page'
@@ -421,7 +437,7 @@ export async function queryPerformance(
         max(category_id::text) as category_id,
         sum(clicks)::int as clicks,
         sum(impressions)::int as impressions,
-        sum(position * impressions)::float8 as weighted
+        sum(position::float8 * impressions) as weighted
       from search_console_metrics
       where property = ${property}
         and dimension = ${dimension}

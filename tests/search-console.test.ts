@@ -38,7 +38,7 @@ import { changeComparisons } from "@/lib/search-console/comparison";
 import { addDays, isoDay } from "@/lib/search-console/config";
 import { learningSignals } from "@/lib/search-console/learning";
 import { listingSearchPerformance } from "@/lib/search-console/listing";
-import { metricsStorage, searchConsoleStatus } from "@/lib/search-console/metrics";
+import { metricsStorage, pagePerformance, searchConsoleStatus } from "@/lib/search-console/metrics";
 import { OPPORTUNITY_LIMITS, opportunityReport, decideOpportunity } from "@/lib/search-console/opportunities";
 import { pathOf, resolvePaths } from "@/lib/search-console/paths";
 import {
@@ -880,6 +880,64 @@ describe("a report bounded by its limits", () => {
     // Nothing stored, so nothing covered — the point is that it did not throw
     // and did not try to read ten million rows.
     expect(report.coverage.pagesConsidered).toBe(0);
+  });
+});
+
+/*
+ * Risk R-16. `pagePerformance` counts rows to get a page's days with data, and
+ * multiplies position in float8, because the honest forms of both cost seconds
+ * at twenty thousand pages. Both are only correct while the stored shape holds,
+ * so the shape is asserted here rather than trusted.
+ */
+describe("the page aggregate's assumptions", () => {
+  it("stores one row per page per day, whatever a page was measured for", async () => {
+    const product = await listing({ title: "Aggregate Lamp" });
+    const [row] = await harness.db.select({ slug: products.slug }).from(products).where(eq(products.id, product.id));
+
+    // One day, one page, and searches for it as well — the page row must stay
+    // single, because `days` is a row count.
+    fake.rows = {
+      page: [pageRow({ slug: row.slug, clicks: 3, impressions: 90, position: 6 })],
+      page_query: [
+        queryRow({ slug: row.slug, query: "aggregate lamp", clicks: 2, impressions: 50, position: 5 }),
+        queryRow({ slug: row.slug, query: "brass lamp", clicks: 1, impressions: 40, position: 7 }),
+      ],
+    };
+    await sync();
+    // And again: a re-sync of the same day must update the row, not add one.
+    await sync();
+
+    const counted = (await harness.client.query<{ rows: number; days: number }>(
+      `select count(*)::int as rows, count(distinct measured_on)::int as days
+         from search_console_metrics where dimension = 'page'`,
+    )).rows[0];
+    expect(counted.rows).toBe(1);
+    expect(counted.days).toBe(1);
+
+    const pages = await pagePerformance(harness.db, PROPERTY, { start: addDays(LATEST, -27), end: LATEST });
+    expect(pages).toHaveLength(1);
+    expect(pages[0].daysWithData).toBe(1);
+  });
+
+  it("averages position over impressions exactly, in float8", async () => {
+    const product = await listing({ title: "Weighted Lamp" });
+    const [row] = await harness.db.select({ slug: products.slug }).from(products).where(eq(products.id, product.id));
+
+    // 4.50 over 100 impressions and 12.25 over 300: 10.3125 exactly, which is
+    // representable in float8 and is not the unweighted mean of 8.375.
+    fake.rows = {
+      page: [
+        pageRow({ day: LATEST, slug: row.slug, clicks: 5, impressions: 100, position: 4.5 }),
+        pageRow({ day: addDays(LATEST, -1), slug: row.slug, clicks: 1, impressions: 300, position: 12.25 }),
+      ],
+    };
+    await sync();
+
+    const [page] = await pagePerformance(harness.db, PROPERTY, { start: addDays(LATEST, -27), end: LATEST });
+    expect(page.impressions).toBe(400);
+    expect(page.clicks).toBe(6);
+    expect(page.daysWithData).toBe(2);
+    expect(page.position).toBeCloseTo(10.3125, 10);
   });
 });
 

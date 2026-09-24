@@ -2460,3 +2460,145 @@ read-only account is refused (CLAUDE.md section 7).
 audit and SEO field editing are catalogue tooling, not performance reporting:
 they exist to change listings, and the people who read them are the people who
 fix them. Widening those was not asked for and would have been scope creep.
+
+---
+
+## D-102 — A bulk import declares itself, and its reindexing waits for the worker
+
+**Decision (Stage 7, on measurement).** Accepting a fact or approving an alias
+queues the listing for reindexing through row-level triggers (Stage 5). Those
+triggers are right, but they were paying for the rebuild at the wrong time: on
+the 5,000-listing scale database the knowledge backfill went from 176 s before
+the triggers existed to 305 s with them, and only about 30 s of that was the
+queue upserts themselves. The rest was each listing's search index being rebuilt
+at the commit of its own sync and thrown away when the next listing was synced.
+
+A transaction may now say which kind of write it is (migration 0040). The
+default — no setting — is the staff one: a claim accepted in the admin still
+rebuilds at that commit, because a shopper searching a second later should find
+the new words. A bulk import sets `manifest.search_queue_source = 'rebuild'`
+with `set local`, and the same triggers queue the listing for the background
+worker instead. The backfill then takes 181 s and leaves 5,000 listings queued.
+
+`set local` is the safety argument rather than a convenience: the value cannot
+outlive its transaction, so an import that crashes halfway cannot leave the shop
+quietly not reindexing. A listing already queued as a staff change is never
+downgraded into the import's backlog, and `npm run pkb:backfill` reports how
+many listings are waiting, so an import never implies the index is current when
+it is not.
+
+---
+
+## D-103 — A legacy column is contracted on measured coverage, never on the plan that expected it
+
+**Decision (Stage 7).** The plan for the knowledge platform said Stage 7 would
+contract `category_attributes`, the legacy option readers and the specification
+readers. It does not, because the database says they are not ready:
+
+| Legacy system | Coverage on the development database |
+| --- | --- |
+| Shelf specification definitions | 2 of 2 covered — contractable |
+| Variant option groups | 2 of 5 covered — 3 unmatched |
+| Variant option selections | 6 of 8 mirrored — 2 unmirrored |
+| Listing search terms | Retained on purpose (D-105) |
+
+with 72 values parked, waiting for somebody to say what they are.
+
+Contracting today would drop values that have no knowledge attribute behind
+them, which is the one failure the whole staged migration exists to avoid. So
+`legacyCoverage` counts each system from the database and shows it on the
+knowledge screen, `allCovered` is the gate a later contraction has to ask, and
+the decision to remove a column becomes a reading rather than an opinion. This
+is invariant I-12 kept honestly: the readers stay until a report says nothing
+reads what is not mirrored.
+
+---
+
+## D-104 — An address is judged after it is expanded, and an address that cannot be parsed is refused
+
+**Decision (Stage 7, from two defects).** The SSRF check for outward retrieval
+used to match how an address was spelled. `::127.0.0.1`, the deprecated
+IPv4-compatible form, was treated as public and could reach loopback;
+`::169.254.169.254` could reach the cloud metadata endpoint the same way. The
+opposite mistake was there too: `::ffff:8.8.8.8` was refused because every
+mapped address was refused whatever it wrapped, which would shut out a
+manufacturer's site reachable only that way.
+
+An IPv6 address is now expanded to its eight groups before any rule is applied,
+so `::ffff:127.0.0.1`, `::ffff:7f00:1` and `0:0:0:0:0:ffff:127.0.0.1` are one
+address with three spellings; an embedded IPv4 address, mapped or compatible, is
+judged by the IPv4 rules; a zone index, which names a local interface, is
+refused; and anything that cannot be parsed is refused rather than assumed
+public. The general rule for any future check of this kind: decide on the
+address, never on its text, and treat unparseable as hostile.
+
+---
+
+## D-105 — Search terms are retained by decision, and offered as suggestions rather than converted
+
+**Decision (Stage 7).** `products.search_keywords` is kept. It is not kept
+because it could not be migrated.
+
+A search term is a listing's marketing hint: staff-authored, fed to the shop's
+own search, counted by SEO readiness, proposed by SeoPulse. An alias is a claim
+about a product's identity, approved through a workflow. Converting the first
+into the second wholesale would turn unapproved text into approved vocabulary,
+which D-094 and A-7 forbid, and deleting it would throw away search knowledge
+nothing else holds.
+
+What Stage 7 adds is the path out, one decision at a time:
+`suggestAliasesFromKeywords` offers a listing's terms as *suggested* product
+aliases, attributed to whoever asked, and approving each one still needs
+`search.manage`. Nothing is deleted, a rejected term is never re-proposed, and
+running it twice proposes nothing new. The report says what each term has become
+— an approved alias, waiting for a decision, or a search term only.
+
+A test asserts the part most likely to be acted on wrongly: the search-terms
+column is never reported as contractable, not even on a database where every
+term has been approved as an alias.
+
+---
+
+## D-106 — A foreign key is indexed where a delete would scan it, not everywhere
+
+**Decision (Stage 7, on measurement).** Stages 2 to 6 added 75 foreign keys with
+no index on their own columns, and 22 of those fire on a parent delete. Indexing
+all of them would be tidying that looks like hardening: most are attribution
+columns on small tables whose parents are never deleted, and every index is a
+cost on every write.
+
+Migration 0041 adds the five that are on a real delete path *and* on tables that
+grow with traffic or knowledge rather than with the catalogue, so that an
+unindexed scan gets slower for ever: the two `search_events` and `search_clicks`
+cascades behind `deleteProduct`, the two `seo_research_runs` set-nulls behind it,
+and `pkb_product_sources` behind `releaseListingKnowledge`. Measured with 500,000
+`search_events` rows, deleting one listing's events took 41.0 ms on a sequential
+scan and 0.6 ms on the index; the scan is linear, so at five million events it is
+about four hundred milliseconds inside the transaction that deletes a listing.
+The migration records why the other seventeen are left alone, and
+`search_console_metrics.last_sync_id` is deliberately excluded because nothing
+deletes a sync row today.
+
+---
+
+## D-107 — The page aggregate counts rows and multiplies in float8, with the shape it relies on asserted
+
+**Decision (Stage 7, closing R-16).** `pagePerformance` is the opportunity
+engine's most expensive read, and at 20,000 pages the report took 4,867 ms, of
+which 4,422 ms was two calls to it. Neither cost was the scan of the window.
+
+Two changes bring the same report to 737 ms with identical output. A page's days
+with data are counted as rows rather than as `count(distinct measured_on)`,
+because a per-group `count(distinct …)` cannot be aggregated in parallel and
+sorts every group. And `position`, which is `numeric`, is multiplied in `float8`,
+because the per-row numeric multiplication cost more than reading the rows —
+896 ms against 154 ms on its own. The weighted average only ever becomes a
+JavaScript number, so nothing is stored or compared in the lower precision.
+
+Counting rows is only correct while a page has at most one row per day. That
+holds because a page row carries no query and
+`search_console_metrics_unique` covers
+(property, measured_on, dimension, page_path, query) — so the assumption is
+asserted by a test that syncs the same day twice, with searches for the same
+page, and expects one row. An optimisation that depends on a stored shape is
+only allowed here with a test that fails when the shape changes.
