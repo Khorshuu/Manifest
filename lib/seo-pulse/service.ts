@@ -167,9 +167,12 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
     ...definitions.flatMap((definition) => {
       const value = attributeValues[definition.id];
       const shown = Array.isArray(value) ? value.join(", ") : value == null ? "" : String(value);
-      return shown.trim()
-        ? [{ label: definition.name, value: definition.unit ? `${shown} ${definition.unit}` : shown }]
-        : [];
+      // The unit is added only to a value that does not already spell one:
+      // a figure copied from a manufacturer's page usually carries its own
+      // ("665g"), and appending the definition's unit prints "665g g".
+      const withUnit =
+        definition.unit && !/\p{L}/u.test(shown) ? `${shown} ${definition.unit}` : shown;
+      return shown.trim() ? [{ label: definition.name, value: withUnit }] : [];
     }),
   ];
 

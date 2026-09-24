@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   pkbEnrichmentRuns,
@@ -187,20 +187,43 @@ export async function provideDocument(
     const identity = await loadIdentity(tx, pkbProductId);
     if (!identity) throw new PkbError("That product is not in the knowledge base.", 404);
 
-    const [source] = await tx
-      .insert(pkbSources)
-      .values({
-        sourceType: input.sourceType ?? "admin_official_document",
-        acquisitionMethod: "staff_upload",
-        origin: "MANUAL_ADMIN",
-        usageRights: "internal_only",
-        url: input.url ?? null,
-        title: cleanText(input.title) || "Provided document",
-        contentSha256: createHash("sha256").update(content).digest("hex"),
-        retrievedAt: new Date(),
-        createdBy: staff.id,
-      })
-      .returning({ id: pkbSources.id });
+    const contentSha256 = createHash("sha256").update(content).digest("hex");
+    const normalized = input.url ? normalizeUrl(input.url) ?? input.url : null;
+
+    /*
+     * The same address with the same bytes is one source row
+     * (`pkb_sources_document_unique`), whoever reached it. A staff member
+     * pasting the page a run had already read is supplying the same document,
+     * and the row it is already recorded under keeps its provenance —
+     * including the registry role it was retrieved under, which is what a
+     * verification policy reads.
+     */
+    const [known] = normalized
+      ? await tx
+          .select({ id: pkbSources.id })
+          .from(pkbSources)
+          .where(and(eq(pkbSources.urlNormalized, normalized), eq(pkbSources.contentSha256, contentSha256)))
+      : [];
+
+    const source = known
+      ? known
+      : (
+          await tx
+            .insert(pkbSources)
+            .values({
+              sourceType: input.sourceType ?? "admin_official_document",
+              acquisitionMethod: "staff_upload",
+              origin: "MANUAL_ADMIN",
+              usageRights: "internal_only",
+              url: input.url ?? null,
+              urlNormalized: normalized,
+              title: cleanText(input.title) || "Provided document",
+              contentSha256,
+              retrievedAt: new Date(),
+              createdBy: staff.id,
+            })
+            .returning({ id: pkbSources.id })
+        )[0];
 
     const extraction = extractDocument(content, input.contentType ?? "text/plain");
     const [document] = await tx
@@ -540,7 +563,13 @@ async function findCandidates(identity: ProductIdentity): Promise<{ candidates: 
   return { candidates, providers };
 }
 
-function sourceTypeForRole(role: string): PkbSourceType {
+/**
+ * The kind of source an approved registry role implies. Exported so the
+ * mapping can be pinned: a page from a brand's approved documentation domain
+ * has to be recorded as documentation, or no verification policy will ever
+ * accept what it says.
+ */
+export function sourceTypeForRole(role: string): PkbSourceType {
   switch (role) {
     case "official_product":
       return "manufacturer_website";
@@ -627,27 +656,36 @@ async function readCandidate(
   const content = decodeBody(fetched.body, fetched.charset);
   const extraction = extractDocument(content, fetched.contentType);
   const sha256 = createHash("sha256").update(fetched.body).digest("hex");
-  const verdict = identityVerdict(identity, extraction);
+  const verdict = identityVerdict(identity, extraction, {
+    brandVouched: match !== null && !match.blocked && match.brandSpecific,
+  });
 
   return db.transaction(async (tx) => {
-    const [source] = await tx
-      .insert(pkbSources)
-      .values({
-        sourceType: candidate.sourceType,
-        acquisitionMethod: candidate.acquisitionMethod,
-        authorityTier: match?.tier ?? candidate.authorityTier ?? null,
-        origin: candidate.acquisitionMethod === "brand_registry" ? "OFFICIAL_MANUFACTURER" : "APPROVED_EXTERNAL_SOURCE",
-        usageRights: "internal_only",
-        url: fetched.url,
-        domain,
-        title: extraction.identity.names[0] ?? candidate.title,
-        providerKey: candidate.providerKey,
-        retrievedAt: new Date(),
-        contentSha256: sha256,
-        httpStatus: fetched.status,
-        robotsAllowed: true,
-      })
-      .returning({ id: pkbSources.id });
+    const sourceId = await ensureRetrievedSource(tx, {
+      /*
+       * What kind of source this is, is the registry's answer where the
+       * registry has one. A page staff pasted arrives as `public_web`, because
+       * that is all an address is; once somebody with `knowledge.manage` has
+       * approved its domain as the brand's own documentation, recording it as
+       * `public_web` anyway would mean the manufacturer's own specification
+       * could never satisfy a verification policy — and so nothing a run read
+       * could ever become established knowledge. The trust is still the
+       * registry's decision, not this function's.
+       */
+      sourceType: match && !match.blocked ? sourceTypeForRole(match.role) : candidate.sourceType,
+      acquisitionMethod: candidate.acquisitionMethod,
+      authorityTier: match?.tier ?? candidate.authorityTier ?? null,
+      origin: candidate.acquisitionMethod === "brand_registry" ? "OFFICIAL_MANUFACTURER" : "APPROVED_EXTERNAL_SOURCE",
+      usageRights: "internal_only",
+      url: fetched.url,
+      domain,
+      title: extraction.identity.names[0] ?? candidate.title,
+      providerKey: candidate.providerKey,
+      contentSha256: sha256,
+      httpStatus: fetched.status,
+      robotsAllowed: true,
+    });
+    const source = { id: sourceId };
 
     const [document] = await tx
       .insert(pkbSourceDocuments)
@@ -684,6 +722,83 @@ async function readCandidate(
   });
 }
 
+/**
+ * The source row for one page a run reached, reused when it has been reached
+ * before (`pkb_sources_document_unique`).
+ *
+ * The same address with the same bytes is one document however many times it
+ * is read: a retried preparation, a second product citing the manufacturer's
+ * one specification sheet, a nightly re-check of a page that has not changed.
+ * Inserting a second row for it would fail the run — which is what a retry
+ * used to do — and, were the constraint not there, would quietly double the
+ * corroboration behind every value the page states.
+ */
+async function ensureRetrievedSource(
+  tx: Executor,
+  input: {
+    sourceType: PkbSourceType;
+    acquisitionMethod: PkbAcquisitionMethod;
+    authorityTier: number | null;
+    origin: "OFFICIAL_MANUFACTURER" | "APPROVED_EXTERNAL_SOURCE";
+    usageRights: "internal_only" | "unknown";
+    url: string;
+    domain: string | null;
+    title: string | null;
+    providerKey: string | null;
+    contentSha256: string | null;
+    httpStatus: number | null;
+    robotsAllowed: boolean | null;
+  },
+): Promise<string> {
+  const normalized = normalizeUrl(input.url) ?? input.url;
+  const retrievedAt = new Date();
+  const [existing] = await tx
+    .select({ id: pkbSources.id })
+    .from(pkbSources)
+    .where(
+      and(
+        eq(pkbSources.urlNormalized, normalized),
+        input.contentSha256 ? eq(pkbSources.contentSha256, input.contentSha256) : isNull(pkbSources.contentSha256),
+      ),
+    );
+  if (existing) {
+    // The row stays; only what this retrieval learned about it is refreshed.
+    await tx
+      .update(pkbSources)
+      .set({
+        retrievedAt,
+        httpStatus: input.httpStatus,
+        robotsAllowed: input.robotsAllowed,
+        authorityTier: input.authorityTier,
+        ...(input.title ? { title: input.title } : {}),
+      })
+      .where(eq(pkbSources.id, existing.id));
+    return existing.id;
+  }
+
+  const [created] = await tx
+    .insert(pkbSources)
+    .values({
+      sourceType: input.sourceType,
+      acquisitionMethod: input.acquisitionMethod,
+      authorityTier: input.authorityTier,
+      origin: input.origin,
+      usageRights: input.usageRights,
+      url: input.url,
+      // Both address columns or neither: `pkb_sources_url_pair_check`.
+      urlNormalized: normalized,
+      domain: input.domain,
+      title: input.title,
+      providerKey: input.providerKey,
+      retrievedAt,
+      contentSha256: input.contentSha256,
+      httpStatus: input.httpStatus,
+      robotsAllowed: input.robotsAllowed,
+    })
+    .returning({ id: pkbSources.id });
+  return created.id;
+}
+
 async function recordRefusal(
   run: RunRow,
   candidate: Candidate,
@@ -692,23 +807,22 @@ async function recordRefusal(
   extra: { robotsAllowed?: boolean; httpStatus?: number | null } = {},
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    const [source] = await tx
-      .insert(pkbSources)
-      .values({
-        sourceType: candidate.sourceType,
-        acquisitionMethod: candidate.acquisitionMethod,
-        authorityTier: candidate.authorityTier,
-        origin: "APPROVED_EXTERNAL_SOURCE",
-        usageRights: "unknown",
-        url: candidate.url,
-        domain,
-        providerKey: candidate.providerKey,
-        httpStatus: extra.httpStatus ?? null,
-        robotsAllowed: extra.robotsAllowed ?? null,
-      })
-      .returning({ id: pkbSources.id });
+    const sourceId = await ensureRetrievedSource(tx, {
+      sourceType: candidate.sourceType,
+      acquisitionMethod: candidate.acquisitionMethod,
+      authorityTier: candidate.authorityTier,
+      origin: "APPROVED_EXTERNAL_SOURCE",
+      usageRights: "unknown",
+      url: candidate.url,
+      domain,
+      title: candidate.title,
+      providerKey: candidate.providerKey,
+      contentSha256: null,
+      httpStatus: extra.httpStatus ?? null,
+      robotsAllowed: extra.robotsAllowed ?? null,
+    });
     await tx.insert(pkbSourceDocuments).values({
-      sourceId: source.id,
+      sourceId,
       pkbProductId: run.pkbProductId,
       runId: run.id,
       status: "refused",
@@ -729,6 +843,18 @@ async function recordRefusal(
 export function identityVerdict(
   identity: ProductIdentity,
   extraction: Extraction,
+  options: {
+    /**
+     * True when the page came from a domain somebody with `knowledge.manage`
+     * approved in the Brand Source Registry *for one of this product's own
+     * brands*. It stands in for a brand word the page never prints — Sony's
+     * Help Guide and Apple's technical specifications both name the model and
+     * never the brand — and it stands in for nothing else: the model still has
+     * to appear in what the document calls itself, and a page that names a
+     * different brand is still a mismatch.
+     */
+    brandVouched?: boolean;
+  } = {},
 ): { match: "match" | "mismatch" | "unknown"; notes: Record<string, unknown> } {
   const notes: Record<string, unknown> = {};
   const ourGtins = new Set(identity.gtins.map((row) => row.gtin14));
@@ -765,8 +891,9 @@ export function identityVerdict(
       const folded = labelKey(name).replace(/\s+/g, "");
       return [...ourModels].some((model) => model.length >= 4 && folded.includes(model));
     });
-  notes.brands = { ours: [...ourBrands], theirs: [...theirBrands] };
-  if (brandAgrees && nameAgrees) return { match: "match", notes };
+  const vouched = Boolean(options.brandVouched) && theirBrands.size === 0;
+  notes.brands = { ours: [...ourBrands], theirs: [...theirBrands], vouchedByRegistry: vouched };
+  if ((brandAgrees || vouched) && nameAgrees) return { match: "match", notes };
   if (ourBrands.size > 0 && theirBrands.size > 0 && !brandAgrees) return { match: "mismatch", notes };
   return { match: "unknown", notes };
 }

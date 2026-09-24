@@ -3743,3 +3743,57 @@ system was rewritten, no schema changed, no migration was needed.
   8 skipped) — 14 more than Stage 10. Production build passed. The whole browser
   suite against that production build: 521 passed, 7 skipped, from 499 before.
   No migration.
+
+## Stage 12 — real-product acceptance of the single-product workflow
+
+`[x]` **Three real products driven through the whole workflow.** Apple iPhone 11
+Pro Max (model A2161, `support.apple.com/en-us/111878`), Sony WH-1000XM6
+(`helpguide.sony.net/.../TP1001863304.html`) and the Anker Prime Power Bank
+(27K, 250W) (model A1340, GTIN-12 194644130886,
+`anker.com/products/a1340-250w-power-bank`) were added through Add Product, given
+only identity that can be supported, researched against those pages over the real
+network, reviewed through the normal claim and label screens, and taken to READY.
+All three reached READY. Timing, first request to READY including the human
+review in between: Sony 65 s, Anker 320 s, Apple 569 s.
+
+`[x]` **Brand Source Registry exercised for real.** `support.apple.com` and
+`helpguide.sony.net` as `official_documentation`, `anker.com` as
+`official_product`; suggested by staff (`catalog.manage`) and approved by an
+administrator (`knowledge.manage`) through the existing path. No trust was
+seeded in code.
+
+`[x]` **Automatic discovery not live-tested.** `PRODUCT_RESEARCH_PROVIDER` is
+unset and no `BRAVE_SEARCH_API_KEY` is configured. The provider reported
+`NOT_CONFIGURED` on every run and the runs carried on from the registry and the
+attached pages, which is the designed behaviour (D-114, A-6).
+
+`[x]` **Nine defects found and fixed** — see D-118 for the reasoning. The
+address columns of a retrieved source violated their own check constraint, so
+every run that read anything failed; a second read of the same page violated the
+document uniqueness index; an approved registry role never reached the source
+type, so no verification policy could ever qualify a manufacturer's own page;
+knowledge sufficiency counted identity as specifications; the extractor could not
+read a heading-and-list, a heading-and-paragraph or a layout-row specification
+table; a page's own title was never recorded, so identity had nothing to compare;
+correcting a claim returned nothing and the API answered 500; a page read but not
+used said nothing about why; and the description of a researched product was
+still about the shop.
+
+`[x]` **Editor connection.** The Specifications section of the product editor
+now lists what the knowledge base has established, read-only, with a link to
+Product Intelligence. No fact is stored twice.
+
+`[x]` **Tests.** `tests/real-source-acceptance.test.ts` (17) pins the extraction
+shapes, the identity rules, sufficiency and the generated wording against
+fixtures; `tests/real-source-pipeline.test.ts` (7) pins the stored side against a
+real database. 114 test files, 1,560 tests, 8 skipped.
+
+`[x]` **Verified.** Typecheck clean, lint clean, 1,560 tests passing, production
+build passed, full browser suite 521 passed / 7 skipped against that build. No
+migration.
+
+`[!]` **Known limitation — the development database is WIN1252.** The local
+embedded cluster was initialised without an encoding, so `Ω`, `°` and `×` cannot
+be stored and every real specification failed to insert. The acceptance run used
+a UTF-8 database (`preorder_utf8`) on the same cluster. A development database
+has to be created `ENCODING 'UTF8'`.

@@ -7,6 +7,7 @@ import {
   type SerpSnapshot,
 } from "./types";
 import { keywordKey } from "./text";
+import { labelKey } from "@/lib/pkb/normalize";
 import type { GroundedAttribute } from "@/lib/pkb/publish";
 
 /**
@@ -374,7 +375,16 @@ function knowledgeRows(input: SeoPulseInput, kind: "specification" | "measuremen
     .filter((attribute) => attribute.pkbVariantId === null && wanted(attribute))
     .map((attribute) => ({
       label: attribute.label,
-      value: attribute.unit ? `${attribute.value} ${attribute.unit}` : attribute.value,
+      /*
+       * The unit is appended only to a value that is a bare number. A value
+       * read from a manufacturer's page usually spells its own unit — "665g",
+       * "7.97 ounces (226 grams)" — and normalisation stores the unit beside
+       * it, so appending it anyway prints "665g g".
+       */
+      value:
+        attribute.unit && !/\p{L}/u.test(attribute.value)
+          ? `${attribute.value} ${attribute.unit}`
+          : attribute.value,
     }));
 }
 
@@ -431,6 +441,35 @@ export type KnowledgeSufficiency = {
 
 export const SUFFICIENT_FACTS = 4;
 
+/**
+ * Specification labels that only name the product rather than describe it.
+ * Compared through `labelKey`, so "Model No.", "model no" and "MODEL NO" are
+ * one label.
+ */
+const IDENTITY_ROW_LABELS = new Set(
+  [
+    "brand",
+    "manufacturer",
+    "model",
+    "model name",
+    "model number",
+    "model no",
+    "mpn",
+    "manufacturer part number",
+    "part number",
+    "sku",
+    "gtin",
+    "gtin8",
+    "gtin12",
+    "gtin13",
+    "gtin14",
+    "upc",
+    "ean",
+    "isbn",
+    "asin",
+  ].map(labelKey),
+);
+
 export function knowledgeSufficiency(input: SeoPulseInput): KnowledgeSufficiency {
   const specifications = specificationRows(input);
   const measurements = measurementRows(input);
@@ -448,9 +487,18 @@ export function knowledgeSufficiency(input: SeoPulseInput): KnowledgeSufficiency
   if (identified) facts += 1;
   else missing.push("A model number, part number or GTIN");
 
-  // The brand row is counted above; counting it again would let a listing
-  // with only a brand look twice as grounded as it is.
-  const specificationFacts = specifications.filter((row) => row.label.toLowerCase() !== "brand").length;
+  /*
+   * Identity rows are counted above, once, and never again here. The
+   * specification table restates whatever names the product — the brand, the
+   * model name, the model number, the part number, the trade identifier — and
+   * counting those rows as product facts would let a listing carrying nothing
+   * but "Sony / WH-1000XM6" reach four facts and be called researched. What
+   * counts as a specification is something the product *is*, not what it is
+   * called.
+   */
+  const specificationFacts = specifications.filter(
+    (row) => !IDENTITY_ROW_LABELS.has(labelKey(row.label)),
+  ).length;
   facts += Math.min(specificationFacts, 6);
   if (specificationFacts === 0) missing.push("Specifications");
 

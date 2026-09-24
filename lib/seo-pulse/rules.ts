@@ -342,6 +342,27 @@ export function generateByRules(
   const specs = specificationRows(input);
   const measures = measurementRows(input);
 
+  /*
+   * Key features, when staff have written none, out of what is already
+   * established about the product (D-115).
+   *
+   * This is still the conservative rule: nothing is invented and nothing is
+   * reworded into a claim. A line is one recorded fact, printed as it was
+   * recorded — "Charging time: approx. 3.5 hours". What changed is that a
+   * researched product now *has* such facts, where before this generator only
+   * ever saw a title, a category and a delivery term, and so had nothing to
+   * say about the product and said the shop's part instead.
+   *
+   * Rows that only name the product are left out: a shopper reading "Brand:
+   * Sony" under Key features has learnt nothing the title did not tell them.
+   */
+  const NAMING_ROWS = new Set(["brand", "manufacturer", "model", "model name", "model number", "sku"]);
+  const groundedFeatures = [...measures, ...specs]
+    .filter((row) => !NAMING_ROWS.has(row.label.trim().toLowerCase()))
+    .map((row) => clampText(`${row.label}: ${row.value}`, 180))
+    .slice(0, 6);
+  const features = input.bulletFeatures.length > 0 ? input.bulletFeatures : groundedFeatures;
+
   const escape = (value: string) =>
     value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const sentence = (value: string) =>
@@ -365,10 +386,16 @@ export function generateByRules(
    * category name may be singular or plural and the shop does not know which,
    * so the sentence is written to be right either way.
    */
+  /*
+   * Where the product is stocked from belongs with the rest of the buying
+   * terms, not in the first sentence a shopper reads: a description that
+   * opens on the shop rather than the product is the thing D-115 exists to
+   * prevent, and it reads as filler even when it is true.
+   */
   opening.push(
-    `${displayName}${
-      productType ? ` is part of our ${titleCase(productType)} range and` : " is"
-    } sourced from the United States and delivered across Bangladesh.`,
+    productType
+      ? `${displayName} is part of our ${titleCase(productType)} range.`
+      : `${displayName}.`,
   );
 
   // Only descriptors the listing actually records, and only once each: they
@@ -404,7 +431,7 @@ export function generateByRules(
     );
   }
   buying.push(
-    "The price you see already includes shipping and Bangladeshi customs duty, so there is nothing more to pay on delivery.",
+    "It is sourced from the United States and delivered across Bangladesh. The price you see already includes shipping and Bangladeshi customs duty, so there is nothing more to pay on delivery.",
   );
   if (input.warranty?.hasWarranty) {
     buying.push(
@@ -417,8 +444,8 @@ export function generateByRules(
   const suggestedHtml =
     [
       `<p>${escape(opening.join(" "))}</p>`,
-      input.bulletFeatures.length > 0
-        ? `<h2>Key features</h2><ul>${input.bulletFeatures
+      features.length > 0
+        ? `<h2>Key features</h2><ul>${features
             .map((item) => `<li>${escape(item)}</li>`)
             .join("")}</ul>`
         : "",
@@ -585,7 +612,7 @@ export function generateByRules(
     tags,
     // The rules never invent a feature: they have none to add beyond what the
     // listing already lists. Claude, when connected, drafts them.
-    keyFeatures: [],
+    keyFeatures: input.bulletFeatures.length > 0 ? [] : groundedFeatures,
     imageAlts,
     faqs: faqs.slice(0, 8),
     categoryNotes,

@@ -4,6 +4,7 @@ import {
   pkbAttributeProposals,
   pkbClaims,
   pkbEnrichmentRuns,
+  pkbSourceDocuments,
   productPreparationRuns,
   productSearchQueue,
   products,
@@ -436,10 +437,31 @@ async function stepEnrichment(context: Context): Promise<Outcome> {
 
   const read = enrichment.documentsRetrieved;
   const refused = enrichment.documentsRefused;
+
+  /*
+   * A page that was read but judged not to be about this product proposes
+   * nothing, by design (D-074, I-13). Saying only "read 1 document, proposed 0
+   * values" leaves a staff member with no way to tell that apart from a page
+   * that simply had nothing on it, and the next thing they see is a complaint
+   * about insufficient knowledge. So the verdict is reported, in the step that
+   * produced it.
+   */
+  const [verdicts] = await db
+    .select({
+      unmatched: sql<number>`count(*) filter (where ${pkbSourceDocuments.identityMatch} in ('mismatch', 'unknown'))::int`,
+    })
+    .from(pkbSourceDocuments)
+    .where(and(eq(pkbSourceDocuments.runId, runId), eq(pkbSourceDocuments.status, "retrieved")));
+  const unmatched = Number(verdicts?.unmatched ?? 0);
+  const unmatchedNote =
+    unmatched > 0
+      ? ` ${unmatched} of them ${unmatched === 1 ? "does" : "do"} not say enough about which product ${unmatched === 1 ? "it is" : "they are"} for, so nothing on ${unmatched === 1 ? "it" : "them"} was used — add the manufacturer's page for this exact model, or paste its specification.`
+      : "";
+
   return {
     kind: "done",
-    state: read === 0 && refused > 0 ? "degraded" : "done",
-    detail: `Read ${read} document${read === 1 ? "" : "s"}, ${refused} refused; proposed ${enrichment.claimsProposed} value${enrichment.claimsProposed === 1 ? "" : "s"}.`,
+    state: (read === 0 && refused > 0) || (unmatched > 0 && enrichment.claimsProposed === 0) ? "degraded" : "done",
+    detail: `Read ${read} document${read === 1 ? "" : "s"}, ${refused} refused; proposed ${enrichment.claimsProposed} value${enrichment.claimsProposed === 1 ? "" : "s"}.${unmatchedNote}`,
   };
 }
 

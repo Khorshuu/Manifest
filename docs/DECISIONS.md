@@ -3015,3 +3015,67 @@ absorbing it.
 is the advanced drill-down for one product, reached from that product's editor.
 The workspace is the catalogue-wide surface. They answer different questions and
 neither replaces the other.
+
+## D-118 — A manufacturer's page is read the way manufacturers write one
+
+Three real products — an Apple iPhone 11 Pro Max, a Sony WH-1000XM6 and an
+Anker Prime Power Bank — were put through Add Product → Research & Prepare with
+SeoPulse against the manufacturers' own pages. Every one of them produced
+nothing. The reasons were not judgement calls; they were defects, and the
+decisions taken to fix them are these.
+
+**A specification table is not a `<table>` any more.** The extractor read
+`<table>` rows, `<dl>` pairs, schema.org JSON-LD and "Label: value" text lines.
+Apple publishes a heading and a list, Sony's Help Guide publishes a heading and
+paragraphs, Anker publishes a two-element layout row from a CSS grid. All three
+are now read, structurally: a heading and the block beneath it, and an element
+whose only two children are text. Neither rule knows anything about a brand or a
+product family. Two rules keep the noise down — a block whose text is mostly
+link text is navigation, and a line inside a block that is itself "Label: value"
+is read as its own pair — and everything either rule produces is still a
+proposal that an attribute must name or a person must classify.
+
+**A page carries the name it gives itself.** A document's name was only ever
+read out of JSON-LD, so a page without JSON-LD had no name, and the identity
+check had nothing to compare. The `<title>` and the first `<h1>` are now
+recorded as names. They are compared, not trusted.
+
+**The Brand Source Registry can vouch for a brand the page never prints.**
+Apple's specification page and Sony's Help Guide name the model everywhere and
+the brand nowhere, so `identityVerdict` returned `unknown` and the run proposed
+nothing. When a page comes from a domain somebody with `knowledge.manage`
+approved *for one of this product's own brands*, that approval now stands in for
+the brand word. Nothing else is relaxed: the model must still appear in what the
+document calls itself, and a page naming a different brand is still a mismatch.
+
+**An approved registry role decides what kind of source a page is.** A page
+staff paste arrives as `public_web`, because that is all an address is. Recorded
+that way it could never satisfy `official_manufacturer_documentation`, so
+nothing a run read could ever become established knowledge — which is why the
+first manual test stopped at INSUFFICIENT_KNOWLEDGE every time. A retrieved page
+is now recorded under the source type its approved registry role implies. The
+trust is still the registry's decision; only its consequence was missing.
+
+**Identity is not knowledge about a product.** `knowledgeSufficiency` counted
+the specification table's rows, and that table restates the brand, the model
+name, the model number and the trade identifier. A listing carrying nothing but
+"Sony / WH-1000XM6" reached four facts and was called researched. Identity is
+now counted once, where it always was, and never again as a specification.
+
+**A researched product's description is about the product.** The rules
+generator had no features to offer beyond what staff had typed, so a researched
+product still got "is part of our Electronics range and sourced from the United
+States". It now writes key features from the facts that were established —
+verbatim, one recorded fact per line, nothing reworded into a claim — and the
+sourcing and delivery terms moved to the buying paragraph where they belong.
+
+**The Specifications section shows what is already known.** The facts live in
+the knowledge base and the product page reads them from there, which left the
+staff editor unable to show them at all (D-113). It now lists them, read-only,
+with a link to Product Intelligence. Nothing is stored twice.
+
+**What is read but not used says so.** A page whose identity signals do not
+settle which product it is for proposes nothing, by design. Preparation used to
+report "read 1 document, proposed 0 values" and then complain about insufficient
+knowledge. The verdict is now reported in the step that produced it, with the
+two things a staff member can do about it.

@@ -25,6 +25,7 @@ import { SeoPulseBox } from "./seo-pulse-box";
 import { SearchPerformanceBox } from "./search-performance-box";
 import { SeoReadinessBox } from "./seo-readiness-box";
 import { db } from "@/db";
+import { groundedKnowledge } from "@/lib/pkb/publish";
 import { listingAudit } from "@/lib/seo/audit";
 import { listingSearchPerformance } from "@/lib/search-console/listing";
 import { fieldStates, seoFieldLabel } from "@/lib/seo/fields";
@@ -123,7 +124,7 @@ export default async function AdminProductPage({
 
   if (!product) notFound();
 
-  const [tree, definitions, pulse, options, variants, checks, preparation] = await Promise.all([
+  const [tree, definitions, pulse, options, variants, checks, preparation, established] = await Promise.all([
     getCategoryTree(),
     // The specifications this product's category asks for — its own and
     // everything inherited from its ancestors.
@@ -138,6 +139,13 @@ export default async function AdminProductPage({
      * that then fills in (D-116). The panel never starts a run itself.
      */
     getPreparation(user, product.id),
+    /*
+     * What the knowledge base has established about this product. Read-only
+     * here: the Specifications section shows it so that staff can see what is
+     * already known without opening Product Intelligence, and the facts stay
+     * where they are (D-113).
+     */
+    groundedKnowledge(product.pkbProductId),
   ]);
   const categories = flatten(tree);
 
@@ -247,6 +255,14 @@ export default async function AdminProductPage({
             measurements:
               (product.measurements as { label: string; value: string }[] | null) ?? [],
           }}
+          established={established.attributes
+            .filter((attribute) => attribute.pkbVariantId === null)
+            .map((attribute) => ({
+              label: attribute.label,
+              value: attribute.value,
+              unit: attribute.unit,
+              state: attribute.state,
+            }))}
         />
       ),
     },

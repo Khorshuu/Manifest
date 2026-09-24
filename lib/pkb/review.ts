@@ -541,6 +541,9 @@ export async function correctClaim(actor: SessionUser | null, claimId: string, r
       .where(eq(pkbClaims.id, claim.id));
     await recomputeSlot(tx, claim);
     await finishProductChange(tx, staff.id, listings, claim.pkbProductId);
+    // The caller is an HTTP route, so this returns a result rather than
+    // nothing: `NextResponse.json(undefined)` is a 500, not an empty body.
+    return { claimId: claim.id, status: "REJECTED" as const, value };
   });
 }
 

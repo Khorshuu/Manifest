@@ -22,6 +22,14 @@ import {
  * per category rather than hard-coding a form.
  */
 
+/** One fact the knowledge base has established, as the editor shows it. */
+export type EstablishedFact = {
+  label: string;
+  value: string;
+  unit: string | null;
+  state: string;
+};
+
 export type SpecsSectionValues = {
   id: string;
   attributeValues: Record<string, string | string[]>;
@@ -193,10 +201,21 @@ export function SpecsSection({
   product,
   definitions,
   categoryName,
+  established,
 }: {
   product: SpecsSectionValues;
   definitions: CategoryAttributeDefinition[];
   categoryName: string;
+  /**
+   * What the knowledge base has established about this product: accepted
+   * research and anything staff entered there, read-only here.
+   *
+   * It is shown and not stored again. The facts live in the knowledge base,
+   * the product page reads them from there, and this section exists so that
+   * somebody filling in the form can see what is already known instead of
+   * retyping it — or opening Product Intelligence to find out (D-113).
+   */
+  established: EstablishedFact[];
 }) {
   const router = useRouter();
   const { save, pending, error, message, dirty, markDirty } = useProductSave(
@@ -239,6 +258,42 @@ export function SpecsSection({
 
   return (
     <form onSubmit={submit} className="flex max-w-3xl flex-col gap-8" noValidate>
+      {established.length > 0 && (
+        <section className="flex flex-col gap-3 rounded-lg border border-blue-300 bg-blue-50/40 p-4">
+          <div>
+            <h3 className="font-display text-h3 text-ink">
+              What is already known
+            </h3>
+            <p className="mt-1 max-w-[70ch] text-meta text-ink/70">
+              {established.length} fact{established.length === 1 ? "" : "s"} the
+              knowledge base has established for this product, from research
+              somebody accepted or from what staff entered there. The product
+              page already shows them, so there is no need to type them again
+              below. Change or remove one in{" "}
+              <a
+                href={`/admin/products/${product.id}/intelligence`}
+                className="text-blue-600 underline underline-offset-4"
+              >
+                Product Intelligence
+              </a>
+              .
+            </p>
+          </div>
+          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            {established.map((fact) => (
+              <div key={`${fact.label}-${fact.value}`} className="flex flex-col">
+                <dt className="text-meta font-medium text-ink/70">
+                  {fact.label}
+                </dt>
+                <dd className="text-body text-ink">
+                  {fact.unit ? `${fact.value} ${fact.unit}` : fact.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
+
       <section className="flex flex-col gap-4">
         <div>
           <h3 className="font-display text-h3 text-ink">
