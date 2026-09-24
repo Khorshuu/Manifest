@@ -39,8 +39,8 @@ fact; admin approval before mutation; deterministic logic before AI.
 | 4 | SEO engine: metadata states, structured data, technical SEO, image SEO, internal links, duplicate and thin content, SEO Health Center | HIGH | **COMPLETE** (2026-09-18) — see sections 3C and 3C.1b |
 | 5 | SearchPulse: query understanding, aliases, attribute-aware search, typo tolerance, autocomplete, facets, analytics | EXTRA HIGH | **COMPLETE** (2026-09-18) — see section 3D |
 | 6 | Google Search Console, opportunity detection, SEO change history, controlled learning | HIGH | **COMPLETE** (2026-09-18) — see section 3E |
-| 7 | Hardening: security, SSRF, write safety, performance, legacy contract, observability, provider abstraction | MAX | NOT STARTED |
-| 8 | Final production audit and full verification | ULTRACODE | NOT STARTED |
+| 7 | Hardening: security, SSRF, write safety, performance, legacy contract, observability, provider abstraction | MAX | **COMPLETE** (2026-09-24) — see section 3F. The legacy contraction was deliberately not done; the coverage report says why (D-103, D-105) |
+| 8 | Final production audit and full verification | ULTRACODE | NOT STARTED — entry checklist in section 8 |
 
 ---
 
@@ -201,6 +201,7 @@ fixed in Stage 1; each names the stage that owns it.
 | F14 (PARTLY CLOSED, Stage 5) | `search_keywords` mixes aliases, AI-suggested misspellings, phrases and brand variations with no provenance; once stored, the AI label is lost. | fill merge | 5 — entity aliases now live in `pkb_aliases` with a kind, an origin and an approval (D-067, D-089). `search_keywords` still exists as listing-level legacy text and is still indexed; it is contracted in Stage 7 |
 | F15 (CLOSED, Stage 4) | Sitemap lists every category including empty ones; no image entries; a product's `lastModified` ignores variant and photo changes. | `app/sitemap.ts` | 4 |
 | F16 (CLOSED, Stage 4) | SeoPulse decides a variant is available without the closing-date and D-058 rules the storefront uses, so schema readiness can disagree with the page. | `loadPulseInput`; the page's schema now uses `stockState` | 4 |
+| F17 (OPEN, found Stage 7) | A listing or shelf address that does not exist answers 200 with `<meta name="robots" content="noindex">` rather than 404. Cache Components (D-054) stream a static shell, so the status is committed before `notFound()` fires. | `app/(storefront)/products/[slug]/page.tsx`, `categories/[slug]/page.tsx` | Deferred with a reason (D-108, R-18); a real status needs the existence check in `proxy` |
 
 ---
 
@@ -675,6 +676,181 @@ dev server is running on the restored configuration.
   the date it is meant to have — which is what a change made that day would have
   written — rather than weakening the trigger.
 
+## 3F. Stage 7 — what was done
+
+Hardening. Nothing in this stage is new capability: it goes back over what
+Stages 2 to 6 built and asks, of each part, who may call it, what happens when
+two people save at the same moment, what it costs when the shop is large, and
+whether an operator can see it working.
+
+**Two things it did not do.** No legacy column was removed, because the database
+says they are not ready (D-103), and `products.search_keywords` is kept by
+decision rather than by inability (D-105). Both were planned for this stage; the
+evidence said otherwise and the evidence is now on a screen.
+
+### 3F.1 Security and permissions
+
+| Area | Where | What |
+| --- | --- | --- |
+| Read separated from write | `lib/auth/authorize.ts`, the SEO and Search Console read models | `seo.view` gates every performance report; every action on those screens still needs `catalog.manage`. `analytics.view` was deliberately not reused — it gates the purchase funnel and customer behaviour, and granting it to show page performance would have opened both (D-101) |
+| Addresses judged, not matched | `lib/pkb/net.ts` | An IPv6 address is expanded to its eight groups before any rule applies; an embedded IPv4 address, mapped or compatible, is judged by the IPv4 rules; a zone index is refused; an unparseable address is refused rather than assumed public. `::127.0.0.1` and `::169.254.169.254` used to be treated as public, and `::ffff:8.8.8.8` used to be refused (D-104) |
+| Decompression bounded | `lib/pkb/net.ts` | `safeFetch` hands the size cap to zlib as `maxOutputLength` as well as counting bytes, so a single enormously expanding chunk is never allocated, and the refusal is `TOO_LARGE` rather than a network fault |
+| Strict admin schemas | twelve knowledge and SEO routes, `tests/admin-api-schemas.test.ts` | An unexpected field is refused with 400 rather than stripped, which SECURITY.md has promised since Phase 14. The test is a source check, so it covers routes written later, along with the rule that a route refuses a non-staff caller before it reads the body |
+| Rich text | `tests/rich-text-write-paths.test.ts` | Fails when any path stores `descriptionHtml` or `introHtml` without the allow-list sanitiser |
+| Data boundaries | `tests/data-boundaries.test.ts` | Reads the live schema: no `pkb_*` column may carry a person or something they bought (`created_by` and `decided_by` are the deliberate exceptions), no `pkb_*` table may reference an order, cart, address or payment, nothing there is a second copy of what a shopper searched for, Search Console holds nothing identifying and appears in no export, and no file in `lib/seo` or `lib/search-console` assigns a search volume, keyword difficulty, cost per click or backlink count |
+
+### 3F.2 Write safety
+
+- **F8, a lost update on a listing save.** `updateProduct` read the row it
+  derives its patch from *before* taking the listing's knowledge lock, so two
+  concurrent saves each wrote back the other's untouched columns, recorded a
+  stale "before" in the audit log and the SEO history, and could set
+  `first_published_at` twice. The read now happens after the lock, inside the
+  transaction; the checks that refuse a save outright stay outside it, because
+  they read through the shared connection and a transaction must not wait on a
+  second one.
+- **The same shape again, on a guard.** `applySeoPulse` promises that a field
+  which already has a value is never replaced unless the operator chose Replace.
+  That check was made against a listing read outside the transaction, so two
+  applies both passed it and the second overwrote the first. The check is asked
+  twice — once before the transaction, so a staff member gets the answer without
+  a lock being taken, and again inside it after `beginListingChange`. Re-reading
+  inside the transaction was not enough on its own: the lock has to come first.
+- **Option renames are attributed (R-8).** `renameProductOption` and
+  `renameProductOptionValue` rename and re-read the knowledge base in one
+  transaction, so the change belongs to whoever made it, gets a history row, and
+  is refused where the value has been decided. The database trigger stays as the
+  safety net for a write that arrives another way, and a test proves such a write
+  cannot overwrite a decided value and is parked with a reason instead.
+- **`enqueueUniquePending`** is new in the job runner, because `dedupeKey` cannot
+  express "is this work already going to happen?" — its unique index is not
+  scoped to a status, so a constant key is claimed by the first job for ever. The
+  first implementation took the advisory lock in the same statement's `from`
+  clause, which cannot work: under READ COMMITTED a statement takes its snapshot
+  when it starts, and waiting on a lock does not refresh it, so twenty callers
+  each saw nothing pending and each inserted. The check has to be a separate
+  statement issued after the wait, and the broken version is kept in the tests as
+  a control.
+
+### 3F.3 Measured
+
+| What | Before | After |
+| --- | --- | --- |
+| Whole-catalogue search rebuild, in the request | ~71,000 ms | 123 ms warm, 1,036 ms cold (a bounded insert; the work moves to `search.process_queue`) |
+| The same work in the background, one worker | — | 15.4 s over 5 bounded passes |
+| Per listing, drained in chunks of 200 | — | 3.08 ms |
+| Knowledge backfill, 5,000 listings | 305 s | 181 s, with the listings queued for the worker (D-102) |
+| Product save, one detail changed | 81 ms | 56 ms |
+| Product save, nothing changed | 28 ms | 16 ms |
+| Knowledge sync, one listing | 24 ms | 12 ms |
+| Reconciliation report | 2,434 ms (10,024 statements) | 511 ms (54 statements) |
+| SEO page audit, one listing | 197 ms | 6 ms |
+| Opportunity report, 20,000 pages | 4,867 ms | 737 ms (D-107) |
+| Deleting one listing's search events, 500,000 rows | 41.0 ms scanning | 0.6 ms indexed (D-106) |
+
+All on the 5,000-listing `manifest_scale` database, except the opportunity
+report and the delete, which need volumes the catalogue does not produce and
+were measured on `manifest_bench` (1,120,000 measurements over 20,000
+addresses) and on a 500,000-row scratch table. The harnesses are
+`scripts/perf/knowledge-bench.ts`, `scripts/perf/search-rebuild-bench.ts` and
+`scripts/perf/search-console-bench.ts`.
+
+Two of those numbers came from finding the cost was not where it looked.
+`loadDefinitions` asked for options and aliases with an IN list of every
+definition id and joined them in JavaScript with a nested filter per row; the
+reconciliation report loaded each listing's projection with two statements of its
+own; the per-listing duplicate check compared with a CASE inside the join, which
+no expression index can serve; and the opportunity engine's two expensive
+aggregates were a per-group `count(distinct …)` and a per-row `numeric`
+multiplication, not the scan they sat on.
+
+### 3F.4 Observability
+
+Every scheduled job already recorded what it did into `jobs.result` — how many
+files the media sweep reclaimed, how many listings are left to reindex, what the
+prune removed — and nothing read it back. `/api/admin/jobs` existed with no
+screen consuming it, so an operator could see that the scheduler was alive and
+that something had died, and nothing in between. `/admin/jobs` now shows each
+job, how often it runs, when it last finished and what it reported, with the
+failures and a retry for a dead one behind `settings.manage`. `jobSummary`'s
+last-finished-run read is `distinct on (kind)` with a matching partial index,
+because the every-minute delivery job alone leaves about ten thousand finished
+rows inside its retention window.
+
+`mediaCoverage` (R-11) separates the two kinds of photograph with no registry
+row: the seeded development images, which are committed under `public/` and must
+never gain a row — a row is what makes the sweep willing to delete a file — and
+everything else, which is a file nothing can reclaim. `registerExistingMedia`
+records what the configured provider says it stores; providers gained `keyFor` to
+say so conservatively and `read` so the reconciliation can *measure* what it
+records — dimensions, byte size, digest and content type come from the bytes via
+sharp, never from the address, and stay null when the provider cannot hand the
+file back.
+
+The "stored measurements" panel (R-17) reports rows per property, the stored date
+range, the size on disk as PostgreSQL reports it, the retention window, how many
+rows the next prune will remove and when the last one ran — whether or not a
+provider is configured, because rows outlive the configuration that fetched them.
+
+### 3F.5 The legacy contract, decided on evidence
+
+`legacyCoverage` counts, from the database, how much of each legacy catalogue
+system the knowledge base actually holds, and shows it on the knowledge screen:
+
+| Legacy system | Development database |
+| --- | --- |
+| Shelf specification definitions | 2 of 2 covered — contractable |
+| Variant option groups | 2 of 5 covered — 3 unmatched |
+| Variant option selections | 6 of 8 mirrored — 2 unmirrored |
+| Listing search terms | Retained on purpose |
+
+with 72 values parked, waiting for somebody to say what they are. `allCovered` is
+the gate a contraction has to ask. Nothing is removed in this stage, because
+removing `category_attributes` or the legacy option readers today would drop
+values with no knowledge attribute behind them — the one failure the staged
+migration exists to prevent. Invariants I-11 and I-12 therefore stand where
+Stage 5 left them: the product page's Specification and Measurements tabs still
+read the legacy columns, which the projection keeps in step (D-070).
+
+`suggestAliasesFromKeywords` is the path out for search terms: a listing's terms
+are offered as *suggested* product aliases, attributed to whoever asked, and
+approving each one needs `search.manage`. Nothing is deleted, a rejected term is
+never re-proposed, running it twice proposes nothing new, and the report says
+what each term has become. A test asserts that the search-terms column is never
+reported as contractable — not even on a database where every term has been
+approved as an alias — because a report that said otherwise would eventually be
+acted on.
+
+### 3F.6 Migrations
+
+| Migration | What |
+| --- | --- |
+| 0038 | Replaces the description index migration 0035 added (every caller trimmed before hashing, so the expressions never matched); adds the indexes the cascade and prune paths a listing save walks were missing; checks that an opportunity decision cannot name a listing while claiming to be about a shelf |
+| 0039 | `product_search_queue.source`, so a rebuild can be left to the worker while a change is still rebuilt at its own commit |
+| 0040 | Lets a transaction declare itself a bulk import with `set local manifest.search_queue_source` |
+| 0041 | The five foreign-key indexes a delete actually scans, with the reason the other seventeen are left alone |
+
+### 3F.7 Found and fixed on the way
+
+- `tests/rich-text-write-paths.test.ts` caught a mistake in itself: an
+  unanchored exclusion meant to skip the type `string | null` also matched the
+  tail of `input.descriptionHtml || null`, so the guard passed while the
+  sanitiser was removed. Every exclusion is anchored now, and the guard is
+  confirmed to fail when the sanitiser is taken out.
+- The production build had never been run in this repo, and it failed:
+  `next/font/google` was asked for five separate weights of Figtree, which is a
+  variable font, and Turbopack cannot express that as one query. One file carries
+  every weight the design uses, so the list is gone and the typography is
+  unchanged.
+- The end-to-end suite had never been run either, and running it against the
+  production build found a second-factor ceiling nothing could raise: ten
+  attempts per address per fifteen minutes, hard-coded. A suite that signs a
+  dozen accounts in from one address exhausts it, so several specs were refused
+  with "too many attempts" and read it as a broken sign-in — reproducible under
+  the full suite, absent when the spec ran alone. Both ceilings are configurable
+  now, the per-account one stays at ten because that is the one that stops
+  guessing, and only the address ceiling is raised for the test server.
+
 ## 4. Target architecture
 
 ### 4.1 Layers
@@ -1083,6 +1259,34 @@ Not run in Stage 6, by design: the end-to-end suite, a production build, the
 whole unit project, and the real-PostgreSQL concurrency suites. Nothing in this
 stage changes a storefront read path.
 
+### Stage 7 (2026-09-24)
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS |
+| Whole Vitest unit project (PGlite) | PASS — 106 files, 1,471 tests, 8 skipped, 251 s |
+| The real-PostgreSQL concurrency suites (product save, SEO apply, search rebuild, jobs, rate limit) | PASS, and each confirmed to fail with its fix removed |
+| `npm run build` | PASS — the first production build in this repo (it failed first; see 3F.7) |
+| `npm run test:e2e:prod` — the whole suite against that build | PASS — 490 tests, 6 skipped by design (viewport-specific), 4.4 m |
+| The same suite against `next dev` | NOT A RELIABLE SIGNAL — Turbopack aborted the dev server part-way through ("An unexpected Turbopack error occurred"), failing every test after it. Nothing in the panic points at this repo's code, and the same suite passes against the production build |
+| Migrations 0038 to 0041 on dev `preorder` | applied |
+| `npm run perf:search-console` on `manifest_bench` (1,120,000 measurements, 20,000 pages) | measured — section 3F.3 |
+| `/admin/jobs`, the knowledge screen's legacy coverage report, `/admin/seo-performance` | exercised on the running dev site |
+
+Two things the end-to-end suite found, both of them real:
+
+- A second-factor ceiling nothing could raise. Ten attempts per address per
+  fifteen minutes is right for the shop and wrong for a suite that signs a dozen
+  accounts in from one address; the suite was being refused with "too many
+  attempts" and reading it as a broken sign-in. Both ceilings are configurable
+  now (`TWO_FACTOR_RATE_LIMIT_PER_ACCOUNT`, `TWO_FACTOR_RATE_LIMIT_PER_IP`), the
+  per-account one — the one that stops guessing — stays at ten, and only the
+  address ceiling is raised for the test server. The failure was reproducible
+  under the full suite and absent when the spec ran alone, which is what a shared
+  ceiling looks like.
+- A missing address answers 200 with noindex rather than 404 (F17, R-18, D-108).
+
 ---
 
 ## 7. Unresolved issues and assumptions
@@ -1236,47 +1440,64 @@ Open risks:
   Google rather than by the catalogue. `maintenance.prune` deletes past the
   retention window; nothing yet reports the row count back to an operator.
 
+- **R-18** (new, Stage 7) An address with no listing or shelf behind it answers
+  200 with `<meta name="robots" content="noindex">` instead of 404 (finding F17).
+  This is Cache Components behaving as documented: every dynamic route streams a
+  static shell, so the response has committed to 200 before `notFound()` fires,
+  and Next injects the noindex tag rather than changing a status it can no longer
+  change. The shop's own not-found page still renders, and a noindex page is kept
+  out of search results, so the visible consequences are a crawler spending a
+  little budget on addresses that do not exist and a monitoring tool that counts
+  200s. The fix is to check existence before the response streams, which means in
+  `proxy` — a database read on the hottest storefront routes, on a layer this
+  repo deliberately keeps free of the database and of application imports
+  (D-108). Reconsider in Stage 8, where deployment behaviour is the subject.
+
 ---
 
 ## 8. Next stage
 
-**Stage 7 — MAX — hardening: security, write safety, performance, the legacy
-contract, observability and the provider abstractions.** Not started, and not to
-be started without the owner's `CONTINUE STAGE 7`.
+**Stage 8 — ULTRACODE — final production audit and full verification.** Not
+started, and not to be started without the owner's `CONTINUE STAGE 8`.
 
 Entry checklist:
 
-1. Read this file (sections 3E, 4.8, 5, 7), D-096 to D-100, and `git log` since
+1. Read this file (sections 3F, 5, 6, 7), D-101 to D-108, and `git log` since
    the Stage 6 commit.
-2. Run `npm run pkb:backfill -- --report` against the dev database to confirm
-   the mirror is still clean, and check `/admin/seo-performance` renders its
-   "Search Console not connected" state.
-3. The open findings are F8 (a lost update in `updateProduct`) and the remainder
-   of F14 (`search_keywords` still indexed as listing-level legacy text).
-4. The open risks are R-2, R-3, R-8 to R-17. R-15 to R-17 are new in Stage 6 and
-   are described in section 7.
-5. Contracting a legacy column (invariant I-12, D-095) is Stage 7's largest
-   piece and the one with the most ways to go wrong. Nothing is dropped before
-   the reconciliation report is clean on the target database *and* a test proves
-   no reader remains.
-6. Performance work has measurements to start from: section 3D.5 for search and
-   facets, section 3A.3 for the mirror, and R-16 for the opportunity engine,
-   which has never been measured at scale.
+2. Run, in this order: `npm run typecheck`, `npm run lint`, `npm test`,
+   `npm run build`, `npm run test:e2e:prod`. All five pass as of the last Stage 7
+   commit, so anything failing is a regression and belongs at the top of the
+   stage. Do not judge the suite by a `next dev` run — Turbopack aborted the dev
+   server part-way through a full run in Stage 7 and failed everything after it.
+3. Run `npm run pkb:backfill -- --report` against the dev database to confirm the
+   mirror is still clean, and read the legacy coverage report on the knowledge
+   screen before planning any contraction.
+4. The open findings are F14 (the remainder: search terms retained by decision,
+   D-105) and F17 (a missing address answers 200 with noindex, D-108). The open
+   risks are R-3, R-7, R-11, R-13 to R-15, R-17 and R-18; R-2, R-8 to R-10, R-12
+   and R-16 were closed in Stage 7.
+5. Two things Stage 7 deliberately left for a decision with the owner rather than
+   for a later stage to assume: whether a real 404 is worth a database read in
+   `proxy` (R-18), and whether the 72 parked legacy values are worth working
+   through so that `category_attributes` and the legacy option readers can be
+   contracted (D-103). Neither is a technical unknown; both are cost questions.
+6. Search Console has still never spoken to Google (R-15). If the owner can
+   supply credentials or a staging property, that is the one verification no
+   amount of local work can substitute.
 
-**Effort estimate for Stage 7: MAX** — the highest of the remaining stages, and
-higher than Stage 6 was. Three reasons. It is the only stage that *removes*
-things: contracting `category_attributes`, the legacy option and specification
-readers and `search_keywords` touches paths the storefront serves on every
-request, and a mistake there is visible to shoppers rather than to staff. It
-carries the accumulated risk list from five stages, several of which (R-8
-attribution through triggers, F8 concurrent saves) are correctness problems in
-write paths rather than additions beside them. And its verification needs the
-real-PostgreSQL concurrency suites and measurement at scale, not just the unit
-project — which is slower work than anything Stage 6 required.
+**Effort estimate for Stage 8: ULTRACODE** — not because the work is
+individually hard, but because it is the stage that has to be right about the
+whole surface at once: every check run the production way, the storefront and
+the admin exercised on a real build rather than on a dev server, the deployment
+documents (DEPLOYMENT.md, STAGING.md, OBSERVABILITY.md) checked against what the
+code now does, and the remaining risks either closed or accepted in writing.
 
-Stage 6 itself came in about where it was estimated: the parts that could be
-built without credentials were ordinary work on top of Stage 4's engine, and
-the integration that cannot be verified is marked as such rather than assumed.
+Stage 7 came in about where it was estimated, with one difference worth
+recording: the largest planned piece — contracting the legacy columns — turned
+out to be a piece of measurement rather than a piece of removal, and the two
+most valuable defects of the stage were found by running the two checks that had
+never been run at all (a production build and the end-to-end suite) rather than
+by reading code.
 
 ---
 
@@ -1349,6 +1570,7 @@ the integration that cannot be verified is marked as such rather than assumed.
 
 | Date | Stage | Summary |
 | --- | --- | --- |
+| 2026-09-24 | 7 | Hardening. Security: addresses judged after expansion rather than by spelling (two loopback forms were reachable), decompression bounded in zlib, twelve admin routes made strict, source guards for rich text and route shape, data boundaries asserted against the live schema. Write safety: the lost update in `updateProduct` (F8) and the same shape on the SEO apply guard, both proved with real concurrent writes; option renames attributed; `enqueueUniquePending`. Performance, all measured: the search rebuild off the request path (~71 s to 123 ms), the backfill 305 s to 181 s, the reconciliation report 2,434 ms to 511 ms, a page audit 197 ms to 6 ms, the opportunity report 4,867 ms to 737 ms at 20,000 pages, five foreign-key indexes chosen by measuring a delete. Observability: `/admin/jobs`, media coverage, stored-measurement reporting. The legacy contraction was deliberately not done (D-103, D-105), and the coverage report is the gate. Decisions D-101 to D-108; R-2, R-8 to R-10, R-12 and R-16 closed; F17 and R-18 opened. First production build and first full end-to-end run in this repo: both now pass, and both found a defect. |
 | 2026-09-18 | 6 | Search Console as an optional intelligence source: migration 0037 (the measurement table keyed so a re-read is an update, the sync log, the per-property watermark, opportunity decisions, and `seo_field_history` widened to cover shelves and record its workflow). A provider boundary whose default reports NOT_CONFIGURED and whose Google implementation is the only file that reads credentials; an idempotent, bounded, paginated sync as a job; five opportunity rules benchmarked against this site's own median click-through per position band; one SEO change history, now covering shelves; before-and-after observation that never claims a cause; controlled learning that recommends and never writes. `/admin/seo-performance`, a box in the listing editor, two API routes. Decisions D-096 to D-100; invariants I-18 to I-20; risks R-15 to R-17. 47 new tests. 0037 applied to the dev database. Google itself UNVERIFIED — no credentials. |
 | 2026-09-18 | 5 | SearchPulse on the knowledge base: migration 0036 (four derived columns on `product_search`, the `product_search_attributes` facet read model, `search_term_key`/`search_number`, seven new queue triggers, `search_events`, search attribution on the cart and order lines). Query understanding with approved aliases, brands, families and canonical quantities; attribute-aware matching; ranking tiers 10 and 1; facets and filters on the read model with every older URL key still accepted; knowledge-backed autocomplete; filter, refinement, add-to-cart and confirmed-payment analytics; seven zero-result verdicts with alias proposals. Findings F10, F11 and F12 closed, F14 partly. Decisions D-089 to D-095. 54 new tests; full unit project 1,302 passed. 0036 applied to the dev and scale databases. |
 | 2026-09-18 | 4 | Second half of the SEO engine: migration 0035 (category SEO columns, duplicate-check indexes); image SEO, duplicate/near-duplicate/thin content, technical auditing, internal-link intelligence; four new sections on the SEO Health Center and a Page audit panel in the product editor; shelf SEO written by staff and read by the storefront and sitemap. Decisions D-084 to D-088. 11 new tests. 0035 applied to the dev database. |

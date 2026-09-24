@@ -95,6 +95,11 @@ export default defineConfig({
                 // raises the configured ceiling rather than asking for a backdoor.
                 LOGIN_RATE_LIMIT_PER_IP: "100000",
                 LOGIN_RATE_LIMIT_PER_ACCOUNT: "100000",
+                // Every second-factor attempt in the suite comes from the same
+                // address, and several specs offer a wrong code on purpose. The
+                // per-account ceiling is left at its real value, because each
+                // spec uses a fresh account and that is the ceiling that matters.
+                TWO_FACTOR_RATE_LIMIT_PER_IP: "100000",
                 // Every browser in the suite is one "visitor" (same address, same
                 // user agent), so the public search ceilings are raised too.
                 SEARCH_SUGGEST_LIMIT: "100000",

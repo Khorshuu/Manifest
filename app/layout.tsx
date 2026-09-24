@@ -14,11 +14,17 @@ import { jsonLdScript, organisationJsonLd, siteUrl } from "@/lib/seo";
  * Loading one variable family also takes a font file off the critical path of
  * a first screen that is now dominated by a photograph.
  */
+/*
+ * No `weight` list: Figtree is a variable font, so one file carries every
+ * weight the design uses (400 through 800). Asking for an array of weights is
+ * for families that ship a file per weight, and Turbopack refuses to build it —
+ * "next/font/google queries have exactly one entry" — because it cannot express
+ * five separate fetches of one variable family.
+ */
 const figtree = Figtree({
   variable: "--font-figtree",
   subsets: ["latin"],
   display: "swap",
-  weight: ["400", "500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {

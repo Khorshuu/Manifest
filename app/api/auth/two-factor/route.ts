@@ -10,6 +10,7 @@ import {
   upgradePendingSession,
 } from "@/lib/auth/session";
 import { verifySecondFactor } from "@/lib/auth/two-factor";
+import { getEnv } from "@/lib/env";
 import { consumeRateLimit } from "@/lib/rate-limit";
 
 const bodySchema = z
@@ -17,9 +18,6 @@ const bodySchema = z
   .strict();
 
 const WINDOW_MS = 15 * 60 * 1000;
-
-/** A six-digit code is guessable at scale, so the attempts are capped hard. */
-const MAX_ATTEMPTS = 10;
 
 const rateLimitDisabled =
   process.env.NODE_ENV !== "production" &&
@@ -63,9 +61,17 @@ export async function POST(request: Request) {
         headerList.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
 
       // Capped per account and per address: brute-forcing six digits is only
-      // hard if the attempts are limited.
-      for (const key of [`2fa:user:${userId}`, `2fa:ip:${ip}`]) {
-        const limit = await consumeRateLimit(key, MAX_ATTEMPTS, WINDOW_MS);
+      // hard if the attempts are limited. Both ceilings are configurable, and
+      // the per-address one is the higher of the two because many legitimate
+      // people share an address (lib/env.ts).
+      const env = getEnv();
+      const limits = [
+        [`2fa:user:${userId}`, env.TWO_FACTOR_RATE_LIMIT_PER_ACCOUNT],
+        [`2fa:ip:${ip}`, env.TWO_FACTOR_RATE_LIMIT_PER_IP],
+      ] as const;
+
+      for (const [key, max] of limits) {
+        const limit = await consumeRateLimit(key, max, WINDOW_MS);
 
         if (!limit.allowed) {
           // The pending session is destroyed rather than left to be retried

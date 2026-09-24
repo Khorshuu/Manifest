@@ -120,10 +120,28 @@ test("the sitemap lists products and categories, and nothing private", async ({
 });
 
 test("an address a listing used to have still arrives", async ({ page, request }) => {
-  // The seed renames nothing, so this checks the mechanism end to end only
-  // when a redirect exists; with none, a missing address is still a 404.
+  /*
+   * The seed renames nothing, so this checks the mechanism end to end only
+   * when a redirect exists; with none, a missing address must be refused.
+   *
+   * It is refused as a soft 404, and that is the framework's doing rather than
+   * this shop's (finding F17, R-18). With Cache Components every dynamic route
+   * streams a static shell first, so by the time `notFound()` fires the response
+   * has already committed to 200 and Next injects
+   * `<meta name="robots" content="noindex">` instead of changing the status.
+   * This test asserts what is actually guaranteed: the shop's own not-found page,
+   * and a page no search engine will index. It was written expecting 404, which
+   * is what this route did before Cache Components (D-054) and has not done
+   * since; a real status needs the check to happen before the response streams,
+   * which means in `proxy`.
+   */
   const response = await request.get("/products/definitely-not-a-listing", { maxRedirects: 0 });
-  expect(response.status()).toBe(404);
+  expect(response.status()).toBe(200);
+  expect(await response.text()).toContain('name="robots" content="noindex"');
+
+  await page.goto("/products/definitely-not-a-listing");
+  await expect(page.getByText("We could not find that page")).toBeVisible();
+
   await page.goto("/products/seasonal-candy-variety-box");
   await expect(page).toHaveTitle(/Seasonal Candy Variety Box/);
 });

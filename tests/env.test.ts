@@ -25,6 +25,8 @@ describe("env", () => {
     process.env.SHIPPING_PROVIDER = "";
     process.env.NOTIFICATION_PROVIDER = "";
     process.env.LOGIN_RATE_LIMIT_PER_IP = "";
+    process.env.TWO_FACTOR_RATE_LIMIT_PER_IP = "";
+    process.env.TWO_FACTOR_RATE_LIMIT_PER_ACCOUNT = "";
 
     const { getEnv: fresh } = await import("@/lib/env");
     const env = fresh();
@@ -33,6 +35,10 @@ describe("env", () => {
     expect(env.SHIPPING_PROVIDER).toBe("mock");
     expect(env.NOTIFICATION_PROVIDER).toBe("mock");
     expect(env.LOGIN_RATE_LIMIT_PER_IP).toBe(60);
+    // A second factor is only worth having if guessing it is capped: the
+    // per-account ceiling stays tight whatever the address ceiling is.
+    expect(env.TWO_FACTOR_RATE_LIMIT_PER_ACCOUNT).toBe(10);
+    expect(env.TWO_FACTOR_RATE_LIMIT_PER_IP).toBe(30);
 
     process.env = saved;
   });

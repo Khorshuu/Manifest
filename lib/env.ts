@@ -29,6 +29,16 @@ const schema = z.object({
   LOGIN_RATE_LIMIT_PER_ACCOUNT: z.coerce.number().int().positive().default(10),
   LOGIN_RATE_LIMIT_PER_IP: z.coerce.number().int().positive().default(60),
   /**
+   * Second-factor attempt ceilings per 15-minute window. Six digits are
+   * guessable at scale, so the per-account ceiling is deliberately tight. The
+   * per-address one exists for the same reason as the login one — many
+   * legitimate people share an address — and is separately configurable because
+   * a test suite signing in as a dozen accounts from one address is otherwise
+   * indistinguishable from an attack.
+   */
+  TWO_FACTOR_RATE_LIMIT_PER_ACCOUNT: z.coerce.number().int().positive().default(10),
+  TWO_FACTOR_RATE_LIMIT_PER_IP: z.coerce.number().int().positive().default(30),
+  /**
    * Public search ceilings, per visitor: suggestions per 10 seconds and result
    * clicks per minute. Counted in memory per instance (lib/search/throttle.ts).
    */

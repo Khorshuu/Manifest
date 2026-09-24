@@ -17,7 +17,7 @@ Any account may turn it on at `/account/security`; the page recommends it in as 
 - A code cannot be used twice. The step it belonged to is recorded and anything at or before it is refused, so a code read over someone's shoulder is worthless the moment it is spent.
 - Ten single-use recovery codes are issued once, at confirmation, and stored as SHA-256. They are high-entropy random strings, so a fast hash is right here in a way it never is for a password. They cannot be read back — if they could, a borrowed session would defeat the second factor entirely.
 - Turning it off needs a current code or a recovery code, not merely a live session. Otherwise an unlocked laptop removes the protection that exists for exactly that case.
-- Second-factor attempts are rate limited per account and per address, ten per fifteen minutes; exhausting them destroys the pending session rather than leaving it open to retry. Six digits are guessable at scale if the attempts are not capped.
+- Second-factor attempts are rate limited per account (ten per fifteen minutes) and per address (thirty), both configurable as `TWO_FACTOR_RATE_LIMIT_PER_ACCOUNT` and `TWO_FACTOR_RATE_LIMIT_PER_IP`; exhausting either destroys the pending session rather than leaving it open to retry. Six digits are guessable at scale if the attempts are not capped. The per-account ceiling is the meaningful one, and the per-address ceiling is higher for the same reason as sign-in: many legitimate people share an address.
 - Both enabling and disabling are written to the audit log.
 
 ## Authorization

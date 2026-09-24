@@ -2602,3 +2602,38 @@ holds because a page row carries no query and
 asserted by a test that syncs the same day twice, with searches for the same
 page, and expects one row. An optimisation that depends on a stored shape is
 only allowed here with a test that fails when the shape changes.
+
+---
+
+## D-108 — A missing address stays a soft 404 for now, and the reason is written down
+
+**Decision (Stage 7, from the first production run of the end-to-end suite).**
+A listing or shelf address with nothing behind it answers `200` with
+`<meta name="robots" content="noindex">` rather than `404`. That is left as it is
+in this stage, deliberately.
+
+**Why it happens.** Cache Components (D-054) prerender a static shell for every
+dynamic route and stream the rest. The status has to be committed before the
+first byte, which is before `cachedProductContent(slug)` has answered, so by the
+time `notFound()` fires the response is already a 200 and Next injects the
+noindex tag instead of a status it can no longer change. Next's own guidance says
+the same: to get a real status the existence check has to happen before the
+response streams, which means in `proxy` or in a config redirect.
+
+**Why it is not fixed here.** `proxy.ts` deliberately reaches neither the
+database nor any application module — every check there is decided from the
+request alone, and it is the outer layer of a check that is also made where it
+counts. Putting a slug lookup in it would add a database round trip to the two
+hottest storefront routes, on a layer that on a serverless platform runs as its
+own function with its own connections. That is a real cost against a real but
+small benefit: the not-found page still renders, the page is unindexable, and
+Google drops a noindex page from its index. A crawler spends a little budget on
+addresses that do not exist and an uptime check counts a 200 where a 404 would be
+more honest.
+
+**What was done instead.** The end-to-end test that asserted `404` — written
+before Cache Components and never run against a production build until now —
+asserts what is actually guaranteed: the shop's own not-found page, and the
+noindex tag. The behaviour is recorded as finding F17 and risk R-18, to be
+reconsidered in Stage 8, where deployment behaviour is the subject. A check in
+`proxy` is the known fix, not an open question.

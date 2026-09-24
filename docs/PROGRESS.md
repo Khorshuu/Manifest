@@ -3437,6 +3437,32 @@ Blocked on your accounts or choices:
   files, 1,471 tests, 8 skipped. The concurrency suites run against real
   PostgreSQL. Migrations 0038 to 0041 are applied to the development database.
   The opportunity engine was measured on a 1,120,000-row scratch database.
-- `[!]` Still not run: the end-to-end suite and a production build.
+- `[x]` A production build now succeeds — the first time in this repo. It had
+  never been run, and it failed: `next/font/google` was asked for five separate
+  weights of Figtree, which is a variable font, and Turbopack cannot express
+  that as one query. One file carries every weight the design uses, so the list
+  is gone and the typography is unchanged.
+- `[x]` The end-to-end suite now passes against that production build: 490
+  tests, 6 skipped by design (they are the phone-only and desktop-only layout
+  checks), nothing failing. It had never been run either, and it found two real
+  things.
+- `[x]` The first was a second-factor ceiling nothing could raise. Ten attempts
+  per address per fifteen minutes is right for the shop and wrong for a suite
+  that signs a dozen accounts in from one address, so the suite was being told
+  "too many attempts" and reading it as a broken sign-in. Both ceilings are
+  configurable now, the per-account one — the one that actually stops guessing —
+  stays at ten, and the suite raises only the address ceiling.
+- `[!]` The second is left as it is, on purpose. An address with no listing
+  behind it answers 200 with "do not index" rather than 404, because the shop
+  streams a cached page shell and the status has to be sent before the shell.
+  The shopper still gets the shop's own "not found" page and no search engine
+  will index it. Making it a true 404 means looking the address up before
+  anything is sent — in the proxy layer, which is deliberately kept away from
+  the database. Recorded as F17, R-18 and D-108, to be settled in Stage 8.
+- `[!]` Against the development server, rather than a production build, the
+  suite is not currently a reliable signal: Turbopack aborted the dev server
+  part-way through a full run ("An unexpected Turbopack error occurred"), which
+  fails every test after it. The same suite passes on the production build, and
+  nothing in the panic points at this shop's code. Run it the production way.
 - `[ ]` Stage 8 waits for the go-ahead.
 
