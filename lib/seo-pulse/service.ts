@@ -19,6 +19,7 @@ import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import { enqueueJob } from "@/lib/jobs/runner";
 import type { Executor } from "@/lib/pkb/common";
+import { groundedKnowledge } from "@/lib/pkb/publish";
 import { beginListingChange } from "@/lib/pkb/sync";
 import type { SessionUser } from "@/lib/auth/session";
 import { resolveCategoryAttributes } from "@/lib/catalog/category-attributes";
@@ -110,7 +111,7 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
   const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
   if (!product) return null;
 
-  const [images, allCategories, variants, [rating], definitions] = await Promise.all([
+  const [images, allCategories, variants, [rating], definitions, knowledge] = await Promise.all([
     db
       .select()
       .from(productImages)
@@ -137,6 +138,18 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
       .from(reviews)
       .where(and(eq(reviews.productId, productId), eq(reviews.status, "approved"))),
     resolveCategoryAttributes(product.categoryId),
+    /*
+     * The knowledge base's own account of this product (D-113).
+     *
+     * SEO Pulse used to read the listing's columns and nothing else, so
+     * everything the enrichment pipeline had established — a verified GTIN, a
+     * material accepted from the manufacturer's documentation, a measurement
+     * taken from a specification sheet — was invisible to the generator that
+     * was supposed to describe the product. It reads it here, through the same
+     * publication rule the storefront's structured data uses, so nothing
+     * unverified can reach a factual generation context.
+     */
+    groundedKnowledge(product.pkbProductId),
   ]);
 
   const byId = new Map(allCategories.map((row) => [row.id, row]));
@@ -170,6 +183,7 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
 
   return {
     productId: product.id,
+    knowledge,
     title: product.title,
     slug: product.slug,
     brand: product.brand,

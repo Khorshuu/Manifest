@@ -40,7 +40,8 @@ fact; admin approval before mutation; deterministic logic before AI.
 | 5 | SearchPulse: query understanding, aliases, attribute-aware search, typo tolerance, autocomplete, facets, analytics | EXTRA HIGH | **COMPLETE** (2026-09-18) — see section 3D |
 | 6 | Google Search Console, opportunity detection, SEO change history, controlled learning | HIGH | **COMPLETE** (2026-09-18) — see section 3E |
 | 7 | Hardening: security, SSRF, write safety, performance, legacy contract, observability, provider abstraction | MAX | **COMPLETE** (2026-09-24) — see section 3F. The legacy contraction was deliberately not done; the coverage report says why (D-103, D-105) |
-| 8 | Final production audit and full verification | ULTRACODE | NOT STARTED — entry checklist in section 8 |
+| 8 | Final production audit and full verification | ULTRACODE | **COMPLETE** (2026-09-24) — see section 3G |
+| 9 | Product preparation: identity on the product save, automatic resolution, the durable orchestration behind "Research & Prepare with SeoPulse", the research provider boundary, and the PKB → SeoPulse grounded context | MAX | **BACKEND COMPLETE** (2026-09-24) — see section 3H. The product-entry interface is deliberately a separate piece of work |
 
 ---
 
@@ -851,6 +852,200 @@ acted on.
   now, the per-account one stays at ten because that is the one that stops
   guessing, and only the address ceiling is raised for the test server.
 
+## 3G. Stage 8 — what was done
+
+The final audit. Nothing here is new capability either: it takes the whole
+surface Stages 1 to 7 built and asks, of each part, whether the repository
+actually does what the documents say, and whether the answer can be shown rather
+than asserted. Five defects were found and fixed, one of them in the development
+environment rather than in the code. Two questions the owner left open were
+answered with measurements.
+
+### 3G.1 Defects found and fixed
+
+| # | What | How it was found | Fix | Regression test |
+| --- | --- | --- | --- | --- |
+| S8-1 | The development database's migration ledger disagreed with the repository: 0041 was applied, then edited before it was committed, so `jobs_kind_finished_idx` — the index the Background work screen's last-finished-run read depends on — had never been created. `manifest_bench` was in the same state | `npm run db:migrate` refused to run, which is exactly what the ledger is for (D-069) | 0041 replayed (every statement is `CREATE INDEX IF NOT EXISTS`) and the recorded checksum set to the committed file's, on both databases. No migration was edited | The ledger's own refusal, already covered by `tests/migrations.test.ts`; and a schema comparison against a database built from zero, recorded in 3G.2 |
+| S8-2 | `refresh_product_search` built the search document in whatever order the plan produced: one unordered string aggregate over a listing's shelf specifications. Refreshing one listing and refreshing it inside a batch stored different documents for the same data — 3,863 of 5,000 on the scale database. Relevance within a tier uses `ts_rank_cd`, which reads positions out of the tsvector, so the same query could rank two listings differently because of how the index had last been rebuilt | Rebuilding the derived model from canonical data and comparing it with what was stored — the check section 6 of the Stage 8 brief asks for | Migration 0042: 0036's function with `ORDER BY d.sort_order, d.name, e.key` on that aggregate, and nothing else changed | `tests/search-document-order.test.ts`: one test reads the function as the database holds it and fails on any aggregate that can return rows in an arbitrary order, so it covers aggregates added later; one asserts the order, and that a single and a batched refresh agree |
+| S8-3 | `/api/admin/knowledge/products/[id]/resolve` with `{"action":"refresh"}` reached `refreshResolution` directly, on the grounds that re-checking is a read. It is a write: it stores the resolution state, appends a history row, and where the state is no longer VERIFIED it clears `resolution_decided_by` and `resolution_decided_at` — a confirmed identity, discarded by any staff account, unattributed | Auditing every admin route against the permission each lib function it calls actually asks for | `reassessResolution(actor, id)`, which asks for `catalog.manage` — what every other resolution write asks for — and takes the row's lock first. The route calls that | `tests/pkb-intelligence.test.ts`: a staff account with `seo.view` but not `catalog.manage` is refused, the confirmed identity survives, and somebody who may manage the catalogue still can |
+| S8-4 | `decideAlias` read the alias row outside its transaction and checked "still only suggested" against that read. Two decisions arriving together both passed and both wrote, so an approved alias — live search vocabulary — could become rejected, recorded against whoever committed last, with nothing on the row to say it had been decided twice. The third instance of the shape Stage 7 fixed twice (D-110) | Looking for the Stage 7 defect shape everywhere else it could be: a probe over `lib/` for a read on the shared connection, a guard, and then a transaction that writes | The row is read inside the transaction `for update`, and the update carries `status = 'suggested'` in its `where` as well | `tests/knowledge-decision-concurrency.test.ts`, on real PostgreSQL, confirmed to fail against the previous code — both decisions were fulfilled. Claim decisions are in the same file as the control, because they were already safe |
+| S8-5 | Every prune in the hourly maintenance job deleted everything past its retention window in one statement and asked for an identifier back per row, only to count them. 500,000 Search Console measurements: 2,177 ms and 106 MB of live identifiers for rows that had just ceased to exist. That table's size is set by Google, not by this catalogue (R-17) | Measuring the thing the checklist calls "unbounded operations" rather than reasoning about it | `pruneInBatches` (`lib/prune.ts`, D-111), applied to search queries, search clicks, search events, Search Console measurements, rate-limit hits and finished jobs. Guest carts already batched, which is where the shape came from | `tests/prune.test.ts`: the count stays exact, the ceiling is reported as `more` rather than passed off as finished, and the batch size is bounded at both ends |
+
+### 3G.2 What was verified, and how
+
+| Question | Evidence |
+| --- | --- |
+| Is there a second canonical factual store? | No file outside `lib/pkb` writes a `pkb_*` table (source search); no trigger writes `pkb_facts`; `db/seed.ts` only truncates them. Every module under `lib/search-console`, `lib/search` and `lib/seo` imports only read models from `lib/pkb` (`common`, `publish`, `units`, `normalize`); `lib/seo-pulse` imports one write path, `beginListingChange`, which is the listing lock |
+| Is the derived search model rebuildable from canonical data? | Rebuilt the whole of `product_search` and `product_search_attributes` and compared every column. On the development database: identical. On the 5,000-listing scale database: identical after S8-2, and 3,863 documents different before it |
+| Does the migration chain produce the schema the development database actually has? | A database built from zero by the chain (`e2e/prepare-db.ts`) and the development database agree on all 943 columns, 284 indexes, 1,095 constraints, 79 function bodies and 44 triggers |
+| Do the assumptions behind the fast opportunity report still hold? | `search_console_metrics_unique` still covers (property, day, dimension, page, query), and the test that syncs one day twice still asserts one row. `npm run perf:search-console` at 20,000 pages and 1,120,000 measurements: p50 662 ms, p95 817 ms, still reported as partial at 500 of 20,000 pages |
+| Can a missing address be discovered or indexed? | Probed against the production build — section 3G.3 |
+| Can a provider credential reach a browser? | No file under `.next/static` mentions any credential variable, a connection string, a private-key header or a service-account address; no `process.env.*` reference survives in the client bundles at all |
+| Are the 72 parked legacy values recoverable? | Classified from the database: 71 ambiguous, 1 unusable, 0 migratable (D-109). None can be placed without inventing what a label means |
+| Does the permission boundary hold on every admin surface? | All 49 admin API routes refuse a non-staff caller before reading a body, and every lib function they call checks a permission — S8-3 was the one exception. All 24 admin pages take `requireAdminPage(<permission>)`; the overview is the only one without, and it is `requireStaff` plus a `can` check per tile |
+
+### 3G.3 R-18, answered with a production build
+
+A missing listing, a missing shelf, and an address that matches no route at all,
+all against `next start` on the production build:
+
+| Address | Status | `robots` meta | Canonical | Structured data | Page |
+| --- | --- | --- | --- | --- | --- |
+| `/products/<missing>` | 200 | `noindex` | none emitted | `OnlineStore` only — no `Product`, no `Offer` | the shop's own "Product not found" |
+| `/categories/<missing>` | 200 | `noindex` | none emitted | `OnlineStore` only | the shop's own "Category not found" |
+| `/products/<missing>?preview=1` | 200 | `noindex` | none emitted | `OnlineStore` only | as above — the preview flag cannot conjure a listing |
+| `/this-matches-no-route` | **404** | `noindex` | none emitted | `OnlineStore` only | the root not-found page |
+| `/products/<real>` | 200 | indexable | its own address | `OnlineStore`, `Product`, `BreadcrumbList` | the listing |
+
+So the soft 404 is confined to the two dynamic segments, and a missing address
+cannot be *discovered*: the sitemap is built from rows that exist (39 URLs, none
+of them missing), no canonical points at it, no internal link can reach it — the
+link intelligence reads accepted relationships to listings a shopper can reach —
+and no product structured data is emitted for it. The consequence is what D-108
+said it was, now measured rather than predicted: a crawler spends a little budget
+on an address that does not exist and is told `noindex`, and an uptime check
+counts a 200.
+
+**What was considered and rejected.** A `generateStaticParams` list with
+`dynamicParams = false` would give a real 404 at the routing layer with no
+request-time database read at all — and would also 404 every listing published
+after the deploy until the next one, which is not a shop. A check in `proxy` is
+still the only real fix, and it still costs a database round trip on the two
+hottest routes, on a layer this repository keeps free of the database (D-108).
+R-18 therefore stays open as an accepted limitation, with the exact consequence
+written down and the SEO surface around it verified clean.
+
+### 3G.4 Measured
+
+Stage 7's figures re-measured on the same databases, plus what Stage 8 added:
+
+| What | Stage 7 | Stage 8 | Dataset |
+| --- | --- | --- | --- |
+| Product save, one detail changed | 56 ms | 56.3 ms | `manifest_scale`, 5,000 listings |
+| Product save, nothing changed | 16 ms | 16.6 ms | same |
+| Knowledge sync, one listing | 12 ms | 12.8 ms | same |
+| Option value rename (attributed) | — | 40.2 ms, 4 statements | same |
+| Reconciliation report | 511 ms | 542 ms, 54 statements | same |
+| SEO page audit, one listing | 6 ms | 4.1 ms | same |
+| SEO Health Center | measured on 24 listings only (R-10) | 101.6 ms, 14 statements | same — R-10 answered: no cache needed |
+| Product intelligence, one product | — | 22.4 ms, 27 statements (R-9 stands: one `evaluateVerification` per open claim) | same |
+| Storefront search | — | 32.1 ms, 19 statements | same |
+| Autocomplete | — | 60.3 ms, 11 statements | same |
+| Whole-catalogue rebuild, chunks of 200 | 15.4 s over 5 passes | 14.9 s | same |
+| Opportunity report, 20,000 pages | 737 ms | 662 ms p50, 817 ms p95 | `manifest_bench`, 1,120,000 measurements |
+| Pruning measurements past retention | 500,000 in 2,177 ms, +106 MB of identifiers | 620,000 in 2,397 ms, live set bounded by one batch | same |
+
+Nothing regressed. The two figures that moved — the page audit and the
+opportunity report — moved downwards, and both are within the noise of a
+different day on the same machine.
+
+### 3G.5 Found and left alone
+
+- `attribute_values` is unique on `(attribute_id, value)`, exactly, while the
+  guard that refuses a duplicate option value compares case-insensitively and is
+  asked before the transaction. Two renames racing can therefore leave "Walnut"
+  and "walnut" on one option group. It is a data-quality wrinkle in Phase-era
+  code, not a knowledge-integrity failure — both values still mirror as facts,
+  and the facet shows two rows where it should show one. Recorded rather than
+  fixed: the fix is a case-insensitive unique index, which needs a migration that
+  first finds and merges any existing pair, and that is more regression surface
+  than the defect deserves at the end of an audit.
+- `deliverQueuedNotifications` is gated with `requireStaff` rather than with
+  `notifications.view`, so any staff role can drain the outbox to real customers.
+  Phase-era code, outside the Stages 1 to 7 surface this audit owns, and
+  `notifications.view` is the permission it should ask for.
+- The sitemap and `robots.txt` are built at `next build` and then revalidated
+  (`cacheLife("hours")`, dropped by the catalogue cache tags). On Vercel the build
+  reads the same database the deployment serves, so this is staleness bounded by
+  an hour and by the next catalogue write. It is worth knowing about, because a
+  build pointed at one database and served against another produces a sitemap
+  describing the first — which is how it was noticed. DEPLOYMENT.md now says so.
+
+## 3H. Stage 9 — product preparation (backend)
+
+A diagnostic of the real Add Product workflow found what the previous eight
+stages had built around rather than into: the knowledge platform had every part
+of researching a product, and none of them were reached by the act of adding
+one. This stage connects them. It is backend and orchestration only — the
+product-entry interface is a separate piece of work, and nothing here depends on
+it.
+
+### 3H.1 What the diagnostic found, and what is true now
+
+| Found | Now |
+| --- | --- |
+| Add Product collected title, category, brand, SKU — nothing a manufacturer would recognise | A save may carry an `identity` block: model name, model number, MPN, one trade identifier, the official page. Optional in every part (D-112) |
+| Creating a product called `syncListingKnowledge` but never `refreshResolution`, so a new product stayed UNRESOLVED until somebody pressed a button | The mirror re-assesses resolution in the same transaction whenever a save changes the brand, the model, the generation or an identifier — and only then (D-112) |
+| `requestEnrichment` was never reached from the normal product workflow | The preparation run requests it, waits for it and reports what it did (D-112) |
+| "Fill with SEO Pulse" read listing columns and never saw the knowledge base | `SeoPulseInput.knowledge` carries what the knowledge base has established, through `groundedKnowledge`, under the publication rule (D-113) |
+| `ProductResearchProvider` had only the unconfigured implementation | `brave` is a second, optional implementation. `none` stays the default and a supported state (D-114, A-6) |
+| The rules generator produced Manifest-flavoured boilerplate for an empty listing, indistinguishable from a researched one | `knowledgeSufficiency` states the verdict, and preparation stops rather than reporting READY (D-115) |
+| `provideDocument` was reported to have no route | It has had one since Stage 3: `POST /api/admin/knowledge/products/[id]/sources` with `kind: "document"`. The preparation API now also accepts one, so a run can be given a specification sheet as it starts |
+
+### 3H.2 The preparation state model
+
+Stored on `product_preparation_runs.stage` (migration 0043). The stages are
+about the product, not about the machinery, because they are what a staff screen
+will show:
+
+```
+IDENTIFYING → FINDING_SOURCES → RESEARCHING → VERIFYING
+            → PREPARING_CONTENT → PREPARING_SEARCH → CHECKING_PAGE → READY
+
+  NEEDS_REVIEW   a person has to decide something; the run waits
+  BLOCKED        cannot proceed as things stand (no identity, no sources)
+  FAILED         something broke; a retry may fix it
+  CANCELLED      somebody stopped it
+```
+
+A stage is never reported as passed unless the work behind it finished. The
+`steps` column is the record of that — one entry per step, written when the step
+completes — and it is also what makes a retry skip it.
+
+### 3H.3 The sequence, and what each step delegates to
+
+| Step | Delegates to | Stops when |
+| --- | --- | --- |
+| identity | `beginListingChange` + `syncListingKnowledge`, then `reassessResolution` | AMBIGUOUS → NEEDS_REVIEW; UNRESOLVED → BLOCKED |
+| sources | `sourceOutlook`: registry templates, attached pages and documents, and the research provider only when there is nothing else | nothing to read → BLOCKED, naming the provider's own state |
+| enrichment | `requestEnrichment`, then waiting for that run | blocked → BLOCKED; failed → continues, marked degraded |
+| verification | reading `pkb_claims` and `pkb_attribute_proposals` | a conflict, a waiting claim or an unplaced label → NEEDS_REVIEW |
+| content | `knowledgeSufficiency`, then `runSeoPulse` | too little established → NEEDS_REVIEW; provider unavailable → NEEDS_REVIEW |
+| search | `product_search_queue` and `search.process_queue` | a lagging index degrades, never fails |
+| page | `seoReadiness` and `searchReadiness` | — |
+
+The run generates content; it does not apply it. Applying generated wording is a
+person's decision and stays where it is (D-075).
+
+### 3H.4 What it refuses to do
+
+- Confirm an identity. VERIFIED is only ever set by a person (D-072).
+- Resolve an ambiguity, or enrich an unresolved product (D-074).
+- Accept a claim, or resolve a conflict, to reach a finished run (D-076).
+- Trust a domain. A discovered official-looking address is a candidate; the
+  Brand Source Registry decides, and that decision asks for `knowledge.manage`.
+- Write a fact from anything generated. Prose is not evidence (I-1).
+- Report a product READY on copy that says nothing about the product (D-115).
+
+### 3H.5 Tested
+
+`tests/product-preparation.test.ts` — 20 tests, and most of them assert a
+refusal: identity resolved on the save and re-assessed when it changes or is
+cleared; an invalid check digit and two trade identifiers at once both refused;
+an official address attached as a source and nothing more; UNRESOLVED blocked and
+AMBIGUOUS sent to review with no enrichment run created; NOT_CONFIGURED reported
+as itself; a staff URL and a staff document each carrying the run forward; a
+proposed claim holding the run at NEEDS_REVIEW and staying a claim; insufficient
+knowledge reported rather than generated over; a filled listing reaching READY
+with the knowledge base unchanged by the generator; the same request key and a
+live run both returning one run; a retry adding no second enrichment run, claim
+or evidence row; cancellation; a failing provider blocking without corrupting;
+a customer refused at every entry point; established knowledge reaching
+`loadPulseInput` while an unaccepted claim does not; and nothing in a run's
+reported failure that reads like a stack trace.
+
+---
+
 ## 4. Target architecture
 
 ### 4.1 Layers
@@ -1166,6 +1361,10 @@ verified on PGlite and real PostgreSQL.
 | I-18 | External performance data is never product truth. A Search Console query cannot become a fact, an attribute, an alias or SEO copy without a person suggesting it and a second decision approving it. | `lib/search-console/learning.ts` returns recommendations only; no module under `lib/search-console` imports a `lib/pkb` write path | ENFORCED since Stage 6, tested (generating recommendations creates no alias and no fact) |
 | I-19 | A measurement is stored once. Re-reading a day updates its rows rather than adding any, so a retried or overlapping sync cannot double-count. | the unique key on `search_console_metrics` and the upsert in `lib/search-console/sync.ts` | ENFORCED (database), tested (a second sync writes nothing; a revised day updates in place) |
 | I-20 | The shop never claims a change caused a change in performance. | `compareAroundChange` wording and its `causation` field | ENFORCED, tested against five causal phrasings |
+| I-21 | A derived read model is rebuildable to the same bytes from the canonical data. Refreshing one listing and refreshing it in a batch produce the same row. | `refresh_product_search` aggregates in a declared order (migration 0042); `tests/search-document-order.test.ts` fails on any aggregate in it that can return rows arbitrarily | ENFORCED since Stage 8, tested, and verified by rebuilding the whole model on both the development and the 5,000-listing databases |
+| I-23 | A product's stored resolution state is never older than its identity. Any save that changes the brand, the model, the generation or a trade identifier re-assesses it in the same transaction. | `syncListingKnowledge` (`identityTouched`) | ENFORCED since Stage 9, tested (created, changed and cleared identity) |
+| I-24 | Orchestration decides nothing a person decides. A preparation run may continue only where the existing rules already permit it; it never confirms an identity, accepts a claim, approves a domain or applies generated wording. | `lib/preparation/runner.ts` delegates every decision to `lib/pkb`, which asks for permission itself | ENFORCED since Stage 9, tested (ambiguous identity, waiting claim, conflicting claim) |
+| I-22 | Where a write depends on a row's current state, the lock comes before the check, and the check is repeated in the write's own predicate. | `updateProduct`, `applySeoPulse`, `decideAlias`, `reassessResolution`, `loadClaimsForDecision` | ENFORCED, and each proved by a real-PostgreSQL race that fails without the fix (D-110) |
 
 ---
 
@@ -1287,6 +1486,39 @@ Two things the end-to-end suite found, both of them real:
   ceiling looks like.
 - A missing address answers 200 with noindex rather than 404 (F17, R-18, D-108).
 
+
+### Stage 8 (2026-09-24)
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS |
+| Whole Vitest unit project (PGlite) | PASS |
+| The real-PostgreSQL concurrency suites, now seven of them | PASS, and the new one confirmed to fail with its fix removed |
+| Both projects together (`npm test`) | PASS — 109 files, 1,484 passed, 8 skipped, 261 s. Stage 7 was 106 and 1,471; the thirteen new cases are S8-2 (2), S8-3 (1), S8-4 (2), S8-5 (4) and the parked-value classification (4) |
+| `npm run build` | PASS |
+| Playwright against that build (`E2E_PRODUCTION=1`) | PASS — 490 passed, 6 skipped by design, 0 failed, 4.5 m. Identical to Stage 7 |
+| Migration 0042 on `preorder`, `manifest_scale` and `manifest_bench` | applied |
+| `npm run pkb:backfill -- --report` on dev | CLEAN — 25 listings and 30 offers all linked, nothing queued, no VERIFIED value without a claim, no projection mismatch, `ok: true` |
+| Development schema versus a database built from zero by the chain | IDENTICAL — 943 columns, 284 indexes, 1,095 constraints, 79 function bodies, 44 triggers |
+| `product_search` and `product_search_attributes` rebuilt from canonical data and compared | IDENTICAL on `preorder` (25 listings) and on `manifest_scale` (5,000) — and 3,863 documents different before migration 0042 |
+| `npm run perf:search-console` on `manifest_bench` | p50 662 ms, p95 817 ms at 20,000 pages and 1,120,000 measurements (Stage 7: 737 ms) |
+| `scripts/perf/knowledge-bench.ts` on `manifest_scale` | measured — section 3G.4, nothing regressed |
+| A missing listing, a missing shelf and an unmatched route against `next start` | measured — section 3G.3 |
+| The built client bundles searched for credentials | CLEAN — no credential variable, connection string, private key or service-account address, and no `process.env` reference at all |
+| Google Search Console itself | UNVERIFIED — external integration unavailable (R-15). Reviewed against the published contract; every failure mode exercised with a fixture at the provider boundary |
+
+What the audit's own checks found, which no suite would have:
+
+- The derived search model could not be rebuilt to the same bytes (S8-2). Only
+  rebuilding it and comparing shows that; no test asserted it, and now two do.
+- The development database was missing an index because an applied migration had
+  been edited (S8-1). The ledger caught it the moment anything tried to migrate.
+- Two write paths were guarded outside their locks (S8-3, S8-4) — found by looking
+  for the shape Stage 7 had already fixed twice, rather than by reading each file.
+- A scheduled job's memory was decided by how much there was to delete (S8-5).
+  Measuring it took one script; reasoning about it had missed it for six stages.
+
 ---
 
 ## 7. Unresolved issues and assumptions
@@ -1356,13 +1588,14 @@ Open risks:
 - **R-2** A changed product save costs ≈28 ms more (8 → 36 ms median); a no-op
   sync ≈27 ms, mostly reloading the vocabulary per listing. Optimise in Stage 7
   (vocabulary cache keyed by a change signature).
-- **R-3** Findings still open: F8 (Stage 7), and the remainder of F14 —
-  `search_keywords` survives as listing-level legacy text and is still indexed,
-  until Stage 7 contracts it. F1 to F4 are closed (D-075); Stage 4 closed F5,
-  F6, F7, F9, F13, F15 and F16; Stage 5 closed F10, F11 and F12 (D-090).
-  Stage 6 closed nothing on this list — it added beside the SEO engine rather
-  than changing it — but it did close a gap that was never numbered: a shelf's
-  SEO fields had no change history at all, and now have one (D-098).
+- **R-3** (CLOSED as a tracking item, Stage 8) Every numbered finding is
+  accounted for. F1 to F4 closed in Stage 3 (D-075); F5, F6, F7, F9, F13, F15 and
+  F16 in Stage 4; F10, F11 and F12 in Stage 5 (D-090); F8 in Stage 7. Two remain
+  open **by decision, not by omission**: F14's remainder — `search_keywords` is
+  retained deliberately and offered as alias suggestions (D-105) — and F17, the
+  soft 404 on a missing address (D-108, verified in 3G.3 and accepted as R-18).
+  Stage 8 added S8-1 to S8-5, all fixed, and two items it deliberately left alone
+  (3G.5).
 - **R-4** CLOSED. Outbound retrieval exists and is guarded by
   `lib/pkb/net/safe-fetch.ts` and `robots.ts`, proved by `tests/pkb-net.test.ts`
   (38 tests) and documented in SECURITY.md.
@@ -1379,15 +1612,19 @@ Open risks:
   as an unattributed change rather than applying it. Worth a decision in Stage 7:
   either thread attribution through the option-vocabulary writes, or treat
   option renames as a legacy-attributed change.
-- **R-9** (new) `getProductIntelligence` runs `evaluateVerification` once per
-  open claim (several queries each). Fine for a product with a handful of open
-  claims; batch it in Stage 7 if a run ever proposes dozens.
-- **R-10** (new) The SEO Health Center runs five catalogue-wide reads on every
-  load. The title and meta-description checks use the expression indexes
-  migration 0035 adds; the description-body checks trim before hashing, so they
-  do not match that index and scan the published listings instead. Measured only
-  on the 24-listing dev database. Measure on the scale database and, if needed,
-  cache the screen or align the index in Stage 7.
+- **R-9** (open, re-measured in Stage 8) `getProductIntelligence` runs
+  `evaluateVerification` once per open claim. Measured on the scale database it is
+  22.4 ms in 27 statements for a product with a handful of open claims, which is
+  why it has not been batched: the cost is per open claim, and a product with
+  dozens of them is a product somebody needs to review rather than a page that
+  needs to be faster. Batch it if a run ever proposes dozens.
+- **R-10** (CLOSED, Stage 8) The SEO Health Center's five catalogue-wide reads
+  were only ever measured on the 24-listing development database. On
+  `manifest_scale` (5,000 listings) the screen is **101.6 ms in 14 statements**.
+  No cache and no further index work: the screen is an admin page loaded
+  deliberately, and a tenth of a second at five thousand listings is not a
+  problem worth new machinery. Migration 0038 had already replaced the index the
+  description checks could not use.
 - **R-11** (new) Photograph dimensions and weight come from the media registry, so
   a file that did not go through the media registry has no recorded size. All 26
   dev photographs are in that state, which is reported as unknown rather than
@@ -1400,12 +1637,14 @@ Open risks:
   migration 0036. Normal running is unaffected, because a listing is rebuilt one
   at a time by the deferred trigger. Worth profiling in Stage 7 before the
   catalogue is much larger.
-- **R-13** (new, Stage 5) Accepting a claim or approving an alias now queues a
-  listing for reindexing through new row-level triggers on `pkb_facts` and
-  `pkb_identifiers`. During a bulk import that is one small upsert per fact
-  row. The Stage 2 backfill on `manifest_scale` took 176 s before these
-  triggers existed; re-measure it in Stage 7 and, if it has grown materially,
-  make the backfill queue per listing rather than per fact.
+- **R-13** (CLOSED, Stage 7, confirmed in Stage 8) Accepting a claim or
+  approving an alias queues a listing for reindexing through row-level triggers on
+  `pkb_facts` and `pkb_identifiers`. Stage 7 made a bulk import declare itself
+  (D-102) so the queue is drained by the worker rather than at every commit, and
+  the 5,000-listing backfill came down from 305 s to 181 s with the listings
+  queued. Stage 8 re-measured the worker's side of it: a whole-catalogue rebuild
+  in chunks of 200 is 14.9 s, and after migration 0042 it rewrites only rows that
+  actually changed.
 - **R-14** (new, Stage 5) Purchase attribution depends on a first-party cookie
   set by the click beacon. A shopper who blocks it, or who opens a result in a
   way that does not fire the beacon, is simply not attributed — the count
@@ -1413,11 +1652,18 @@ Open risks:
   conversion figure is a floor and the report says so.
 - **R-7** The dev seed's UPC `0812345678901` fails its check digit; it is stored
   as invalid and parked. Seed data only.
-- **R-15** (new, Stage 6) `GoogleSearchConsoleProvider` has never spoken to
-  Google. It follows the published Search Analytics API and parses defensively,
-  and a mismatch surfaces as a provider failure on the sync rather than as a
-  stored number, but the first real connection is the first real test. The
-  owner supplying credentials, or a staging property, closes this.
+- **R-15** (OPEN, and the only externally unverified integration)
+  `GoogleSearchConsoleProvider` has never spoken to Google. Stage 8 reviewed it
+  against the published contract as far as is possible offline: the endpoint
+  (`searchconsole.googleapis.com/webmasters/v3/sites/{siteUrl}/searchAnalytics/query`),
+  the service-account JWT grant and its `webmasters.readonly` scope, the request
+  body (`startDate`, `endDate`, `dimensions`, `rowLimit` — capped at Google's
+  25,000 — `startRow`, `type: "web"`, `dataState: "final"`), the row-offset
+  pagination, and a response parsed by schema so a shape it does not recognise
+  becomes a reported provider failure rather than a stored number. Every failure
+  mode is exercised with a fixture at the provider boundary. None of that is a
+  substitute for one real call: credentials or a staging property close this, and
+  nothing else does.
 - **R-16** (CLOSED, Stage 7) `opportunityReport` reads up to 500 pages and 500
   page-and-query rows per window and does the banding in TypeScript. Stage 6
   predicted that at a large property the limits would truncate rather than slow.
@@ -1434,11 +1680,14 @@ Open risks:
   partial — it reported 500 of 20,000 pages throughout. The product editor's box
   deliberately does *not* run this report — it makes three scoped reads — so the
   listing editor does not get slower as the catalogue grows.
-- **R-17** (new, Stage 6) The sync stores whatever Search Console reports,
-  including pages this shop no longer has. That is deliberate (it is how a
-  mis-sent address becomes visible), but it means the table's size is driven by
-  Google rather than by the catalogue. `maintenance.prune` deletes past the
-  retention window; nothing yet reports the row count back to an operator.
+- **R-17** (open, narrowed twice) The sync stores whatever Search Console
+  reports, including pages this shop no longer has. That is deliberate — it is how
+  a mis-sent address becomes visible — but it means the table's size is driven by
+  Google rather than by the catalogue. Stage 7 put the row count, the stored date
+  range, the size on disk and what the next prune will remove on the screen.
+  Stage 8 made the prune itself bounded (D-111), which is what the unbounded
+  growth actually threatened. What remains is the growth itself: an operator has
+  to notice it, because nothing alerts on it.
 
 - **R-18** (new, Stage 7) An address with no listing or shelf behind it answers
   200 with `<meta name="robots" content="noindex">` instead of 404 (finding F17).
@@ -1451,53 +1700,70 @@ Open risks:
   200s. The fix is to check existence before the response streams, which means in
   `proxy` — a database read on the hottest storefront routes, on a layer this
   repo deliberately keeps free of the database and of application imports
-  (D-108). Reconsider in Stage 8, where deployment behaviour is the subject.
+  (D-108). **Stage 8 verified it against a production build and accepted it**: the
+  soft 404 is confined to the two dynamic segments, an unmatched route answers a
+  real 404, and a missing address emits no canonical, no product structured data,
+  no sitemap entry and no internal link, so it cannot be discovered (3G.3). A
+  `generateStaticParams` list was considered and rejected — it would 404 every
+  listing published after a deploy. The remaining consequence is a little crawl
+  budget and a 200 in an uptime check.
 
 ---
 
-## 8. Next stage
+## 8. After the programme
 
-**Stage 8 — ULTRACODE — final production audit and full verification.** Not
-started, and not to be started without the owner's `CONTINUE STAGE 8`.
+The eight stages are complete. Nothing in this repository has been deployed,
+pushed or published, and Stage 8 changed that in no way: it audited, fixed five
+defects, measured, and wrote down what remains.
 
-Entry checklist:
+**What a reader of this file needs to know first.** Sections 3G.1 to 3G.5 are
+Stage 8's findings and its measurements; sections 5 and 6 are the invariants and
+every check that has been run; section 7 is the open risks, each with why it is
+still open. D-109 to D-111 are Stage 8's decisions. The verification the
+programme ends on is the five commands in that order:
+`npm run typecheck`, `npm run lint`, `npm test`, `npm run build`,
+`npm run test:e2e:prod` — all five passing as of the last Stage 8 commit, so a
+failure is a regression and belongs before any new work.
 
-1. Read this file (sections 3F, 5, 6, 7), D-101 to D-108, and `git log` since
-   the Stage 6 commit.
-2. Run, in this order: `npm run typecheck`, `npm run lint`, `npm test`,
-   `npm run build`, `npm run test:e2e:prod`. All five pass as of the last Stage 7
-   commit, so anything failing is a regression and belongs at the top of the
-   stage. Do not judge the suite by a `next dev` run — Turbopack aborted the dev
-   server part-way through a full run in Stage 7 and failed everything after it.
-3. Run `npm run pkb:backfill -- --report` against the dev database to confirm the
-   mirror is still clean, and read the legacy coverage report on the knowledge
-   screen before planning any contraction.
-4. The open findings are F14 (the remainder: search terms retained by decision,
-   D-105) and F17 (a missing address answers 200 with noindex, D-108). The open
-   risks are R-3, R-7, R-11, R-13 to R-15, R-17 and R-18; R-2, R-8 to R-10, R-12
-   and R-16 were closed in Stage 7.
-5. Two things Stage 7 deliberately left for a decision with the owner rather than
-   for a later stage to assume: whether a real 404 is worth a database read in
-   `proxy` (R-18), and whether the 72 parked legacy values are worth working
-   through so that `category_attributes` and the legacy option readers can be
-   contracted (D-103). Neither is a technical unknown; both are cost questions.
-6. Search Console has still never spoken to Google (R-15). If the owner can
-   supply credentials or a staging property, that is the one verification no
-   amount of local work can substitute.
+**No technical launch blocker remains.** That is not the same as ready to trade:
+what is left is configuration, one external integration nobody can verify without
+credentials, and the operational routine around a real shop.
 
-**Effort estimate for Stage 8: ULTRACODE** — not because the work is
-individually hard, but because it is the stage that has to be right about the
-whole surface at once: every check run the production way, the storefront and
-the admin exercised on a real build rather than on a dev server, the deployment
-documents (DEPLOYMENT.md, STAGING.md, OBSERVABILITY.md) checked against what the
-code now does, and the remaining risks either closed or accepted in writing.
+Before a first production deployment, in this order:
 
-Stage 7 came in about where it was estimated, with one difference worth
-recording: the largest planned piece — contracting the legacy columns — turned
-out to be a piece of measurement rather than a piece of removal, and the two
-most valuable defects of the stage were found by running the two checks that had
-never been run at all (a production build and the end-to-end suite) rather than
-by reading code.
+1. **Configure.** DEPLOYMENT.md lists every variable. The ones without a working
+   default are the database, the session secret, the payment provider, the media
+   provider and the scheduler secret. Search Console, DataForSEO and Claude are
+   all optional, and every screen that uses one says so when it is absent.
+2. **Migrate and import.** `vercel-build` applies the migrations; then run
+   `npm run pkb:backfill` against the direct address and read its reconciliation
+   report. It exits non-zero unless every listing and offer is linked and every
+   projection agrees. This is R-1: the production catalogue's size and shape are
+   still unknown, and 5,000 listings is the largest this has been run against.
+3. **Connect Search Console, or decide not to.** R-15 is the one thing local work
+   cannot close: the Google provider has never spoken to Google. Connecting it is
+   two variables and adding the service account to the property; the first sync
+   either works or reports a provider failure, which is the intended failure mode.
+4. **Watch the first prune and the first rebuild.** Both are bounded now (D-102,
+   D-111) and both report what they did on `/admin/jobs`. The Search Console
+   table's size is driven by Google rather than by the catalogue (R-17), and
+   nothing alerts on it.
+5. **Work the knowledge queue.** The parked values are classified on the
+   knowledge screen (D-109) and the labels waiting for a decision are on the same
+   page. Until somebody works through them, the legacy tables stay where they are
+   — which is correct, and is what the coverage report is for (D-103).
+
+The work most worth doing next, in the order the evidence supports:
+
+1. The labels and parked values, because every legacy contraction waits on them
+   and nothing else can be done about it in code.
+2. Whatever the first real Search Console connection teaches (R-15).
+3. The two items Stage 8 left alone in 3G.5: the case-insensitive unique index on
+   option values, and `deliverQueuedNotifications` asking for
+   `notifications.view`. Both are small, both are outside this programme's
+   surface, and both want their own change rather than a line in an audit.
+4. R-18 only if a real 404 turns out to matter to something real — a crawl budget
+   report, or an uptime monitor somebody actually reads.
 
 ---
 
@@ -1542,7 +1808,10 @@ by reading code.
 | `lib/pkb/net/` | Address policy, pinned-DNS fetch, redirect handling, robots.txt |
 | `lib/pkb/review.ts` | Accept, reject, correct, resolve a conflict, lock (D-076) |
 | `lib/pkb/intelligence.ts` | The admin read model: one product's intelligence, the queue, the vocabulary |
-| `lib/providers/research/` | `ProductResearchProvider`; the default reports NOT_CONFIGURED (A-6) |
+| `lib/providers/research/` | `ProductResearchProvider`: the default reports NOT_CONFIGURED (A-6); `brave.ts` is the optional credentialed implementation, which returns addresses only (D-114) |
+| `lib/preparation/` | Product preparation: the durable run, its state model and the worker that advances it (D-112) |
+| `lib/catalog/product-identity.ts` | Manufacturer identity folded into the columns the mirror already reads (D-112) |
+| `db/migrations/0043_product_preparation.sql` | The preparation run table, one live run per product (D-112) |
 | `lib/seo/fields.ts` | Per-field SEO states, locks and history (D-077) |
 | `lib/seo/redirects.ts` | Address stability and old-address redirects (D-078) |
 | `lib/seo/structured-data.ts`, `lib/pkb/publish.ts` | Product/ProductGroup JSON-LD from established knowledge (D-080) |
@@ -1563,6 +1832,10 @@ by reading code.
 | `lib/search-console/paths.ts` | A Search Console address to a page of this shop, including an address the listing has left |
 | `lib/seo/history.ts` | The one SEO change history, for listings and shelves (D-098) |
 | `db/migrations/0037_search_console.sql`, `db/schema/search-console.ts` | The measurement key that makes a re-read an update, the sync log, the watermark and the opportunity decisions |
+| `db/migrations/0042_search_document_order.sql` | 0036's `refresh_product_search` with the one ordering clause it needed, so the derived search model is rebuildable to the same bytes (I-21, S8-2) |
+| `lib/prune.ts` | Bounded, batched deletes for every prune in the maintenance job (D-111) |
+| `lib/pkb/legacy-coverage.ts` | The legacy coverage counts (D-103), the search-term migration path (D-105) and the parked-value classification (D-109) |
+| `tests/search-document-order.test.ts`, `tests/knowledge-decision-concurrency.test.ts`, `tests/prune.test.ts` | Stage 8's regression tests, each written against a defect that was reproduced first |
 
 ---
 
@@ -1570,6 +1843,8 @@ by reading code.
 
 | Date | Stage | Summary |
 | --- | --- | --- |
+| 2026-09-24 | 9 | Product preparation, backend and orchestration. Identity on the product save (model, MPN, one trade identifier, the official page) folded into the columns the mirror already reads, with a check digit refused at entry and no second identifier store; the mirror re-assessing resolution in the same transaction whenever identity actually changes, which is what left every new product UNRESOLVED; a durable `product_preparation_runs` row (migration 0043) coordinating knowledge sync, resolution, source outlook, enrichment, review, SEO Pulse, the search index and readiness, idempotent by recorded step and one live run per product; `brave` as an optional research provider returning addresses only, with `none` still the default; `groundedKnowledge` giving SEO Pulse what the knowledge base has established, under the publication rule; and `knowledgeSufficiency` reporting too little to write from rather than generating boilerplate and calling it research. Decisions D-112 to D-115; invariants I-23 and I-24. 20 new tests. The product-entry interface is deliberately deferred. |
+| 2026-09-24 | 8 | The final audit. Five defects found and fixed, each with a test that fails without its fix: the search document built in plan order rather than a declared one, so a rebuild changed relevance (migration 0042, I-21); a resolution re-check that wrote the knowledge base without asking for permission; an alias decision guarded outside its lock, the third instance of one shape (I-22, D-110); every prune unbounded in both transaction size and memory (D-111); and a development database missing an index because an applied migration had been edited. Verified rather than asserted: one canonical factual store, a derived search model that rebuilds to the same bytes on 25 and on 5,000 listings, a schema identical to one built from zero by the chain, no credential in any client bundle, 49 admin routes and 24 admin pages gated, and R-18's exact consequence measured against a production build. The 72 parked legacy values are classified — 71 ambiguous, 1 unusable, none migratable without guessing (D-109) — and `category_attributes` stays, with the failed proof written out. Decisions D-109 to D-111; invariants I-21 and I-22; R-3, R-10 and R-13 closed; R-15, R-17 and R-18 accepted in writing. typecheck, lint, 109 test files, a production build and the whole browser suite against it: all green. |
 | 2026-09-24 | 7 | Hardening. Security: addresses judged after expansion rather than by spelling (two loopback forms were reachable), decompression bounded in zlib, twelve admin routes made strict, source guards for rich text and route shape, data boundaries asserted against the live schema. Write safety: the lost update in `updateProduct` (F8) and the same shape on the SEO apply guard, both proved with real concurrent writes; option renames attributed; `enqueueUniquePending`. Performance, all measured: the search rebuild off the request path (~71 s to 123 ms), the backfill 305 s to 181 s, the reconciliation report 2,434 ms to 511 ms, a page audit 197 ms to 6 ms, the opportunity report 4,867 ms to 737 ms at 20,000 pages, five foreign-key indexes chosen by measuring a delete. Observability: `/admin/jobs`, media coverage, stored-measurement reporting. The legacy contraction was deliberately not done (D-103, D-105), and the coverage report is the gate. Decisions D-101 to D-108; R-2, R-8 to R-10, R-12 and R-16 closed; F17 and R-18 opened. First production build and first full end-to-end run in this repo: both now pass, and both found a defect. |
 | 2026-09-18 | 6 | Search Console as an optional intelligence source: migration 0037 (the measurement table keyed so a re-read is an update, the sync log, the per-property watermark, opportunity decisions, and `seo_field_history` widened to cover shelves and record its workflow). A provider boundary whose default reports NOT_CONFIGURED and whose Google implementation is the only file that reads credentials; an idempotent, bounded, paginated sync as a job; five opportunity rules benchmarked against this site's own median click-through per position band; one SEO change history, now covering shelves; before-and-after observation that never claims a cause; controlled learning that recommends and never writes. `/admin/seo-performance`, a box in the listing editor, two API routes. Decisions D-096 to D-100; invariants I-18 to I-20; risks R-15 to R-17. 47 new tests. 0037 applied to the dev database. Google itself UNVERIFIED — no credentials. |
 | 2026-09-18 | 5 | SearchPulse on the knowledge base: migration 0036 (four derived columns on `product_search`, the `product_search_attributes` facet read model, `search_term_key`/`search_number`, seven new queue triggers, `search_events`, search attribution on the cart and order lines). Query understanding with approved aliases, brands, families and canonical quantities; attribute-aware matching; ranking tiers 10 and 1; facets and filters on the read model with every older URL key still accepted; knowledge-backed autocomplete; filter, refinement, add-to-cart and confirmed-payment analytics; seven zero-result verdicts with alias proposals. Findings F10, F11 and F12 closed, F14 partly. Decisions D-089 to D-095. 54 new tests; full unit project 1,302 passed. 0036 applied to the dev and scale databases. |

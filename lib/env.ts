@@ -57,8 +57,16 @@ const schema = z.object({
   PAYMENT_PROVIDER: z.enum(["mock", "sslcommerz"]).default("mock"),
   SHIPPING_PROVIDER: z.enum(["mock", "courier"]).default("mock"),
   NOTIFICATION_PROVIDER: z.enum(["mock", "live"]).default("mock"),
-  /** Automatic source discovery for the knowledge base; none is a supported setting (A-6). */
-  PRODUCT_RESEARCH_PROVIDER: z.enum(["none"]).default("none"),
+  /**
+   * Automatic source discovery for the knowledge base; `none` is the default
+   * and a fully supported setting (A-6). `brave` adds discovery of candidate
+   * addresses through the Brave Search API and needs BRAVE_SEARCH_API_KEY;
+   * without the key the provider reports UNAVAILABLE and the pipeline carries
+   * on with the registry, staff URLs and provided documents.
+   */
+  PRODUCT_RESEARCH_PROVIDER: z.enum(["none", "brave"]).default("none"),
+  /** Only read when PRODUCT_RESEARCH_PROVIDER=brave. Never committed. */
+  BRAVE_SEARCH_API_KEY: z.string().min(8).optional(),
   /**
    * Shared secret the payment provider signs webhooks with. Without it every
    * webhook is refused, which is the safe failure.

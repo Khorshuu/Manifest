@@ -7,6 +7,7 @@ import { mediaCoverage, registerExistingMedia, sweepUnreferencedMedia } from "@/
 import { expireUnpaidOrders } from "@/lib/orders/expiry";
 import { reconcilePayments } from "@/lib/payments/reconcile";
 import { pruneRateLimits } from "@/lib/rate-limit";
+import { advancePreparation } from "@/lib/preparation";
 import { runEnrichment } from "@/lib/pkb/enrichment";
 import { runKnowledgeSync } from "@/lib/pkb/maintenance";
 import { getMediaProvider } from "@/lib/providers/media";
@@ -46,6 +47,11 @@ export const JOB_HANDLERS: JobHandlers = {
   "seo.research_product": (payload) => completeQueuedResearch(String(payload.runId)),
   // Idempotent: a listing is re-read from its current state under its lock.
   "pkb.sync_listings": () => runKnowledgeSync(),
+  // One step of a product preparation run, then the run either finishes, stops
+  // for a person, or schedules its own next wake-up. Idempotent: a step that
+  // has completed is recorded on the run and never run again, and a finished
+  // or cancelled run is left exactly as it is.
+  "catalog.prepare_product": (payload) => advancePreparation(String(payload.runId)),
   // Retrieval is slow and must not run on a staff request; a finished run is
   // returned unchanged, so a retry cannot propose the same claims twice.
   "pkb.enrich_product": (payload) => runEnrichment(String(payload.runId)),

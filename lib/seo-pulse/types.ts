@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { GroundedKnowledge } from "@/lib/pkb/publish";
 
 /**
  * The shapes SEO Pulse works in (DECISIONS.md D-038).
@@ -48,6 +49,18 @@ export type SeoPulseImage = {
 
 export type SeoPulseInput = {
   productId: string;
+  /**
+   * What the knowledge base has established about this product (D-113).
+   *
+   * Read-only, and only values whose state is VERIFIED or MANUAL: a suggested
+   * claim, a conflicting one and a legacy value of unknown origin are all
+   * absent. This is the factual ground a generator writes from; it is never
+   * written back, because generated prose is not evidence (I-1).
+   *
+   * Empty for a listing with no knowledge product yet, which is exactly the
+   * case the insufficient-knowledge result exists for.
+   */
+  knowledge: GroundedKnowledge;
   title: string;
   slug: string;
   brand: string | null;

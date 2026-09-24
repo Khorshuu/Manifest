@@ -404,3 +404,102 @@ refusing a customer and a signed-out visitor.
 **Not covered here:** whether Google's real responses match the shapes
 `GoogleSearchConsoleProvider` parses. That needs credentials and is marked
 UNVERIFIED in `docs/KNOWLEDGE_PLATFORM.md`.
+
+## Stage 8 — the final audit's tests
+
+Three new files, each written against a defect that was reproduced first, and two
+of them able to catch a defect that does not exist yet.
+
+**`tests/search-document-order.test.ts`** — the search document is built in a
+declared order. The first test reads `refresh_product_search` as the database
+holds it (`pg_proc.prosrc`) and fails when any `string_agg`, `array_agg` or
+`jsonb_agg` in it can return rows in an arbitrary order; `DISTINCT` counts as
+ordered, because PostgreSQL sorts to deduplicate. It is a source check for the
+same reason `pkb-write-paths` is one: it covers aggregates written later. The
+second test says what the order *is* — a shelf's own `sort_order` — and asserts
+that refreshing one listing and refreshing it inside a batch store the same bytes,
+which is what makes the derived model comparable to the canonical data behind it
+(invariant I-21).
+
+**`tests/knowledge-decision-concurrency.test.ts`** — real PostgreSQL, in the
+`real-postgres` project. An approval and a rejection of the same alias are issued
+together, six rounds; exactly one may win, the recorded decider must be the one
+whose decision the row now shows, and nothing may be left `suggested`. Confirmed
+to fail against the previous code, where both were fulfilled. Claim decisions sit
+in the same file as the control: that path already loads its claims `for update`,
+and the point of testing it beside the broken one is that it stays safe.
+
+**`tests/prune.test.ts`** — a batched prune removes exactly what is past the
+cutoff and counts it exactly; it stops at its ceiling and reports `more` rather
+than appearing to have finished; it does nothing and says so when there is
+nothing to do; and a caller cannot ask for a batch size below the floor.
+
+Two existing files gained a case. `tests/pkb-intelligence.test.ts` now covers
+re-assessing a resolution: a staff account holding `seo.view` but not
+`catalog.manage` is refused, the confirmed identity it could have cleared
+survives, and somebody who may manage the catalogue still can.
+`tests/legacy-coverage.test.ts` covers the parked-value classification: a label no
+attribute means is ambiguous, an identifier that failed its check digit is
+unusable and is never counted as needing a decision, the report changes to
+"placeable" **only** after somebody records what the label means, and reporting
+writes nothing.
+
+### Counts at the end of the programme
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS |
+| `npm test` (both projects) | PASS — 109 files, 1,484 passed, 8 skipped, 261 s |
+| `npm run build` | PASS |
+| Playwright against that build (`E2E_PRODUCTION=1`) | PASS — 490 passed, 6 skipped, 0 failed |
+
+The unit count rose from Stage 7's 106 files and 1,471 tests by exactly the
+thirteen cases described above. The 8 skips are viewport-specific by design, and
+the 6 end-to-end skips likewise.
+
+### Checks that are not in the suite
+
+Run by hand during the audit, with the figures in
+`docs/KNOWLEDGE_PLATFORM.md` section 3G:
+
+- Rebuilding `product_search` and `product_search_attributes` from canonical data
+  and comparing every column, on the development and the 5,000-listing databases.
+- Comparing the development database's schema against one built from zero by the
+  migration chain.
+- `npm run perf:search-console` on `manifest_bench` (1,120,000 measurements over
+  20,000 pages) and `scripts/perf/knowledge-bench.ts` on `manifest_scale`.
+- Probing a missing listing, a missing shelf and an unmatched route against
+  `next start` for status, `robots`, canonical and structured data (R-18).
+- Searching the built client bundles for anything that looks like a credential.
+
+## Stage 9 — product preparation
+
+`tests/product-preparation.test.ts` (20 tests). The enrichment worker is
+deliberately not run: retrieval goes over the network, and a test that depends on
+a manufacturer's website is a test that fails when that website changes. The
+enrichment run is completed the way the worker completes it, which is what
+preparation is waiting for, and the retrieval path itself is already covered by
+`tests/pkb-net.test.ts` and `tests/pkb-intelligence.test.ts`.
+
+What is asserted is mostly what preparation refuses to do:
+
+| Case | Expected |
+| --- | --- |
+| A product created with a brand and a model number | HIGH_CONFIDENCE immediately, with no visit to Product Intelligence |
+| Identity added later, then cleared | Re-assessed both times; UNRESOLVED again when the identifier goes |
+| A GTIN whose check digit fails; two trade identifiers at once | Both refused at the save |
+| An official address on the save | One `pkb_product_sources` row, and no claim, evidence or fact |
+| A product with no identity | BLOCKED, and no enrichment run created |
+| Two products sharing a brand and a model number | NEEDS_REVIEW, and no enrichment run created |
+| No sources and no provider | BLOCKED with AUTOMATIC_SOURCE_DISCOVERY_NOT_CONFIGURED, and the provider's own state recorded |
+| A staff URL, and separately a staff document | The run carries on in both cases |
+| A document that proposed values | NEEDS_REVIEW with CLAIMS_WAITING; every claim still SUGGESTED, no fact written |
+| A thin listing | NEEDS_REVIEW with INSUFFICIENT_KNOWLEDGE, and no research run at all |
+| A filled listing | READY, all seven steps recorded, and the knowledge base's fact count unchanged by the generator |
+| The same request key, and a second click | One run, both times |
+| A retry | No second enrichment run, claim or evidence row |
+| A provider that fails | BLOCKED, with the product's knowledge untouched |
+| A customer | Refused at every entry point |
+| A staff-entered value and an unaccepted claim | The first reaches `loadPulseInput().knowledge`, the second does not |
+| Anything a run reports | No stack trace, no raw error; a message and a remedy on every failure |

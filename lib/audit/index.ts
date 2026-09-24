@@ -71,6 +71,10 @@ export type AuditAction =
   | "knowledge.proposal_decided"
   | "knowledge.enrichment_requested"
   | "knowledge.source_added"
+  /** Product preparation — docs/KNOWLEDGE_PLATFORM.md section 3H, D-112. */
+  | "product.preparation_started"
+  | "product.preparation_retried"
+  | "product.preparation_cancelled"
   /** Search Console and the SEO opportunity engine — docs/KNOWLEDGE_PLATFORM.md. */
   | "seo.search_console_synced"
   | "seo.opportunity_decided";

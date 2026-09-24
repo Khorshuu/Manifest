@@ -673,3 +673,70 @@ zero — the same rule the knowledge base applies to UNKNOWN (invariant I-5).
 Search Console measurements are internal analytics: `PROVIDER_RESTRICTED`, never
 exportable (I-10), never evidence for a product fact (I-1), and holding no
 customer identifier (I-9), which a test asserts against the column list.
+
+## Migrations 0038 to 0042 — hardening and the final audit (D-103 to D-111)
+
+| Migration | What it changes | Why |
+| --- | --- | --- |
+| 0038 | Replaces the description index 0035 added; adds the indexes the cascade and prune paths a listing save walks were missing; checks that an opportunity decision cannot name a listing while claiming to be about a shelf | Every caller trimmed before hashing, so 0035's expression index never matched and the duplicate checks scanned the published listings instead |
+| 0039 | `product_search_queue.source` | So a whole-catalogue rebuild can be left to the worker while a staff change is still rebuilt at its own commit (D-102) |
+| 0040 | Lets a transaction declare itself a bulk import with `set local manifest.search_queue_source` | A bulk import that reindexed per listing per commit was the largest cost in the backfill |
+| 0041 | Five foreign-key indexes, chosen by measuring a delete, plus `jobs_kind_finished_idx` for the Background work screen | D-106. Deleting one listing's 500,000 search events took 41.0 ms scanning and 0.6 ms indexed, and the scan grows for ever |
+| 0042 | `refresh_product_search` with `ORDER BY d.sort_order, d.name, e.key` on the shelf-specification aggregate. Nothing else in the function changes | Without it the search document's word order followed the query plan, so refreshing one listing and refreshing it in a batch stored different documents for the same data — 3,863 of 5,000 on the scale database — and `ts_rank_cd`, which reads tsvector positions, ranked accordingly (invariant I-21, D-107's sibling) |
+
+**0041 has a history worth keeping.** It was applied to the development database
+and then edited before it was committed, so that database's ledger checksum
+disagreed with the file and `npm run db:migrate` refused to run — which is
+precisely the rule working (D-069). The repair was to replay the file, every
+statement of which is `CREATE INDEX IF NOT EXISTS`, and record the committed
+checksum; the migration itself was not touched. **If this ever happens again, the
+answer is the same: fix the database, never the applied migration.** A database
+built from zero by the chain and the development database now agree on all 943
+columns, 284 indexes, 1,095 constraints, 79 function bodies and 44 triggers.
+
+## Deleting old rows (D-111)
+
+Every prune in the hourly `maintenance.prune` job goes through
+`pruneInBatches` (`lib/prune.ts`): batches of ten thousand, each its own
+statement and transaction, addressed by `ctid`, stopping when a batch comes back
+short or at a ceiling it then reports. It replaced one statement per table that
+deleted everything past the retention window and returned an identifier per row
+in order to count them — 500,000 Search Console measurements cost 2,177 ms and
+106 MB of identifiers for rows that no longer existed. The tables it covers grow
+with traffic (`search_queries`, `search_clicks`, `search_events`,
+`rate_limit_hits`, `jobs`) or with whatever Google reports
+(`search_console_metrics`), never with the catalogue, so none of them has a size
+this shop controls.
+
+## Migration 0043 — product preparation runs (D-112)
+
+One table, `product_preparation_runs`: the state of one attempt to take a
+product from a typed title to a prepared page.
+
+| Column | Why |
+| --- | --- |
+| `product_id` | The listing being prepared; cascades with it |
+| `pkb_product_id` | Set once the listing has a knowledge product; null before the first sync |
+| `stage` | The staff-facing state, constrained to the twelve names in section 3H.2 of the knowledge platform tracker |
+| `request_key` | Unique: one click's key, so a retried request returns the run it made |
+| `enrichment_run_id`, `seo_run_id` | The work this run started, so a retry waits for it instead of starting more |
+| `steps` | `[{key, state, detail, at}]` — the steps that have genuinely completed. This is what makes a retry idempotent |
+| `review` | `[{code, message, remedy}]` — what a person has to decide |
+| `failure` | `{code, message, remedy}` — why it stopped. Never a stack trace and never a raw error |
+| `providers` | What the research provider reported about itself |
+| `ticks` | How many times the run has waited, so a wait is bounded and each wake-up job has a key of its own |
+| `cancel_requested` | Cancellation is cooperative: the work already started belongs to other systems |
+
+Constraints and indexes:
+
+- `product_preparation_stage_check` holds the stage vocabulary in the database.
+- `product_preparation_finished_check` makes "finished" and `finished_at` the
+  same fact, so neither can drift from the other.
+- `product_preparation_one_live_idx` is a partial unique index on
+  `product_id where finished_at is null`: **one live run per product**, enforced
+  by the database rather than by a check two requests could both pass.
+- Three partial indexes on the nullable foreign keys, because a cascade with no
+  index scans the table (D-106).
+
+The table holds no product fact, no claim, no evidence and no offer data. It
+records which work was started and how far it got.

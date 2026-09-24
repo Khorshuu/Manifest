@@ -148,3 +148,157 @@ export function identifiersFor(
   // The merchant SKU is the offer's own, not knowledge; the caller supplies it.
   return { gtin, mpn, sku: null };
 }
+
+// ------------------------------------------------- grounded generation context
+
+/**
+ * The same publishable knowledge, widened for a generator (D-113).
+ *
+ * `publishableKnowledge` above answers a narrower question — what may be told
+ * to a search engine as structured data — so it carries only the attributes
+ * that map to a schema.org property. A generator writing customer-facing copy
+ * needs more than that: the materials, the measurements, the box contents, the
+ * compatibility notes. It needs them under exactly the same rule, though, so
+ * this reads through the same filter: a value is included only when its state
+ * is VERIFIED or MANUAL (invariant I-11), and nothing suggested, conflicting
+ * or of unknown legacy origin appears at all.
+ *
+ * Read-only, and factual only. Prices, stock, preorder capacity and promotions
+ * are offer data and are not in the knowledge base to begin with (I-8). What a
+ * generator writes from this never comes back: generated prose is not evidence
+ * and cannot become a fact (I-1, D-074).
+ */
+export type GroundedAttribute = {
+  /** The attribute's canonical key, e.g. "material", "item_weight". */
+  key: string;
+  label: string;
+  value: string;
+  unit: string | null;
+  /** Null for a product-level value; set for one variant's. */
+  pkbVariantId: string | null;
+  state: string;
+};
+
+export type GroundedRelationship = {
+  kind: string;
+  /** The other product's name in the knowledge base. */
+  name: string;
+  direction: "outgoing" | "incoming";
+};
+
+export type GroundedKnowledge = {
+  pkbProductId: string | null;
+  /** The knowledge base's own name for the product, which may differ from the listing's title. */
+  name: string | null;
+  brand: string | null;
+  modelName: string | null;
+  resolutionState: string | null;
+  identifiers: PublishableIdentifier[];
+  attributes: GroundedAttribute[];
+  relationships: GroundedRelationship[];
+};
+
+export const EMPTY_GROUNDED: GroundedKnowledge = {
+  pkbProductId: null,
+  name: null,
+  brand: null,
+  modelName: null,
+  resolutionState: null,
+  identifiers: [],
+  attributes: [],
+  relationships: [],
+};
+
+export async function groundedKnowledge(
+  pkbProductId: string | null,
+  executor: Executor = db,
+): Promise<GroundedKnowledge> {
+  if (!pkbProductId) return EMPTY_GROUNDED;
+  const states = `{${PUBLISHABLE.join(",")}}`;
+
+  const [productRows, identifierRows, attributeRows, relationshipRows] = await Promise.all([
+    queryRows<{ name: string; resolution_state: string }>(
+      executor,
+      sql`select name, resolution_state from pkb_products where id = ${pkbProductId} and status = 'active'`,
+    ),
+    queryRows<{ identifier_type: string; value: string; pkb_variant_id: string | null; verification_state: string }>(
+      executor,
+      sql`select identifier_type, coalesce(value_normalized, value_raw) as value,
+                 pkb_variant_id, verification_state
+          from pkb_identifiers
+          where pkb_product_id = ${pkbProductId}
+            and validation_status <> 'invalid'
+            and verification_state = any(${states}::text[])
+          order by identifier_type`,
+    ),
+    queryRows<{
+      key: string;
+      label: string;
+      value: string;
+      unit: string | null;
+      pkb_variant_id: string | null;
+      verification_state: string;
+    }>(
+      executor,
+      sql`select d.key, d.label,
+                 coalesce(b.name, o.label, f.value_text, f.raw_value) as value,
+                 coalesce(f.value_unit, f.raw_unit) as unit,
+                 f.pkb_variant_id, f.verification_state
+          from pkb_facts f
+          join pkb_attribute_definitions d on d.id = f.definition_id
+          left join pkb_attribute_options o on o.id = f.value_option_id
+          left join pkb_brands b on b.id = f.value_brand_id
+          where f.pkb_product_id = ${pkbProductId}
+            and f.value_status <> 'not_applicable'
+            and f.verification_state = any(${states}::text[])
+            and coalesce(b.name, o.label, f.value_text, f.raw_value) is not null
+          order by d.label, f.ordinal`,
+    ),
+    // Only relationships the knowledge base has settled, in either direction.
+    queryRows<{ kind: string; name: string; direction: string }>(
+      executor,
+      sql`select r.kind, p.name, 'outgoing' as direction
+          from pkb_relationships r
+          join pkb_products p on p.id = r.to_product_id
+          where r.from_product_id = ${pkbProductId}
+            and r.verification_state = any(${states}::text[]) and p.status = 'active'
+          union all
+          select r.kind, p.name, 'incoming' as direction
+          from pkb_relationships r
+          join pkb_products p on p.id = r.from_product_id
+          where r.to_product_id = ${pkbProductId}
+            and r.verification_state = any(${states}::text[]) and p.status = 'active'
+          order by 1, 2
+          limit 50`,
+    ),
+  ]);
+
+  const attributes = attributeRows.map((row) => ({
+    key: row.key,
+    label: row.label,
+    value: row.value,
+    unit: row.unit,
+    pkbVariantId: row.pkb_variant_id,
+    state: row.verification_state,
+  }));
+
+  return {
+    pkbProductId,
+    name: productRows[0]?.name ?? null,
+    brand: attributes.find((row) => row.key === "brand")?.value ?? null,
+    modelName: attributes.find((row) => row.key === "model_name")?.value ?? null,
+    resolutionState: productRows[0]?.resolution_state ?? null,
+    identifiers: identifierRows.map((row) => ({
+      type: row.identifier_type,
+      value: row.value,
+      pkbVariantId: row.pkb_variant_id,
+      state: row.verification_state,
+    })),
+    attributes,
+    relationships: relationshipRows.map((row) => ({
+      kind: row.kind,
+      name: row.name,
+      direction: row.direction === "incoming" ? "incoming" : "outgoing",
+    })),
+  };
+}

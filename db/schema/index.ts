@@ -15,3 +15,4 @@ export * from "./seo-pulse";
 export * from "./search-console";
 export * from "./media";
 export * from "./pkb";
+export * from "./preparation";

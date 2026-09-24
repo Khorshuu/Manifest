@@ -30,6 +30,7 @@ import { LEGACY_IDENTIFIER_TYPES, normalizeIdentifier, type IdentifierInputType 
 import { loadLabelMappings, resolveLabel, type LabelMappingIndex } from "./mappings";
 import { cleanText, labelKey } from "./normalize";
 import { applyProjection, isProjectable } from "./projection";
+import { refreshResolution } from "./resolution";
 import {
   createStaffEntrySource,
   deleteFact,
@@ -75,6 +76,12 @@ import {
  *
  * Idempotent: a second run with nothing changed writes nothing.
  */
+
+/**
+ * The attributes the resolution assessment reads. A change to one of them,
+ * or to any trade identifier, makes the stored resolution state stale (D-112).
+ */
+const IDENTITY_KEYS = new Set(["brand", "model_name", "generation"]);
 
 type DesiredFact = {
   pkbVariantId: string | null;
@@ -186,7 +193,9 @@ export async function syncListingKnowledge(
   if (listing.pkbProductId) {
     [pkbProduct] = await executor.select().from(pkbProducts).where(eq(pkbProducts.id, listing.pkbProductId));
   }
+  let pkbCreated = false;
   if (!pkbProduct) {
+    pkbCreated = true;
     [pkbProduct] = await executor
       .insert(pkbProducts)
       .values({
@@ -485,6 +494,26 @@ export async function syncListingKnowledge(
   let staffSourceId: string | null = null;
   let restore = false;
 
+  /*
+   * Whether this save changed anything the resolution assessment reads (D-112).
+   *
+   * A product's identity is its brand, its model name, its generation and its
+   * trade identifiers. When one of them changes, the stored resolution state is
+   * about a product that no longer exists as described — a listing saved with a
+   * model number for the first time stayed UNRESOLVED until somebody opened
+   * Product Intelligence and pressed a button, which is how a new product could
+   * sit for weeks unable to be enriched.
+   *
+   * The flag is set here rather than in each caller because every path that
+   * writes a listing's facts already comes through this function, and because
+   * only this function knows whether the save actually changed an identity
+   * value or merely rewrote the same text.
+   */
+  let identityTouched = pkbCreated;
+  const markIdentity = (key: string | undefined) => {
+    if (key && IDENTITY_KEYS.has(key)) identityTouched = true;
+  };
+
   const provenanceFor = async (): Promise<Provenance> => {
     if (attribution.kind === "legacy") {
       return { verificationState: "LEGACY", origin: "UNKNOWN_LEGACY", sourceId: legacySourceId, claimId: null, decidedBy: null, decisionPolicy: null };
@@ -570,6 +599,7 @@ export async function syncListingKnowledge(
         });
       }
       if (value.brandId) touchedBrands.push(value.brandId);
+      markIdentity(fact.definition.key);
       report.created += 1;
       continue;
     }
@@ -580,6 +610,7 @@ export async function syncListingKnowledge(
       if (!sameStoredValue(row, value)) {
         // Same text, read differently (a definition or rule changed): provenance stays.
         await updateFact(executor, row, valueColumnsOf(value), { actorId, reason: "Normalized again." });
+        markIdentity(fact.definition.key);
         report.updated += 1;
       } else {
         if ((row.rawLabel ?? null) !== fact.rawLabel) {
@@ -606,6 +637,7 @@ export async function syncListingKnowledge(
       { ...valueColumnsOf(value), ...(await provenanceFor()), legacyRef: fact.legacyRef },
       { actorId, reason: reasonFor(attribution, "Changed") },
     );
+    markIdentity(fact.definition.key);
     report.updated += 1;
   }
 
@@ -622,6 +654,7 @@ export async function syncListingKnowledge(
     }
     if (row.valueBrandId) touchedBrands.push(row.valueBrandId);
     await deleteFact(executor, row, { actorId, reason: reasonFor(attribution, "Removed") });
+    markIdentity(byId.get(row.definitionId)?.key);
     report.cleared += 1;
   }
 
@@ -637,11 +670,21 @@ export async function syncListingKnowledge(
   report.updated += identifierReport.updated;
   report.cleared += identifierReport.cleared;
   restore ||= identifierReport.restore;
+  if (identifierReport.created + identifierReport.updated + identifierReport.cleared > 0) identityTouched = true;
 
-  // 7. What could not be placed.
+  // 7. Identity, re-assessed when this save changed what it is made of.
+  //
+  // Inside the same transaction as the change, so the state a reader sees is
+  // never a state derived from identifiers that no longer hold. It re-assesses
+  // only; it never confirms. VERIFIED is a person’s decision and stays one,
+  // and a confirmed identity whose signals changed drops back to re-assessment
+  // exactly as it did before (D-072, D-074).
+  if (identityTouched) await refreshResolution(executor, pkbProductId);
+
+  // 8. What could not be placed.
   report.unmapped = await syncUnmapped(executor, listingId, unmapped, offers.map((offer) => offer.id));
 
-  // 8. Revert unattributed changes to decided values.
+  // 9. Revert unattributed changes to decided values.
   if (restore) {
     const { changed } = await applyProjection(executor, listingId, pkbProductId);
     report.restored = changed;
@@ -650,7 +693,7 @@ export async function syncListingKnowledge(
     }
   }
 
-  // 9. Variant identities no offer points at any more, holding nothing of their own.
+  // 10. Variant identities no offer points at any more, holding nothing of their own.
   await executor.execute(sql`
     delete from pkb_variants v
     where v.pkb_product_id = ${pkbProductId}

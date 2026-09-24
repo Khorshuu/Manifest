@@ -2637,3 +2637,263 @@ asserts what is actually guaranteed: the shop's own not-found page, and the
 noindex tag. The behaviour is recorded as finding F17 and risk R-18, to be
 reconsidered in Stage 8, where deployment behaviour is the subject. A check in
 `proxy` is the known fix, not an open question.
+
+---
+
+## D-109 — Parked legacy values are classified, never discarded and never guessed
+
+**Decision (Stage 8).** `pkb_unmapped_values` holds every legacy value the
+knowledge pipeline refused to place, because placing it would have meant
+deciding what a written label means (A-8). Stage 7 reported the count — "72
+values parked" — and a count is not something anybody can act on. It invites the
+two wrong actions: throwing the values away because nothing reads them, or
+placing them by hand in the database because there are only seventy-two.
+
+`classifyParkedValues` says what each one *is*, from the database, in five
+classes decided in this order:
+
+| Class | What it means |
+| --- | --- |
+| `unusable` | Not a value anything can hold: an identifier that failed its check digit (kept exactly as supplied and never corrected, R-6), or an empty value. |
+| `obsolete` | The listing behind it is archived or has no knowledge record. Kept for history; there is nothing to migrate into. |
+| `already_represented` | An approved attribute answers to this label *and* the slot it would fill already holds a value. The parked row duplicates what is stored. |
+| `migratable` | An approved attribute answers to this label — by its own label, its key, an approved alias, or an approved mapping — and the slot is empty. |
+| `ambiguous` | No approved attribute answers to this label, or more than one does. It needs a person. |
+
+The report is read-only and it never invents a meaning: a value is called
+`migratable` only when the knowledge base *already* holds an attribute that
+answers to its label. Migrating one is still the existing workflow —
+`decideLabelMapping`, which queues the listing so the value is placed by the
+normal pipeline with its provenance intact — so nothing is ever edited in place.
+
+**On this repository's development database, all seventy-two are accounted for
+and none can be migrated without inventing meaning:** 71 `ambiguous` and 1
+`unusable` (the seed's UPC with a bad check digit, R-7). The ambiguous ones are
+free-text specification labels of the kind a shelf author writes — "Burr",
+"Hopper", "Cacao", "Shelf life" — and the canonical vocabulary has 23 approved
+attributes, none of which means any of them. Two are variant option values
+("Flavor") whose option group has no attribute behind it either.
+
+That is the answer to whether `category_attributes` can be contracted: no, and
+not because of the parked values. The three-part proof a contraction needs fails
+on each part. `resolveCategoryAttributes` validates every product save;
+`/admin/categories`, the product editor and one API route read the definitions;
+`refresh_product_search` reads them in SQL to build the search document; and
+`createCategoryAttribute`, `updateCategoryAttribute` and
+`deleteCategoryAttribute` still write them. The knowledge base covers the *two*
+definitions this database has, but variant option groups are covered 2 of 5 and
+option selections 6 of 8, so `allCovered` is false. The table stays, the
+remainder stays explicit, and the classification is on the knowledge screen so
+the next person to look at it is looking at work rather than at a number.
+
+---
+
+## D-110 — A decision is read under its own lock, wherever a decision is recorded
+
+**Decision (Stage 8, from a defect).** Stage 7 fixed the same mistake twice: the
+listing save read the row it patched before taking the lock (finding F8), and
+the SEO apply checked "this field is empty" against a read made outside its
+transaction. `decideAlias` had it a third time. It read the alias row on the
+shared connection, checked there that the alias was still only `suggested`, and
+then opened a transaction that updated the row by id alone. Two decisions
+arriving together both passed the check and both wrote: an approved alias —
+which is live search vocabulary — could become rejected, or the other way round,
+recorded against whoever committed last, with nothing on the row to say it had
+been decided twice.
+
+Proved with real concurrent writes in `tests/knowledge-decision-concurrency.test.ts`,
+which fails against the previous code: both decisions were fulfilled.
+
+The row is now read inside the transaction with `for update`, and the update
+carries `status = 'suggested'` in its `where` as well, so a caller that finds
+another way in still cannot re-decide a decided alias. The general rule, now
+that it has cost three fixes: **where a write depends on a row's current state,
+the lock comes before the check, and the check is repeated in the write's own
+predicate.** Claim decisions already did this — `loadClaimsForDecision` selects
+`for update` — and the same test covers them as the control.
+
+---
+
+## D-111 — A prune deletes in bounded batches and counts rows, not identifiers
+
+**Decision (Stage 8, on measurement).** Every prune in the hourly
+`maintenance.prune` job was one statement that deleted everything past its
+retention window and asked for an identifier back for each row deleted — only
+ever to call `.length` on the result. Two unbounded things in one place: a
+transaction whose size is decided by how much has accumulated, and an array in
+memory the same size.
+
+Measured on the bench database: pruning 500,000 Search Console measurements took
+2,177 ms and grew the heap by 106 MB for the identifiers of rows that had just
+ceased to exist. The size of that table is decided by Google rather than by this
+shop's catalogue (R-17), and the search event tables grow with traffic, so five
+million rows is an ordinary amount to find after a gap — about a gigabyte, inside
+a job that on a serverless platform has a few hundred megabytes and a time limit.
+
+`pruneInBatches` (`lib/prune.ts`) walks the table instead: each batch is its own
+statement, transaction and lock, `ctid` makes the delete a direct fetch rather
+than a second pass over the condition, and the loop stops when a batch comes back
+short or when it reaches its ceiling — at which point it says `more`, so an
+operator knows the next run has work waiting rather than believing the prune
+finished. Applied to the five unbounded prunes: search queries, search clicks,
+search events, Search Console measurements, rate-limit hits and finished jobs.
+Guest carts already batched, which is where the shape came from.
+
+620,000 measurements now prune in 2,397 ms with the live set bounded by one
+batch rather than by the number of rows deleted.
+
+---
+
+## D-112 — Product preparation is a durable run that coordinates, and stops where a person decides
+
+**Decision (Stage 9).** A diagnostic of the real Add Product workflow found the
+gap between the knowledge platform and the way products are actually created.
+The form collected what the shop calls a product — title, category, brand, SKU —
+and nothing a manufacturer would recognise. The save synchronised the listing
+into the knowledge base but never re-assessed the identity, so a newly created
+product stayed UNRESOLVED until somebody opened Product Intelligence and pressed
+a button; and because it was UNRESOLVED, nothing could enrich it. Everything
+needed to research a product existed, and nothing connected it to the act of
+adding one.
+
+Three things follow, and they are separate decisions on purpose.
+
+**Identity is collected on the product save, and stored where it already lives.**
+A product save may now carry `identity`: model name, model number, MPN, one trade
+identifier (GTIN, UPC, EAN, ISBN or ASIN), and the manufacturer's own page. None
+of it is required and nothing about an existing save changes. It is folded into
+`products.details` and `products.identifier_type` / `identifier_value` — the
+columns the knowledge mirror already reads — so identity typed on the Add Product
+form and identity typed on the Product Intelligence screen become the same rows,
+with the same provenance, under the same rules. **No second identifier store**
+(D-065). The Manifest SKU is deliberately not identity: it is this shop's label
+for something it sells, not the manufacturer's name for what it is. A listing
+holds one trade identifier because the column does; two different kinds at once
+are refused rather than silently resolved, and a number whose check digit does
+not hold is refused at the moment somebody can still look at the box.
+
+**Resolution is re-assessed by the mirror, when identity actually changes.**
+`syncListingKnowledge` now tracks whether a save touched the brand, the model
+name, the generation or any trade identifier, and re-assesses the product's
+resolution inside the same transaction when it did. The mirror is the right place
+because every path that writes a listing's facts already goes through it, and
+because only it knows whether a save changed an identity value or merely rewrote
+the same text — a category-attribute change across four hundred listings
+re-assesses nothing. The semantics are untouched: VERIFIED is still only ever set
+by a person, a confirmed identity whose signals changed still drops back to
+re-assessment, AMBIGUOUS is still ambiguous, and nothing here enriches.
+
+**The one-click workflow is a durable run, not a long request.** A
+`product_preparation_runs` row (migration 0043) holds the state of one attempt to
+take a product from a typed title to a prepared page. It coordinates work that
+already exists and repeats none of it: the knowledge sync, the resolution
+assessment, `sourceOutlook`, `requestEnrichment`, the review queue, `runSeoPulse`,
+the search index and `lib/seo/readiness`. It is a run rather than a request
+because enrichment retrieves pages over the network and review waits for a
+person: a staff member who starts it and closes the tab must be able to come
+back, and a worker that dies half-way must resume at the step it reached.
+
+Idempotency is by record, not by hope. Each step is written to the run when it
+has genuinely completed and is never run again, so a retry does not research
+twice, propose the same claims twice or generate a second analysis. The
+enrichment run's id and the research run's id are kept on the row, so a retry
+waits for work it already started. A partial unique index allows one live run per
+product, so two people pressing the button produce one run.
+
+**It stops where the existing architecture stops.** An ambiguous identity, a
+conflicting claim, a claim nobody has accepted, a label no attribute names and a
+product with too little established fact each halt the run in NEEDS_REVIEW or
+BLOCKED, with a code, a sentence and a remedy. It does not confirm an identity,
+accept a claim, approve a domain or apply generated wording. Auto-accepting to
+reach a one-click finish is precisely what the verification architecture exists
+to prevent (D-072, D-074, D-076), and convenience is not a reason to weaken it.
+
+Permissions are the existing ones exactly: preparing a product asks for
+`catalog.manage`, and every trust decision — a source domain, a verification
+policy — continues to ask for `knowledge.manage` in `lib/pkb`. The worker acts as
+the staff member who asked for the run, whose permission is checked again by each
+function it calls, rather than being given a way past those checks.
+
+---
+
+## D-113 — SEO Pulse is given the knowledge base's established facts, read-only
+
+**Decision (Stage 9, from the same diagnostic.)** `loadPulseInput` read the
+listing's own columns and nothing else. Everything the enrichment pipeline had
+established — a verified GTIN, a material accepted from the manufacturer's
+documentation, a measurement taken from a specification sheet — was invisible to
+the generator whose job is to describe the product. The listing's columns and the
+knowledge base agree for values staff typed, because the mirror keeps them in
+step (D-070), but nothing accepted through review is in a legacy column at all.
+
+`SeoPulseInput` now carries `knowledge`, read through `groundedKnowledge` in
+`lib/pkb/publish.ts` — beside `publishableKnowledge`, under the same rule and in
+the same file, because it is the same question asked more widely. A value appears
+only when its state is VERIFIED or MANUAL (invariant I-11): a suggested claim, a
+conflicting one and a legacy value of unknown origin are all absent, so **an
+unreviewed claim cannot become a factual generation context**. The specification
+and measurement tables append it last, after the listing's own rows, so a value
+staff typed keeps its row and the knowledge base only adds what the listing does
+not carry.
+
+The direction is one-way and stays one-way. Generated prose is not evidence and
+never becomes a fact (I-1); preparation generates a run and does not apply it;
+and commercial offer data — price, stock, preorder capacity, promotions — is not
+in the knowledge base to be read from it (I-8).
+
+---
+
+## D-114 — Automatic source discovery is one optional provider, returning addresses only
+
+**Decision (Stage 9.)** `ProductResearchProvider` had a single implementation
+that reported NOT_CONFIGURED. That is a supported state and stays the default
+(A-6): the Brand Source Registry, the addresses staff attach and the documents
+they provide all work without it. But a shop that wanted automatic discovery had
+nowhere to turn it on, and "implement one later" had been the answer since
+Stage 2.
+
+`brave` is now a second implementation, selected by `PRODUCT_RESEARCH_PROVIDER`
+and needing `BRAVE_SEARCH_API_KEY`. It is a documented JSON endpoint on one
+pinned host, not a parsed search page: scraping a search engine's HTML breaks
+without warning and is usually against its terms. The query is built from the
+product's *identifiers* rather than its name, because a model number either
+matches a page or does not, where a name matches a thousand pages about something
+else; a product with no identifier is not searched for at all, which is the
+product the resolution gate has already stopped.
+
+**A provider returns addresses. It does not return facts.** A title and the
+index's own description travel with a candidate so a person can see why it was
+offered, and neither is ever treated as a product fact. Every discovered page is
+still fetched through `safeFetch`, still checked against robots.txt, still
+matched against the product's identifiers, still recorded as evidence and still
+proposed as a claim somebody accepts. Being first in a provider's list confers
+nothing: official ordering uses only domains the Brand Source Registry already
+approves for that brand, and the registry match is checked again per page.
+
+Failure is typed and quiet. A missing key is UNAVAILABLE, a quota or an outage is
+UNAVAILABLE, an unreadable answer is FAILED, and in each case the run carries on
+with the sources it already has. No provider answer can write anything, so no
+provider failure can corrupt a product.
+
+---
+
+## D-115 — Too little to say is reported, not filled with something true about the shop
+
+**Decision (Stage 9.)** With an empty listing the rules generator writes
+"<product> is part of our Headphones range and is sourced from the United States
+and delivered across Bangladesh." Every word is true and none of it is about the
+product. The sentence is a reasonable fallback; the fault is reporting the result
+as a researched product listing when no product fact went into it.
+
+`knowledgeSufficiency` counts what is actually established about the product —
+brand, an identifier, specifications, measurements, key features, box contents, a
+description of some substance — and says whether there is enough to write from.
+The category, the title, the price and the delivery terms deliberately do not
+count: every listing has them.
+
+The verdict changes reporting, not generation. A thin run is still generated and
+still available to apply by hand, because a staff member who wants the fallback
+should have it. Product preparation reads the verdict and stops at NEEDS_REVIEW
+with what is missing, rather than reporting the product READY. **Nothing is
+invented to clear the bar** — the answer to too little knowledge is more
+knowledge, which is what the rest of the pipeline is for.

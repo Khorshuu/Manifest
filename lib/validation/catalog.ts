@@ -198,12 +198,56 @@ export const productDetailsSchema = z
   .strict();
 
 /**
+ * What a product is, as the manufacturer names it (D-112).
+ *
+ * The Add Product form has always collected what the *shop* calls a product —
+ * title, category, brand, SKU — and nothing a manufacturer would recognise, so
+ * a newly created product had no identity to resolve and no identity to search
+ * for. This is that missing half, and it is optional in every part: a listing
+ * with none of it is saved exactly as it was before.
+ *
+ * Every field here is stored where the knowledge base already reads it — the
+ * model fields in `products.details`, the trade identifier in
+ * `products.identifier_type`/`identifier_value` — so this adds no second
+ * identifier store (D-065). `officialUrl` is not an identifier at all: it is a
+ * source, and it is attached to the product as one.
+ *
+ * The Manifest SKU is deliberately absent. A SKU is this shop's own label for
+ * something it sells, not the manufacturer's name for what it is.
+ */
+export const productIdentitySchema = z
+  .object({
+    /** The manufacturer's name for the model, e.g. "WH-1000XM6". */
+    modelName: clearableText(120),
+    /** The manufacturer's model number, where it differs from the name. */
+    modelNumber: clearableText(80),
+    /** Manufacturer part number. */
+    mpn: clearableText(80),
+    /** One trade identifier. A product carries one; the others are its spellings. */
+    gtin: clearableText(64),
+    upc: clearableText(64),
+    ean: clearableText(64),
+    isbn: clearableText(64),
+    asin: clearableText(64),
+    /** The manufacturer's own page for this product, recorded as a source. */
+    officialUrl: httpUrl,
+  })
+  .strict();
+
+export type ProductIdentityPayload = z.infer<typeof productIdentitySchema>;
+
+/** The identity fields that map onto the single legacy trade-identifier column. */
+export const TRADE_IDENTIFIER_FIELDS = ["gtin", "upc", "ean", "isbn", "asin"] as const;
+
+/**
  * Everything a product save may carry.
  *
  * Creating requires a title and a category; every other field is optional on
  * both paths, and on an update an absent field is left as it was.
  */
 const productFields = {
+  /** Optional manufacturer identity; see `productIdentitySchema`. */
+  identity: productIdentitySchema.optional(),
   title: z.string().trim().min(1, "Enter a title.").max(200),
   slug: slug.optional(),
   categoryId: z.string().uuid("Choose a category."),

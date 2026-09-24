@@ -7,6 +7,7 @@ import {
   type SerpSnapshot,
 } from "./types";
 import { keywordKey } from "./text";
+import type { GroundedAttribute } from "@/lib/pkb/publish";
 
 /**
  * The parts of an analysis that are facts about the listing rather than
@@ -350,7 +351,31 @@ export function specificationRows(input: SeoPulseInput): Row[] {
           },
         ]
       : []),
+    /*
+     * Last, so a value staff typed on the listing keeps the row and the
+     * knowledge base only adds specifications the listing does not carry
+     * (D-113). `tidy` keeps the first row for a label and drops the rest.
+     */
+    ...knowledgeRows(input, "specification"),
   ]);
+}
+
+/**
+ * The product-level facts the knowledge base has established, as table rows.
+ *
+ * Only what `groundedKnowledge` returned, which is only VERIFIED or MANUAL
+ * values. Variant-scoped values are left out of a product-level table: they
+ * describe one offer, not the product.
+ */
+function knowledgeRows(input: SeoPulseInput, kind: "specification" | "measurement"): Row[] {
+  const wanted = (attribute: GroundedAttribute) =>
+    (MEASURED.test(attribute.label) ? "measurement" : "specification") === kind;
+  return (input.knowledge?.attributes ?? [])
+    .filter((attribute) => attribute.pkbVariantId === null && wanted(attribute))
+    .map((attribute) => ({
+      label: attribute.label,
+      value: attribute.unit ? `${attribute.value} ${attribute.unit}` : attribute.value,
+    }));
 }
 
 /**
@@ -369,5 +394,76 @@ export function measurementRows(input: SeoPulseInput): Row[] {
     // A category specification such as "Capacity: 750 ml" is a measurement
     // wherever it was entered.
     ...input.specifications.filter((row) => MEASURED.test(row.label)),
+    ...knowledgeRows(input, "measurement"),
   ]);
+}
+
+// ------------------------------------------------ is there enough to write from
+
+/**
+ * Whether there is enough established fact to write a product listing (D-115).
+ *
+ * The rules generator will always produce *something*: with an empty listing
+ * it produces "<product> is part of our <category> range and is sourced from
+ * the United States", which is true, generic and worth nothing to a shopper.
+ * The problem is not the sentence — it is a reasonable fallback — but calling
+ * the result a researched product listing when no product fact went into it.
+ *
+ * So the verdict is stated rather than implied. A run whose grounding is thin
+ * is still generated and still available to apply by hand; product preparation
+ * reads this and stops instead of reporting a product as READY.
+ *
+ * What counts is a *fact about the product*: its brand, an identifier, a
+ * specification, a measurement, a key feature staff wrote, the box contents, a
+ * description of some substance. What does not count: the category, the title,
+ * the price, the delivery terms — every listing has those, and a description
+ * assembled from them describes nothing.
+ */
+export type KnowledgeSufficiency = {
+  sufficient: boolean;
+  /** How many distinct product facts were found. */
+  facts: number;
+  /** The least a run needs before its copy says anything about the product. */
+  required: number;
+  /** What would most improve it, in the order worth doing. */
+  missing: string[];
+};
+
+export const SUFFICIENT_FACTS = 4;
+
+export function knowledgeSufficiency(input: SeoPulseInput): KnowledgeSufficiency {
+  const specifications = specificationRows(input);
+  const measurements = measurementRows(input);
+  const missing: string[] = [];
+
+  let facts = 0;
+  if (input.brand) facts += 1;
+  else missing.push("Brand");
+
+  const identified =
+    Boolean(input.identifierValue) ||
+    Boolean(input.details.manufacturerPartNumber) ||
+    Boolean(input.details.modelNumber) ||
+    (input.knowledge?.identifiers.length ?? 0) > 0;
+  if (identified) facts += 1;
+  else missing.push("A model number, part number or GTIN");
+
+  // The brand row is counted above; counting it again would let a listing
+  // with only a brand look twice as grounded as it is.
+  const specificationFacts = specifications.filter((row) => row.label.toLowerCase() !== "brand").length;
+  facts += Math.min(specificationFacts, 6);
+  if (specificationFacts === 0) missing.push("Specifications");
+
+  facts += Math.min(measurements.length, 3);
+  if (measurements.length === 0) missing.push("Measurements");
+
+  if (input.bulletFeatures.length > 0) facts += 1;
+  else missing.push("Key features");
+
+  if (input.boxContents.length > 0) facts += 1;
+  else missing.push("What is in the box");
+
+  if (input.descriptionText.length >= 200) facts += 1;
+
+  return { sufficient: facts >= SUFFICIENT_FACTS, facts, required: SUFFICIENT_FACTS, missing };
 }

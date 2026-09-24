@@ -277,3 +277,93 @@ the server, so the boundary is drawn tightly.
   person suggesting it and a second decision approving it (D-100).
 - **Reading it needs `catalog.manage`**, checked inside `lib/`, not in the
   screen.
+
+## The final audit's security and authorization findings (Stage 8)
+
+Three of the five defects the final audit found were on this boundary. Each is
+fixed, and each has a test that fails without the fix.
+
+- **A re-check that was a write.** The knowledge screen's "check the identity
+  again" button reached `refreshResolution` through the admin API on the grounds
+  that re-checking is a read. It is a write: it stores the resolution state,
+  appends a history row, and where the state is no longer VERIFIED it clears
+  `resolution_decided_by` and `resolution_decided_at` — so any staff account,
+  including one with no catalogue permission at all, could discard a confirmed
+  product identity, unattributed. `reassessResolution` now asks for
+  `catalog.manage` inside `lib/`, which is what every other resolution write asks
+  for, and takes the row's lock before it reads it. The general rule this
+  restates: **a function that writes asks for permission wherever it is called
+  from, and "it only re-reads" is not an exemption** (invariant I-14).
+- **A decision that could be overwritten.** `decideAlias` checked "this alias is
+  still only suggested" against a read taken outside its transaction, so two
+  decisions arriving together both passed and the second overwrote the first — an
+  approved alias, which is live search vocabulary, could become rejected,
+  recorded against whoever committed last. The row is now read under `for update`
+  inside the transaction, and the update carries the status in its `where` as
+  well. This was the third instance of one shape (D-110); the rule is now an
+  invariant, I-22: **where a write depends on a row's current state, the lock
+  comes before the check, and the check is repeated in the write's own
+  predicate.**
+- **Unbounded deletes in a scheduled job.** Every prune deleted everything past
+  its retention window in one statement and materialised an identifier per row.
+  Not an attack, but a scheduled job whose memory and transaction size are
+  decided by how much has accumulated is a denial of service the shop inflicts on
+  itself. All of them are batched now (D-111).
+
+**Verified, not assumed, in the same audit.** All 49 admin API routes refuse a
+non-staff caller before they read a body, and every `lib/` function they call
+checks a permission. All 24 admin pages call `requireAdminPage(<permission>)`;
+the overview is the only exception and it is `requireStaff` plus a `can` check
+per tile. No credential variable, connection string, private key or
+service-account address appears anywhere under `.next/static` — no `process.env`
+reference survives in the client bundles at all. `safeFetch` was re-reviewed
+end to end: protocol, credentials in the address, port, host name, one DNS
+lookup whose every answer must be public, a connection pinned to the vetted
+address, redirects followed by hand and re-checked at each hop with no downgrade
+from https, a hard timeout, a size cap given to zlib as well as counted, and an
+allow-list of document types. It remains the only path by which the knowledge
+base reaches the internet; the media provider's one direct `fetch` reads a blob
+address built from a validated key of this shop's own store, which is why it is
+not that path.
+
+**Left alone, and recorded rather than hidden:** `deliverQueuedNotifications` is
+gated with `requireStaff` rather than with `notifications.view`, so any staff
+role can drain the outbox to real customers. It is Phase-era code, outside the
+knowledge programme's surface, and `notifications.view` is the permission it
+should ask for.
+
+## Product preparation (D-112 to D-114)
+
+Preparation reaches several systems at once, so the boundary is worth stating
+explicitly: **it adds no authority.** Every step calls the function that already
+did that work, and every one of those functions checks its own permission.
+
+- Starting, reading, retrying, cancelling and continuing a preparation run all
+  ask for `catalog.manage` — the permission a product save already asks for.
+  The two API routes refuse a non-staff caller before they read the body.
+- Trust decisions are unchanged and are not reachable from here. Approving a
+  source domain, a brand relation or a verification policy still asks for
+  `knowledge.manage` in `lib/pkb`. A run that finds an official-looking domain
+  it cannot trust reports it as something a person must decide; it cannot
+  approve it.
+- Identity is never auto-confirmed. VERIFIED is only ever set by a person
+  (D-072), and an ambiguous identity stops the run.
+- The worker has no privileged mode. It acts as the staff member who started the
+  run, loaded from `users`, and every function it calls checks that account's
+  permission again. An account that has been removed, or has lost the
+  permission, stops the run rather than letting it continue unattributed.
+- Nothing a run reports carries a stack trace or a raw error. A failure is a
+  code, a sentence and a remedy, which is asserted by a test.
+
+### The research provider's credential
+
+`BRAVE_SEARCH_API_KEY` is read only by `lib/providers/research/brave.ts`, on the
+server, and is sent only to one pinned host (`api.search.brave.com`) that is
+never taken from configuration or from a response. It appears in no client
+bundle and in no stored row. Without the key the provider reports UNAVAILABLE and
+the pipeline carries on.
+
+The provider is not a way around the retrieval rules. It returns addresses; every
+one of them is still fetched through `safeFetch` with its SSRF, redirect, size
+and content-type controls, still checked against robots.txt, and still refused if
+the Brand Source Registry blocks its domain (D-114).

@@ -91,9 +91,22 @@ read models. `products` stays the listing and `product_variants` the offer;
 identity, facts, identifiers, relationships, aliases and their evidence move to
 the PKB. SeoPulse and SearchPulse propose; only `lib/pkb` review and apply
 services write accepted facts. Until each field is cut over, the existing
-columns described on this page remain authoritative. Status, target model,
-source-of-truth matrix and migration plan: [KNOWLEDGE_PLATFORM.md](KNOWLEDGE_PLATFORM.md);
-reasoning: DECISIONS.md D-060 to D-069.
+columns described on this page remain authoritative — and after eight stages
+several still are, deliberately: the legacy shelf specifications and option
+readers stay because the coverage report says they are still read and still
+written (D-103, D-109), and the product page reads them through the projection
+that keeps them in step (D-070, invariants I-11 and I-12). Status, target model,
+source-of-truth matrix, migration plan and the final audit:
+[KNOWLEDGE_PLATFORM.md](KNOWLEDGE_PLATFORM.md) — section 3G is what the finished
+system was measured to do; reasoning: DECISIONS.md D-060 to D-111.
+
+Two rules the programme ended with, which apply to any code written next.
+**A derived read model must rebuild to the same bytes from the canonical data**
+(I-21): an aggregate whose order follows the query plan cannot be compared with
+what it is derived from, and in the search index it changed relevance.
+**Where a write depends on the current state of a row, the lock comes before the
+check, and the check is repeated in the predicate of the write itself** (I-22) — three defects
+across Stages 7 and 8 were that one shape.
 
 `lib/seo/` is the SEO engine that reads from both: `index.ts` (origin, JSON-LD
 helpers), `structured-data.ts` with `lib/pkb/publish.ts` (Product and
@@ -202,3 +215,46 @@ What is deliberately stale for up to a cache lifetime (minutes): places-left fig
 ## Data access
 
 All database access goes through `lib/` functions using Drizzle. No component or route handler imports the database client directly. This keeps the capacity-check transaction, the audit-log write, and the price-computation logic each defined exactly once.
+
+## Product preparation (D-112)
+
+`lib/preparation` is an orchestration layer and nothing else. It owns no facts,
+no claims, no evidence and no wording; it owns the order things happen in, and a
+durable record of how far they got.
+
+```
+POST /api/admin/products/[id]/preparation   (catalog.manage)
+        │
+        ├─ supplies what the caller sent, through the paths that already check it
+        │     identity → updateProduct       url → addProductSource
+        │                                    text → provideDocument
+        └─ product_preparation_runs row + job "catalog.prepare_product"
+                 │
+   ┌─────────────┴───────────────────────────────────────────────┐
+   │ advancePreparation(runId): one step, then finish, stop for a │
+   │ person, or schedule its own next wake-up                     │
+   └──────────────────────────────────────────────────────────────┘
+        syncListingKnowledge → reassessResolution   (lib/pkb)
+        sourceOutlook                               (lib/pkb + provider)
+        requestEnrichment → runEnrichment as a job  (lib/pkb)
+        read pkb_claims / pkb_attribute_proposals   (lib/pkb)
+        knowledgeSufficiency → runSeoPulse          (lib/seo-pulse)
+        product_search_queue → search.process_queue (lib/search)
+        seoReadiness / searchReadiness              (lib/seo)
+```
+
+Three properties are worth stating because they are what the layer is for.
+
+**It is durable.** The state is a row, not a request. A staff member may close
+the tab, a worker may restart, and a run waiting for a person may wait for days.
+
+**It is idempotent by record.** A step is written to the run when it has actually
+completed, and a completed step is never run again. The enrichment run's id and
+the research run's id are kept on the row, so a retry waits for the work it
+already started rather than starting more.
+
+**It decides nothing.** Every decision — which product this is, whether a claim
+is true, whether a domain may be trusted, whether generated wording goes on the
+page — belongs to `lib/pkb` or to a person, and each of those paths checks its
+own permission. The worker acts as the staff member who asked, so it has exactly
+their authority and no more (invariant I-24).

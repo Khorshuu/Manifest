@@ -248,6 +248,38 @@ export async function provideDocument(
 }
 
 /**
+ * Attaches one page to a product from inside a caller’s transaction (D-112).
+ *
+ * `addProductSource` above is the same thing for a request that arrives on
+ * its own and therefore checks its own permission. This one is for a write
+ * that has already been authorised and is already in a transaction — the
+ * official address typed on the Add Product form, saved in the same
+ * transaction as the product it belongs to, so a failed save leaves no
+ * orphaned source behind.
+ *
+ * Attaching is not trusting. The address becomes a page the pipeline may read;
+ * whether its domain is authoritative is still the Brand Source Registry’s
+ * decision, taken by somebody with `knowledge.manage`, and the page is still
+ * fetched through `safeFetch`, checked against robots.txt and matched against
+ * the product’s identifiers before it proposes anything.
+ *
+ * Returns the source id, or null when the address is unusable.
+ */
+export async function attachProductSource(
+  tx: Executor,
+  input: { pkbProductId: string; url: string; staffId: string; title?: string | null },
+): Promise<string | null> {
+  const normalized = normalizeUrl(input.url);
+  if (!normalized) return null;
+  const sourceId = await ensureUrlSource(tx, { url: normalized, staffId: input.staffId, title: input.title ?? null });
+  await tx
+    .insert(pkbProductSources)
+    .values({ pkbProductId: input.pkbProductId, sourceId, addedBy: input.staffId })
+    .onConflictDoNothing();
+  return sourceId;
+}
+
+/**
  * The source row for one page staff named, reused when the same address comes
  * back so a product does not collect duplicates of it.
  */
@@ -821,6 +853,82 @@ async function proposeFromExtraction(
     if (proposal.created) outcome.proposalsCreated += 1;
   }
   return outcome;
+}
+
+/**
+ * What sources a run would have to read, without reading any of them (D-112).
+ *
+ * Product preparation asks this before it starts a run, so it can tell a staff
+ * member "there is nothing to research yet — give me the manufacturer's page"
+ * instead of starting a run that retrieves nothing and completing it as though
+ * something had happened.
+ *
+ * The research provider is asked only when there is nothing else, for two
+ * reasons: a configured provider costs a request, and a run that already has
+ * the manufacturer's own documentation does not need a search engine's opinion
+ * about where else to look. When it is asked, its answer is reported exactly as
+ * it came — NOT_CONFIGURED stays NOT_CONFIGURED and is never rounded down to
+ * "no sources exist" (A-6).
+ */
+export type SourceOutlook = {
+  /** Pages staff attached to this product, or documents they provided. */
+  attached: number;
+  /** Addresses the Brand Source Registry can derive from the identifiers. */
+  registry: number;
+  /** Candidates a research provider offered, when it was asked. */
+  discovered: number;
+  /** Null when the provider was not asked, because it was not needed. */
+  provider: PkbProviderState | null;
+};
+
+export async function sourceOutlook(pkbProductId: string): Promise<SourceOutlook> {
+  const identity = await loadIdentity(db, pkbProductId);
+  if (!identity) throw new PkbError("That product is not in the knowledge base.", 404);
+
+  const brandIds = await trustedBrandIds(db, pkbProductId);
+  const registry = await approvedRegistryFor(db, brandIds);
+  const preferredDomains = registry
+    .filter((entry) => entry.matchKind === "domain" && entry.domain && entry.role !== "blocked")
+    .map((entry) => entry.domain!);
+
+  let registryAddresses = 0;
+  for (const entry of registry) {
+    if (!entry.urlTemplate || entry.role === "blocked") continue;
+    registryAddresses += fillTemplate(entry.urlTemplate, identity).length;
+  }
+
+  const [attached] = await queryRows<{ total: number }>(
+    db,
+    sql`select count(*)::int as total
+        from pkb_product_sources ps
+        join pkb_sources s on s.id = ps.source_id
+        where ps.pkb_product_id = ${pkbProductId} and (s.url is not null or s.content_sha256 is not null)`,
+  );
+  const attachedCount = Number(attached?.total ?? 0);
+
+  if (attachedCount + registryAddresses > 0) {
+    return { attached: attachedCount, registry: registryAddresses, discovered: 0, provider: null };
+  }
+
+  const provider = getProductResearchProvider();
+  const result = await provider.findSources({
+    name: identity.name,
+    brand: identity.brands[0]?.name ?? null,
+    modelNumbers: identity.modelKeys,
+    gtins: identity.gtins.map((row) => row.gtin14),
+    preferredDomains,
+    limit: MAX_CANDIDATES,
+  });
+  return {
+    attached: attachedCount,
+    registry: registryAddresses,
+    discovered: result.status === "OK" ? result.candidates.length : 0,
+    provider: {
+      provider: provider.key,
+      status: result.status,
+      message: result.status === "OK" ? `${result.candidates.length} candidate pages` : result.message,
+    },
+  };
 }
 
 // ---------------------------------------------------------------- reading

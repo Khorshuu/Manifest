@@ -92,6 +92,37 @@ owner when the scheduler has not called in for three of the shortest intervals
 entries. Logs carry `jobs.trigger` per call and `jobs.schedule_invalid`
 when the variable has a mistake.
 
+## Product preparation, and its optional research provider (D-112, D-114)
+
+Product preparation runs entirely on the existing job runner. There is nothing
+new to schedule: `catalog.prepare_product` is enqueued when somebody starts a
+run and re-enqueues itself while it waits, so it needs the same scheduler
+trigger as everything else. A run that is waiting for a person consumes nothing.
+
+**Automatic source discovery is off by default and that is a supported state.**
+With no provider set, preparation still finds sources in the Brand Source
+Registry, in the addresses staff attach to a product and in the documents they
+provide, and reports the automatic part as NOT_CONFIGURED rather than pretending
+to have searched.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PRODUCT_RESEARCH_PROVIDER` | `none` | `none` or `brave`. `brave` turns on discovery of candidate source addresses. |
+| `BRAVE_SEARCH_API_KEY` | unset | Required when the provider is `brave`. Create one at api-dashboard.search.brave.com. Server-side only; it reaches no browser. |
+
+Without the key, a `brave` provider reports UNAVAILABLE and every run carries on
+with the sources it already has. A discovered address is only an address: it is
+still fetched through the SSRF-guarded fetcher, checked against robots.txt,
+matched against the product's own identifiers and proposed as a claim a person
+accepts.
+
+**Not exercised against the real service.** The provider has never made a
+request to Brave's API in this repository, because no key exists here. Its
+request shape, its failure states and its ordering are covered by tests with a
+stand-in. Treat the first real run as an integration test: check
+`product_preparation_runs.providers` on a run afterwards, which records exactly
+what the provider said about itself.
+
 ## Tables that grow and how they are kept in check
 
 | Table | Growth | Kept in check by |
@@ -122,3 +153,49 @@ To confirm in the Neon console before launch:
    production statistics to justify them.
 5. **Connection count** stays well under the compute size's limit at peak:
    `select count(*) from pg_stat_activity;`
+
+## The build reads the database (Stage 8)
+
+`next build` is not a pure compile. Cache Components prerender a static shell for
+every dynamic route, and two routes are built **entirely** from catalogue data:
+`/sitemap.xml` and `/api/search/popular`. Their output is written into the build's
+cache and then revalidated at runtime — the sitemap every hour, and immediately
+whenever a catalogue write drops its cache tags (`lib/cache.ts`).
+
+Two consequences worth knowing before a deploy:
+
+- **The build's `DATABASE_URL` must be the database the deployment serves.**
+  `vercel-build` runs `tsx db/migrate.ts && next build`, both against the project's
+  own variables, so on Vercel this is automatic. It matters when a build is made
+  by hand: a build pointed at one database and started against another serves a
+  sitemap describing the first, until the first catalogue write or the hour is up.
+  This is how the behaviour was noticed during the Stage 8 audit.
+- **A missing listing or shelf answers `200` with `noindex`, not `404`** (R-18,
+  D-108). Verified against a production build: an address that matches no route at
+  all answers a real 404, and a missing listing or shelf emits no canonical, no
+  product structured data, no sitemap entry and no internal link, so it cannot be
+  discovered — but an uptime check pointed at a listing that has been withdrawn
+  will see a 200. Point uptime checks at `/` or at a listing that is not going
+  anywhere, or assert on the page rather than on the status.
+
+## If the migration ledger refuses to run
+
+`db/migrate.ts` stops with "Migration NNNN has changed since it was applied" when
+a file's checksum no longer matches what the ledger recorded. That is the rule
+working, not a fault to route around, and it happened during the Stage 8 audit:
+0041 had been applied to a development database and then edited before it was
+committed, so that database was missing one index the committed file creates.
+
+The repair is always in this direction: **fix the database, never the applied
+migration.** Replay the committed file's statements against that database — they
+are written to be idempotent — and set the recorded checksum to the committed
+file's. If the file is not safely replayable, write a corrective migration
+instead. Editing the applied file would only move the disagreement to the next
+database.
+
+Whether a database is actually in step can be checked rather than assumed: build
+one from zero (`npx tsx e2e/prepare-db.ts` does, into `preorder_e2e`) and compare
+`information_schema.columns`, `pg_indexes`, `pg_constraint`, `pg_proc.prosrc` and
+`pg_trigger` between the two. After the Stage 8 repair, the development database
+and a from-zero build agree on all 943 columns, 284 indexes, 1,095 constraints,
+79 function bodies and 44 triggers.

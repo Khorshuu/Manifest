@@ -39,6 +39,7 @@ import {
   normalizeKeyword,
   suggestSlug,
 } from "@/lib/seo-pulse/text";
+import { EMPTY_GROUNDED } from "@/lib/pkb/publish";
 import type { SeoPulseInput } from "@/lib/seo-pulse/types";
 import { createTestDatabase } from "./helpers/database";
 
@@ -47,6 +48,7 @@ import { createTestDatabase } from "./helpers/database";
 function sampleInput(overrides: Partial<SeoPulseInput> = {}): SeoPulseInput {
   return {
     productId: "00000000-0000-4000-8000-000000000001",
+    knowledge: EMPTY_GROUNDED,
     title: "Sony WH-1000XM5 Wireless Noise Cancelling Headphones",
     slug: "sony-wh-1000xm5",
     brand: "Sony",

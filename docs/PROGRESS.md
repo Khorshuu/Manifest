@@ -3464,5 +3464,130 @@ Blocked on your accounts or choices:
   part-way through a full run ("An unexpected Turbopack error occurred"), which
   fails every test after it. The same suite passes on the production build, and
   nothing in the panic points at this shop's code. Run it the production way.
-- `[ ]` Stage 8 waits for the go-ahead.
+- `[x]` Stage 8 is done; see below.
 
+
+## Product Knowledge Base programme — Stage 8 of 8 (the final audit)
+
+- `[x]` Nothing was added to the shop in this stage either. It took everything
+  the eight stages built and checked whether the shop really does what the
+  documents say it does — and, where it did not, fixed it and left a test behind
+  so it cannot quietly stop again.
+- `[x]` The shop's own search index was rebuilt from scratch and compared, word
+  for word, with what was stored. On the five-thousand-listing copy they did not
+  match: the same product could end up with its specification words in a
+  different order depending on how the index had last been rebuilt, and the order
+  changes how closely a search is judged to match. 3,863 of 5,000 products were
+  affected. Fixed, and the rebuilt index now matches to the byte.
+- `[x]` A button on the knowledge screen that says "check this identity again"
+  was doing more than checking: where the answer came back different it threw away
+  the record of somebody having confirmed the product's identity, and any staff
+  account could press it. It now asks for the same permission as every other
+  change to that record, and a test proves an account without it is refused.
+- `[x]` Approving and rejecting the same alternative product name at the same
+  moment used to let both through, with the second silently replacing the first.
+  Now one wins and the other is told it has already been decided. This was the
+  third time this shape of mistake has turned up, so the rule is written down as
+  something the shop checks for.
+- `[x]` The hourly tidying job deleted old rows in one go and held every deleted
+  row's identifier in memory to count them: half a million rows cost a hundred
+  megabytes to count something. It deletes in batches now, and says when there is
+  more left for the next run.
+- `[x]` The development database was quietly out of step with the repository: one
+  index the Background work screen relies on had never been created, because the
+  file that creates it was edited after it had been applied. The database was
+  repaired rather than the history, and a database built from nothing now matches
+  it exactly — all 943 columns, 284 indexes, 1,095 constraints, 79 functions and
+  44 triggers.
+- `[x]` The seventy-two parked values are no longer just a number. Every one is
+  classified on the knowledge screen: seventy-one need somebody to say what their
+  label means, and one is an identifier that failed its check digit and is kept
+  exactly as it was supplied. **None can be placed automatically without guessing
+  what a label means, so none has been.** Nothing was discarded.
+- `[x]` The old shelf-specification table stays. The reason is now on record and
+  it is not the parked values: the product save validates against it, three
+  screens read it, the search index reads it in SQL, and three functions still
+  write it. Removing it would break working things to make a diagram tidier.
+- `[!]` A missing product or shelf address still answers 200 with "do not index"
+  rather than 404. This was checked properly against a real production build this
+  time: an address that matches no route at all does answer 404, and a missing
+  product emits no canonical address, no product data, no sitemap entry and no
+  link from anywhere in the shop — so it cannot be found, only typed. The cost is
+  a little crawler time and an uptime check that sees 200. Accepted, with the
+  reason written down (R-18).
+- `[!]` Search Console has still never spoken to Google. The code was reviewed
+  line by line against Google's published contract, every failure it can meet is
+  exercised with a stand-in, and a response it cannot read becomes a reported
+  failure rather than a stored number — but one real connection would tell us
+  more than all of that, and only credentials can provide it (R-15).
+- `[x]` Everything was run the production way at the end: types, lint, the whole
+  test suite (109 files, 1,484 tests), a production build, and the whole browser
+  suite against that build (490 tests). All green, with thirteen tests more than
+  Stage 7 and every one of them accounted for.
+- `[x]` The programme is finished. Nothing has been deployed, pushed or bought.
+  What is left before a real shop can trade is configuration, one integration
+  nobody can verify without credentials, and the routine of running a shop —
+  written out in docs/KNOWLEDGE_PLATFORM.md section 8.
+
+## Stage 9 — Product preparation (backend foundation), 2026-09-24
+
+The knowledge platform had every part of researching a product and none of them
+were reached by the act of adding one. This stage connects them, backend only.
+The product-entry interface is deliberately a separate piece of work.
+
+- `[x]` A product save may now be told what the manufacturer calls the product:
+  model name, model number, part number, one trade identifier (GTIN, UPC, EAN,
+  ISBN or ASIN) and the manufacturer's own page. All optional; every existing
+  save behaves exactly as before. A number whose check digit does not hold is
+  refused while somebody can still look at the box, and two different kinds of
+  identifier at once are refused rather than silently resolved.
+- `[x]` Nothing new stores it. Identity goes into the columns the knowledge
+  mirror already reads, so identity typed on the product form and identity typed
+  on the Product Intelligence screen become the same rows with the same
+  provenance. There is still one identifier store.
+- `[x]` **The stale-identity defect is fixed.** A new product used to stay
+  "unresolved" until somebody opened Product Intelligence and pressed a button —
+  and because it was unresolved, nothing could research it. The mirror now
+  re-assesses which product it is inside the same save, and only when the save
+  actually changed the brand, the model or an identifier. Confirming an identity
+  is still a person's decision; an ambiguous one is still ambiguous.
+- `[x]` A durable Product Preparation run (migration 0043) coordinates the whole
+  sequence: synchronise the knowledge, settle the identity, see what sources
+  exist, research, wait for whatever a person must decide, generate the content,
+  let the search index catch up, measure the page. It survives a closed tab, a
+  navigation, a worker restart and a retry, because it is a row rather than a
+  request.
+- `[x]` Retrying is safe. Each step is recorded when it has genuinely finished
+  and is never run again, so a retry does not research twice, propose the same
+  values twice or generate a second analysis. One live run per product, enforced
+  by the database.
+- `[x]` It stops where it should. An ambiguous identity, a value the sources
+  disagree about, a value waiting for someone to accept it, a label no attribute
+  names, and a product too little is known about all halt the run with a reason
+  and a remedy. It never confirms an identity, accepts a value, trusts a domain
+  or publishes generated wording to reach a finished state.
+- `[x]` Automatic source discovery exists as a real, optional provider (Brave's
+  search API), and "none" is still the default and still a supported state. A
+  provider returns addresses, never facts: every page it names is still fetched
+  safely, checked against robots.txt, matched against the product's own
+  identifiers and proposed for review. **Never exercised against the real
+  service — no credentials in this repository.**
+- `[x]` SEO Pulse is finally given what the knowledge base knows. It read the
+  listing's own columns and nothing else, so everything the research pipeline had
+  established was invisible to the generator meant to describe the product. It
+  now receives established knowledge — verified or staff-entered only — and never
+  an unreviewed claim. Nothing generated is ever written back as fact.
+- `[x]` A listing nothing is known about no longer produces a paragraph about
+  Manifest and gets called a researched product listing. The shortfall is
+  reported, with what is missing. The fallback wording is still there for anyone
+  who wants it.
+- `[x]` A clean server API for the future screen: start, read, retry, cancel,
+  supply missing identity or a source, continue after review. Staff-only,
+  `catalog.manage`, with trust decisions still requiring knowledge management.
+- `[x]` Verified the production way: types, lint, 110 test files (1,512 tests, 20
+  of them new), a production build, and the whole browser suite against that
+  build (490 passed, 6 skipped). Migration 0043 applied to the development
+  database, and a database built from nothing applies it too.
+- `[!]` The product-entry interface, the consolidated Intelligence screens and a
+  staff-facing view of a preparation run are deliberately not built yet. The
+  backend reports everything such a screen needs.

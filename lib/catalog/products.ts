@@ -11,6 +11,7 @@ import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { staffChange, type Executor } from "@/lib/pkb/common";
+import { attachProductSource } from "@/lib/pkb/enrichment";
 import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import { SEO_FIELDS } from "@/db/schema";
 import { recordFieldWrites } from "@/lib/seo/fields";
@@ -24,6 +25,7 @@ import {
   resolveCategoryAttributes,
   validateAttributeValues,
 } from "./category-attributes";
+import { identityColumns } from "./product-identity";
 import {
   assertSkuAssignable,
   finalizeProductSku,
@@ -682,11 +684,22 @@ export async function createProduct(
 
   const attributeValues = await cleanAttributeValues(input, input.categoryId);
 
+  /*
+   * Manufacturer identity, folded into the columns the knowledge mirror
+   * already reads (D-112). Refused here, before anything is written, when it
+   * contradicts itself or carries a number whose check digit does not hold.
+   */
+  const identity = identityColumns(input.identity, input.details, {
+    identifierType: input.identifierType,
+    identifierValue: input.identifierValue,
+  });
+
   return db.transaction(async (tx) => {
     const [created] = await tx
       .insert(products)
       .values({
         ...columnsFrom(input),
+        ...identity,
         title: input.title,
         slug,
         categoryId: input.categoryId,
@@ -710,8 +723,25 @@ export async function createProduct(
         where id = ${reservationId} and reserved_by = ${staff.id} and status = 'reserved'`);
     }
 
-    // The listing's facts enter the knowledge base in the same transaction (D-070).
-    await syncListingKnowledge(tx, created.id, staffChange(staff.id));
+    /*
+     * The listing's facts enter the knowledge base in the same transaction
+     * (D-070) and, since this stage, its identity is re-assessed there as well
+     * when the save gave it one: a product created with a brand and a model
+     * number is HIGH_CONFIDENCE the moment it is saved, instead of staying
+     * UNRESOLVED until somebody opened Product Intelligence (D-112).
+     */
+    const sync = await syncListingKnowledge(tx, created.id, staffChange(staff.id));
+
+    // The manufacturer's own page, recorded as a source of this product. A
+    // page the pipeline may read, not a page it trusts (D-112).
+    if (input.identity?.officialUrl && sync.pkbProductId) {
+      await attachProductSource(tx, {
+        pkbProductId: sync.pkbProductId,
+        url: input.identity.officialUrl,
+        staffId: staff.id,
+        title: "Official product page, given when the product was created",
+      });
+    }
 
     await recordAudit(
       {
@@ -813,6 +843,22 @@ export async function updateProduct(
       tx,
     );
 
+    /*
+     * Manufacturer identity (D-112), folded in here rather than before the
+     * transaction because it adds to the stored `details` object: it has to be
+     * merged with the row this save is actually writing, read under the
+     * knowledge lock, not with a copy taken before another save finished (the
+     * same stale-read shape as finding F8).
+     */
+    const identity = identityColumns(
+      input.identity,
+      (input.details === undefined ? before.details : input.details) as Record<string, unknown> | null,
+      // Only what this request carries: the stored value is what the identity
+      // block is allowed to replace or clear, so it is not passed as a second
+      // opinion the block would have to agree with.
+      { identifierType: input.identifierType, identifierValue: input.identifierValue },
+    );
+
     const title = input.title ?? before.title;
 
     /*
@@ -837,6 +883,7 @@ export async function updateProduct(
       .update(products)
       .set({
         ...columnsFrom(input),
+        ...identity,
         ...(attributeValues !== undefined ? { attributeValues } : {}),
         title,
         slug,
@@ -886,7 +933,20 @@ export async function updateProduct(
     }
 
     // A locked knowledge value refuses the save here, and nothing is written.
-    await syncListingKnowledge(tx, productId, staffChange(staff.id));
+    // A change to the brand, the model or a trade identifier re-assesses the
+    // product's resolution inside this transaction (D-112).
+    const sync = await syncListingKnowledge(tx, productId, staffChange(staff.id));
+
+    // An official address given with the save is attached as a source of the
+    // product. Attaching is not trusting (D-112).
+    if (input.identity?.officialUrl && sync.pkbProductId) {
+      await attachProductSource(tx, {
+        pkbProductId: sync.pkbProductId,
+        url: input.identity.officialUrl,
+        staffId: staff.id,
+        title: "Official product page, given in the product editor",
+      });
+    }
 
     await recordAudit(
       {
