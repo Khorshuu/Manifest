@@ -68,7 +68,7 @@ npm run test:e2e    # browser tests (Playwright); uses its own database
 
 | Variable | Required | What it is |
 | --- | --- | --- |
-| `DATABASE_URL` | yes | PostgreSQL connection string (`postgres://…`). |
+| `DATABASE_URL` | yes | PostgreSQL connection string (`postgres://…`). The database must be UTF8-encoded — see docs/DATABASE.md, "Encoding". |
 | `SESSION_SECRET` | yes | 32+ random characters; signs session cookies. |
 | `CRON_SECRET` | yes on Vercel | Shared secret for the scheduled sweep. |
 | `SITE_URL` | recommended | Public origin, e.g. `https://example.com`; used in canonical URLs, the sitemap and structured data. |

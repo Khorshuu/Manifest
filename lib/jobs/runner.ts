@@ -7,6 +7,7 @@ import { jobs } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { NotFoundError } from "@/lib/errors";
+import { describeDatabaseError, isPermanentDatabaseError } from "@/lib/db-errors";
 
 /**
  * The job runner (DECISIONS.md D-053).
@@ -273,12 +274,15 @@ export async function runDueJobs(
           durationMs: Math.round(performance.now() - started),
         });
       } catch (error) {
-        const exhausted = !handler || job.attempts >= job.maxAttempts;
+        // A value the database cannot store fails the same way every time;
+        // retrying only repeats whatever the handler did before it (D-119).
+        const permanent = isPermanentDatabaseError(error);
+        const exhausted = !handler || permanent || job.attempts >= job.maxAttempts;
         await db
           .update(jobs)
           .set({
             status: exhausted ? "dead" : "queued",
-            lastError: (error instanceof Error ? error.message : String(error)).slice(0, 2000),
+            lastError: describeDatabaseError(error, 2000),
             lockedAt: null,
             lockedBy: null,
             runAt: new Date(clock().getTime() + backoffSeconds(job.attempts) * 1000),
@@ -294,6 +298,7 @@ export async function runDueJobs(
           kind: job.kind,
           attempt: job.attempts,
           maxAttempts: job.maxAttempts,
+          permanent,
           durationMs: Math.round(performance.now() - started),
           error,
         });

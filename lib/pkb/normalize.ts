@@ -62,9 +62,61 @@ export const EMPTY_TYPED: TypedValue = {
 /** The longest text value the knowledge base keeps. */
 export const MAX_TEXT_LENGTH = 4000;
 
+/**
+ * Characters that carry nothing a reader sees and that a database either
+ * cannot store or stores as noise.
+ *
+ * Deliberately a short, named list rather than the whole of Unicode's "Cf"
+ * (format) category. Most of Cf is meaningful: the zero-width joiner holds
+ * an emoji sequence together, the zero-width non-joiner changes how Persian
+ * and several Indic scripts are shaped, the bidirectional marks decide the
+ * order right-to-left text is read in, and the Arabic number signs are part
+ * of the number. None of those is touched. What is removed is what a
+ * manufacturer's page leaves behind from its editor:
+ *
+ *  - NUL and the other C0 controls except tab, line feed and carriage
+ *    return (PostgreSQL refuses NUL in `text` and `jsonb` outright);
+ *  - U+200B zero-width space, U+2060 word joiner and U+FEFF, the byte-order
+ *    mark that also appears mid-text as a zero-width no-break space;
+ *  - U+00AD soft hyphen, which only ever says where a word may be broken;
+ *  - U+2061–U+2064, the invisible mathematical operators;
+ *  - U+206A–U+206F, format controls Unicode itself deprecates;
+ *  - U+FFF9–U+FFFB, interlinear annotation anchors.
+ *
+ * Nothing is transliterated, accents and symbols are untouched, and a value
+ * that was already clean comes back as the same string.
+ */
+const STORAGE_NOISE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F­​⁠-⁤⁪-⁯﻿￹-￻]/g;
+
+export function removeStorageNoise(value: string): string {
+  return value.replace(STORAGE_NOISE, "");
+}
+
+/**
+ * `removeStorageNoise` applied to every string inside a parsed JSON value,
+ * keys included. JSON-LD can spell the same characters as escapes
+ * (`"​"`, `"\u0000"`) that only exist once the text has been parsed, so
+ * cleaning the page before parsing is not enough for what is stored as
+ * `jsonb`.
+ */
+export function removeStorageNoiseDeep<T>(value: T, depth = 0): T {
+  if (depth > 32) return value;
+  if (typeof value === "string") return removeStorageNoise(value) as T;
+  if (Array.isArray(value)) return value.map((entry) => removeStorageNoiseDeep(entry, depth + 1)) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        removeStorageNoise(key),
+        removeStorageNoiseDeep(entry, depth + 1),
+      ]),
+    ) as T;
+  }
+  return value;
+}
+
 /** Whitespace collapsed and Unicode composed; the form every raw value is stored in. */
 export function cleanText(value: string): string {
-  return value.normalize("NFC").replace(/\s+/g, " ").trim();
+  return removeStorageNoise(value.normalize("NFC")).replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -242,4 +294,19 @@ export function sameTypedValue(a: TypedValue, b: TypedValue): boolean {
     (a.brandName === null) === (b.brandName === null) &&
     (a.brandName === null || b.brandName === null || brandKey(a.brandName) === brandKey(b.brandName))
   );
+}
+
+/**
+ * The items of a list written as one value: "• 1× USB Receiver • 1× Cable"
+ * is two things in the box, not one (D-119). Split only on bullet glyphs and
+ * line breaks — a comma or a middle dot is as likely to sit inside an item
+ * ("USB-A to USB-C, braided") as between two. A value that is not a list
+ * comes back as itself.
+ */
+export function listItems(value: string): string[] {
+  const items = value
+    .split(/[\r\n]+|[•▪◦●‣⁃]/)
+    .map((item) => cleanText(item))
+    .filter((item) => item.length > 0);
+  return items.length > 1 ? items : [cleanText(value).replace(/^[•▪◦●‣⁃]\s*/, "")];
 }

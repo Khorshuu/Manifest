@@ -40,6 +40,7 @@ import { sanitizeRichText } from "@/lib/html/rich-text";
 import { getProductRating } from "@/lib/catalog";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/auth/authorize";
+import { productResearchStatus } from "@/lib/preparation/research-status";
 import { PUBLIC_STATUSES } from "@/lib/catalog";
 import {
   findEligibleOrderItem,
@@ -167,6 +168,8 @@ export default async function ProductPage({
     // lib/clock.ts.
     serverInstant(),
   ]);
+  // Staff only: whether what this preview shows was researched (D-119).
+  const research = preview ? await productResearchStatus(user, product.id) : null;
 
   /*
    * A product recommended above is not shown again immediately below it. The
@@ -394,6 +397,28 @@ export default async function ProductPage({
           {product.status === "archived" ? "archived" : "a draft"}. Publish it from the admin to
           put it on sale.
         </p>
+      ) : null}
+
+      {research ? (
+        <div
+          role="status"
+          data-research-state={research.state}
+          className={`mb-6 flex flex-col gap-1 rounded-card border px-4 py-3 text-meta text-ink sm:flex-row sm:items-center sm:justify-between sm:gap-4 ${
+            research.state === "ready" ? "border-blue-300 bg-blue-50/60" : "border-brass bg-brass/10"
+          }`}
+        >
+          <p>
+            <strong>{research.label}.</strong> {research.detail}
+          </p>
+          {research.state === "incomplete" ? (
+            <Link
+              href={`/admin/products/${product.id}`}
+              className="inline-flex min-h-9 shrink-0 items-center font-medium text-blue-600 underline underline-offset-2"
+            >
+              Continue product preparation
+            </Link>
+          ) : null}
+        </div>
       ) : null}
 
       {/* Off on a phone, where the photograph starts the page edge to edge and

@@ -4,7 +4,8 @@ import type {
   SeoPulseInput,
   SeoResearchData,
 } from "./types";
-import { measurementRows, specificationRows } from "./facts";
+import { knowledgeSufficiency, measurementRows, specificationRows } from "./facts";
+import { isIdentityLabel, isIdentityLine } from "@/lib/pkb/identity-labels";
 import { isGenericAlt } from "@/lib/seo/readiness";
 import {
   clampText,
@@ -331,8 +332,11 @@ export function generateByRules(
   // ---------------------------------------------------------- description
 
   const preorder = input.variants.some((variant) => variant.fulfillmentMode === "preorder");
-  const lead = input.bulletFeatures[0]
-    ? `${displayName} — ${input.bulletFeatures[0].replace(/\.$/, "")}.`
+  // SEO Pulse's own earlier features are not the staff's (D-120): building on
+  // them would only print the last version's wording again.
+  const ownFeatures = input.pulseWritten?.bulletFeatures ? [] : input.bulletFeatures;
+  const lead = ownFeatures[0]
+    ? `${displayName} — ${ownFeatures[0].replace(/\.$/, "")}.`
     : `${displayName}.`;
   const meta = clampText(
     `${lead} ${preorder ? "Preorder now" : "Order now"}, sourced from the US and delivered across Bangladesh at a fixed landed price.`,
@@ -354,14 +358,23 @@ export function generateByRules(
    * say about the product and said the shop's part instead.
    *
    * Rows that only name the product are left out: a shopper reading "Brand:
-   * Sony" under Key features has learnt nothing the title did not tell them.
+   * Sony" or "Part number: GO-WHITE" under Key features has learnt nothing
+   * the title did not tell them. Which labels name a product is decided in
+   * one place, `lib/pkb/identity-labels.ts` (D-119).
    */
-  const NAMING_ROWS = new Set(["brand", "manufacturer", "model", "model name", "model number", "sku"]);
-  const groundedFeatures = [...measures, ...specs]
-    .filter((row) => !NAMING_ROWS.has(row.label.trim().toLowerCase()))
+  // What the product does before what it measures (D-120): the first line is
+  // also the description's opening, and "Size: Standard" says less about a
+  // mouse than its sensor or its connection does.
+  // The warranty is an assurance term with its own section on the product
+  // page, not something the product does; it is not a feature to open on.
+  const groundedFeatures = [...specs, ...measures]
+    .filter((row) => !isIdentityLabel(row.label) && !/warranty/i.test(row.label))
     .map((row) => clampText(`${row.label}: ${row.value}`, 180))
     .slice(0, 6);
-  const features = input.bulletFeatures.length > 0 ? input.bulletFeatures : groundedFeatures;
+  // Staff-written features are the source when there are any; a line among
+  // them that only restates an identifier is not repeated as a feature.
+  const staffFeatures = ownFeatures.filter((feature) => !isIdentityLine(feature));
+  const features = staffFeatures.length > 0 ? staffFeatures : groundedFeatures;
 
   const escape = (value: string) =>
     value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -382,67 +395,52 @@ export function generateByRules(
   const opening: string[] = [];
 
   /*
-   * "…is part of our Headphones range…" rather than "is a headphones": a
-   * category name may be singular or plural and the shop does not know which,
-   * so the sentence is written to be right either way.
+   * The first sentence is about the product (D-119). It used to be
+   * "<product> is part of our Electronics range." — true of every product in
+   * the category, so it told a shopper nothing, and on a product nobody had
+   * researched it was the whole description. The opening now leads with the
+   * first thing actually established about the product; with nothing
+   * established there is no description at all (see `sufficient` below),
+   * rather than one made of the category's name.
    */
-  /*
-   * Where the product is stocked from belongs with the rest of the buying
-   * terms, not in the first sentence a shopper reads: a description that
-   * opens on the shop rather than the product is the thing D-115 exists to
-   * prevent, and it reads as filler even when it is true.
-   */
-  opening.push(
-    productType
-      ? `${displayName} is part of our ${titleCase(productType)} range.`
-      : `${displayName}.`,
-  );
+  opening.push(features[0] ? `${displayName} — ${features[0].replace(/[.\s]+$/, "")}.` : `${displayName}.`);
 
   // Only descriptors the listing actually records, and only once each: they
   // are the words a shopper scans for, and the words a search engine matches.
   const descriptors = [
     material ? `${material} construction` : "",
     color ? `finished in ${color}` : "",
-    size ? `in ${size}` : "",
   ].filter(Boolean);
+  // "It comes with in Standard." was what a size on its own produced, and
+  // "It comes in Standard." what came after it (D-120): a named size is not a
+  // phrase that fits "comes in". Only a measured size ("42 mm") is said here;
+  // a named one stays in the specifications, where it reads as "Size: Standard".
+  const sayableSize = size && /\d/.test(size) ? size : null;
   if (descriptors.length > 0) {
-    opening.push(`It comes with ${descriptors.join(", ")}.`);
+    opening.push(`It comes with ${descriptors.join(", ")}${sayableSize ? `, in ${sayableSize}` : ""}.`);
+  } else if (sayableSize) {
+    opening.push(`It comes in ${sayableSize}.`);
   }
 
   if (use) opening.push(sentence(`It is intended for ${use}`));
   if (compatibility) opening.push(sentence(`It works with ${compatibility}`));
 
-  // The strongest claim staff wrote, stated once in prose. The full list
-  // follows under its own heading, so nothing is said twice.
-  if (input.bulletFeatures[0] && !use) {
-    opening.push(sentence(input.bulletFeatures[0]));
-  }
-
-  const buying: string[] = [];
-  buying.push(
-    preorder
-      ? "This is a preorder: reserve one from the next batch and nothing is bought until the batch closes."
-      : "It is in stock and ships as soon as your order is confirmed.",
-  );
-  const arrives = input.variants.find((variant) => variant.arrivesFrom);
-  if (preorder && arrives?.arrivesFrom) {
-    buying.push(
-      `The current batch is expected to arrive from ${arrives.arrivesFrom}.`,
-    );
-  }
-  buying.push(
-    "It is sourced from the United States and delivered across Bangladesh. The price you see already includes shipping and Bangladeshi customs duty, so there is nothing more to pay on delivery.",
-  );
-  if (input.warranty?.hasWarranty) {
-    buying.push(
-      input.warranty.durationMonths
-        ? `It is covered by a ${input.warranty.durationMonths}-month warranty.`
-        : "It is covered by a warranty.",
-    );
-  }
-
-  const suggestedHtml =
-    [
+  /*
+   * No "Buying it here" section (D-119). Preorder status, the arrival
+   * window, the landed price and delivery are the shop's live terms, not facts
+   * about the product: written into the description they were frozen at the
+   * moment of generation and went stale the day the batch or the price
+   * changed. The product page shows them from the current offer, beside the
+   * price, where they stay true.
+   *
+   * And no description at all without enough established about the product
+   * (D-115): what would remain is a name and a sentence of filler, and the
+   * description is left for a person or a later, researched run to write.
+   */
+  const sufficient = knowledgeSufficiency(input).sufficient;
+  const suggestedHtml = !sufficient
+    ? null
+    : [
       `<p>${escape(opening.join(" "))}</p>`,
       features.length > 0
         ? `<h2>Key features</h2><ul>${features
@@ -460,7 +458,6 @@ export function generateByRules(
             .map((item) => `<li>${escape(item)}</li>`)
             .join("")}</ul>`
         : "",
-      `<h2>Buying it here</h2><p>${escape(buying.join(" "))}</p>`,
     ].join("") || null;
 
   const facts = [
@@ -612,7 +609,7 @@ export function generateByRules(
     tags,
     // The rules never invent a feature: they have none to add beyond what the
     // listing already lists. Claude, when connected, drafts them.
-    keyFeatures: input.bulletFeatures.length > 0 ? [] : groundedFeatures,
+    keyFeatures: ownFeatures.length > 0 ? [] : groundedFeatures,
     imageAlts,
     faqs: faqs.slice(0, 8),
     categoryNotes,

@@ -231,16 +231,18 @@ describe("SEO Pulse one-click fill", () => {
     await colourOn(sofaA, ["White"]);
 
     const result = await fillWithSeoPulse(staff, sofaA);
-    expect(result.filled).toEqual(expect.arrayContaining(["Focus keyword", "Meta description", "Description"]));
+    expect(result.filled).toEqual(expect.arrayContaining(["Focus keyword", "Meta description"]));
     expect(result.kept).toContain("SEO title");
     expect(result.needsInput).toEqual(expect.arrayContaining(["Dimensions", "Weight", "Material"]));
 
     const [row] = await harness.db.select().from(products).where(eq(products.id, sofaA));
     expect(row.seoMetaTitle).toBe("My own title");
     expect(row.seoFocusKeyword).toBeTruthy();
-    // The starter description states only the shop's own facts.
-    expect(row.descriptionHtml).toContain("sourced from the United States");
-    expect(row.descriptionHtml).not.toMatch(/cm|kg|leather|warranty/i);
+    // Nothing is established about the sofa, so no description is written
+    // from the shop's own terms (D-119); the reason is returned instead.
+    expect(result.filled).not.toContain("Description");
+    expect(result.needsKnowledge?.message).toMatch(/needs more verified product information/);
+    expect(row.descriptionHtml ?? "").toBe("");
     const variants = await harness.db.select().from(productVariants).where(eq(productVariants.productId, sofaA));
     expect(variants).toHaveLength(1);
   });

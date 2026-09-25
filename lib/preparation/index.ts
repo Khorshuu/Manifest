@@ -20,11 +20,13 @@ export {
   type StartPreparationInput,
 } from "./service";
 export { advancePreparation, stalePreparationRuns } from "./runner";
+export { productResearchStatus } from "./research-status";
 export {
   attentionSummary,
   describeDiscovery,
   describeIdentityState,
   describeIssue,
+  describeResearchStatus,
   preparationPhases,
   shouldKeepPolling,
   STAGE_LABEL,
@@ -34,6 +36,7 @@ export {
   type PhaseState,
   type PreparationIssue,
   type PreparationPhase,
+  type ResearchStatus,
 } from "./presentation";
 export {
   FINISHED_STAGES,

@@ -538,3 +538,22 @@ behaviour consolidation can break.
 | `/admin/products/[id]/intelligence` and `/admin/jobs` | Still their own destinations |
 | A marketing account | Three tabs offered, four absent; typing a forbidden tab's address redirects; the API behind it answers 403 |
 | Every tab at 320px | No horizontal page overflow, and the last tab reachable by scrolling the tab row |
+
+## SeoPulse generate and regenerate (D-120)
+
+`tests/seo-pulse-regeneration.test.ts` (real database, rules generator):
+
+| Case | Expected |
+|---|---|
+| SeoPulse writes A, staff edit to B, knowledge improves, SeoPulse prepares C | B unchanged through Fill and the job queue; Regenerate refused (409); only `replaceStaff` writes C, and the history records it |
+| SeoPulse writes A, nobody touches it, knowledge improves | Regenerate writes C with one click; history "Regenerated with SEO Pulse" with the run id; the field stays SeoPulse's |
+| A locked field | Never replaced, even with `replaceStaff` |
+| A run older than the latest | Refused |
+| Saving a section without changing the field | Does not take the field over |
+| A value no history accounts for | Counts as staff's |
+| SeoPulse's own description and features | Do not count towards sufficiency |
+
+`e2e/seo-pulse-regeneration.spec.ts`: the editor offers Regenerate for
+SeoPulse's own description and Keep / Review / Replace for staff's. Replace
+appears only after review. A customer calling the regenerate API gets 403.
+`tests/manufacturer-shop-page.test.ts` pins Case B's regenerated wording.

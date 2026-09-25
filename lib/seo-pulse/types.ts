@@ -73,6 +73,13 @@ export type SeoPulseInput = {
   status: string;
   descriptionText: string;
   bulletFeatures: string[];
+  /**
+   * Which of the description and the key features SEO Pulse itself wrote and
+   * nobody has changed since (D-120). Its own earlier wording is not evidence
+   * about the product: it is neither a staff-written feature to build on nor a
+   * fact that makes the product researched. Absent means "not SEO Pulse's".
+   */
+  pulseWritten?: { description: boolean; bulletFeatures: boolean };
   specifications: { label: string; value: string }[];
   /** Measurement rows the listing already carries. Never generated. */
   measurements: { label: string; value: string }[];

@@ -175,6 +175,13 @@ Rules that must hold regardless of which screen or endpoint touches them. Each r
 - Every run is kept as a numbered version. "Run fresh research" adds a version; it never replaces one. An unchanged product reuses research under 30 days old unless fresh research is asked for. Research older than 30 days, or for a product that has changed since, is flagged "Needs refresh".
 - Applying: an empty field can be filled directly; a field with a value needs an explicit Replace, confirmed on screen and checked again on the server. Lists can be added to freely; removing an entry needs Replace. The address and the product name are never selected by default.
 - Applying never publishes, prices, stocks, re-files, archives or deletes anything. Photograph alt text written by SEO Pulse is marked "Needs manual review" because SEO Pulse cannot see the image.
+- Generate and regenerate (D-120). Product preparation prepares recommendations; it never writes them. The editor shows the latest research's description, key features, SEO title, meta description and focus keyword beside each field, in Product content and SEO & search. What it offers depends on who owns the field now:
+  - empty: "Use SeoPulse version";
+  - written by SEO Pulse and not changed since: "Regenerate with SeoPulse", one click;
+  - written by staff, or SEO Pulse's version edited by staff: "Keep current", "Review SeoPulse version", and "Replace with SeoPulse version" only after reviewing, behind a confirmation;
+  - locked: nothing is offered.
+  Ownership is read from the field's change history, never guessed, and anything the history cannot account for counts as staff's. Fill with SeoPulse still fills only empty fields and reports newer versions of kept ones. Nothing in the background replaces a field. Every replacement is in the change history with its before and after.
+- SEO Pulse's own unedited description and key features are not evidence: they do not count towards "enough is established", and the generator does not build new features on its previous ones.
 - Synonyms become a site-wide entry only when ticked, only for staff with `search.manage`, and an existing entry for the same term is never changed.
 - Downloads: JSON (everything), CSV (one row per finding, with `data_type` research/analysis) and a readable HTML report.
 

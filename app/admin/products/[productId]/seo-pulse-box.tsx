@@ -11,7 +11,8 @@ import type { FillResult } from "@/lib/seo-pulse";
  * "Fill with SEO Pulse" saves anything unsaved, researches the product (or
  * reuses research on an unchanged product), and writes into every empty field
  * what it can say reliably — SEO title, meta description, focus keyword,
- * search terms, tags, and a factual starter description. What the admin
+ * search terms, tags, and — only once enough is established about the
+ * product — a factual starter description and key features. What the admin
  * already wrote is never replaced. Facts it cannot know are listed for the
  * admin to add. The detailed analysis is only in the downloadable report.
  */
@@ -110,6 +111,12 @@ export function SeoPulseBox({
           {result.queued ? (
             <p className="text-ink">Research is running in the background. Open this panel again in a moment.</p>
           ) : null}
+          {result.needsKnowledge ? (
+            <p role="status" className="text-brass-text">
+              <span className="font-semibold">{result.needsKnowledge.message}</span> The description and key features were left as they were.
+              {result.needsKnowledge.missing.length > 0 ? ` Missing: ${result.needsKnowledge.missing.join(", ")}.` : ""}
+            </p>
+          ) : null}
           {result.proposed.length > 0 ? (
             <p className="text-brass-text">
               <span className="font-semibold">Waiting for your review:</span>{" "}
@@ -127,6 +134,12 @@ export function SeoPulseBox({
           </p>
           {result.kept.length > 0 ? (
             <p className="text-ink/65">Kept yours: {result.kept.join(", ")}.</p>
+          ) : null}
+          {result.newerVersions && result.newerVersions.length > 0 ? (
+            <p className="text-ink">
+              <span className="font-semibold">Newer SeoPulse version ready:</span>{" "}
+              {result.newerVersions.map((entry) => entry.label).join(", ")}. Review it in Product content or SEO &amp; search — nothing was replaced.
+            </p>
           ) : null}
           {result.needsInput.length > 0 ? (
             <p className="text-brass-text">

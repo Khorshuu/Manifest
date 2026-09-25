@@ -37,6 +37,7 @@ import {
   measurementRows,
   specificationRows,
   identifierStatus,
+  knowledgeSufficiency,
   imageFilenames,
   keywordGroups,
   schemaReadiness,
@@ -49,6 +50,7 @@ import {
 } from "./providers/intelligence";
 import { coreName, generateByRules } from "./rules";
 import { sanitizeDescriptionHtml } from "./sanitize";
+import { contentOwnership, type ContentOwner } from "@/lib/seo/fields";
 import { searchReadiness, seoReadiness } from "@/lib/seo/readiness";
 import { hashValue, isSuperset, keywordKey, normalizeKeyword, stripHtml } from "./text";
 import {
@@ -111,7 +113,7 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
   const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
   if (!product) return null;
 
-  const [images, allCategories, variants, [rating], definitions, knowledge] = await Promise.all([
+  const [images, allCategories, variants, [rating], definitions, knowledge, owners] = await Promise.all([
     db
       .select()
       .from(productImages)
@@ -150,6 +152,8 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
      * unverified can reach a factual generation context.
      */
     groundedKnowledge(product.pkbProductId),
+    // Which content is SEO Pulse's own unedited wording (D-120).
+    contentOwnership(db, productId, ["descriptionHtml", "bulletFeatures"] as const),
   ]);
 
   const byId = new Map(allCategories.map((row) => [row.id, row]));
@@ -198,6 +202,10 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
     status: product.status,
     descriptionText: stripHtml(product.descriptionHtml).slice(0, 6000),
     bulletFeatures: strings(product.bulletFeatures),
+    pulseWritten: {
+      description: owners.get("descriptionHtml") === "seo_pulse",
+      bulletFeatures: owners.get("bulletFeatures") === "seo_pulse",
+    },
     specifications,
     measurements: Array.isArray(product.measurements)
       ? (product.measurements as { label: string; value: string }[])
@@ -977,6 +985,18 @@ export type FillResult = {
   imagesNeedReview: number;
   /** True when research is running as a job and there is nothing to fill yet. */
   queued?: boolean;
+  /**
+   * Set when too little is established about the product to write customer
+   * content from (D-119). The description and key features were then left
+   * alone; search wording derived from the product's name may still have been
+   * filled, and is not a researched listing.
+   */
+  needsKnowledge?: { message: string; missing: string[] } | null;
+  /**
+   * Kept fields the research would now word differently (D-120). Never
+   * written by Fill; the editor offers them in each field's own section.
+   */
+  newerVersions?: { field: RecommendedField; label: string; owner: ContentOwner }[];
 };
 
 function mergeTerms(existing: string[], extra: string[], max: number, maxLength: number) {
@@ -1071,12 +1091,33 @@ export async function fillWithSeoPulse(
     filled.push(label);
   };
 
+  /*
+   * Customer content only from enough established fact (D-115, D-119).
+   *
+   * Product preparation already refused to call such a product ready; Fill
+   * used not to ask, and wrote a description made of the product's name and
+   * the shop's delivery terms into a listing nobody had researched. Now the
+   * description and the key features are left exactly as they are — empty,
+   * or whatever staff wrote — until there is something true to say. Search
+   * wording derived from the name and category is still offered: it describes
+   * how people look for the product, not the product.
+   */
+  const input = await loadPulseInput(productId);
+  const sufficiency = input ? knowledgeSufficiency(input) : null;
+  const needsKnowledge =
+    sufficiency && !sufficiency.sufficient
+      ? {
+          message: "SeoPulse needs more verified product information before it can prepare customer content.",
+          missing: sufficiency.missing,
+        }
+      : null;
+
   text("seoFocusKeyword", analysis.primaryKeyword.keyword, "Focus keyword");
   text("seoMetaTitle", analysis.seoTitle.recommended, "SEO title");
   text("seoMetaDescription", analysis.metaDescription.recommended, "Meta description");
-  text("descriptionHtml", analysis.description.suggestedHtml, "Description");
+  if (!needsKnowledge) text("descriptionHtml", analysis.description.suggestedHtml, "Description");
 
-  const features = analysis.keyFeatures ?? [];
+  const features = needsKnowledge ? [] : (analysis.keyFeatures ?? []);
   if (features.length > 0) {
     if (strings(product.bulletFeatures).length > 0) {
       kept.push("Key features");
@@ -1123,6 +1164,18 @@ export async function fillWithSeoPulse(
     await applySeoPulse(staff, productId, { runId: run.id, fields, overwrite: [] });
   }
 
+  /*
+   * Fields Fill kept because they already held something, where the research
+   * would now say something different (D-120). Fill never replaces them; the
+   * editor offers the new version in the field's own section, as Regenerate
+   * when the old wording was SEO Pulse's and as a reviewed Replace when it
+   * was a person's.
+   */
+  const recommendations = await seoPulseRecommendations(staff, productId);
+  const newerVersions = (recommendations?.runId === run.id ? recommendations.fields : [])
+    .filter((entry) => entry.owner !== "empty")
+    .map((entry) => ({ field: entry.field, label: entry.label, owner: entry.owner }));
+
   return {
     runId: run.id,
     reused,
@@ -1133,6 +1186,8 @@ export async function fillWithSeoPulse(
     needsInput: analysis.contentGaps.filter((gap) => FACT_GAPS.has(gap.key)).map((gap) => gap.label),
     imagesNeedReview: analysis.imageAlts.filter((image) => image.needsReview).length,
     queued: false,
+    needsKnowledge,
+    newerVersions,
   };
 }
 
@@ -1168,6 +1223,16 @@ export async function applySeoPulse(
   actor: SessionUser | null,
   productId: string,
   payload: SeoPulseApplyPayload,
+  options: {
+    /** What the change history says happened. */
+    reason?: string;
+    /**
+     * Runs inside the transaction, after the listing lock and before anything
+     * is written, so a check it makes cannot go stale before the write
+     * (D-120: regenerating refuses a field someone edited a moment ago).
+     */
+    guard?: (tx: Executor) => Promise<void>;
+  } = {},
 ): Promise<{ applied: ApplyField[]; skipped: string[] }> {
   const staff = requirePermission(actor, "catalog.manage");
   const { fields } = payload;
@@ -1273,6 +1338,7 @@ export async function applySeoPulse(
   await beginListingChange(tx, productId);
   const settled = await conflictsAgainst(tx);
   if (settled.conflicts.length > 0) refuse(settled.conflicts);
+  if (options.guard) await options.guard(tx);
 
 
   const patch: Record<string, unknown> = {};
@@ -1293,7 +1359,7 @@ export async function applySeoPulse(
       executor: tx,
       // Accepted by a person, from this run: the field becomes theirs, and a
       // locked field refuses the apply rather than being overwritten (D-077).
-      fieldWrites: { origin: "accepted", reason: "Applied from SEO Pulse", runId: payload.runId },
+      fieldWrites: { origin: "accepted", reason: options.reason ?? "Applied from SEO Pulse", runId: payload.runId },
     });
     applied.push(...(Object.keys(patch) as ApplyField[]));
   }
@@ -1346,11 +1412,224 @@ export async function applySeoPulse(
       action: "seo_pulse.applied",
       entityType: "product",
       entityId: productId,
-      after: { runId: payload.runId, applied, replaced: [...overwrite], skipped },
+      after: { runId: payload.runId, applied, replaced: [...overwrite], skipped, ...(options.reason ? { reason: options.reason } : {}) },
     },
     tx,
   );
 
   return { applied, skipped };
   }
+}
+
+// ------------------------------------------------------- recommendations
+
+/**
+ * The customer-facing wording SEO Pulse can offer to replace (D-120). These
+ * are the fields a person reads and may have rewritten; tags, search terms
+ * and photo descriptions keep their own apply rules.
+ */
+export const RECOMMENDED_FIELDS = [
+  "descriptionHtml",
+  "bulletFeatures",
+  "seoMetaTitle",
+  "seoMetaDescription",
+  "seoFocusKeyword",
+] as const;
+export type RecommendedField = (typeof RECOMMENDED_FIELDS)[number];
+
+const RECOMMENDED_LABELS: Record<RecommendedField, string> = {
+  descriptionHtml: "Description",
+  bulletFeatures: "Key features",
+  seoMetaTitle: "SEO title",
+  seoMetaDescription: "Meta description",
+  seoFocusKeyword: "Focus keyword",
+};
+
+export type FieldRecommendation = {
+  field: RecommendedField;
+  label: string;
+  /** What the listing holds now. */
+  current: string | string[] | null;
+  /** What the latest research would write. */
+  proposed: string | string[];
+  /** Who owns the current value, which decides what the editor offers. */
+  owner: ContentOwner;
+};
+
+export type SeoPulseRecommendations = {
+  runId: string;
+  preparedAt: string;
+  /** True when the product changed after this research was done. */
+  stale: boolean;
+  /** Set when too little is established to write customer content. */
+  needsKnowledge: { message: string; missing: string[] } | null;
+  /** Only fields where the research would write something different. */
+  fields: FieldRecommendation[];
+};
+
+type ProposedValues = Partial<Record<RecommendedField, string | string[]>>;
+
+/** What a run would write into each field, with customer content only from sufficient knowledge. */
+function proposedValues(analysis: SeoAnalysis, sufficient: boolean): ProposedValues {
+  const values: ProposedValues = {
+    seoFocusKeyword: analysis.primaryKeyword.keyword,
+    seoMetaTitle: analysis.seoTitle.recommended,
+    seoMetaDescription: analysis.metaDescription.recommended,
+  };
+  if (sufficient && analysis.description.suggestedHtml) {
+    values.descriptionHtml = sanitizeDescriptionHtml(analysis.description.suggestedHtml);
+  }
+  if (sufficient && (analysis.keyFeatures ?? []).length > 0) values.bulletFeatures = analysis.keyFeatures;
+  return values;
+}
+
+function sameContent(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    const list = (value: unknown) => JSON.stringify(strings(value).map((entry) => entry.trim()));
+    return list(a) === list(b);
+  }
+  return String(a ?? "").trim() === String(b ?? "").trim();
+}
+
+async function latestCompletedRun(productId: string): Promise<RunRow | null> {
+  const [row] = await db
+    .select(runColumns)
+    .from(seoResearchRuns)
+    .leftJoin(users, eq(users.id, seoResearchRuns.initiatedBy))
+    .where(and(eq(seoResearchRuns.productId, productId), eq(seoResearchRuns.status, "completed")))
+    .orderBy(desc(seoResearchRuns.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * The latest research's wording beside what the listing holds, field by
+ * field, with who owns each current value (D-120). Read-only: showing a
+ * recommendation never writes it. Preparation prepares these; the editor
+ * shows them in Product content and SEO & search.
+ */
+export async function seoPulseRecommendations(
+  actor: SessionUser | null,
+  productId: string,
+): Promise<SeoPulseRecommendations | null> {
+  requirePermission(actor, "catalog.manage");
+  const run = await latestCompletedRun(productId);
+  const analysis = run?.run.analysis as SeoAnalysis | null | undefined;
+  if (!run || !analysis) return null;
+
+  const input = await loadPulseInput(productId);
+  if (!input) return null;
+  const sufficiency = knowledgeSufficiency(input);
+  const [product] = await db.select().from(products).where(eq(products.id, productId));
+  const owners = await contentOwnership(db, productId, RECOMMENDED_FIELDS);
+  const proposed = proposedValues(analysis, sufficiency.sufficient);
+
+  const fields: FieldRecommendation[] = [];
+  for (const field of RECOMMENDED_FIELDS) {
+    const next = proposed[field];
+    if (next === undefined) continue;
+    const raw = (product as Record<string, unknown>)[field];
+    const current = Array.isArray(raw) ? strings(raw) : typeof raw === "string" ? raw : null;
+    if (sameContent(current, next)) continue;
+    fields.push({ field, label: RECOMMENDED_LABELS[field], current, proposed: next, owner: owners.get(field) ?? "staff" });
+  }
+
+  return {
+    runId: run.run.id,
+    preparedAt: (run.run.completedAt ?? run.run.createdAt).toISOString(),
+    stale: run.run.inputHash !== hashInput(input),
+    needsKnowledge: sufficiency.sufficient
+      ? null
+      : {
+          message: "SeoPulse needs more verified product information before it can prepare customer content.",
+          missing: sufficiency.missing,
+        },
+    fields,
+  };
+}
+
+/**
+ * Writes the latest research's wording into the fields staff chose (D-120).
+ *
+ * The values come from the run on the server, never from the request. A field
+ * SEO Pulse wrote and nobody has changed since may be regenerated with a
+ * click. A field a person wrote, or edited after SEO Pulse, is replaced only
+ * when the request says so in `replaceStaff` — the editor asks for that only
+ * after showing both versions. A locked field is never replaced here.
+ *
+ * Ownership is checked twice: before, to answer quickly, and again inside the
+ * apply transaction after the listing lock, so an edit saved a moment
+ * earlier is not replaced by a click made against the older value. The
+ * change history records the replacement, with its before and after.
+ */
+export async function regenerateWithSeoPulse(
+  actor: SessionUser | null,
+  productId: string,
+  request: { runId: string; fields: RecommendedField[]; replaceStaff: boolean },
+): Promise<{ applied: ApplyField[] }> {
+  const staff = requirePermission(actor, "catalog.manage");
+  const wanted = [...new Set(request.fields)];
+  if (wanted.length === 0) throw new SeoPulseError("Choose at least one field to regenerate.", 400);
+
+  const run = await findRun(eq(seoResearchRuns.id, request.runId));
+  if (!run || run.run.productId !== productId) {
+    throw new SeoPulseError("That research run was not found for this product.", 404);
+  }
+  const analysis = run.run.analysis as SeoAnalysis | null;
+  if (run.run.status !== "completed" || !analysis) {
+    throw new SeoPulseError("Only completed research can be applied.", 409);
+  }
+  const latest = await latestCompletedRun(productId);
+  if (latest && latest.run.id !== run.run.id) {
+    throw new SeoPulseError("Newer SEO Pulse research exists for this product. Review it before replacing anything.", 409);
+  }
+
+  const input = await loadPulseInput(productId);
+  if (!input) throw new SeoPulseError("That product was not found.", 404);
+  const sufficiency = knowledgeSufficiency(input);
+  const proposed = proposedValues(analysis, sufficiency.sufficient);
+
+  const fields: SeoPulseApplyPayload["fields"] = {};
+  for (const field of wanted) {
+    const value = proposed[field];
+    if (value === undefined) {
+      throw new SeoPulseError(
+        field === "descriptionHtml" || field === "bulletFeatures"
+          ? "SeoPulse needs more verified product information before it can prepare customer content."
+          : `SEO Pulse has no ${RECOMMENDED_LABELS[field].toLowerCase()} to offer.`,
+        409,
+      );
+    }
+    (fields as Record<string, unknown>)[field] = value;
+  }
+
+  const allowed: ContentOwner[] = request.replaceStaff ? ["empty", "seo_pulse", "staff"] : ["empty", "seo_pulse"];
+  const check = async (executor: Executor) => {
+    const owners = await contentOwnership(executor, productId, wanted);
+    for (const field of wanted) {
+      const owner = owners.get(field) ?? "staff";
+      if (owner === "locked") {
+        throw new SeoPulseError(`${RECOMMENDED_LABELS[field]} is locked. Unlock it first if you want SEO Pulse to change it.`, 409);
+      }
+      if (!allowed.includes(owner)) {
+        throw new SeoPulseError(
+          `${RECOMMENDED_LABELS[field]} was written or edited by staff. Review the SeoPulse version and choose Replace to use it.`,
+          409,
+          { staffOwned: [field] },
+        );
+      }
+    }
+  };
+  await check(db);
+
+  const { applied } = await applySeoPulse(
+    staff,
+    productId,
+    { runId: run.run.id, fields, overwrite: wanted },
+    {
+      reason: request.replaceStaff ? "Replaced with the SEO Pulse version by staff" : "Regenerated with SEO Pulse",
+      guard: check,
+    },
+  );
+  return { applied };
 }

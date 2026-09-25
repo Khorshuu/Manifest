@@ -9,12 +9,16 @@
 import "../lib/load-env";
 import postgres from "postgres";
 import { getDb } from "./index";
+import { checkDatabaseEncoding } from "./encoding";
 import { migratePostgres } from "./migrator";
 import { seed } from "./seed";
 
 async function main() {
   const client = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
   try {
+    // Reported, never fixed here: recreating a database is a person's decision.
+    const encoding = await checkDatabaseEncoding((text) => client.unsafe(text));
+    if (encoding) process.stderr.write(`\nWARNING — ${encoding}\n\n`);
     await migratePostgres(client);
   } finally {
     await client.end({ timeout: 5 });

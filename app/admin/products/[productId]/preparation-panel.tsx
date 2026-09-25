@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/button";
 import { Field } from "@/components/field";
 import {
@@ -366,10 +366,12 @@ export function PreparationPanel({
               <p className="text-body font-medium text-ink">{issue.title}</p>
               <p className="max-w-[70ch] text-meta text-ink/75">{issue.message}</p>
               <p className="max-w-[70ch] text-meta text-ink/60">{issue.remedy}</p>
+              {issue.comparison ? <IdentityComparison comparison={issue.comparison} /> : null}
               <div className="flex flex-wrap gap-2">
                 {issue.actions.map((action) => (
                   <IssueButton
                     key={action}
+                    label={issue.comparison ? MISMATCH_ACTION_LABEL[action] : undefined}
                     action={action}
                     productId={productId}
                     busy={busy}
@@ -515,7 +517,56 @@ const ACTION_LABEL: Record<IssueAction, string> = {
   manual: "Continue manually",
 };
 
+/** A page about a different product asks different things of the same buttons. */
+const MISMATCH_ACTION_LABEL: Partial<Record<IssueAction, string>> = {
+  identity: "Correct product identity",
+  sources: "Use another source",
+};
+
+/**
+ * What the product is recorded as beside what the page says it is. Identifiers
+ * only, and the page's address, so a person can open it and judge.
+ */
+function IdentityComparison({ comparison }: { comparison: NonNullable<PreparationIssue["comparison"]> }) {
+  const side = (title: string, rows: { label: string; values: string[] }[]) => (
+    <div className="min-w-0 flex-1">
+      <p className="text-meta font-medium text-ink/75">{title}</p>
+      {rows.length === 0 ? (
+        <p className="text-meta text-ink/55">No identifiers.</p>
+      ) : (
+        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-meta">
+          {rows.map((row) => (
+            <Fragment key={row.label}>
+              <dt className="text-ink/55">{row.label}</dt>
+              <dd className="break-words text-ink">{row.values.join(", ")}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+  return (
+    <div className="flex flex-col gap-3 rounded-control border border-blue-200 bg-paper p-3">
+      <div className="flex flex-col gap-3 sm:flex-row">
+        {side("Recorded for this product", comparison.recorded)}
+        {side("Found on the page", comparison.found)}
+      </div>
+      {comparison.url ? (
+        <a
+          href={comparison.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="break-all text-meta text-blue-600 underline underline-offset-2"
+        >
+          {comparison.url}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 function IssueButton({
+  label: labelOverride,
   action,
   productId,
   busy,
@@ -524,6 +575,7 @@ function IssueButton({
   onRetry,
   onSection,
 }: {
+  label?: string;
   action: IssueAction;
   productId: string;
   busy: boolean;
@@ -532,7 +584,7 @@ function IssueButton({
   onRetry: () => void;
   onSection: (section: string) => void;
 }) {
-  const label = ACTION_LABEL[action];
+  const label = labelOverride ?? ACTION_LABEL[action];
 
   if (action === "intelligence") {
     return (

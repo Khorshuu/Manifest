@@ -10,6 +10,7 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  pkbAttributeDefinitions,
   pkbClaims,
   pkbEnrichmentRuns,
   pkbFacts,
@@ -236,5 +237,30 @@ describe("claims a run proposed are never accepted by the run", () => {
     const rows = await harness.db.select().from(pkbClaims).where(eq(pkbClaims.pkbProductId, pkbProductId));
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((row) => row.status === "SUGGESTED" || row.status === "CONFLICT")).toBe(true);
+  });
+});
+
+describe("a list attribute a page writes as one bulleted value", () => {
+  it("is proposed one item per slot, not as one run-on item (D-119)", async () => {
+    const { pkbProductId } = await makeListing();
+    await provideDocument(staff, pkbProductId, {
+      title: "HP-900 specifications",
+      content: [OFFICIAL_PAGE, "In the box: • 1× HP-900 • 1× USB-C cable • 1× Carry case"].join("\n"),
+      url: OFFICIAL_URL,
+    });
+
+    const [boxContents] = await harness.db
+      .select({ id: pkbAttributeDefinitions.id })
+      .from(pkbAttributeDefinitions)
+      .where(eq(pkbAttributeDefinitions.key, "box_contents"));
+    const claims = await harness.db
+      .select({ ordinal: pkbClaims.ordinal, raw: pkbClaims.rawValue })
+      .from(pkbClaims)
+      .where(and(eq(pkbClaims.pkbProductId, pkbProductId), eq(pkbClaims.definitionId, boxContents.id)));
+    expect(claims.sort((a, b) => a.ordinal - b.ordinal)).toEqual([
+      { ordinal: 0, raw: "1× HP-900" },
+      { ordinal: 1, raw: "1× USB-C cable" },
+      { ordinal: 2, raw: "1× Carry case" },
+    ]);
   });
 });

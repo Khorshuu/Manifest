@@ -5,12 +5,41 @@ import type { Instrumentation } from "next";
  * when SENTRY_DSN is set, and only in the Node.js runtime.
  */
 export async function register() {
-  if (process.env.NEXT_RUNTIME !== "nodejs" || !process.env.SENTRY_DSN) return;
+  if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  // Not awaited: a slow or absent database must not hold up the server.
+  void reportDatabaseEncoding();
+  if (!process.env.SENTRY_DSN) return;
   const [Sentry, { sentryOptions }] = await Promise.all([
     import("@sentry/nextjs"),
     import("@/lib/observability/error-reporting"),
   ]);
   Sentry.init(sentryOptions());
+}
+
+/**
+ * A database that is not UTF-8 is reported once, at startup, with the steps
+ * to fix it (db/encoding.ts, D-119) — before the first research run fails
+ * to store a manufacturer's page. Nothing is changed.
+ */
+async function reportDatabaseEncoding() {
+  if (!process.env.DATABASE_URL) return;
+  try {
+    const [{ db }, { checkDatabaseEncoding }, { logEvent }] = await Promise.all([
+      import("@/db"),
+      import("@/db/encoding"),
+      import("@/lib/observability/log"),
+    ]);
+    const problem = await checkDatabaseEncoding(async (text) => {
+      const result = (await db.execute(text)) as unknown;
+      return (Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])) as Record<string, unknown>[];
+    });
+    if (problem) {
+      console.warn(`\nWARNING — ${problem}\n`);
+      await logEvent("error", "database.encoding_unsupported", { message: problem.split("\n")[0] });
+    }
+  } catch {
+    // An unreachable database is reported by the first request that needs it.
+  }
 }
 
 /**

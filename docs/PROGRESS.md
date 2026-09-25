@@ -3797,3 +3797,85 @@ embedded cluster was initialised without an encoding, so `Ω`, `°` and `×` can
 be stored and every real specification failed to insert. The acceptance run used
 a UTF-8 database (`preorder_utf8`) on the same cluster. A development database
 has to be created `ENCODING 'UTF8'`.
+
+## Glorious Model O diagnostic — a manufacturer's shop page (D-119)
+
+`[x]` **Diagnosed from a real run.** A Glorious Model O prepared against
+`gloriousgaming.com` (Shopify) stored nothing: the development database was
+WIN1252 and the page carried U+200B. Fixes are recorded in D-119: invisible
+storage noise removed, a non-UTF-8 database reported by `db:server`,
+`db:setup`, `db:migrate` and server startup, permanent database failures not
+retried, PostgreSQL's reason kept on the job, Offer-level SKU/GTIN read, a page
+about a different product stopping for review, feature cards read as pairs,
+one list of identity labels, no customer content without sufficient knowledge,
+and no frozen "Buying it here" block.
+
+`[x]` **Real acceptance on `preorder_utf8`.** Case A (model GO-WHITE against
+the Classic Wireless page) stopped at NEEDS_REVIEW with "The product page
+appears to describe a different product" and used nothing from the page.
+Case B (GLO-OC-WL-BLK, UPC 840408304115) reached READY after the domain was
+approved as `official_product` and the labels decided: 44 claims accepted.
+
+`[x]` **Defect found in case B's output and fixed.** The page's bulleted
+"Included" cell became one box-contents item. Research now splits list values
+for multiple-cardinality attributes (`listItems` in `lib/pkb/normalize.ts`).
+Tests: `tests/manufacturer-shop-page.test.ts`, `tests/real-source-pipeline.test.ts`.
+
+`[x]` **Case B's stored description predated the fixes.** Resolved by D-120:
+it was regenerated through the new Regenerate action (see below).
+
+`[!]` **Vitest on Windows.** A default full run can crash worker forks with exit
+code 3221225794 (0xC0000142, process start failure under load). Tests still
+passed; `--maxWorkers=4` avoids it.
+
+## Generate and regenerate — SeoPulse content lifecycle (D-120)
+
+`[x]` **Ownership of content fields.** `contentOwnership` in `lib/seo/fields.ts`
+reads the append-only SEO history and answers `empty`, `seo_pulse` (SeoPulse
+wrote it and nobody changed it), `staff`, or `locked`. No migration.
+
+`[x]` **Regenerate and Replace.** `regenerateWithSeoPulse` and
+`POST /api/admin/products/[id]/seo-pulse/regenerate` take field names only.
+They read the wording from the latest completed run on the server. A
+SeoPulse-owned field is regenerated with one click. A staff-owned field needs
+`replaceStaff`. A locked field is always refused. Ownership is checked again
+under the listing lock, and the change history records every replacement.
+
+`[x]` **Recommendations in the editor's own sections.** Product content and
+SEO & search show the latest research's version beside each field, with
+"Use SeoPulse version", "Regenerate with SeoPulse", or "Keep current" /
+"Review SeoPulse version" / "Replace with SeoPulse version", depending on the
+owner. "Refresh recommendations" asks for fresh research. Fill still only
+fills empty fields, and names kept fields that have a newer version.
+Preparation still never writes customer wording.
+
+`[x]` **Generator fixes found in regeneration.** SeoPulse's own previous
+features and description are no longer evidence, and are no longer a base to
+build on. Box contents are no longer a specification row or key feature. A
+named size is no longer said as "It comes in Standard". Key features list
+specifications before measurements and leave the warranty out. The editor's
+"What is already known" list no longer prints "69g g".
+
+`[x]` **Case B on `preorder_utf8`.** Box items were researched again, accepted
+in order and verified (3 items). The description and key features were
+regenerated through the editor (history: "Regenerated with SEO Pulse", run
+23a62514). A staff edit survived a fresh run and Fill. Explicit Replace
+restored the SeoPulse version (history: "Replaced with the SEO Pulse version
+by staff").
+
+`[x]` **Verified.** Typecheck clean. Lint clean. Vitest: 117 files, 1,626
+passed, 8 skipped (`--maxWorkers=4`). Production build passed. Playwright
+(production build, 2 workers), relevant specs: 88 passed, 1 skipped, 1 failure
+(`intelligence.spec.ts:159` on mobile), which passed 6/6 when re-run alone.
+Full Playwright suite: 529 passed, 7 skipped, 0 failed.
+
+`[!]` **Known limitations.**
+
+- List review order: accepting a list's later item before an earlier one
+  compacts the listing and moves items between slots (D-120). Accept in list
+  order.
+- The rules generator's meta description still ends "Order now, sourced from
+  the US and delivered across Bangladesh at a fixed landed price." That is the
+  SEO snippet, not the product description, and it was not changed here.
+- The local `preorder` database is still WIN1252. Research must use a UTF8
+  database (docs/DATABASE.md, "Encoding").

@@ -15,6 +15,7 @@ import {
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
+import { describeDatabaseError, isEncodingDatabaseError } from "@/lib/db-errors";
 import { enqueueJob } from "@/lib/jobs/runner";
 import { logEvent } from "@/lib/observability/log";
 import { getProductResearchProvider, type ResearchQuery } from "@/lib/providers/research";
@@ -25,7 +26,7 @@ import { normalizeIdentifier } from "./identifiers";
 import { loadLabelMappings, resolveLabel } from "./mappings";
 import { checkRobots } from "./net/robots";
 import { decodeBody, safeFetch } from "./net/safe-fetch";
-import { cleanText, labelKey, normalizeUrl } from "./normalize";
+import { cleanText, labelKey, listItems, normalizeUrl } from "./normalize";
 import { canEnrich, loadIdentity, refreshResolution, type ProductIdentity } from "./resolution";
 import { createClaim } from "./review";
 import { approvedRegistryFor, matchRegistry, trustedBrandIds } from "./trust";
@@ -437,7 +438,7 @@ export async function runEnrichment(runId: string): Promise<RunReport> {
       .update(pkbEnrichmentRuns)
       .set({
         status: "failed",
-        error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+        error: recordedFailure(error),
         providers: report.providers,
         documentsRetrieved: report.documentsRetrieved,
         documentsRefused: report.documentsRefused,
@@ -447,9 +448,50 @@ export async function runEnrichment(runId: string): Promise<RunReport> {
         finishedAt: new Date(),
       })
       .where(eq(pkbEnrichmentRuns.id, runId));
-    logEvent("warn", "pkb.enrichment_failed", { runId, error: error instanceof Error ? error.message : String(error) });
+    logEvent("warn", "pkb.enrichment_failed", { runId, error: describeDatabaseError(error, 1000) });
     throw error;
   }
+}
+
+/*
+ * Why a run failed, recorded so preparation can tell a staff member something
+ * true (D-119).
+ *
+ * The run's `error` column starts with a kind — `source_storage:` when a page
+ * was read and could not be stored, `other:` for anything else — followed by
+ * the database's own account of it, bounded and without the stored values
+ * (`describeDatabaseError`). The kind is what a product screen explains; the
+ * rest is for an administrator.
+ */
+export type EnrichmentFailureKind = "source_storage" | "source_storage_encoding" | "other";
+
+/** A page was read, and writing what it said failed. */
+export class SourceStorageError extends Error {
+  constructor(
+    readonly url: string,
+    cause: unknown,
+  ) {
+    super(`The page ${url} was read but what it said could not be stored.`, { cause });
+    this.name = "SourceStorageError";
+  }
+}
+
+function recordedFailure(error: unknown): string {
+  const kind: EnrichmentFailureKind =
+    error instanceof SourceStorageError
+      ? isEncodingDatabaseError(error)
+        ? "source_storage_encoding"
+        : "source_storage"
+      : "other";
+  const where = error instanceof SourceStorageError ? `${error.url} — ` : "";
+  return `${kind}: ${where}${describeDatabaseError(error, 400)}`.slice(0, 500);
+}
+
+/** What `recordedFailure` wrote, read back. A run from before D-119 is "other". */
+export function enrichmentFailure(error: string | null): { kind: EnrichmentFailureKind; detail: string | null } {
+  const match = /^(source_storage_encoding|source_storage|other): ([\s\S]*)$/.exec(error ?? "");
+  if (!match) return { kind: "other", detail: error };
+  return { kind: match[1] as EnrichmentFailureKind, detail: match[2] };
 }
 
 async function finishRun(runId: string, report: RunReport): Promise<void> {
@@ -660,7 +702,7 @@ async function readCandidate(
     brandVouched: match !== null && !match.blocked && match.brandSpecific,
   });
 
-  return db.transaction(async (tx) => {
+  return storeRead(fetched.url, () => db.transaction(async (tx) => {
     const sourceId = await ensureRetrievedSource(tx, {
       /*
        * What kind of source this is, is the registry's answer where the
@@ -719,7 +761,16 @@ async function readCandidate(
       extractionMethodOf: (pair) => pair.method,
     });
     return { ...outcome, retrieved: true };
-  });
+  }));
+}
+
+/** Runs the write of one read page, saying so when that is what failed. */
+async function storeRead<T>(url: string, write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (error) {
+    throw new SourceStorageError(url, error);
+  }
 }
 
 /**
@@ -834,6 +885,20 @@ async function recordRefusal(
 }
 
 /**
+ * The SKUs a page declares that can stand for a model number (D-119).
+ *
+ * A manufacturer's shop puts its own item code on the Offer as `sku` —
+ * Glorious's "GLO-OC-WL-BLK" — and never repeats it as `mpn` or `model`, so
+ * without it such a page carries no model identifier at all. A retailer's SKU
+ * is its own stock number and is almost always purely numeric; those are left
+ * out, so a retailer page is not called a different product merely because
+ * its shop numbers its shelves.
+ */
+export function modelLikeSkus(skus: string[]): string[] {
+  return skus.filter((sku) => /\p{L}/u.test(sku));
+}
+
+/**
  * Whether a document is about this product. Identifiers decide when the
  * document carries any: a matching GTIN or model number is agreement, a
  * different one of the same kind is disagreement. With none, the brand and a
@@ -856,7 +921,26 @@ export function identityVerdict(
     brandVouched?: boolean;
   } = {},
 ): { match: "match" | "mismatch" | "unknown"; notes: Record<string, unknown> } {
-  const notes: Record<string, unknown> = {};
+  /*
+   * Both sides as written, so a person told "this page appears to describe a
+   * different product" can see what was compared with what. The comparison
+   * below works on normalised keys; these are for reading.
+   */
+  const notes: Record<string, unknown> = {
+    recorded: {
+      name: identity.name,
+      brands: identity.brands.map((brand) => brand.name),
+      models: identity.modelKeys,
+      gtins: identity.gtins.map((row) => row.gtin14),
+    },
+    found: {
+      names: extraction.identity.names.slice(0, 3),
+      brands: extraction.identity.brands,
+      models: [...new Set([...extraction.identity.models, ...extraction.identity.mpns])],
+      skus: extraction.identity.skus ?? [],
+      gtins: extraction.identity.gtins,
+    },
+  };
   const ourGtins = new Set(identity.gtins.map((row) => row.gtin14));
   const theirGtins = new Set(
     extraction.identity.gtins
@@ -869,16 +953,20 @@ export function identityVerdict(
   if (ourGtins.size > 0 && theirGtins.size > 0) {
     const shared = [...theirGtins].filter((value) => ourGtins.has(value));
     notes.gtins = { ours: [...ourGtins], theirs: [...theirGtins] };
+    if (extraction.identity.offers?.length) notes.offers = extraction.identity.offers.slice(0, 10);
     return { match: shared.length > 0 ? "match" : "mismatch", notes };
   }
 
   const ourModels = new Set(identity.modelKeys.map((value) => labelKey(value).replace(/\s+/g, "")));
   const theirModels = new Set(
-    [...extraction.identity.mpns, ...extraction.identity.models].map((value) => labelKey(value).replace(/\s+/g, "")),
+    [...extraction.identity.mpns, ...extraction.identity.models, ...modelLikeSkus(extraction.identity.skus ?? [])].map(
+      (value) => labelKey(value).replace(/\s+/g, ""),
+    ),
   );
   if (ourModels.size > 0 && theirModels.size > 0) {
     const shared = [...theirModels].filter((value) => ourModels.has(value));
     notes.models = { ours: [...ourModels], theirs: [...theirModels] };
+    if (extraction.identity.offers?.length) notes.offers = extraction.identity.offers.slice(0, 10);
     return { match: shared.length > 0 ? "match" : "mismatch", notes };
   }
 
@@ -953,19 +1041,25 @@ async function proposeFromExtraction(
       const slot = `${placed.definition.id}`;
       if (usedSlots.has(slot)) continue;
       usedSlots.add(slot);
-      const claim = await createClaim(tx, {
-        pkbProductId: input.identity.pkbProductId,
-        pkbVariantId: null,
-        evidenceId: evidence.id,
-        proposedBy: input.actorId,
-        proposedByRun: input.runId,
-        target: "fact",
-        definition: placed.definition,
-        raw: pair.value,
-        unit: pair.unit,
-      });
-      outcome.claimsProposed += 1;
-      if (claim.status === "CONFLICT") outcome.conflicts += 1;
+      // A list attribute written as one bulleted value ("• 1× Receiver
+      // • 1× Cable") is one claim per item, each in its own slot (D-119).
+      const values = placed.definition.cardinality === "multiple" ? listItems(pair.value) : [pair.value];
+      for (const [ordinal, raw] of values.entries()) {
+        const claim = await createClaim(tx, {
+          pkbProductId: input.identity.pkbProductId,
+          pkbVariantId: null,
+          evidenceId: evidence.id,
+          proposedBy: input.actorId,
+          proposedByRun: input.runId,
+          target: "fact",
+          definition: placed.definition,
+          ordinal,
+          raw,
+          unit: pair.unit,
+        });
+        outcome.claimsProposed += 1;
+        if (claim.status === "CONFLICT") outcome.conflicts += 1;
+      }
       continue;
     }
 

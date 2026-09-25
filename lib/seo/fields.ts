@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
   products,
@@ -277,4 +277,68 @@ export async function fieldStatesFor(
     .from(seoFieldStates)
     .where(and(inArray(seoFieldStates.productId, productIds), eq(seoFieldStates.field, field)));
   return new Map(rows.map((row) => [row.productId, row.state]));
+}
+
+/**
+ * Who owns what a field holds now (D-120) — the question SEO Pulse asks before
+ * it offers to replace a field.
+ *
+ *  - **empty** — nothing to protect.
+ *  - **seo_pulse** — SEO Pulse wrote exactly this value, and nobody has
+ *    changed it since. Replacing it with a newer SEO Pulse version needs a
+ *    click, never a confirmation that someone's writing is being lost.
+ *  - **staff** — a person wrote it, edited SEO Pulse's version, or it came
+ *    from a path that kept no history (an import, an older listing). Replacing
+ *    it is always a deliberate choice.
+ *  - **locked** — a person fixed it. SEO Pulse does not offer to replace it.
+ *
+ * The field state alone cannot tell the second from the third: an applied
+ * recommendation is MANUAL, exactly like a typed one, because a person chose
+ * it. The append-only history can. Its latest row for the field says which
+ * workflow wrote it, and its after-value says whether that is still what the
+ * field holds — any later edit, in any path that records history, is a newer
+ * row, and any path that does not record history leaves a value the history
+ * does not match. Either way the answer is "staff", which is the safe one.
+ */
+export type ContentOwner = "empty" | "seo_pulse" | "staff" | "locked";
+
+const SEO_PULSE_WORKFLOWS: readonly SeoChangeWorkflow[] = ["seo_pulse_apply", "seo_pulse_fill"];
+
+function isEmptyValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
+export async function contentOwnership<F extends Exclude<SeoField, "imageAlts">>(
+  executor: Executor,
+  productId: string,
+  fields: readonly F[],
+): Promise<Map<F, ContentOwner>> {
+  const owners = new Map<F, ContentOwner>();
+  if (fields.length === 0) return owners;
+  const [listing] = await executor.select().from(products).where(eq(products.id, productId));
+  if (!listing) return owners;
+
+  const states = await fieldStates(executor, productId);
+  const history: { field: SeoField; afterValue: string | null; workflow: SeoChangeWorkflow }[] = await executor
+    .select({ field: seoFieldHistory.field, afterValue: seoFieldHistory.afterValue, workflow: seoFieldHistory.workflow })
+    .from(seoFieldHistory)
+    .where(and(eq(seoFieldHistory.productId, productId), inArray(seoFieldHistory.field, [...fields])))
+    .orderBy(desc(seoFieldHistory.createdAt));
+  const latest = new Map<SeoField, (typeof history)[number]>();
+  for (const row of history) if (!latest.has(row.field)) latest.set(row.field, row);
+
+  for (const field of fields) {
+    const value = (listing as Record<string, unknown>)[field];
+    if (isEmptyValue(value)) owners.set(field, "empty");
+    else if (stateOf(states, field) === "LOCKED") owners.set(field, "locked");
+    else {
+      const last = latest.get(field);
+      const unchanged = last !== undefined && SEO_PULSE_WORKFLOWS.includes(last.workflow) && last.afterValue === asText(value);
+      owners.set(field, unchanged ? "seo_pulse" : "staff");
+    }
+  }
+  return owners;
 }

@@ -45,8 +45,10 @@ import {
   describeDataProvider,
   describeIntelligenceProvider,
   getSeoPulseOverview,
+  seoPulseRecommendations,
 } from "@/lib/seo-pulse";
-import { getPreparation } from "@/lib/preparation";
+import { SeoPulseRecommendationsPanel } from "./seo-pulse-recommendations";
+import { getPreparation, productResearchStatus } from "@/lib/preparation";
 import { describeIdentityState } from "@/lib/preparation/presentation";
 import { getProductResearchProvider } from "@/lib/providers/research";
 import { eq } from "drizzle-orm";
@@ -124,7 +126,7 @@ export default async function AdminProductPage({
 
   if (!product) notFound();
 
-  const [tree, definitions, pulse, options, variants, checks, preparation, established] = await Promise.all([
+  const [tree, definitions, pulse, options, variants, checks, preparation, established, research, recommendations] = await Promise.all([
     getCategoryTree(),
     // The specifications this product's category asks for — its own and
     // everything inherited from its ancestors.
@@ -146,6 +148,13 @@ export default async function AdminProductPage({
      * where they are (D-113).
      */
     groundedKnowledge(product.pkbProductId),
+    // Whether what the listing holds was researched (D-119).
+    productResearchStatus(user, product.id),
+    /*
+     * The latest research's wording beside each field, shown in the field's
+     * own section (D-120). Reading it never writes it.
+     */
+    seoPulseRecommendations(user, product.id),
   ]);
   const categories = flatten(tree);
 
@@ -227,15 +236,22 @@ export default async function AdminProductPage({
       label: "Product content",
       summary: "The key features and description a shopper reads. Anything SeoPulse prepared is yours to edit.",
       content: (
-        <ContentSection
-          key={appliedKey}
-          product={{
-            id: product.id,
-            descriptionHtml: product.descriptionHtml,
-            bulletFeatures: stringList(product.bulletFeatures),
-            boxContents: stringList(product.boxContents),
-          }}
-        />
+        <div className="flex flex-col gap-6">
+          <SeoPulseRecommendationsPanel
+            productId={product.id}
+            recommendations={recommendations}
+            fields={["bulletFeatures", "descriptionHtml"]}
+          />
+          <ContentSection
+            key={appliedKey}
+            product={{
+              id: product.id,
+              descriptionHtml: product.descriptionHtml,
+              bulletFeatures: stringList(product.bulletFeatures),
+              boxContents: stringList(product.boxContents),
+            }}
+          />
+        </div>
       ),
     },
     {
@@ -342,6 +358,12 @@ export default async function AdminProductPage({
       label: "SEO & search",
       summary: "How shoppers find this product. SeoPulse prepares these; change anything that does not sound like you.",
       content: (
+        <div className="flex flex-col gap-6">
+        <SeoPulseRecommendationsPanel
+          productId={product.id}
+          recommendations={recommendations}
+          fields={["seoMetaTitle", "seoMetaDescription", "seoFocusKeyword"]}
+        />
         <SeoSection
           key={appliedKey}
           product={{
@@ -358,6 +380,7 @@ export default async function AdminProductPage({
             searchBoost: product.searchBoost,
           }}
         />
+        </div>
       ),
     },
     {
@@ -490,6 +513,17 @@ export default async function AdminProductPage({
        * thing that happens to a product (D-116). It reports its own state and
        * asks for what it needs; it never starts itself.
        */}
+      {research ? (
+        <p
+          role="status"
+          data-research-state={research.state}
+          className={`rounded-control border px-3 py-2 text-meta text-ink ${
+            research.state === "ready" ? "border-blue-300 bg-blue-50/60" : "border-brass bg-brass/10"
+          }`}
+        >
+          <strong>{research.label}.</strong> {research.detail}
+        </p>
+      ) : null}
       <PreparationPanel
         productId={product.id}
         discoveryConfigured={discoveryConfigured}

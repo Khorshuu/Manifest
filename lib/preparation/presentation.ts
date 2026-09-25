@@ -144,6 +144,8 @@ export type PreparationIssue = {
   /** What to do about it, from the backend's own note. */
   remedy: string;
   actions: IssueAction[];
+  /** For a source about a different product: both sides' identifiers and the page. */
+  comparison: PreparationNote["comparison"] | null;
 };
 
 /** Headings and offered actions per code. Unknown codes fall through. */
@@ -175,6 +177,14 @@ const ISSUE_SHAPE: Record<string, { title: string; actions: IssueAction[] }> = {
   [PREPARATION_CODES.ENRICHMENT_FAILED]: {
     title: "Research did not finish",
     actions: ["retry", "manual"],
+  },
+  [PREPARATION_CODES.SOURCE_STORAGE_FAILED]: {
+    title: "The product page could not be saved",
+    actions: ["retry", "manual"],
+  },
+  [PREPARATION_CODES.SOURCE_IDENTITY_MISMATCH]: {
+    title: "The product page appears to describe a different product",
+    actions: ["identity", "sources", "manual"],
   },
   [PREPARATION_CODES.CLAIMS_CONFLICT]: {
     title: "Two sources disagree",
@@ -233,6 +243,7 @@ export function describeIssue(note: PreparationNote): PreparationIssue {
     message: note.message,
     remedy: note.remedy,
     actions: shape?.actions ?? ["retry", "manual"],
+    comparison: note.comparison ?? null,
   };
 }
 
@@ -273,6 +284,57 @@ export function describeIdentityState(
     default:
       return { label: "Not identified yet", tone: "plain", detail: "Nothing has been researched for this product." };
   }
+}
+
+/**
+ * Whether what a product shows was researched, for the editor and the staff
+ * preview (D-119).
+ *
+ * A staff preview used to render whatever the listing held — including a
+ * description Fill had assembled from a product name while research was still
+ * waiting for someone — exactly as it renders a finished, researched listing.
+ * This says which of the two a person is looking at. It blocks nothing.
+ *
+ * Insufficient knowledge wins over everything: a run that once reached READY
+ * does not make a listing researched after its facts were withdrawn. With no
+ * run and enough established — a product staff described by hand — there is
+ * nothing to warn about, and nothing is said.
+ */
+export type ResearchStatus = {
+  state: "ready" | "incomplete";
+  label: string;
+  detail: string;
+};
+
+export function describeResearchStatus(input: {
+  stage: PreparationStage | null;
+  sufficient: boolean;
+  missing: string[];
+}): ResearchStatus | null {
+  if (!input.sufficient) {
+    return {
+      state: "incomplete",
+      label: "Research incomplete",
+      detail: `SeoPulse still needs product information${
+        input.missing.length > 0 ? ` — ${input.missing.join(", ")}` : ""
+      }. Content shown here has not been prepared from researched facts.`,
+    };
+  }
+  if (input.stage === "READY") {
+    return {
+      state: "ready",
+      label: "Product research ready",
+      detail: "SeoPulse prepared this product from verified product information.",
+    };
+  }
+  if (input.stage) {
+    return {
+      state: "incomplete",
+      label: "Research incomplete",
+      detail: `Product preparation: ${STAGE_LABEL[input.stage]}.`,
+    };
+  }
+  return null;
 }
 
 /**

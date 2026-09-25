@@ -576,9 +576,9 @@ describe("applying", () => {
     ).rejects.toMatchObject({ status: 409 });
   });
 
-  it("offers a factual starter description even for a listing with nothing on it", () => {
+  it("writes no description for a listing with nothing on it, rather than filler (D-119)", () => {
     const generated = generateByRules(sampleInput({ bulletFeatures: [], details: {} }), emptyResearch);
-    expect(generated.description.suggestedHtml).toContain("sourced from the United States");
+    expect(generated.description.suggestedHtml).toBeNull();
     expect(generated.keyFeatures).toEqual([]);
   });
 
@@ -644,8 +644,11 @@ describe("product information SEO Pulse writes", () => {
   it("writes a description that covers the product, not a page of filler", () => {
     const html = generateByRules(full(), emptyResearch).description.suggestedHtml ?? "";
 
-    // What it is, what it is made of, what it is for — each said once.
-    expect(html).toContain("Headphones range");
+    // It opens on the product, never on the category or the shop (D-119).
+    expect(html).toMatch(/^<p>Sony WH-1000XM5[^<]* — Industry-leading noise cancelling./);
+    expect(html).not.toContain("part of our");
+    expect(html).not.toContain("Buying it here");
+    // What it is made of and what it is for — each said once.
     expect(html).toContain("Plastic construction");
     expect(html).toContain("intended for travel");
     expect(html).toContain("<h2>Key features</h2>");

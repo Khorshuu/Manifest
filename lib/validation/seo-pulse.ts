@@ -89,3 +89,19 @@ export const seoPulseApplySchema = z
 export type SeoPulseApplyPayload = z.infer<typeof seoPulseApplySchema>;
 
 export const seoPulseExportFormat = z.enum(["json", "csv", "html"]);
+
+/**
+ * Regenerating or replacing fields from SEO Pulse's latest research (D-120).
+ * Names fields only: the wording is read from the run on the server.
+ * `replaceStaff` is the explicit choice to replace wording a person wrote.
+ */
+export const seoPulseRegenerateSchema = z
+  .object({
+    runId: z.string().uuid(),
+    fields: z
+      .array(z.enum(["descriptionHtml", "bulletFeatures", "seoMetaTitle", "seoMetaDescription", "seoFocusKeyword"]))
+      .min(1)
+      .max(5),
+    replaceStaff: z.boolean().default(false),
+  })
+  .strict();

@@ -62,6 +62,16 @@ export type PreparationNote = {
   message: string;
   /** What the person can do about it, in a sentence. */
   remedy: string;
+  /**
+   * For a source that disagrees with the product: what is recorded, what the
+   * page says, and where the page is — so the person can see the difference
+   * rather than take it on trust. Identifiers only; never a stored value.
+   */
+  comparison?: {
+    url: string | null;
+    recorded: { label: string; values: string[] }[];
+    found: { label: string; values: string[] }[];
+  };
 };
 
 export const productPreparationRuns = pgTable(

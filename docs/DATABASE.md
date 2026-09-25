@@ -608,7 +608,9 @@ changes; option and option-value renames; category moves. The migration queues
 every existing listing.
 
 **Encoding note.** The local PostgreSQL server runs WIN1252; migration text must
-not contain characters outside it (arrows, for instance).
+not contain characters outside it (arrows, for instance). (Superseded as a
+requirement by D-119: the database must be UTF8 — see "Encoding" below. The
+caution still applies while an old WIN1252 database is in use.)
 
 ## Migration 0032 — Product intelligence (D-071 to D-076)
 
@@ -740,3 +742,53 @@ Constraints and indexes:
 
 The table holds no product fact, no claim, no evidence and no offer data. It
 records which work was started and how far it got.
+
+## Encoding (D-119)
+
+> **Operational requirement: the PostgreSQL database's encoding must be UTF8.**
+> This applies to development, staging and production. Product research must
+> not run against a non-UTF8 database. It will read pages it cannot store.
+> Check with `SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = current_database();`.
+
+**The database must be UTF-8.** Product knowledge is text from manufacturers'
+pages — "48 Ω", "−20 °C", "1× receiver", non-Latin model names — and a
+single-byte encoding cannot store most of it: PostgreSQL refuses the insert with
+SQLSTATE `22P05`, and research that read the page stores nothing. Managed
+PostgreSQL (Neon) is UTF-8 by default. An embedded cluster on Windows is WIN1252
+unless told otherwise.
+
+What checks it (`db/encoding.ts`), none of which changes anything:
+
+- `npm run db:server` initialises a *new* cluster with
+  `--encoding=UTF8 --locale=C`, and warns when the app's database is not UTF-8;
+- `npm run db:setup` and `npm run db:migrate` warn before migrating;
+- the server logs `database.encoding_unsupported` once at startup.
+
+To move a development database to UTF-8 (nothing is deleted):
+
+```sql
+CREATE DATABASE preorder_utf8 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;
+```
+
+then point `DATABASE_URL` at `.../preorder_utf8` and run `npm run db:setup`. For
+a database holding real data, copy it across with `pg_dump` / `pg_restore`
+first and run `npm run db:migrate` instead. `TEMPLATE template0` is required:
+`template1` of a WIN1252 cluster is itself WIN1252.
+
+`npm run db:setup` seeds, and the seed truncates the tables it owns. Run it only
+against a new, empty database, never against one holding data you want to keep.
+The embedded server ships without `pg_dump`, `pg_restore` and `psql`. Copying
+data across needs the PostgreSQL 18 client tools. A dump taken from a WIN1252
+database records its client encoding, and restoring it into a UTF8 database
+converts the text. Keep the old database until the new one is checked. Never
+drop it as part of the move.
+
+Invisible characters that carry nothing a reader sees — NUL, U+200B and a few
+others — are removed before storage (`removeStorageNoise` in
+`lib/pkb/normalize.ts`); that is hygiene, not a substitute for UTF-8.
+
+No migration. `product_preparation_runs.review[]` may now carry an optional
+`comparison` (`{url, recorded[], found[]}`) on a `SOURCE_IDENTITY_MISMATCH`
+note — identifiers only — and `pkb_source_documents.identity_notes` records
+both sides' identifiers as written (`recorded`, `found`) and each Offer's
+identifiers (`offers`).

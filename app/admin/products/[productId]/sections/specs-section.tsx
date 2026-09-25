@@ -286,7 +286,10 @@ export function SpecsSection({
                   {fact.label}
                 </dt>
                 <dd className="text-body text-ink">
-                  {fact.unit ? `${fact.value} ${fact.unit}` : fact.value}
+                  {/* The unit only after a bare number: a value read from a
+                      manufacturer's page spells its own ("69g"), and appending
+                      it again printed "69g g" (D-120). */}
+                  {fact.unit && !/\p{L}/u.test(fact.value) ? `${fact.value} ${fact.unit}` : fact.value}
                 </dd>
               </div>
             ))}

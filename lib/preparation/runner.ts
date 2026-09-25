@@ -5,6 +5,7 @@ import {
   pkbClaims,
   pkbEnrichmentRuns,
   pkbSourceDocuments,
+  pkbSources,
   productPreparationRuns,
   productSearchQueue,
   products,
@@ -14,7 +15,7 @@ import {
 } from "@/db/schema";
 import type { SessionUser } from "@/lib/auth/session";
 import { staffChange } from "@/lib/pkb/common";
-import { requestEnrichment, sourceOutlook } from "@/lib/pkb/enrichment";
+import { enrichmentFailure, requestEnrichment, sourceOutlook } from "@/lib/pkb/enrichment";
 import { canEnrich } from "@/lib/pkb/resolution";
 import { reassessResolution } from "@/lib/pkb/resolution";
 import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
@@ -422,21 +423,105 @@ async function stepEnrichment(context: Context): Promise<Outcome> {
     };
   }
   if (enrichment.status === "failed") {
+    const failure = enrichmentFailure(enrichment.error);
+    if (failure.kind !== "other") {
+      /*
+       * The page was read and could not be stored (D-119). Carrying on would
+       * end in "not enough is known about this product", which is untrue —
+       * the information was there and was lost. The run is forgotten, so a
+       * retry after the cause is fixed researches afresh instead of waiting
+       * on this failed one. The database's own account of the failure is on
+       * the background jobs screen, which is an administrator's; it is never
+       * put in front of product staff.
+       */
+      await forgetEnrichmentRun(context);
+      return {
+        kind: "blocked",
+        failure: {
+          code: PREPARATION_CODES.SOURCE_STORAGE_FAILED,
+          message: "We read the product page but could not store the retrieved information.",
+          remedy:
+            failure.kind === "source_storage_encoding"
+              ? "Nothing about the product was changed. The page contains characters this database cannot store — an administrator has to move product knowledge to a UTF-8 database (see Background work for the details). Then try again."
+              : "Nothing about the product was changed. An administrator can see what went wrong under Background work. Try again once it is fixed.",
+        },
+      };
+    }
     /*
-     * A failed research run is not a failed product. Everything the run did
-     * retrieve is recorded, the listing is untouched, and preparation carries
-     * on to see whether what is already established is enough — which is often
-     * is, for a product staff filled in by hand.
+     * Any other failed research run is not a failed product. Everything the
+     * run did retrieve is recorded, the listing is untouched, and preparation
+     * carries on to see whether what is already established is enough — which
+     * it often is, for a product staff filled in by hand.
      */
     return {
       kind: "done",
       state: "degraded",
-      detail: "Research did not finish. Whatever it had already read is kept.",
+      detail: "Research stopped before it finished. Whatever it had already read is kept.",
     };
   }
 
   const read = enrichment.documentsRetrieved;
   const refused = enrichment.documentsRefused;
+
+  /*
+   * A page that names a different product (D-119). Its facts were never
+   * proposed (I-13); what a person needs is to see the disagreement and
+   * decide — correct the product's identity, give another source, or carry on
+   * by hand. Nothing here changes the identity on anyone's behalf.
+   */
+  if (enrichment.claimsProposed === 0) {
+    const mismatched = await db
+      .select({ url: pkbSources.url, notes: pkbSourceDocuments.identityNotes })
+      .from(pkbSourceDocuments)
+      .innerJoin(pkbSources, eq(pkbSources.id, pkbSourceDocuments.sourceId))
+      .where(
+        and(
+          eq(pkbSourceDocuments.runId, runId),
+          eq(pkbSourceDocuments.status, "retrieved"),
+          eq(pkbSourceDocuments.identityMatch, "mismatch"),
+        ),
+      )
+      .limit(1);
+    if (mismatched.length > 0) {
+      await forgetEnrichmentRun(context);
+      // The identifiers as staff typed them, rather than the matching keys.
+      const [listing] = await db
+        .select({
+          title: products.title,
+          brand: products.brand,
+          details: products.details,
+          identifierValue: products.identifierValue,
+        })
+        .from(products)
+        .where(eq(products.id, context.productId));
+      const details = (listing?.details ?? {}) as Record<string, unknown>;
+      return {
+        kind: "review",
+        notes: [
+          {
+            code: PREPARATION_CODES.SOURCE_IDENTITY_MISMATCH,
+            message: "The product page appears to describe a different product.",
+            remedy:
+              "Check the identifiers below. Correct the product's identity if it is wrong, give the page for this exact product, or continue by hand. Nothing from that page was used.",
+            comparison: identityComparison(
+              mismatched[0].url,
+              mismatched[0].notes,
+              listing
+                ? {
+                    name: listing.title,
+                    brands: listing.brand ? [listing.brand] : [],
+                    models: [details.modelNumber, details.manufacturerPartNumber]
+                      .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+                      .filter((value, index, all) => all.indexOf(value) === index),
+                    gtins: listing.identifierValue ? [listing.identifierValue] : [],
+                  }
+                : undefined,
+            ),
+          },
+        ],
+      };
+    }
+  }
 
   /*
    * A page that was read but judged not to be about this product proposes
@@ -462,6 +547,55 @@ async function stepEnrichment(context: Context): Promise<Outcome> {
     kind: "done",
     state: (read === 0 && refused > 0) || (unmatched > 0 && enrichment.claimsProposed === 0) ? "degraded" : "done",
     detail: `Read ${read} document${read === 1 ? "" : "s"}, ${refused} refused; proposed ${enrichment.claimsProposed} value${enrichment.claimsProposed === 1 ? "" : "s"}.${unmatchedNote}`,
+  };
+}
+
+/**
+ * Lets the next attempt start a research run of its own. The finished run and
+ * everything it recorded stay; only this preparation's link to it goes.
+ */
+async function forgetEnrichmentRun(context: Context): Promise<void> {
+  await db
+    .update(productPreparationRuns)
+    .set({ enrichmentRunId: null, updatedAt: new Date() })
+    .where(eq(productPreparationRuns.id, context.run.id));
+  context.run = { ...context.run, enrichmentRunId: null };
+}
+
+/** The identifiers on each side of a mismatch, as a person reads them. */
+export function identityComparison(
+  url: string | null,
+  notes: unknown,
+  /** The listing's identifiers as entered; the notes' normalised keys otherwise. */
+  recordedAsEntered?: { name?: string; brands?: string[]; models?: string[]; gtins?: string[] },
+): NonNullable<PreparationNote["comparison"]> {
+  const stored = (notes ?? {}) as {
+    recorded?: { name?: string; brands?: string[]; models?: string[]; gtins?: string[] };
+    found?: { names?: string[]; brands?: string[]; models?: string[]; skus?: string[]; gtins?: string[] };
+  };
+  const record = { ...stored, recorded: recordedAsEntered ?? stored.recorded };
+  const rows = (entries: [string, unknown][]) =>
+    entries
+      .map(([label, values]) => ({
+        label,
+        values: ([] as unknown[]).concat(values ?? []).map(String).filter(Boolean).slice(0, 6),
+      }))
+      .filter((row) => row.values.length > 0);
+  return {
+    url,
+    recorded: rows([
+      ["Name", record.recorded?.name],
+      ["Brand", record.recorded?.brands],
+      ["Model / part number", record.recorded?.models],
+      ["GTIN", record.recorded?.gtins],
+    ]),
+    found: rows([
+      ["Name", record.found?.names],
+      ["Brand", record.found?.brands],
+      ["Model / part number", record.found?.models],
+      ["SKU", record.found?.skus],
+      ["GTIN", record.found?.gtins],
+    ]),
   };
 }
 

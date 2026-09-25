@@ -3079,3 +3079,184 @@ settle which product it is for proposes nothing, by design. Preparation used to
 report "read 1 document, proposed 0 values" and then complain about insufficient
 knowledge. The verdict is now reported in the step that produced it, with the
 two things a staff member can do about it.
+
+## D-119 — A manufacturer's shop page, a database that cannot store it, and filler that looked like research
+
+A Glorious Model O was prepared against gloriousgaming.com, the manufacturer's
+own Shopify store. The page was fetched, and the run stored nothing: the local
+database was WIN1252, the page carried U+200B zero-width spaces, and the insert
+failed — five times, each attempt fetching the page again, with a job error that
+kept the start of Drizzle's INSERT and lost PostgreSQL's reason. Behind that
+failure were several more, and the decisions taken to fix them are these.
+
+**Invisible storage noise is removed; nothing visible is.** A short, named list
+of characters — NUL and the other C0 controls except tab and line breaks, U+200B,
+U+2060, U+FEFF, the soft hyphen, the invisible maths operators, the deprecated
+format controls and the interlinear anchors — is removed from every stored value,
+from visible text, and from parsed JSON-LD (where `​` escapes only exist
+after parsing). Not the whole Unicode `Cf` category: the zero-width joiner holds
+emoji together, the non-joiner shapes Persian and Indic scripts, and the
+bidirectional marks decide reading order. Nothing is transliterated.
+
+**The database has to be UTF-8, and Manifest says so rather than fixing it.**
+`db/encoding.ts` names a non-UTF-8 database with the exact commands to create a
+UTF-8 one; `db:server`, `db:setup`, `db:migrate` and the server's startup all
+report it. A new embedded cluster is initialised `--encoding=UTF8 --locale=C`.
+Nothing recreates or converts an existing database — it holds someone's
+catalogue.
+
+**A failure that cannot change is not retried.** The job runner dead-letters a
+job at once when the database error's SQLSTATE describes the data or the
+statement (encoding 22021/22P05, value too long or malformed, NOT NULL, CHECK,
+undefined column or table). Unique and foreign-key violations, deadlocks,
+serialisation failures and connection failures are all still retried.
+
+**The job keeps PostgreSQL's reason, not the statement.** `describeDatabaseError`
+records the SQLSTATE, message, detail, table and constraint and the first words
+of the statement, bounded, never the bound values and never a stack trace. It is
+what the background-jobs screen (administrators) shows. An enrichment run that
+failed while storing a page records `source_storage:` or
+`source_storage_encoding:` ahead of that, and preparation tells staff only "We
+read the product page but could not store the retrieved information", with a
+remedy pointing an administrator at Background work. The run is forgotten so a
+retry researches afresh.
+
+**Identifiers on the Offer count.** Shopify and most shop platforms put the SKU
+and GTIN on each Offer, one per colour, not on the Product. Offers are read —
+including inside an AggregateOffer — only from the Product that declares them,
+and kept with it. A SKU with a letter in it is compared as a model identifier
+(a manufacturer's own code, "GLO-OC-WL-BLK"); an all-digit SKU, which is almost
+always a retailer's shelf number, is not. Matching standards are unchanged: a
+GTIN decides when both sides have one, a model identifier next.
+
+**A page about a different product stops for a person.** When a run's only page
+disagrees with the product's identity, preparation asks for review with "The
+product page appears to describe a different product", both sides' identifiers
+as typed, and the page's address, and offers Correct product identity, Use
+another source and Continue manually. The identity is never changed for anyone.
+
+**Feature cards, and less furniture.** A title and the paragraph under it,
+beside an icon, is read as a pair — only when exactly two children carry text,
+both plain, the second a paragraph longer than the title, nothing to click, not
+link text. Navigation, footers, forms, buttons, reviews, newsletters, carts and
+related-product blocks are recognised structurally (element, role, or a class or
+id word) and never produce pairs or stored text; a dialog, modal or drawer is
+deliberately *not* on that list, because full specifications often live in one.
+A small block (at most four children and a thousand characters) holding a
+"Shop now" or "Add to cart" is an offer, and its headings and cards are dropped
+— never its table rows. Calls to action and review scores are never values; a
+JSON literal in a data container is never text; a sentence split across two
+elements is not a label; the same statement read twice is one pair.
+
+**One list of identity labels.** `lib/pkb/identity-labels.ts` replaced the two
+drifting copies in `rules.ts` and `facts.ts`. Part number and MPN can no longer
+become key features, and a key-feature line that only restates an identifier
+does not count towards knowledge sufficiency. The four-fact threshold is
+unchanged.
+
+**No customer content without knowledge.** Fill with SeoPulse writes the
+description and key features only when knowledge is sufficient; otherwise it
+says "SeoPulse needs more verified product information before it can prepare
+customer content" and leaves them as they are. Search wording from the name may
+still be filled. The rules generator writes no description at all when knowledge
+is insufficient, and opens on a fact about the product when it is — never "<Product>
+is part of our Electronics range".
+
+**Buying terms are not part of the description.** The "Buying it here" block —
+preorder status, arrival, landed price, delivery, warranty — was frozen into the
+description at generation time and went stale. The product page already shows
+all of it from the live offer beside the price (the variant picker and the
+journey section), so it is simply no longer written. Existing descriptions that
+contain it are left alone; staff content is never rewritten.
+
+**Research state is visible.** The editor and `?preview=1` say "Research
+incomplete — SeoPulse still needs product information" or "Product research
+ready", from the same sufficiency verdict preparation and Fill use, with
+"Continue product preparation" linking back to the editor. Preview is never
+blocked, and shoppers never see it.
+
+**A list written as one value is a list.** Glorious writes what is in the box
+as one table cell: "• 1× USB Receiver • 1× Ascended USB-A to USB-C Cable • 1×
+USB-A to USB-C Adapter". It was proposed, accepted and shown as a single
+"In the box" item. For an attribute whose cardinality is `multiple`, research
+now splits such a value into items and proposes one claim per item, each in
+its own ordinal slot. It splits only on bullet glyphs and line breaks — never
+on commas or middle dots, which sit inside items as often as between them. A
+value with one item is proposed as itself, less any leading bullet. Facts
+already accepted as one run-on item are not rewritten; the next research run
+proposes the items, and they conflict with the old value for a person to
+decide.
+
+## D-120 — Generate, regenerate, and whose words are whose
+
+SeoPulse wrote Case B's description (the Glorious Model O Classic Wireless)
+before D-119 fixed the generator. Nobody edited it. Fill with SeoPulse
+correctly refused to replace it, because Fill never replaces a field that
+holds something. The broken sentence would have stayed forever unless someone
+retyped it. The rule is right. What was missing was a way to tell SeoPulse's
+own unedited wording from a person's.
+
+**Ownership comes from the history, not the state.** An applied recommendation
+is MANUAL, exactly like a typed one (D-077). A state cannot separate "SeoPulse
+wrote this" from "a person wrote this". The append-only `seo_field_history`
+can. Its latest row for a field names the workflow that wrote it
+(`seo_pulse_apply`/`seo_pulse_fill` or `editor`). Its after-value says whether
+the field still holds that value. `contentOwnership` in `lib/seo/fields.ts`
+answers `empty`, `seo_pulse`, `staff` or `locked`. A value the history does not
+account for (an import, a direct write, an older listing) is `staff`, the safe
+answer. Saving a section without changing a field records nothing, so it
+does not take the field over. No migration.
+
+**What each owner is offered.**
+
+- **Empty:** "Use SeoPulse version".
+- **SeoPulse's own:** "Regenerate with SeoPulse", one click.
+- **Staff's:** "Keep current", "Review SeoPulse version", and "Replace with
+  SeoPulse version". Replace appears only once the version is open, and it
+  asks for confirmation.
+- **Locked:** nothing is offered.
+
+`regenerateWithSeoPulse` takes field names only. It reads the wording from the
+run on the server. It refuses a run older than the latest completed one. It
+refuses staff-owned fields without `replaceStaff`, and refuses locked fields
+always. It checks ownership again inside the apply transaction, after the
+listing lock (a new `guard` hook on `applySeoPulse`), so an edit saved a moment
+earlier is never replaced by a click made against the older value. The history
+records the replacement with reason "Regenerated with SEO Pulse" or "Replaced
+with the SEO Pulse version by staff".
+
+**Recommendations are shown where the field is.** Product content and SEO &
+search each open with the latest research's version of their fields, when it
+differs from what the field holds. "Refresh recommendations" asks for fresh
+research. Preparation still only prepares, and Fill still fills only empty
+fields; Fill now also names kept fields that have a newer version. Tags,
+search terms, photo descriptions and synonyms keep their own apply rules.
+Verified specifications are not generated copy. They reach the listing from
+the knowledge base as before.
+
+**SeoPulse's own words are not evidence.** `SeoPulseInput.pulseWritten`
+marks the description and key features that SeoPulse wrote and nobody
+changed. The generator does not treat such features as staff-written, so
+regeneration builds from the knowledge base, not from the previous version's
+wording (which is how "Size: Standard" kept coming back). Sufficiency does not
+count them: a generated listing cannot vouch for itself. Readiness checks
+still read the real description.
+
+**Three wording defects found in Case B's regeneration.**
+
+- Box contents appeared as a specification row, and so as a key feature, and
+  only its first item: "What's in the box: 1× USB receiver". Box contents
+  have their own list. They are no longer a specification row.
+- A named size produced "It comes in Standard.". Only a measured size ("42 mm")
+  is now said in the opening.
+- Grounded key features listed measurements first, so the description opened
+  on "Size: Standard". Specifications now come before measurements. The
+  warranty is left out of key features: it is an assurance term with its own
+  section.
+
+**Known limitation — list slots and out-of-order review.** A list attribute's
+items are separate ordinal slots. If staff accept item 3 before item 2, the
+listing mirror compacts the list, and item 3 moves into slot 2. Item 2's claim
+then collides with it, and accepting it would replace item 3. The
+knowledge-to-listing round trip keeps no gaps. This predates D-119. It needs a
+PKB change and was not made here. Accepting in list order avoids it.

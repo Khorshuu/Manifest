@@ -7,7 +7,7 @@ import {
   type SerpSnapshot,
 } from "./types";
 import { keywordKey } from "./text";
-import { labelKey } from "@/lib/pkb/normalize";
+import { isIdentityLabel, isIdentityLine } from "@/lib/pkb/identity-labels";
 import type { GroundedAttribute } from "@/lib/pkb/publish";
 
 /**
@@ -372,6 +372,10 @@ function knowledgeRows(input: SeoPulseInput, kind: "specification" | "measuremen
   const wanted = (attribute: GroundedAttribute) =>
     (MEASURED.test(attribute.label) ? "measurement" : "specification") === kind;
   return (input.knowledge?.attributes ?? [])
+    // What is in the box has its own list (`boxContents`). As a table row it
+    // was one item of several — `tidy` keeps the first row for a label — and
+    // it became a key feature: "What's in the box: 1× USB receiver" (D-120).
+    .filter((attribute) => attribute.key !== "box_contents")
     .filter((attribute) => attribute.pkbVariantId === null && wanted(attribute))
     .map((attribute) => ({
       label: attribute.label,
@@ -441,35 +445,6 @@ export type KnowledgeSufficiency = {
 
 export const SUFFICIENT_FACTS = 4;
 
-/**
- * Specification labels that only name the product rather than describe it.
- * Compared through `labelKey`, so "Model No.", "model no" and "MODEL NO" are
- * one label.
- */
-const IDENTITY_ROW_LABELS = new Set(
-  [
-    "brand",
-    "manufacturer",
-    "model",
-    "model name",
-    "model number",
-    "model no",
-    "mpn",
-    "manufacturer part number",
-    "part number",
-    "sku",
-    "gtin",
-    "gtin8",
-    "gtin12",
-    "gtin13",
-    "gtin14",
-    "upc",
-    "ean",
-    "isbn",
-    "asin",
-  ].map(labelKey),
-);
-
 export function knowledgeSufficiency(input: SeoPulseInput): KnowledgeSufficiency {
   const specifications = specificationRows(input);
   const measurements = measurementRows(input);
@@ -496,22 +471,27 @@ export function knowledgeSufficiency(input: SeoPulseInput): KnowledgeSufficiency
    * counts as a specification is something the product *is*, not what it is
    * called.
    */
-  const specificationFacts = specifications.filter(
-    (row) => !IDENTITY_ROW_LABELS.has(labelKey(row.label)),
-  ).length;
+  const specificationFacts = specifications.filter((row) => !isIdentityLabel(row.label)).length;
   facts += Math.min(specificationFacts, 6);
   if (specificationFacts === 0) missing.push("Specifications");
 
   facts += Math.min(measurements.length, 3);
   if (measurements.length === 0) missing.push("Measurements");
 
-  if (input.bulletFeatures.length > 0) facts += 1;
+  // "Part number: GO-WHITE" written as a key feature is still only a name
+  // (D-119): a product whose features merely restate its identifiers is
+  // identified, not described.
+  // Key features or a description SEO Pulse wrote itself are not evidence that
+  // the product was researched (D-120): counting them would let a generated
+  // listing vouch for itself.
+  const staffFeatures = input.pulseWritten?.bulletFeatures ? [] : input.bulletFeatures;
+  if (staffFeatures.some((feature) => !isIdentityLine(feature))) facts += 1;
   else missing.push("Key features");
 
   if (input.boxContents.length > 0) facts += 1;
   else missing.push("What is in the box");
 
-  if (input.descriptionText.length >= 200) facts += 1;
+  if (!input.pulseWritten?.description && input.descriptionText.length >= 200) facts += 1;
 
   return { sufficient: facts >= SUFFICIENT_FACTS, facts, required: SUFFICIENT_FACTS, missing };
 }

@@ -22,6 +22,7 @@ import { sql } from "drizzle-orm";
 import postgres from "postgres";
 import { getDb } from "./index";
 import { isPooledUrl } from "./connection";
+import { checkDatabaseEncoding } from "./encoding";
 import { migratePostgres } from "./migrator";
 import { users } from "./schema";
 
@@ -80,6 +81,9 @@ async function main() {
 
   const client = postgres(url, { max: 1, onnotice: () => {} });
   try {
+    // Reported, never fixed here: recreating a database is a person's decision.
+    const encoding = await checkDatabaseEncoding((text) => client.unsafe(text));
+    if (encoding) process.stderr.write(`\nWARNING — ${encoding}\n\n`);
     const report = await migratePostgres(client);
     process.stdout.write(
       `Migrations: ${report.applied.length} applied, ${report.baselined.length} baselined, ${report.alreadyApplied} already applied.\n`,

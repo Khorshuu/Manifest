@@ -125,6 +125,39 @@ test("Save without SeoPulse leaves a usable product and offers preparation later
   }
 });
 
+test("an unresearched product says so in the editor and in the staff preview (D-119)", async ({ page }) => {
+  await signIn(page, "staff@example.com");
+  await page.goto("/admin/products/new");
+
+  const title = `Unresearched ${crypto.randomUUID().slice(0, 8)}`;
+  await page.getByLabel("Product name").fill(title);
+  await page.getByLabel("Brand").fill("Northfield Supply");
+  await page.getByRole("button", { name: "Save without SeoPulse" }).click();
+  await page.waitForURL((url) => productPage.test(url.pathname));
+
+  const editorStatus = page.locator('[data-research-state="incomplete"]');
+  await expect(editorStatus).toContainText("Research incomplete");
+  await expect(editorStatus).toContainText("SeoPulse still needs product information");
+
+  // The preview still renders the page, with the warning above it.
+  const previewHref = await page.locator('a[href*="?preview=1"]').first().getAttribute("href");
+  await page.goto(previewHref!);
+  await expect(page.getByRole("heading", { name: title, level: 1 })).toBeVisible();
+  const banner = page.locator('[data-research-state="incomplete"]');
+  await expect(banner).toContainText("Research incomplete");
+  await expect(banner.getByRole("link", { name: "Continue product preparation" })).toHaveAttribute(
+    "href",
+    new RegExp("^/admin/products/[0-9a-f-]{36}$"),
+  );
+});
+
+test("a shopper never sees the research state, only staff previewing", async ({ page }) => {
+  await page.goto("/products/studio-reference-headphones");
+  await expect(page.locator("[data-research-state]")).toHaveCount(0);
+  await page.goto("/products/studio-reference-headphones?preview=1");
+  await expect(page.locator("[data-research-state]")).toHaveCount(0);
+});
+
 test("the editor is ordered for daily work, and keeps the advanced tools out of the way", async ({ page }) => {
   await signIn(page, "staff@example.com");
   await page.goto("/admin/products?q=Studio+Reference+Headphones");

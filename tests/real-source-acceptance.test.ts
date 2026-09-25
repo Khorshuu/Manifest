@@ -238,7 +238,13 @@ describe("what the rules generator writes once a product is researched", () => {
 
   it("does not open on the shop, and keeps what staff wrote when they wrote it", () => {
     const generated = generateByRules(
-      sampleInput({ bulletFeatures: ["Industry-leading noise cancelling"] }),
+      sampleInput({
+        bulletFeatures: ["Industry-leading noise cancelling"],
+        knowledge: knowledgeWith([
+          { label: "Mass", value: "Approx. 254 g (9 oz)" },
+          { label: "Communication system", value: "Bluetooth Specification version 5.3" },
+        ]),
+      }),
       emptyResearch,
     );
     expect(generated.description.suggestedHtml).not.toMatch(/^<p>[^<]*sourced from the United States/);
