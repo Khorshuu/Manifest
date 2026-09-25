@@ -1633,3 +1633,168 @@ export async function regenerateWithSeoPulse(
   );
   return { applied };
 }
+
+// ------------------------------------------------------- prepared content
+
+export type PreparedContentResult = {
+  /** Labels of fields that were empty and now hold SeoPulse's wording. */
+  applied: string[];
+  /** Labels of fields that held SeoPulse's own unedited wording, now refreshed. */
+  refreshed: string[];
+  /** Labels of fields a person wrote, left alone although SeoPulse has another version. */
+  kept: string[];
+  /**
+   * Labels of empty fields left as recommendations because the wording came
+   * from a generator whose prose is read before it is used (finding F2).
+   */
+  review: string[];
+  /** True when newer research exists; nothing was written from this run. */
+  superseded: boolean;
+  /** True when too little is established to write customer content. */
+  needsKnowledge: boolean;
+};
+
+/**
+ * Writes a preparation run's wording into the listing where that is safe
+ * (D-122) — the step that makes "Prepare with SeoPulse" one action instead of
+ * research followed by a separate Fill.
+ *
+ * What it may touch is decided by who owns each field (D-120), read again
+ * under the listing lock before anything is written:
+ *
+ *  - **empty** — filled with the grounded recommendation.
+ *  - **seo_pulse** — SeoPulse's own unedited wording, refreshed. Somebody
+ *    explicitly asked for this product to be prepared, and nobody's writing
+ *    is lost: the history keeps the previous version.
+ *  - **staff** — never written. Reported, so the editor can offer Keep,
+ *    Review or Replace in the field's own section.
+ *  - **locked** — never written, and not offered.
+ *
+ * Tags and search terms are lists: they are added to only when they are empty
+ * or SeoPulse's own, and an addition never drops an entry.
+ *
+ * Customer content is written only from sufficient knowledge (D-115), and
+ * prose from an AI generator is left as a recommendation for a person to read
+ * rather than written into the listing unseen (finding F2), exactly as Fill
+ * treats it. The values come from the stored run, never from a caller.
+ */
+export async function applyPreparedContent(
+  actor: SessionUser | null,
+  productId: string,
+  runId: string,
+): Promise<PreparedContentResult> {
+  const staff = requirePermission(actor, "catalog.manage");
+  const result: PreparedContentResult = {
+    applied: [],
+    refreshed: [],
+    kept: [],
+    review: [],
+    superseded: false,
+    needsKnowledge: false,
+  };
+
+  const run = await findRun(eq(seoResearchRuns.id, runId));
+  if (!run || run.run.productId !== productId) {
+    throw new SeoPulseError("That research run was not found for this product.", 404);
+  }
+  const analysis = run.run.analysis as SeoAnalysis | null;
+  if (run.run.status !== "completed" || !analysis) {
+    throw new SeoPulseError("Only completed research can be applied.", 409);
+  }
+  const latest = await latestCompletedRun(productId);
+  if (latest && latest.run.id !== runId) return { ...result, superseded: true };
+
+  const input = await loadPulseInput(productId);
+  if (!input) throw new SeoPulseError("That product was not found.", 404);
+  const sufficiency = knowledgeSufficiency(input);
+  if (!sufficiency.sufficient) return { ...result, needsKnowledge: true };
+
+  const proposed = proposedValues(analysis, true);
+  const listFields = ["tags", "searchKeywords"] as const;
+  const owners = await contentOwnership(db, productId, [...RECOMMENDED_FIELDS, ...listFields]);
+  const [product] = await db.select().from(products).where(eq(products.id, productId));
+  if (!product) throw new SeoPulseError("That product was not found.", 404);
+
+  const fields: SeoPulseApplyPayload["fields"] = {};
+  const overwrite: RecommendedField[] = [];
+  /** The owner each written field had when it was chosen, re-checked under the lock. */
+  const expected = new Map<RecommendedField | (typeof listFields)[number], ContentOwner>();
+  const reviewFirst = analysis.generator.kind === "ai";
+
+  for (const field of RECOMMENDED_FIELDS) {
+    const next = proposed[field];
+    if (next === undefined) continue;
+    const raw = (product as Record<string, unknown>)[field];
+    const current = Array.isArray(raw) ? strings(raw) : typeof raw === "string" ? raw : null;
+    if (sameContent(current, next)) continue;
+    const owner = owners.get(field) ?? "staff";
+    const label = RECOMMENDED_LABELS[field];
+    if (owner === "staff") {
+      result.kept.push(label);
+      continue;
+    }
+    if (owner === "locked") continue;
+    if (reviewFirst) {
+      result.review.push(label);
+      continue;
+    }
+    (fields as Record<string, unknown>)[field] = next;
+    expected.set(field, owner);
+    if (owner === "seo_pulse") {
+      overwrite.push(field);
+      result.refreshed.push(label);
+    } else {
+      result.applied.push(label);
+    }
+  }
+
+  if (!reviewFirst) {
+    const additions: Record<(typeof listFields)[number], { terms: string[]; max: number; length: number; label: string }> = {
+      tags: { terms: analysis.tags, max: 30, length: 40, label: "Tags" },
+      searchKeywords: {
+        terms: [
+          ...analysis.searchAliases,
+          ...analysis.misspellings.map((entry) => entry.term),
+          ...analysis.searchPhrases,
+          ...analysis.brandVariations,
+        ],
+        max: 40,
+        length: 60,
+        label: "Search terms",
+      },
+    };
+    for (const field of listFields) {
+      const owner = owners.get(field) ?? "staff";
+      if (owner !== "empty" && owner !== "seo_pulse") continue;
+      const existing = strings(product[field]);
+      const merged = mergeTerms(existing, additions[field].terms, additions[field].max, additions[field].length);
+      if (merged.length <= existing.length) continue;
+      fields[field] = merged;
+      expected.set(field, owner);
+      (owner === "empty" ? result.applied : result.refreshed).push(additions[field].label);
+    }
+  }
+
+  if (expected.size === 0) return result;
+
+  /*
+   * Under the listing lock, the owners are read again: a person who saved a
+   * field a moment ago owns it now, and this write must not land on it.
+   */
+  const guard = async (executor: Executor) => {
+    const now = await contentOwnership(executor, productId, [...expected.keys()]);
+    for (const [field, owner] of expected) {
+      if ((now.get(field) ?? "staff") !== owner) {
+        throw new SeoPulseError("The listing changed while SeoPulse was preparing it.", 409, { changed: [field] });
+      }
+    }
+  };
+
+  await applySeoPulse(
+    staff,
+    productId,
+    { runId, fields, overwrite },
+    { reason: "Prepared with SeoPulse", guard },
+  );
+  return result;
+}

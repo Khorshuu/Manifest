@@ -1,6 +1,13 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { productPreparationRuns, products, users, type ProductPreparationRun } from "@/db/schema";
+import {
+  productPreparationRuns,
+  products,
+  seoResearchRuns,
+  users,
+  type PreparationStepRecord,
+  type ProductPreparationRun,
+} from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
@@ -11,7 +18,14 @@ import { enqueueJob } from "@/lib/jobs/runner";
 import { addProductSource, provideDocument } from "@/lib/pkb/enrichment";
 import { productPatchSchema } from "@/lib/validation/catalog";
 import { preparationBackgroundState } from "./background";
-import { FINISHED_STAGES, PREPARATION_CODES, type PreparationStage, type PreparationView } from "./types";
+import {
+  FINISHED_STAGES,
+  PREPARATION_CODES,
+  PREPARATION_STEPS,
+  type PreparationStage,
+  type PreparationStep,
+  type PreparationView,
+} from "./types";
 
 /**
  * Product preparation: the staff-facing half (D-112).
@@ -219,6 +233,7 @@ export async function retryPreparation(actor: SessionUser | null, runId: string)
     const [revived] = await tx
       .update(productPreparationRuns)
       .set({
+        ...(await failedGenerationCleared(tx, current)),
         stage: "IDENTIFYING",
         failure: null,
         review: [],
@@ -312,10 +327,33 @@ export async function continuePreparation(
 
   await supply(staff, current.productId, input);
 
+  /*
+   * What was supplied decides where the same run picks up (D-122). New
+   * identity means the product itself may be a different one, so everything
+   * from identification onward is done again; a new address has not been read
+   * yet, so research is done again; a pasted document was read on the spot and
+   * proposed its values, so what is checked again starts at verification. The
+   * steps before the rewind point stay recorded, and nothing they produced is
+   * undone — the evidence and claims from the earlier research are kept, and
+   * a second reading of the same page proposes nothing twice.
+   */
+  const stopped = FINISHED_STAGES.has(current.stage) || current.stage === "NEEDS_REVIEW";
+  // A run still moving owns its own step record; it is only rewound once stopped.
+  const from: PreparationStep | null = !stopped
+    ? null
+    : input.identity && Object.keys(input.identity).length > 0
+      ? "identity"
+      : (input.urls?.length ?? 0) > 0
+        ? "sources"
+        : input.document
+          ? "verification"
+          : null;
+
   const [updated] = await db
     .update(productPreparationRuns)
     .set({
-      stage: FINISHED_STAGES.has(current.stage) || current.stage === "NEEDS_REVIEW" ? "IDENTIFYING" : current.stage,
+      ...(from ? rewoundTo(current, from) : stopped ? await failedGenerationCleared(db, current) : {}),
+      stage: stopped ? "IDENTIFYING" : current.stage,
       review: [],
       failure: null,
       finishedAt: null,
@@ -330,6 +368,37 @@ export async function continuePreparation(
 }
 
 // ------------------------------------------------------------------ helpers
+
+/** The columns that send a run back to `from`, keeping every step before it. */
+function rewoundTo(
+  run: ProductPreparationRun,
+  from: PreparationStep,
+): { steps: PreparationStepRecord[]; enrichmentRunId?: null; seoRunId: null } {
+  const keep = new Set(PREPARATION_STEPS.slice(0, PREPARATION_STEPS.indexOf(from)));
+  const researchAgain = !keep.has("enrichment");
+  return {
+    steps: (run.steps ?? []).filter((step) => keep.has(step.key as PreparationStep)),
+    ...(researchAgain ? { enrichmentRunId: null } : {}),
+    // New knowledge means new wording: the next generation is its own run.
+    seoRunId: null,
+  };
+}
+
+/**
+ * A generation that failed is not waited on again: continuing or retrying
+ * lets the content step generate afresh. Research is untouched.
+ */
+async function failedGenerationCleared(
+  executor: Pick<typeof db, "select">,
+  run: ProductPreparationRun,
+): Promise<{ seoRunId?: null }> {
+  if (!run.seoRunId) return {};
+  const [generation] = await executor
+    .select({ status: seoResearchRuns.status })
+    .from(seoResearchRuns)
+    .where(eq(seoResearchRuns.id, run.seoRunId));
+  return generation?.status === "failed" ? { seoRunId: null } : {};
+}
 
 async function supply(
   staff: SessionUser,

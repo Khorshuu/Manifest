@@ -46,6 +46,9 @@ import { loadDefinitions, type DefinitionRecord } from "./vocabulary";
 
 type ClaimRow = typeof pkbClaims.$inferSelect;
 
+/** Verification states a person has already decided. */
+const DECIDED = new Set<string>(["VERIFIED", "MANUAL"]);
+
 /** A claim's value in the shape facts are written in. */
 export function claimValue(claim: ClaimRow): FactValue {
   if (claim.valueStatus === "not_applicable") return notApplicableValue();
@@ -107,6 +110,8 @@ export async function createClaim(tx: Executor, input: NewClaim): Promise<ClaimR
   let columns: Partial<typeof pkbClaims.$inferInsert>;
   let slot: Pick<ClaimRow, "pkbProductId" | "pkbVariantId" | "targetKind" | "definitionId" | "identifierType" | "ordinal">;
   let disagreesWithAccepted = false;
+  /** An accepted value already stands in this slot, and this claim says the same. */
+  let repeatsAccepted = false;
 
   if (input.target === "fact") {
     const ordinal = input.ordinal ?? 0;
@@ -136,6 +141,9 @@ export async function createClaim(tx: Executor, input: NewClaim): Promise<ClaimR
         ),
       );
     disagreesWithAccepted = fact !== undefined && !sameStoredValue(fact, value);
+    // Only a value a person decided: a legacy or unverified one is exactly
+    // what a source repeating it may still be accepted to verify.
+    repeatsAccepted = fact !== undefined && !disagreesWithAccepted && DECIDED.has(fact.verificationState);
   } else {
     const normalized = normalizeIdentifier(input.inputType, input.raw);
     columns = {
@@ -159,6 +167,11 @@ export async function createClaim(tx: Executor, input: NewClaim): Promise<ClaimR
       );
     disagreesWithAccepted =
       existing.length > 0 && !existing.some((row) => (row.valueNormalized ?? row.valueRaw) === (normalized.normalized ?? normalized.raw));
+    repeatsAccepted =
+      !disagreesWithAccepted &&
+      existing.some(
+        (row) => (row.valueNormalized ?? row.valueRaw) === (normalized.normalized ?? normalized.raw) && DECIDED.has(row.verificationState),
+      );
     if (normalized.gtin14) {
       const [owner] = await tx.select({ id: pkbIdentifiers.pkbProductId }).from(pkbIdentifiers).where(eq(pkbIdentifiers.gtin14, normalized.gtin14));
       if (owner && owner.id !== input.pkbProductId) disagreesWithAccepted = true;
@@ -184,6 +197,33 @@ export async function createClaim(tx: Executor, input: NewClaim): Promise<ClaimR
     .returning();
 
   const disagreeing = open.filter((other) => !sameClaimValue(other, claim));
+
+  /*
+   * A source repeating the value a person already accepted (D-122). Reading
+   * the manufacturer's page again — which is what preparing a product again
+   * does — would otherwise ask somebody to accept every value they had already
+   * accepted, and a refresh would never finish on its own. Nothing is decided
+   * here: the fact, its verification state and its provenance are untouched,
+   * and the claim is kept, with its evidence, as a closed record that the
+   * source still says so. A claim that differs is still a CONFLICT, and one
+   * that repeats an accepted value while another open claim disagrees is left
+   * open for the person deciding that slot.
+   */
+  if (repeatsAccepted && disagreeing.length === 0) {
+    const now = new Date();
+    await tx
+      .update(pkbClaims)
+      .set({
+        // Not a decision, so no decision time (pkb_claims_decision_check).
+        status: "SUPERSEDED",
+        decisionNote: "Repeats the value already accepted for this product.",
+        updatedAt: now,
+      })
+      .where(eq(pkbClaims.id, claim.id));
+    claim.status = "SUPERSEDED";
+    return claim;
+  }
+
   if (disagreesWithAccepted || disagreeing.length > 0) {
     await tx.update(pkbClaims).set({ status: "CONFLICT", updatedAt: new Date() }).where(eq(pkbClaims.id, claim.id));
     claim.status = "CONFLICT";

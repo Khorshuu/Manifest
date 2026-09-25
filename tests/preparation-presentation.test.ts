@@ -25,6 +25,9 @@ import {
   shouldKeepPolling,
   STAGE_LABEL,
   STAGE_SUMMARY,
+  decisionSummary,
+  preparationOutcome,
+  STAGE_LABEL as STAGE_LABELS,
 } from "@/lib/preparation/presentation";
 import { PREPARATION_CODES, PREPARATION_STEPS } from "@/lib/preparation/types";
 
@@ -125,7 +128,8 @@ describe("issues", () => {
     expect(issue.title).toBe("SeoPulse needs more product information");
     expect(issue.message).toContain("2 of the 6 facts needed");
     expect(issue.remedy).toContain("weight, dimensions");
-    expect(issue.actions).toEqual(["sources", "specifications", "recheck"]);
+    // Add a page or specification, add specifications by hand, continue, or finish by hand (D-122).
+    expect(issue.actions).toEqual(["sources", "specifications", "recheck", "manual"]);
   });
 
   it("sends a disagreement between sources to the screen that decides it", () => {
@@ -177,5 +181,48 @@ describe("what staff are told about discovery and identity", () => {
     for (const state of ["VERIFIED", "HIGH_CONFIDENCE", "AMBIGUOUS", "UNRESOLVED", null] as const) {
       expect(describeIdentityState(state).label).not.toContain("_");
     }
+  });
+});
+
+describe("the finished summary (D-122)", () => {
+  const all = PREPARATION_STEPS.map((key) => step(key));
+  const full = { description: true, keyFeatures: true, seoTitle: true, metaDescription: true, focusKeyword: true };
+
+  it("reads as one prepared product when every step ran and every field holds something", () => {
+    const groups = preparationOutcome({ steps: all, listing: full, specifications: 5, decisions: [] });
+    expect(groups.map((group) => group.title)).toEqual(["Product", "Research", "Listing", "SEO & search", "Page"]);
+    expect(groups.flatMap((group) => group.items).every((item) => item.state === "done")).toBe(true);
+    expect(groups[2].items[2].label).toBe("Specifications prepared (5)");
+    expect(STAGE_LABELS.READY).toBe("SeoPulse prepared this product");
+  });
+
+  it("says a person's description was kept, and never calls filler prepared", () => {
+    const groups = preparationOutcome({
+      steps: all,
+      listing: { ...full, keyFeatures: false },
+      specifications: 0,
+      decisions: [{ field: "descriptionHtml", owner: "staff" }],
+    });
+    const listing = groups.find((group) => group.title === "Listing")!.items;
+    expect(listing[0]).toEqual({ label: "Description: yours kept — a SeoPulse version is ready", state: "attention" });
+    expect(listing[1]).toEqual({ label: "Key features not written", state: "missing" });
+    expect(listing[2]).toEqual({ label: "No verified specifications yet", state: "missing" });
+  });
+
+  it("marks a step the run did not record as not done, whatever the stage says", () => {
+    const groups = preparationOutcome({ steps: all.filter((entry) => entry.key !== "search"), listing: full, specifications: 1, decisions: [] });
+    expect(groups.find((group) => group.title === "SEO & search")!.items[1].state).toBe("missing");
+  });
+
+  it("counts only the decisions a person has to make", () => {
+    expect(decisionSummary([])).toBeNull();
+    expect(decisionSummary([{ field: "seoMetaTitle", owner: "seo_pulse" }])).toBeNull();
+    expect(decisionSummary([{ field: "descriptionHtml", owner: "staff" }])).toBe("1 recommendation needs your decision");
+    expect(
+      decisionSummary([
+        { field: "descriptionHtml", owner: "staff" },
+        { field: "bulletFeatures", owner: "empty" },
+      ]),
+    ).toBe("2 recommendations need your decision");
   });
 });

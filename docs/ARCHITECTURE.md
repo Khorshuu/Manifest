@@ -239,6 +239,7 @@ POST /api/admin/products/[id]/preparation   (catalog.manage)
         requestEnrichment → runEnrichment as a job  (lib/pkb)
         read pkb_claims / pkb_attribute_proposals   (lib/pkb)
         knowledgeSufficiency → runSeoPulse          (lib/seo-pulse)
+        applyPreparedContent → applySeoPulse        (lib/seo-pulse, D-122)
         product_search_queue → search.process_queue (lib/search)
         seoReadiness / searchReadiness              (lib/seo)
 ```
@@ -253,9 +254,17 @@ completed, and a completed step is never run again. The enrichment run's id and
 the research run's id are kept on the row, so a retry waits for the work it
 already started rather than starting more.
 
+**The experience is one action; the sources of truth stay four (D-122).**
+Research and `lib/pkb` decide what is true about the product; SeoPulse writes
+customer wording from what `lib/pkb` has established; SearchPulse derives the
+search document from the listing and the knowledge base. Preparation only
+orders them. Its `listing` step writes the prepared wording into fields that
+are empty or still SeoPulse's own, through `applySeoPulse` and the field
+change history, and never into a field a person wrote.
+
 **It decides nothing.** Every decision — which product this is, whether a claim
-is true, whether a domain may be trusted, whether generated wording goes on the
-page — belongs to `lib/pkb` or to a person, and each of those paths checks its
+is true, whether a domain may be trusted, whether generated wording replaces a
+person's — belongs to `lib/pkb` or to a person, and each of those paths checks its
 own permission. The worker acts as the staff member who asked, so it has exactly
 their authority and no more (invariant I-24).
 

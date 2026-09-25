@@ -8,6 +8,9 @@ import type { FillResult } from "@/lib/seo-pulse";
 /**
  * SEO Pulse, as the product editor shows it: a small box with one button.
  *
+ * Since D-122 this is a manual tool under Advanced tools, kept for backward
+ * compatibility: Prepare with SeoPulse writes the same safe fields itself.
+ *
  * "Fill with SEO Pulse" saves anything unsaved, researches the product (or
  * reuses research on an unchanged product), and writes into every empty field
  * what it can say reliably — SEO title, meta description, focus keyword,
@@ -87,7 +90,7 @@ export function SeoPulseBox({
   return (
     <section aria-labelledby="seo-pulse-box" className="admin-card flex flex-col gap-3 p-3.5">
       <div className="flex items-center justify-between gap-2">
-        <h2 id="seo-pulse-box" className="admin-h2">SEO Pulse</h2>
+        <h2 id="seo-pulse-box" className="admin-h2">Manual fill</h2>
         <span
           aria-live="polite"
           className={`text-[0.75rem] font-medium ${
@@ -98,7 +101,7 @@ export function SeoPulseBox({
         </span>
       </div>
       <p className="text-[0.75rem] text-ink/65">
-        Fills empty description, SEO and search fields from the facts you entered. Your own text is kept, nothing is invented, and specifications stay in the product knowledge base.
+        Not needed after Prepare with SeoPulse, which already fills empty fields. Fills empty description, SEO and search fields from the facts you entered. Your own text is kept, nothing is invented, and specifications stay in the product knowledge base.
       </p>
       <Button type="button" size="sm" disabled={state === "saving" || state === "analyzing"} onClick={() => void fill()}>
         {state === "saving" || state === "analyzing" ? "Working…" : "✨ Fill with SEO Pulse"}

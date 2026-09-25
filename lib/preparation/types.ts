@@ -22,6 +22,7 @@ export const PREPARATION_STEPS = [
   "enrichment",
   "verification",
   "content",
+  "listing",
   "search",
   "page",
 ] as const;
@@ -34,6 +35,9 @@ export const STEP_STAGE: Record<PreparationStep, PreparationStage> = {
   enrichment: "RESEARCHING",
   verification: "VERIFYING",
   content: "PREPARING_CONTENT",
+  // Writing the prepared wording into the listing is still preparing content;
+  // a persisted stage of its own would change the stored vocabulary for nothing.
+  listing: "PREPARING_CONTENT",
   search: "PREPARING_SEARCH",
   page: "CHECKING_PAGE",
 };
@@ -63,6 +67,7 @@ export const PREPARATION_CODES = {
   INSUFFICIENT_KNOWLEDGE: "INSUFFICIENT_KNOWLEDGE",
   CONTENT_PROVIDER_UNAVAILABLE: "CONTENT_PROVIDER_UNAVAILABLE",
   CONTENT_FAILED: "CONTENT_FAILED",
+  CONTENT_NOT_APPLIED: "CONTENT_NOT_APPLIED",
   SEARCH_INDEX_LAGGING: "SEARCH_INDEX_LAGGING",
   PRODUCT_REMOVED: "PRODUCT_REMOVED",
   TOO_LONG: "TOO_LONG",

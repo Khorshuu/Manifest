@@ -22,7 +22,7 @@ import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import { logEvent } from "@/lib/observability/log";
 import { enqueueUniquePending } from "@/lib/jobs/runner";
 import { knowledgeSufficiency } from "@/lib/seo-pulse/facts";
-import { loadPulseInput, runSeoPulse, SeoPulseError } from "@/lib/seo-pulse/service";
+import { applyPreparedContent, loadPulseInput, runSeoPulse, SeoPulseError } from "@/lib/seo-pulse/service";
 import { searchReadiness, seoReadiness } from "@/lib/seo/readiness";
 import { actorOf, wakePreparation } from "./service";
 import {
@@ -45,8 +45,10 @@ import {
  *  3. enrichment   — `requestEnrichment`, then waiting for that run.
  *  4. verification — reading what the run proposed. Nothing is accepted here.
  *  5. content      — `runSeoPulse`, once there is enough established fact.
- *  6. search       — waiting for the search index to catch up.
- *  7. page         — `seoReadiness` and `searchReadiness`.
+ *  6. listing      — `applyPreparedContent`: the wording written into the
+ *                    fields that are empty or still SeoPulse's own (D-122).
+ *  7. search       — waiting for the search index to catch up.
+ *  8. page         — `seoReadiness` and `searchReadiness`.
  *
  * Three rules hold the whole thing together.
  *
@@ -63,7 +65,8 @@ import {
  * **It never decides anything a person decides.** An ambiguous identity, a
  * conflicting claim, a claim waiting for review and a product with too little
  * established fact all stop the run. It does not confirm an identity, accept a
- * claim, approve a domain or apply generated wording (D-072, D-074, D-076).
+ * claim or approve a domain (D-072, D-074, D-076). Generated wording is
+ * written only where nobody's writing is replaced (D-122).
  */
 
 /** Wake-ups before a waiting run gives up, and the gap between them. */
@@ -71,7 +74,7 @@ const MAX_TICKS = 90;
 const WAIT_SECONDS = 8;
 
 type Outcome =
-  | { kind: "done"; detail: string; state?: PreparationStepRecord["state"] }
+  | { kind: "done"; detail: string; state?: PreparationStepRecord["state"]; fields?: PreparationStepRecord["fields"] }
   | { kind: "wait"; detail: string }
   | { kind: "review"; notes: PreparationNote[] }
   | { kind: "blocked"; failure: PreparationNote }
@@ -206,7 +209,13 @@ export async function advancePreparation(runId: string): Promise<{ stage: string
 
     steps = [
       ...steps,
-      { key: step, state: outcome.state ?? "done", detail: outcome.detail, at: new Date().toISOString() },
+      {
+        key: step,
+        state: outcome.state ?? "done",
+        detail: outcome.detail,
+        at: new Date().toISOString(),
+        ...(outcome.fields ? { fields: outcome.fields } : {}),
+      },
     ];
     await db
       .update(productPreparationRuns)
@@ -232,6 +241,7 @@ const STEP_LABEL: Record<PreparationStep, string> = {
   enrichment: "researching the product",
   verification: "checking what the research proposed",
   content: "preparing the content",
+  listing: "adding the content to the listing",
   search: "preparing the search index",
   page: "checking the page",
 };
@@ -261,6 +271,7 @@ const STEP_RUNNERS: Record<PreparationStep, (context: Context) => Promise<Outcom
   enrichment: stepEnrichment,
   verification: stepVerification,
   content: stepContent,
+  listing: stepListing,
   search: stepSearch,
   page: stepPage,
 };
@@ -370,7 +381,7 @@ async function stepSources(context: Context): Promise<Outcome> {
             ? `There is nothing to research this product from, and automatic discovery is unavailable: ${outlook.provider?.message ?? "no reason given"}`
             : "There is nothing to research this product from.",
       remedy:
-        "Give the manufacturer's page for this product, or paste a specification sheet, and prepare it again. An approved domain for this brand in the Brand Source Registry would find it automatically next time.",
+        "Give the manufacturer's page for this product, or paste its specification, then continue. An approved domain for this brand in the Brand Source Registry would find it automatically next time.",
     },
   };
 }
@@ -387,7 +398,11 @@ async function stepEnrichment(context: Context): Promise<Outcome> {
   let runId = context.run.enrichmentRunId;
 
   if (!runId) {
-    const requested = await requestEnrichment(context.actor, { pkbProductId: context.pkbProductId! });
+    // One research run per attempt at this step (see the content step's key).
+    const requested = await requestEnrichment(context.actor, {
+      pkbProductId: context.pkbProductId!,
+      requestKey: `preparation:${context.run.id}:${context.run.ticks}`,
+    });
     runId = requested.runId;
     await db
       .update(productPreparationRuns)
@@ -658,10 +673,8 @@ async function stepVerification(context: Context): Promise<Outcome> {
  * 5. Content.
  *
  * Generation runs only when there is enough established fact to write from
- * (D-115). The run is generated, not applied: what a generator writes is a
- * recommendation a person accepts, which is what "Fill with SEO Pulse" and the
- * apply screen are for (D-075). Preparation's job is to have the research
- * ready, not to publish wording nobody has read.
+ * (D-115). This step generates; the next one decides what of it may be
+ * written into the listing without replacing anybody's writing (D-122).
  */
 async function stepContent(context: Context): Promise<Outcome> {
   const input = await loadPulseInput(context.productId);
@@ -685,8 +698,8 @@ async function stepContent(context: Context): Promise<Outcome> {
           code: PREPARATION_CODES.INSUFFICIENT_KNOWLEDGE,
           message: `There is too little established about this product to write a product listing from: ${sufficiency.facts} of the ${sufficiency.required} facts needed. Anything generated now would describe the shop rather than the product.`,
           remedy: sufficiency.missing.length
-            ? `Add what is missing — ${sufficiency.missing.join(", ")} — or attach the manufacturer's specification, then prepare it again.`
-            : "Add what the product's specification says, then prepare it again.",
+            ? `Add what is missing — ${sufficiency.missing.join(", ")} — or attach the manufacturer's page or specification, then continue.`
+            : "Add what the product's specification says, then continue.",
         },
       ],
     };
@@ -696,7 +709,7 @@ async function stepContent(context: Context): Promise<Outcome> {
     const [existing] = await db.select().from(seoResearchRuns).where(eq(seoResearchRuns.id, context.run.seoRunId));
     if (existing?.status === "running") return { kind: "wait", detail: "The content is being generated." };
     if (existing?.status === "completed") {
-      return { kind: "done", detail: "Content recommendations are ready to review." };
+      return { kind: "done", detail: "The description, key features and search wording were prepared." };
     }
     if (existing?.status === "failed") {
       return {
@@ -711,10 +724,16 @@ async function stepContent(context: Context): Promise<Outcome> {
   }
 
   try {
-    // One key per preparation run, so a retried preparation reuses the
-    // research it already started instead of starting another version.
+    /*
+     * One key per attempt at this step, so a retried job reuses the research
+     * it already started instead of starting another version. The tick count
+     * is part of it because a run that is continued with new sources, or
+     * retried after the generator failed, has had its research link cleared
+     * and must be able to generate again (D-122); within one attempt the tick
+     * does not move before the link is stored.
+     */
     const { run } = await runSeoPulse(context.actor, context.productId, {
-      requestKey: `preparation:${context.run.id}`,
+      requestKey: `preparation:${context.run.id}:${context.run.ticks}`,
       fresh: false,
     });
     await db
@@ -733,7 +752,7 @@ async function stepContent(context: Context): Promise<Outcome> {
         },
       };
     }
-    return { kind: "done", detail: "Content recommendations are ready to review." };
+    return { kind: "done", detail: "The description, key features and search wording were prepared." };
   } catch (error) {
     // A generation provider that is busy or unavailable is not a failure of
     // the product: the knowledge is prepared, and the wording can be
@@ -755,7 +774,81 @@ async function stepContent(context: Context): Promise<Outcome> {
 }
 
 /**
- * 6. Search.
+ * 6. The listing (D-122).
+ *
+ * The wording the previous step prepared is written into the fields where
+ * nobody's writing is replaced: fields that are empty, and fields that still
+ * hold SeoPulse's own unedited wording. A field a person wrote is left exactly
+ * as it is and reported, so the editor can offer the newer version beside it.
+ * Everything goes through `applyPreparedContent`, which checks ownership again
+ * under the listing lock and records the change history like any other apply.
+ *
+ * Idempotent by construction: a field this step already wrote holds the
+ * prepared wording, so a retry finds nothing different and writes nothing.
+ */
+async function stepListing(context: Context): Promise<Outcome> {
+  const runId = context.run.seoRunId;
+  if (!runId) {
+    return { kind: "done", state: "skipped", detail: "There was no prepared content to add." };
+  }
+
+  let result: Awaited<ReturnType<typeof applyPreparedContent>>;
+  try {
+    result = await applyPreparedContent(context.actor, context.productId, runId);
+  } catch (error) {
+    if (error instanceof SeoPulseError && error.status === 409 && error.details?.changed) {
+      // Somebody saved the listing while this step was deciding. Deciding
+      // again against what they saved is the whole point of the re-check.
+      return { kind: "wait", detail: "The listing changed; checking it again." };
+    }
+    if (error instanceof SeoPulseError) {
+      // The research and the knowledge are prepared either way; only the
+      // writing into the listing did not happen, and the editor still offers
+      // every recommendation field by field.
+      return {
+        kind: "review",
+        notes: [
+          {
+            code: PREPARATION_CODES.CONTENT_NOT_APPLIED,
+            message: `The prepared content could not be added to the listing: ${error.message}`,
+            remedy: "Nothing about the product's information was lost. Review the SeoPulse recommendations in Product content and SEO & search, then continue.",
+          },
+        ],
+      };
+    }
+    throw error;
+  }
+
+  if (result.needsKnowledge) {
+    return {
+      kind: "review",
+      notes: [
+        {
+          code: PREPARATION_CODES.INSUFFICIENT_KNOWLEDGE,
+          message: "Too little is established about this product to write customer content from.",
+          remedy: "Add the manufacturer's page or specification, or the specifications by hand, then continue.",
+        },
+      ],
+    };
+  }
+
+  const fields = { applied: result.applied, refreshed: result.refreshed, kept: result.kept, review: result.review };
+  const parts = [
+    result.applied.length ? `Added ${result.applied.join(", ")}.` : "",
+    result.refreshed.length ? `Updated SeoPulse's earlier ${result.refreshed.join(", ")}.` : "",
+    result.kept.length ? `Kept staff-written ${result.kept.join(", ")}.` : "",
+    result.review.length ? `${result.review.join(", ")} ready for review.` : "",
+    result.superseded ? "Newer SeoPulse recommendations exist; they are offered in the editor." : "",
+  ].filter(Boolean);
+  return {
+    kind: "done",
+    detail: parts.length ? parts.join(" ") : "The listing already holds the prepared content.",
+    fields,
+  };
+}
+
+/**
+ * 7. Search.
  *
  * The search document rebuilds itself when a listing changes (migration 0014),
  * so in normal running there is nothing to wait for. This waits for the
@@ -779,7 +872,7 @@ async function stepSearch(context: Context): Promise<Outcome> {
 }
 
 /**
- * 7. The page.
+ * 8. The page.
  *
  * The measurable checks, over the listing as it now stands. No score and no
  * prediction: a count of checks passed, which is what `lib/seo/readiness`

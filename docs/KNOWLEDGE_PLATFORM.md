@@ -1311,6 +1311,10 @@ relationships, aliases and evidence are relational.
   - Stored on accepted facts: VERIFIED, MANUAL, UNVERIFIED, LEGACY.
   - Stored on claims: SUGGESTED, CONFLICT (plus ACCEPTED, REJECTED,
     SUPERSEDED for the decision trail).
+  - Since D-122 a claim that repeats the VERIFIED or MANUAL value already in
+    its slot is stored SUPERSEDED on arrival: a closed record, with its
+    evidence, that the source still says so. It is not a decision and changes
+    nothing; a differing value is still a CONFLICT.
   - LOCKED is stored as `locked_at`/`locked_by` beside the underlying state,
     because a lock protects a value without erasing whether it was verified;
     the effective state reported to the UI and API is LOCKED.

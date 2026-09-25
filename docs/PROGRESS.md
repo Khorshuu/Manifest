@@ -3898,3 +3898,67 @@ Background work also see a link to it.
 
 `[x]` **Tests.** `tests/preparation-background.test.ts` (10) and
 `tests/dev-command.test.ts` (3).
+
+## One-click Prepare with SeoPulse (D-122)
+
+`[x]` **One action.** "Prepare with SeoPulse" (Add Product, the product's
+start card, and "Refresh with SeoPulse" once prepared) now runs identity →
+sources → research → verification → content → **listing** → search → page as
+one durable run. The existing preparation run was extended by one step; no
+second orchestration, no new table, no migration.
+
+`[x]` **Safe automatic application.** The `listing` step writes the prepared
+description, key features, SEO title, meta description, focus keyword, tags
+and search terms into fields that are empty, refreshes SeoPulse's own
+unedited wording, and never writes a staff-written, staff-edited or locked
+field. Through `applySeoPulse` and the field history ("Prepared with
+SeoPulse").
+
+`[x]` **Continue resumes the same run from the right point**, including a
+fresh research run within the same minute (caller key on
+`requestEnrichment`) and a fresh generation after a failed one.
+
+`[x]` **Defect found in real acceptance and fixed.** Preparing the Glorious
+Model O again re-proposed 25 values, all identical to VERIFIED facts, and
+stopped for re-review. A repeat of a VERIFIED/MANUAL value is now recorded
+SUPERSEDED (not a decision; nothing changes). The 25 duplicates created
+before the fix in `preorder_utf8` were marked SUPERSEDED with the same rule
+by a scratch script, then the case was re-run from a fresh preparation.
+
+`[x]` **Screen.** One progress card; "SeoPulse needs your attention" with
+only the relevant decision and "Continue with SeoPulse"; a grouped success
+summary; "N recommendations need your decision"; "Before publishing" kept
+separate from SeoPulse READY; Advanced details for Intelligence, the report,
+JSON/CSV and step details; Fill renamed "Manual fill" under Advanced tools
+(API unchanged). Specifications show identifiers apart from facts.
+
+`[x]` **Real acceptance on `preorder_utf8`** (live network):
+
+- Case A — Glorious Model O Classic Wireless (GLO-OC-WL-BLK, UPC
+  840408304115), customer content cleared first: one Prepare → READY in 11 s.
+  25 values re-read, all SUPERSEDED as repeats; description, key features,
+  SEO title, meta description, focus keyword, tags and search terms written
+  ("Prepared with SeoPulse"). No Fill.
+- Case B — the GO-WHITE product against the Classic Wireless page: the live
+  run was continued, the page re-read (10 s), and it stopped with "The
+  product page appears to describe a different product". No content written,
+  no new history, still one run.
+- Case C — "Northfield Desk Lamp (acceptance C)", official URL
+  `https://example.com/`: stopped in 9 s with "too little established … 2 of
+  the 4 facts needed". Nothing written.
+
+`[x]` **Verified.** Typecheck clean. Lint clean. Vitest: 120 files, 1,662
+passed, 8 skipped (`--maxWorkers=4`). Production build passed. Playwright
+(production build, 2 workers), relevant specs: 55 passed, 1 skipped. Full suite: 529 passed, 7 skipped, 2 failed — both the home page axe check on `components/campaign-slider.tsx` (colour contrast caught mid-rotation). Not touched here; on a re-run of the accessibility spec alone mobile passed and desktop failed again, so it is intermittent and predates this change. UI inspected on a production build against `preorder_utf8` at 1280px and 375px for cases A, B, C, Specifications and Add Product: no horizontal overflow.
+
+`[!]` **Known limitations.**
+
+- The rules generator's opening sentence is thin ("… — Max Sensitivity
+  (DPI): 19,000 DPI.") and the meta description still ends with the
+  shop's delivery sentence (noted under D-120). Neither was changed here.
+- With an AI generator configured, prose is left as recommendations to read
+  first (finding F2), so a new product finishes with "N recommendations need
+  your decision" rather than written content.
+- The D-120 list-slot limitation (accept list items in order) still stands.
+- The home page slider's colour contrast fails axe intermittently (above).
+- Case C's stored remedy still reads "then prepare it again": it was written by the run before the wording changed to "then continue"; new runs use the new wording.

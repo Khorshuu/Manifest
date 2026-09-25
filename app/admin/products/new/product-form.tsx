@@ -17,9 +17,10 @@ type CategoryOption = { id: string; label: string };
  * the name, the brand, the category, and optionally the few identifiers a
  * manufacturer would recognise.
  *
- * There are two ways out of this screen and both are real. *Research & Prepare
- * with SeoPulse* creates the product and starts a preparation run in one
- * movement, then opens the editor where that run reports itself. *Save without
+ * There are two ways out of this screen and both are real. *Prepare with
+ * SeoPulse* creates the product and starts a preparation run in one movement,
+ * then opens the editor where that run reports itself and carries on to a
+ * written listing without a second button (D-122). *Save without
  * SeoPulse* creates the same product and stops, which is the right path for a
  * private-label or locally sourced product that no manufacturer's page
  * describes.
@@ -394,7 +395,7 @@ export function ProductForm({
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Button type="submit" data-mode="prepare" disabled={busy}>
-          {pending === "prepare" ? "Starting…" : "Research & Prepare with SeoPulse"}
+          {pending === "prepare" ? "Starting…" : "Prepare with SeoPulse"}
         </Button>
         <Button type="submit" data-mode="manual" variant="secondary" disabled={busy}>
           {pending === "manual" ? "Saving…" : "Save without SeoPulse"}
@@ -404,8 +405,8 @@ export function ProductForm({
         </Button>
       </div>
       <p className="max-w-[60ch] text-meta text-ink/65">
-        SeoPulse researches the product, checks what it finds, and prepares the description and search wording. You
-        review only what it asks about, then add the price, stock and photographs.
+        One step: SeoPulse researches the product, verifies what it finds, and writes the description, key features,
+        SEO and search wording. You fix only what it asks about, then add the price, stock and photographs.
       </p>
     </form>
   );

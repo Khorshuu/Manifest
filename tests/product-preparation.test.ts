@@ -336,6 +336,7 @@ describe("a preparation run", () => {
       "enrichment",
       "verification",
       "content",
+      "listing",
       "search",
       "page",
     ]);

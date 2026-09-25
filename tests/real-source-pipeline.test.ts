@@ -140,13 +140,15 @@ describe("a category specification whose value already spells its unit", () => {
 describe("correcting a proposed value during review", () => {
   it("answers with a result the API can serialise", async () => {
     const { pkbProductId } = await makeListing();
+    // A value that differs from the one staff entered, so it waits for a
+    // person: one that repeats an accepted value does not (D-122).
     await provideDocument(staff, pkbProductId, {
       title: "HP-900 specifications",
-      content: OFFICIAL_PAGE,
+      content: OFFICIAL_PAGE.replace("Model: HP-900", "Model: HP-900X"),
       url: OFFICIAL_URL,
     });
     const claims = await harness.db.select().from(pkbClaims).where(eq(pkbClaims.pkbProductId, pkbProductId));
-    const open = claims.find((row) => row.status === "SUGGESTED");
+    const open = claims.find((row) => row.status === "SUGGESTED" || row.status === "CONFLICT");
     expect(open).toBeTruthy();
 
     const result = await correctClaim(staff, open!.id, "254 g", "Unit tidied.");
@@ -236,7 +238,10 @@ describe("claims a run proposed are never accepted by the run", () => {
     });
     const rows = await harness.db.select().from(pkbClaims).where(eq(pkbClaims.pkbProductId, pkbProductId));
     expect(rows.length).toBeGreaterThan(0);
-    expect(rows.every((row) => row.status === "SUGGESTED" || row.status === "CONFLICT")).toBe(true);
+    // Nothing is accepted by the run. A value repeating what staff already
+    // entered is closed as a repeat, never accepted (D-122).
+    expect(rows.every((row) => ["SUGGESTED", "CONFLICT", "SUPERSEDED"].includes(row.status))).toBe(true);
+    expect(rows.some((row) => row.status === "ACCEPTED" || row.decidedBy !== null)).toBe(false);
   });
 });
 

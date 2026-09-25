@@ -26,11 +26,11 @@ export const STAGE_LABEL: Record<PreparationStage, string> = {
   FINDING_SOURCES: "Finding trusted sources",
   RESEARCHING: "Collecting product information",
   VERIFYING: "Checking product information",
-  NEEDS_REVIEW: "Needs your attention",
+  NEEDS_REVIEW: "SeoPulse needs your attention",
   PREPARING_CONTENT: "Preparing product content",
-  PREPARING_SEARCH: "Preparing search",
+  PREPARING_SEARCH: "Preparing SEO & search",
   CHECKING_PAGE: "Checking product page",
-  READY: "Ready",
+  READY: "SeoPulse prepared this product",
   FAILED: "Preparation stopped",
   BLOCKED: "Preparation cannot continue yet",
   CANCELLED: "Preparation cancelled",
@@ -43,10 +43,10 @@ export const STAGE_SUMMARY: Record<PreparationStage, string> = {
   RESEARCHING: "Reading what those sources say about the product.",
   VERIFYING: "Comparing what the sources say against what is already recorded.",
   NEEDS_REVIEW: "A few things need a decision before this can go on.",
-  PREPARING_CONTENT: "Writing the description, key features and search wording.",
+  PREPARING_CONTENT: "Writing the description, key features and search wording, and adding them to the listing.",
   PREPARING_SEARCH: "Making sure the product can be found in search.",
   CHECKING_PAGE: "Checking the product page is ready for shoppers.",
-  READY: "SeoPulse has finished. Add your price, stock and photographs below.",
+  READY: "Next: add photographs, price and stock, then publish.",
   FAILED: "Something went wrong. Nothing about the product was changed.",
   BLOCKED: "SeoPulse needs something from you before it can carry on.",
   CANCELLED: "You stopped this. Start it again whenever you are ready.",
@@ -55,11 +55,12 @@ export const STAGE_SUMMARY: Record<PreparationStage, string> = {
 /** What each step of the sequence is called on screen, once it is finished. */
 export const STEP_LABEL: Record<PreparationStep, string> = {
   identity: "Product identified",
-  sources: "Sources found",
+  sources: "Trusted sources found",
   enrichment: "Product information collected",
-  verification: "Product information checked",
+  verification: "Product information verified",
   content: "Product content prepared",
-  search: "Search prepared",
+  listing: "Content added to the listing",
+  search: "SEO & search prepared",
   page: "Product page checked",
 };
 
@@ -200,7 +201,11 @@ const ISSUE_SHAPE: Record<string, { title: string; actions: IssueAction[] }> = {
   },
   [PREPARATION_CODES.INSUFFICIENT_KNOWLEDGE]: {
     title: "SeoPulse needs more product information",
-    actions: ["sources", "specifications", "recheck"],
+    actions: ["sources", "specifications", "recheck", "manual"],
+  },
+  [PREPARATION_CODES.CONTENT_NOT_APPLIED]: {
+    title: "The prepared content was not added to the listing",
+    actions: ["recheck", "manual"],
   },
   [PREPARATION_CODES.CONTENT_PROVIDER_UNAVAILABLE]: {
     title: "The content could not be written just now",
@@ -360,4 +365,101 @@ export function describeDiscovery(configured: boolean): {
         label: "Automatic source discovery is not configured",
         hint: "Add the official product page, or paste the specification, so SeoPulse has something to research from.",
       };
+}
+
+/**
+ * What a finished run did, grouped the way a staff member reads a product
+ * (D-122): who it is, what research established, what the listing now says,
+ * how it is found, and whether the page was checked.
+ *
+ * Every line is read from something real — a step the run recorded, what the
+ * listing holds now, the knowledge base's specifications, and the SeoPulse
+ * recommendations still waiting beside a field. Nothing is inferred from the
+ * run having reached READY.
+ */
+export type OutcomeItem = { label: string; state: "done" | "attention" | "missing" };
+export type OutcomeGroup = { title: string; items: OutcomeItem[] };
+
+export type OutcomeInput = {
+  steps: PreparationStepRecord[];
+  /** Whether each field holds something now. */
+  listing: {
+    description: boolean;
+    keyFeatures: boolean;
+    seoTitle: boolean;
+    metaDescription: boolean;
+    focusKeyword: boolean;
+  };
+  /** Verified or staff-entered specifications the knowledge base holds. */
+  specifications: number;
+  /** SeoPulse recommendations still beside a field, and who owns that field. */
+  decisions: { field: string; owner: "empty" | "seo_pulse" | "staff" | "locked" }[];
+};
+
+export function preparationOutcome(input: OutcomeInput): OutcomeGroup[] {
+  const steps = new Map(input.steps.map((step) => [step.key, step]));
+  const stepItem = (key: PreparationStep, label: string): OutcomeItem => {
+    const record = steps.get(key);
+    return { label, state: !record ? "missing" : record.state === "done" ? "done" : "attention" };
+  };
+  const decision = (field: string) => input.decisions.find((entry) => entry.field === field);
+
+  const content = (field: string, has: boolean, name: string): OutcomeItem => {
+    const waiting = decision(field);
+    if (has && waiting?.owner === "staff") {
+      return { label: `${name}: yours kept — a SeoPulse version is ready`, state: "attention" };
+    }
+    if (has) return { label: `${name} prepared`, state: "done" };
+    if (waiting?.owner === "empty") return { label: `${name} ready for your review`, state: "attention" };
+    return { label: `${name} not written`, state: "missing" };
+  };
+
+  const seoComplete = input.listing.seoTitle && input.listing.metaDescription && input.listing.focusKeyword;
+  const seoWaiting = ["seoMetaTitle", "seoMetaDescription", "seoFocusKeyword"].some((field) => decision(field));
+
+  return [
+    { title: "Product", items: [stepItem("identity", "Identified")] },
+    {
+      title: "Research",
+      items: [
+        stepItem("enrichment", "Trusted information collected"),
+        stepItem("verification", "Information verified"),
+      ],
+    },
+    {
+      title: "Listing",
+      items: [
+        content("descriptionHtml", input.listing.description, "Description"),
+        content("bulletFeatures", input.listing.keyFeatures, "Key features"),
+        input.specifications > 0
+          ? {
+              label: `Specifications prepared (${input.specifications})`,
+              state: "done",
+            }
+          : { label: "No verified specifications yet", state: "missing" },
+      ],
+    },
+    {
+      title: "SEO & search",
+      items: [
+        seoComplete && !seoWaiting
+          ? { label: "SEO prepared", state: "done" }
+          : { label: seoWaiting ? "SEO: a SeoPulse version is ready for you" : "SEO incomplete", state: "attention" },
+        stepItem("search", "Search prepared"),
+      ],
+    },
+    /*
+     * The page check is recorded as limited when a check fails — usually a
+     * missing photograph, which is not SeoPulse's to add. The check itself
+     * happened; what it found is listed under Before publishing.
+     */
+    { title: "Page", items: [{ label: "Checked", state: steps.has("page") ? "done" : "missing" }] },
+  ];
+}
+
+/** "1 recommendation needs your decision", counting only what is waiting on a person. */
+export function decisionSummary(decisions: OutcomeInput["decisions"]): string | null {
+  const count = decisions.filter((entry) => entry.owner === "staff" || entry.owner === "empty").length;
+  if (count === 0) return null;
+  return count === 1 ? "1 recommendation needs your decision" : `${count} recommendations need your decision`;
 }

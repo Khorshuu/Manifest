@@ -54,6 +54,13 @@ export type PreparationStepRecord = {
   state: "done" | "skipped" | "degraded";
   detail: string;
   at: string;
+  /**
+   * Only on the step that writes prepared wording into the listing (D-122):
+   * the labels of the fields it filled while empty, the SeoPulse wording it
+   * refreshed, the fields a person wrote that it left alone, and the fields
+   * left as recommendations for someone to read first. Labels, never values.
+   */
+  fields?: { applied: string[]; refreshed: string[]; kept: string[]; review: string[] };
 };
 
 /** Something a person has to decide. Never a stack trace, never a raw error. */

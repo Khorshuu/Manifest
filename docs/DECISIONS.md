@@ -3313,3 +3313,90 @@ scheduler returns, and the waiting state never starts or replaces a run.
 once a day, so on a hosted deployment without a per-minute scheduler
 (DEPLOYMENT.md) a preparation run would now show this message. That is a true
 statement about that deployment.
+
+## D-122 — Prepare with SeoPulse is one action; the sources of truth stay separate
+
+**Decision.** Until now a normal product needed two jobs: "Research & Prepare
+with SeoPulse", which stopped once recommendations existed, and then "Fill
+with SeoPulse" (or a Use / Regenerate click per field) to put the wording on
+the listing. A new employee had to know where research stopped and SeoPulse
+started. Product preparation now carries on into the listing itself, so
+**"Prepare with SeoPulse" is the normal end-to-end product preparation
+action**: Add Product → Prepare with SeoPulse → resolve only what it asks →
+add photographs, price and stock → publish.
+
+**The experience is merged; the sources of truth are not.** Research and the
+PKB decide what is true; SeoPulse writes wording from what the PKB has
+established (D-113); SearchPulse derives the search document. Nothing
+generated becomes evidence, no claim is accepted by the run, and no identity
+is settled by it. No second orchestration table and no new SeoPulse system:
+the existing run (D-112) gained one step.
+
+**One new step, `listing`, between `content` and `search`.** It calls
+`applyPreparedContent`, which reads the wording from the stored research run
+(never from a caller) and decides per field from ownership (D-120):
+
+- empty → written;
+- SeoPulse's own, unedited → refreshed. We chose automatic refresh over a
+  per-field "Use updated version" button because every preparation run is
+  explicitly requested by a person, nobody's writing is lost (the change
+  history keeps the earlier version), and a refresh that left SeoPulse's
+  stale wording in place would make "Refresh with SeoPulse" do nothing
+  visible;
+- staff-written or staff-edited → never written; reported as "kept" and
+  offered in the field's section with Keep / Review / Replace;
+- locked → never written.
+
+Tags and search terms are only added to, and only when empty or SeoPulse's
+own. Ownership is read again inside the apply transaction after the listing
+lock; if a person saved a field in between, the step waits and decides again.
+Customer content still needs sufficient knowledge (D-115), and wording from an
+AI generator is left as a recommendation to read first (finding F2) rather
+than written unseen — the rules generator's output is derived from recorded
+facts and is written. The write goes through `applySeoPulse`, so validation,
+the audit log, the search queue and the field history ("Prepared with
+SeoPulse", workflow `seo_pulse_apply`) behave as for any apply. The step is
+idempotent by construction: a field it already wrote holds the prepared
+wording, so a retry writes nothing. The persisted stage stays
+`PREPARING_CONTENT`; no enum changed and there is no migration.
+
+**Continue resumes the same run, from the right point.** `continuePreparation`
+now rewinds a stopped run according to what was supplied: identity → from
+identification; a new address → from sources (research runs again); a pasted
+document (read on the spot) → from verification. Earlier steps stay recorded.
+Two keys were needed to make this real rather than nominal:
+`requestEnrichment` takes an optional caller key (preparation passes one per
+attempt), because its one-minute dedupe window returned the *old* research
+run to a Continue made within the minute; and SeoPulse's request key gained
+the attempt's tick for the same reason. Within one attempt the tick does not
+move, so a retried job still reuses its own research and generation. Retry or
+Continue after a failed generation clears the link to it, so the content step
+can generate again while the research is kept.
+
+**A re-read value that repeats an accepted value is not a new question.**
+Real acceptance found it: preparing the Glorious Model O again re-read the
+manufacturer's page and proposed 25 values, all 25 identical to facts a person
+had already VERIFIED, and stopped for someone to accept them all again. That
+would make every "Refresh with SeoPulse" stop. `createClaim` now records a
+claim whose value equals the VERIFIED or MANUAL fact (or identifier) already
+in its slot as SUPERSEDED, with a note, no decision time and no decider — it
+is not a decision (`pkb_claims_decision_check`). The fact, its state and its
+provenance are untouched, and the evidence is kept. A value that differs is
+still a CONFLICT; a value repeating a LEGACY or UNVERIFIED fact stays
+SUGGESTED, because accepting it is exactly how that fact becomes verified;
+and a repeat is left open when another open claim in the slot disagrees.
+
+**The screen.** One progress card; "SeoPulse needs your attention" when it
+stops, with only the relevant decision and "Continue with SeoPulse"; on
+success a grouped summary (Product / Research / Listing / SEO & search /
+Page) built from the recorded steps and what the listing now holds, a count
+of recommendations needing a decision, and a separate "Before publishing"
+list from the publish checks — because SeoPulse READY is not publish READY.
+"Refresh with SeoPulse" prepares again as a new run (only once the previous
+one has finished). Intelligence, the report, JSON/CSV and the step details
+are under "Advanced details"; the old Fill box is "Manual fill" under
+Advanced tools, with its API unchanged. Established identifiers are shown
+apart from specifications in the Specifications section.
+
+Permissions are unchanged: preparing and the new apply step ask for
+`catalog.manage`, each PKB decision still asks for `knowledge.manage`.

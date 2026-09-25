@@ -557,3 +557,38 @@ behaviour consolidation can break.
 SeoPulse's own description and Keep / Review / Replace for staff's. Replace
 appears only after review. A customer calling the regenerate API gets 403.
 `tests/manufacturer-shop-page.test.ts` pins Case B's regenerated wording.
+
+## One-click Prepare with SeoPulse (D-122)
+
+`tests/one-click-preparation.test.ts` (real database, rules generator, the
+enrichment worker completed the way the worker completes it — no live site):
+
+| Case | Expected |
+|---|---|
+| New product with enough established fact, empty content | One run to READY with steps identity → … → content → listing → search → page; description, key features, SEO title, meta description, focus keyword, tags and search terms written; history "Prepared with SeoPulse"; every field SeoPulse-owned; no recommendation left; no Fill called |
+| Specifications | Established facts reach the editor from the knowledge base; the finished summary reads all done |
+| Search and page | The listing leaves the search queue within the run; the page step records its check counts |
+| READY vs publishable | Required publish checks (photograph, price) still fail |
+| Staff-written description | Kept; reported as kept; "1 recommendation needs your decision" |
+| SeoPulse wording edited by staff, product prepared again | Kept |
+| SeoPulse wording untouched, knowledge improves, prepared again | Refreshed; both versions in the history |
+| Source about another product | Stops before generation; no research run for content; Continue with corrected identity resumes the same run to READY |
+| Values waiting for review | Stops; nothing generated or written |
+| Too little known | Stops with no filler; Continue with another address researches again in the same run; specifications added by hand + Continue reaches READY in the same run |
+| Background service offline | The same run is returned to every retry and carries on later |
+| Double click (concurrent) | One run |
+| Listing step retried after a crash | No second history row, no second generation |
+| Retry / Continue on a finished run | No second research run, no second generation |
+| Prepare again | A new run only after the previous one finished |
+| Page re-read repeating accepted values | Claims SUPERSEDED, run finishes; a changed value is a CONFLICT and stops |
+| Fill | Still works for the manual path |
+| Permissions | `applyPreparedContent`, start and continue refuse a customer |
+
+`tests/preparation-presentation.test.ts` adds the finished summary and the
+decision count. `tests/real-source-pipeline.test.ts` now expects a re-read
+repeating staff-entered identity to be SUPERSEDED, never accepted.
+
+`e2e/product-preparation.spec.ts` adds one browser test that presses Prepare
+with SeoPulse once, drives the scheduler through `/api/cron/jobs`, and checks
+the success card, the Before publishing list, Refresh with SeoPulse, the
+hidden Fill button and Advanced details.

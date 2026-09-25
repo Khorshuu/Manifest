@@ -59,6 +59,13 @@ export type EnrichmentRequest = {
   /** Staff-supplied pages to read in this run, besides the registry's. */
   urls?: string[];
   note?: string | null;
+  /**
+   * The caller's own idempotency key, in place of the one-minute window.
+   * Product preparation passes one per attempt (D-122): a run continued with
+   * a corrected identity must research afresh even within the same minute,
+   * and a retried job of the same attempt must still get the same run.
+   */
+  requestKey?: string;
 };
 
 export type RunRow = typeof pkbEnrichmentRuns.$inferSelect;
@@ -79,7 +86,9 @@ export async function requestEnrichment(
   const staff = requirePermission(actor, "catalog.manage");
   const urls = [...new Set((input.urls ?? []).map((url) => url.trim()).filter(Boolean))];
   const minute = new Date().toISOString().slice(0, 16);
-  const requestKey = requestKeyFor(input.pkbProductId, urls, minute);
+  const requestKey = input.requestKey
+    ? requestKeyFor(input.pkbProductId, urls, `key:${input.requestKey}`)
+    : requestKeyFor(input.pkbProductId, urls, minute);
 
   return db.transaction(async (tx) => {
     const [exists] = await tx.select({ id: pkbProducts.id }).from(pkbProducts).where(eq(pkbProducts.id, input.pkbProductId));

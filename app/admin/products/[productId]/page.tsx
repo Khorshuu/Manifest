@@ -26,6 +26,7 @@ import { SearchPerformanceBox } from "./search-performance-box";
 import { SeoReadinessBox } from "./seo-readiness-box";
 import { db } from "@/db";
 import { groundedKnowledge } from "@/lib/pkb/publish";
+import { isIdentityLabel } from "@/lib/pkb/identity-labels";
 import { listingAudit } from "@/lib/seo/audit";
 import { listingSearchPerformance } from "@/lib/search-console/listing";
 import { fieldStates, seoFieldLabel } from "@/lib/seo/fields";
@@ -279,6 +280,7 @@ export default async function AdminProductPage({
               value: attribute.value,
               unit: attribute.unit,
               state: attribute.state,
+              identity: isIdentityLabel(attribute.label),
             }))}
         />
       ),
@@ -448,6 +450,31 @@ export default async function AdminProductPage({
     },
   ];
 
+  /*
+   * What a finished preparation run reports beside its own steps (D-122): what
+   * the listing holds now, how many specifications are established, which
+   * SeoPulse versions still wait beside a field, and what publishing still
+   * needs. All read here, from the same sources the sections below use.
+   */
+  const productSpecifications = established.attributes.filter(
+    (attribute) => attribute.pkbVariantId === null && !isIdentityLabel(attribute.label),
+  ).length;
+  const hasText = (value: string | null) => Boolean(value && value.trim());
+  const preparationListing = {
+    listing: {
+      description: hasText(product.descriptionHtml),
+      keyFeatures: stringList(product.bulletFeatures).length > 0,
+      seoTitle: hasText(product.seoMetaTitle),
+      metaDescription: hasText(product.seoMetaDescription),
+      focusKeyword: hasText(product.seoFocusKeyword),
+    },
+    specifications: productSpecifications,
+    decisions: (recommendations?.fields ?? []).map((entry) => ({ field: entry.field, owner: entry.owner })),
+    publishing: checks
+      .filter((check) => check.required)
+      .map((check) => ({ id: check.id, label: check.label, passed: check.passed })),
+  };
+
   const createdNotice = query.created === "1" || query.created === "copy";
   const lastRun = pulse?.latest ?? null;
 
@@ -531,6 +558,7 @@ export default async function AdminProductPage({
         justStarted={query.preparing === "1"}
         // Background work is linked only for those who may open it (D-121).
         canSeeBackgroundWork={can(user, "notifications.view")}
+        listing={preparationListing}
         initialRun={
           preparation
             ? {

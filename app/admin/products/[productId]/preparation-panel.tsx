@@ -7,13 +7,16 @@ import { Button } from "@/components/button";
 import { Field } from "@/components/field";
 import {
   attentionSummary,
+  decisionSummary,
   describeDiscovery,
   describeIssue,
+  preparationOutcome,
   preparationPhases,
   shouldKeepPolling,
   STAGE_LABEL,
   STAGE_SUMMARY,
   type IssueAction,
+  type OutcomeInput,
   type PreparationIssue,
 } from "@/lib/preparation/presentation";
 import type { PreparationNote, PreparationStage, PreparationStepRecord } from "@/lib/preparation/types";
@@ -45,6 +48,12 @@ export type PreparationRunView = {
   updatedAt: string;
   /** Waiting on a background scheduler that is not running (D-121). */
   background?: "running" | "waiting_for_background";
+};
+
+/** What the listing holds now, read on the server, for the finished summary (D-122). */
+export type PreparationListingView = Omit<OutcomeInput, "steps"> & {
+  /** Only the checks publishing requires: SeoPulse being ready is not the same thing. */
+  publishing: { id: string; label: string; passed: boolean }[];
 };
 
 /** Slow enough not to hammer the server, fast enough to feel live. */
@@ -92,6 +101,7 @@ export function PreparationPanel({
   discoveryConfigured,
   justStarted = false,
   canSeeBackgroundWork = false,
+  listing = null,
 }: {
   productId: string;
   initialRun: PreparationRunView | null;
@@ -100,6 +110,8 @@ export function PreparationPanel({
   justStarted?: boolean;
   /** May open Background work, so is shown what is wrong and where to look. */
   canSeeBackgroundWork?: boolean;
+  /** The listing as it stands, for the summary a finished run shows. */
+  listing?: PreparationListingView | null;
 }) {
   const router = useRouter();
   const [run, setRun] = useState<PreparationRunView | null>(initialRun);
@@ -173,6 +185,8 @@ export function PreparationPanel({
     const previous = settled.current;
     settled.current = stage;
     if (previous && stage && !shouldKeepPolling(stage) && stage !== "CANCELLED") router.refresh();
+    // A finished run's key has done its job: preparing again is a new request.
+    if (stage && !shouldKeepPolling(stage)) startKey.current = null;
   }, [stage, router]);
 
   async function post(body: Record<string, unknown>, path: string) {
@@ -267,6 +281,16 @@ export function PreparationPanel({
     ...(run.failure ? [describeIssue(run.failure)] : []),
   ];
   const finishedWell = run.stage === "READY";
+  const outcome = finishedWell && listing ? preparationOutcome({ steps: run.steps, ...listing }) : null;
+  const decisions = finishedWell && listing ? decisionSummary(listing.decisions) : null;
+  const decisionSection = listing?.decisions.some(
+    (entry) =>
+      (entry.owner === "staff" || entry.owner === "empty") &&
+      (entry.field === "descriptionHtml" || entry.field === "bulletFeatures"),
+  )
+    ? "content"
+    : "seo";
+  const publishMissing = listing?.publishing.filter((check) => !check.passed) ?? [];
 
   if (finishedWell && dismissed) {
     return (
@@ -299,9 +323,16 @@ export function PreparationPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 id="preparation-heading" className="admin-h2 text-body">
-            {run.stage === "NEEDS_REVIEW" ? attentionSummary(run.review.length) : STAGE_LABEL[run.stage]}
+            {finishedWell ? (
+              <span aria-hidden="true" className="text-transit-green-text">
+                ✓{" "}
+              </span>
+            ) : null}
+            {STAGE_LABEL[run.stage]}
           </h2>
-          <p className="mt-0.5 max-w-[70ch] text-meta text-ink/65">{STAGE_SUMMARY[run.stage]}</p>
+          <p className="mt-0.5 max-w-[70ch] text-meta text-ink/65">
+            {run.stage === "NEEDS_REVIEW" ? `${attentionSummary(run.review.length)}.` : STAGE_SUMMARY[run.stage]}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {polling ? (
@@ -348,7 +379,80 @@ export function PreparationPanel({
         </p>
       ) : null}
 
-      <ol className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+      {outcome ? (
+        <div data-testid="preparation-outcome" className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          {outcome.map((group) => (
+            <div key={group.title} className="min-w-0">
+              <p className="text-[0.75rem] font-semibold uppercase tracking-[0.08em] text-ink/60">{group.title}</p>
+              <ul className="mt-1 flex flex-col gap-1">
+                {group.items.map((item) => (
+                  <li key={item.label} data-state={item.state} className="flex items-start gap-2 text-meta">
+                    <span
+                      aria-hidden="true"
+                      className={
+                        item.state === "done"
+                          ? "text-transit-green-text"
+                          : item.state === "attention"
+                            ? "text-brass-text"
+                            : "text-ink/40"
+                      }
+                    >
+                      {item.state === "done" ? "✓" : item.state === "attention" ? "!" : "–"}
+                    </span>
+                    <span className="min-w-0 text-ink/85">
+                      {item.label}
+                      <span className="sr-only">
+                        {item.state === "done" ? " — done" : item.state === "attention" ? " — needs a look" : " — not done"}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {decisions ? (
+        <div
+          data-testid="preparation-decisions"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-brass bg-brass/10 px-3 py-2"
+        >
+          <p className="text-meta text-ink">{decisions}</p>
+          <Button type="button" size="sm" variant="secondary" onClick={() => openSection(decisionSection)}>
+            Review
+          </Button>
+        </div>
+      ) : null}
+
+      {finishedWell && listing ? (
+        <div data-testid="preparation-publishing" className="flex flex-col gap-1.5 border-t border-blue-200 pt-3">
+          <p className="text-meta font-medium text-ink">
+            Before publishing{" "}
+            <span className={publishMissing.length ? "text-stamp-red-text" : "text-transit-green-text"}>
+              {publishMissing.length ? `— ${publishMissing.length} still needed` : "— ready to publish"}
+            </span>
+          </p>
+          <p className="max-w-[70ch] text-[0.75rem] text-ink/60">
+            SeoPulse prepares what the product is. What you sell it for, what you hold and how it looks are yours to add.
+          </p>
+          <ul className="grid gap-x-6 gap-y-1 text-meta sm:grid-cols-2">
+            {listing.publishing.map((check) => (
+              <li key={check.id} className="flex items-start gap-2">
+                <span aria-hidden="true" className={check.passed ? "text-transit-green-text" : "text-stamp-red-text"}>
+                  {check.passed ? "✓" : "✕"}
+                </span>
+                <span className="text-ink/85">
+                  {check.label}
+                  <span className="sr-only">{check.passed ? " — done" : " — still needed"}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <ol hidden={Boolean(outcome)} className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
         {phases.map((phase) => (
           <li key={phase.key} className="flex items-start gap-2 text-meta">
             <span
@@ -454,25 +558,10 @@ export function PreparationPanel({
         ) : null}
         {finishedWell ? (
           <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => void start()}>
-            Run SeoPulse again
+            {busy ? "Starting…" : "Refresh with SeoPulse"}
           </Button>
         ) : null}
-        <Link
-          href={`/admin/products/${productId}/intelligence`}
-          className="text-blue-600 underline-offset-4 hover:underline"
-        >
-          View product intelligence
-        </Link>
-        {run.seoRunId ? (
-          <a
-            className="text-blue-600 underline-offset-4 hover:underline"
-            href={`/api/admin/seo-pulse/runs/${run.seoRunId}/export?format=html`}
-            target="_blank"
-            rel="noopener"
-          >
-            View SeoPulse report
-          </a>
-        ) : null}
+        <AdvancedDetails productId={productId} run={run} />
       </div>
     </section>
   );
@@ -497,11 +586,11 @@ function StartCard({
     <section aria-labelledby="preparation-heading" className="admin-card flex flex-col gap-3" data-testid="preparation-start">
       <div>
         <h2 id="preparation-heading" className="admin-h2 text-body">
-          Research &amp; Prepare with SeoPulse
+          Prepare with SeoPulse
         </h2>
         <p className="mt-0.5 max-w-[70ch] text-meta text-ink/65">
-          Manifest researches this product, checks what it finds against trusted sources, and prepares the description
-          and search wording. You review only what it asks about.
+          One step: SeoPulse identifies the product, researches it from trusted sources, verifies what it finds, and
+          writes the description, key features, SEO and search wording. It stops only when it needs you.
         </p>
       </div>
       <p
@@ -519,14 +608,9 @@ function StartCard({
       ) : null}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Button type="button" size="sm" disabled={busy} onClick={onStart}>
-          {busy ? "Starting…" : "Research & Prepare with SeoPulse"}
+          {busy ? "Starting…" : "Prepare with SeoPulse"}
         </Button>
-        <Link
-          href={`/admin/products/${productId}/intelligence`}
-          className="text-meta text-blue-600 underline-offset-4 hover:underline"
-        >
-          View product intelligence
-        </Link>
+        <AdvancedDetails productId={productId} run={null} />
       </div>
     </section>
   );
@@ -534,10 +618,10 @@ function StartCard({
 
 const ACTION_LABEL: Record<IssueAction, string> = {
   identity: "Provide missing information",
-  sources: "Add a source",
-  intelligence: "View sources & decide",
-  specifications: "Add specifications",
-  recheck: "Check again",
+  sources: "Add product page or specification",
+  intelligence: "Review information",
+  specifications: "Add specifications manually",
+  recheck: "Continue with SeoPulse",
   retry: "Try again",
   manual: "Continue manually",
 };
@@ -545,8 +629,47 @@ const ACTION_LABEL: Record<IssueAction, string> = {
 /** A page about a different product asks different things of the same buttons. */
 const MISMATCH_ACTION_LABEL: Partial<Record<IssueAction, string>> = {
   identity: "Correct product identity",
-  sources: "Use another source",
+  sources: "Use another product source",
 };
+
+/**
+ * Where the machinery is, for whoever wants it (D-122). Normal preparation
+ * never needs any of these; they stay one click away for diagnosis.
+ */
+function AdvancedDetails({ productId, run }: { productId: string; run: PreparationRunView | null }) {
+  const link = "text-blue-600 underline-offset-4 hover:underline";
+  const report = (format: string) => `/api/admin/seo-pulse/runs/${run?.seoRunId}/export?format=${format}`;
+  return (
+    <details className="text-meta" data-testid="preparation-advanced">
+      <summary className="cursor-pointer text-ink/65">Advanced details</summary>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
+        <Link href={`/admin/products/${productId}/intelligence`} className={link}>
+          View product intelligence
+        </Link>
+        {run?.seoRunId ? (
+          <>
+            <a className={link} href={report("html")} target="_blank" rel="noopener">
+              View SeoPulse report
+            </a>
+            <a className={link} href={report("json")} target="_blank" rel="noopener">
+              JSON
+            </a>
+            <a className={link} href={report("csv")} target="_blank" rel="noopener">
+              CSV
+            </a>
+          </>
+        ) : null}
+      </div>
+      {run && run.steps.length > 0 ? (
+        <ul className="mt-2 flex flex-col gap-0.5 text-[0.75rem] text-ink/60">
+          {run.steps.map((step) => (
+            <li key={step.key}>{step.detail}</li>
+          ))}
+        </ul>
+      ) : null}
+    </details>
+  );
+}
 
 /**
  * What the product is recorded as beside what the page says it is. Identifiers
@@ -721,7 +844,7 @@ function IdentityForm({
       />
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="sm" disabled={busy}>
-          {busy ? "Saving…" : "Save and continue"}
+          {busy ? "Saving…" : "Continue with SeoPulse"}
         </Button>
         <Button type="button" size="sm" variant="quiet" onClick={onCancel} disabled={busy}>
           Cancel
@@ -802,7 +925,7 @@ function SourcesForm({
       </div>
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="sm" disabled={busy}>
-          {busy ? "Saving…" : "Save and continue"}
+          {busy ? "Saving…" : "Continue with SeoPulse"}
         </Button>
         <Button type="button" size="sm" variant="quiet" onClick={onCancel} disabled={busy}>
           Cancel

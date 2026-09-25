@@ -28,6 +28,8 @@ export type EstablishedFact = {
   value: string;
   unit: string | null;
   state: string;
+  /** Names the product (brand, model, MPN, GTIN) rather than describing it (D-122). */
+  identity?: boolean;
 };
 
 export type SpecsSectionValues = {
@@ -279,21 +281,24 @@ export function SpecsSection({
               .
             </p>
           </div>
-          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-            {established.map((fact) => (
-              <div key={`${fact.label}-${fact.value}`} className="flex flex-col">
-                <dt className="text-meta font-medium text-ink/70">
-                  {fact.label}
-                </dt>
-                <dd className="text-body text-ink">
-                  {/* The unit only after a bare number: a value read from a
-                      manufacturer's page spells its own ("69g"), and appending
-                      it again printed "69g g" (D-120). */}
-                  {fact.unit && !/\p{L}/u.test(fact.value) ? `${fact.value} ${fact.unit}` : fact.value}
-                </dd>
-              </div>
-            ))}
-          </dl>
+          {/*
+           * What the product is like first, then what it is called. A part
+           * number is how the product is told apart from its siblings, not
+           * something a shopper chooses it for, so it is shown apart (D-122).
+           */}
+          <EstablishedList
+            testId="established-specifications"
+            facts={established.filter((fact) => !fact.identity)}
+          />
+          {established.some((fact) => fact.identity) ? (
+            <div className="flex flex-col gap-2 border-t border-blue-200 pt-3">
+              <h4 className="text-meta font-semibold uppercase tracking-[0.08em] text-ink/60">Identifiers</h4>
+              <EstablishedList
+                testId="established-identifiers"
+                facts={established.filter((fact) => fact.identity)}
+              />
+            </div>
+          ) : null}
         </section>
       )}
 
@@ -399,5 +404,24 @@ export function SpecsSection({
 
       <SaveRow pending={pending} dirty={dirty} error={error} message={message} />
     </form>
+  );
+}
+
+function EstablishedList({ facts, testId }: { facts: EstablishedFact[]; testId: string }) {
+  if (facts.length === 0) return null;
+  return (
+    <dl data-testid={testId} className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+      {facts.map((fact) => (
+        <div key={`${fact.label}-${fact.value}`} className="flex flex-col">
+          <dt className="text-meta font-medium text-ink/70">{fact.label}</dt>
+          <dd className="text-body text-ink">
+            {/* The unit only after a bare number: a value read from a
+                manufacturer's page spells its own ("69g"), and appending
+                it again printed "69g g" (D-120). */}
+            {fact.unit && !/\p{L}/u.test(fact.value) ? `${fact.value} ${fact.unit}` : fact.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
