@@ -3260,3 +3260,56 @@ listing mirror compacts the list, and item 3 moves into slot 2. Item 2's claim
 then collides with it, and accepting it would replace item 3. The
 knowledge-to-listing round trip keeps no gaps. This predates D-119. It needs a
 PKB change and was not made here. Accepting in list order avoids it.
+
+## D-121 — The local scheduler starts with the web server, and a run says when nothing is picking it up
+
+A Revlon Colorsilk preparation run (`ad1498a0`) sat at "Identifying product —
+Preparing…" for 14.7 minutes. Its first `catalog.prepare_product` job was
+queued at 15:38:09 UTC. Nothing claimed it until 15:52:52, when a
+`jobs:dev` scheduler was started by hand. Nothing had been calling
+`/api/cron/jobs` on the development machine. It was the same condition as
+the Glorious run. Background jobs run only when something calls the trigger,
+and locally that was a second command people forgot.
+
+**One development command.** `npm run dev` is now `scripts/dev.mjs`. It starts
+`next dev`, waits until the server answers, and then starts exactly one
+`scripts/jobs/dev-scheduler.mjs`, calling that server every 15 seconds. Their
+logs are prefixed `[web]` and `[jobs]`. Ctrl+C, or either process stopping,
+stops both (the whole process tree on Windows, the process group elsewhere).
+
+- **No new dependency.** The repository had no process runner.
+- **No second job system.** The scheduler calls the web server's own
+  trigger, the route production uses, so it always drains the database the
+  web server uses, and no worker runs inside a request.
+- **Duplicates are safe.** A second scheduler started by hand cannot run a
+  job twice, because jobs are claimed with SKIP LOCKED.
+- **The parts stay available.** `npm run dev:web` (plain `next dev`) and
+  `npm run jobs:dev` still work for debugging.
+- **The browser tests are unaffected.** They start `dev:web`, because they
+  drive jobs themselves and a scheduler would move runs under them.
+- **Production is unchanged.** Vercel Cron, the GitHub workflow and the
+  trigger route are as they were.
+
+**A run that nothing picks up says so.** The rule uses the existing
+heartbeat and the run's own job, with no new timer. A run is "waiting for the
+background service" only when all three hold:
+
+1. its preparation job is due and not claimed;
+2. it has been due for more than three scheduler intervals (3 minutes at the
+   current 1-minute cadence, and never less than 2 minutes);
+3. the scheduler has not called in since the job became due.
+
+A job that takes a few seconds is claimed and never qualifies. So is a queue
+the scheduler is still working through, because the scheduler keeps calling.
+
+Staff read "Product preparation is waiting for the background service. It
+carries on by itself as soon as the service is running." Roles that may open
+Background work (`notifications.view`) also read "Background processing
+appears to be offline." with a link. Nothing about heartbeats, cron, queues or
+job ids is shown. The panel keeps polling, so it moves on by itself when the
+scheduler returns, and the waiting state never starts or replaces a run.
+
+**Observed, not changed.** The production `vercel.json` calls `/api/cron/jobs`
+once a day, so on a hosted deployment without a per-minute scheduler
+(DEPLOYMENT.md) a preparation run would now show this message. That is a true
+statement about that deployment.

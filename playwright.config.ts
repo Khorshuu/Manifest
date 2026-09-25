@@ -71,7 +71,9 @@ export default defineConfig({
   webServer: isRemote
     ? undefined
     : {
-        command: isProduction ? "npm run start" : "npm run dev",
+        // `dev:web`, not `dev`: the suite drives background jobs itself, and a
+        // scheduler running beside it would move preparation runs under it.
+        command: isProduction ? "npm run start" : "npm run dev:web",
         url: baseURL,
         env: {
           // The port the base URL names, so the suite can run on another port

@@ -89,4 +89,9 @@ export type PreparationView = {
   createdAt: Date;
   updatedAt: Date;
   finishedAt: Date | null;
+  /**
+   * "waiting_for_background" when the run is waiting on a job the background
+   * scheduler is not picking up (D-121); "running" otherwise.
+   */
+  background: "running" | "waiting_for_background";
 };

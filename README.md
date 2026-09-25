@@ -19,8 +19,15 @@ npm install
 cp .env.example .env.local          # then fill in SESSION_SECRET
 npm run db:server                   # optional: a local PostgreSQL on 127.0.0.1:5432
 npm run db:setup                    # applies every migration and seeds demo data
-npm run dev                         # http://localhost:3000
+npm run dev                         # http://localhost:3000, plus background jobs
 ```
+
+`npm run dev` starts the web server and the local background scheduler
+together, labelling their logs `[web]` and `[jobs]`; Ctrl+C stops both.
+Product preparation, research and message delivery run as background jobs, so
+they need the scheduler — it needs `CRON_SECRET` in `.env.local`. For
+debugging, `npm run dev:web` starts only the web server and `npm run jobs:dev`
+only the scheduler (`-- --every 15` for a faster tick).
 
 `npm run db:setup` seeds three demo accounts, all with the password
 `password123`: `admin@example.com` (owner), `staff@example.com` (operations),

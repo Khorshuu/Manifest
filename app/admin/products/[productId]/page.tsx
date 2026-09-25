@@ -41,6 +41,7 @@ import { SpecsSection } from "./sections/specs-section";
 import { VisibilitySection } from "./sections/visibility-section";
 import { VariantMatrix } from "./variants/variant-matrix";
 import { requireAdminPage } from "@/lib/auth/admin-page";
+import { can } from "@/lib/auth/authorize";
 import {
   describeDataProvider,
   describeIntelligenceProvider,
@@ -528,6 +529,8 @@ export default async function AdminProductPage({
         productId={product.id}
         discoveryConfigured={discoveryConfigured}
         justStarted={query.preparing === "1"}
+        // Background work is linked only for those who may open it (D-121).
+        canSeeBackgroundWork={can(user, "notifications.view")}
         initialRun={
           preparation
             ? {
@@ -538,6 +541,7 @@ export default async function AdminProductPage({
                 failure: preparation.failure,
                 seoRunId: preparation.seoRunId,
                 updatedAt: preparation.updatedAt.toISOString(),
+                background: preparation.background,
               }
             : null
         }

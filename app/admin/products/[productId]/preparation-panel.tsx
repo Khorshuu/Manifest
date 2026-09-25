@@ -43,6 +43,8 @@ export type PreparationRunView = {
   failure: PreparationNote | null;
   seoRunId: string | null;
   updatedAt: string;
+  /** Waiting on a background scheduler that is not running (D-121). */
+  background?: "running" | "waiting_for_background";
 };
 
 /** Slow enough not to hammer the server, fast enough to feel live. */
@@ -89,12 +91,15 @@ export function PreparationPanel({
   initialRun,
   discoveryConfigured,
   justStarted = false,
+  canSeeBackgroundWork = false,
 }: {
   productId: string;
   initialRun: PreparationRunView | null;
   discoveryConfigured: boolean;
   /** Arrived here straight from Add Product, so the panel opens expanded. */
   justStarted?: boolean;
+  /** May open Background work, so is shown what is wrong and where to look. */
+  canSeeBackgroundWork?: boolean;
 }) {
   const router = useRouter();
   const [run, setRun] = useState<PreparationRunView | null>(initialRun);
@@ -140,6 +145,9 @@ export function PreparationPanel({
 
   const stage = run?.stage ?? null;
   const polling = stage !== null && shouldKeepPolling(stage);
+  // Polling carries on while waiting, so the panel moves on by itself once
+  // background processing is running again.
+  const waitingForBackground = polling && run?.background === "waiting_for_background";
 
   // Rediscover on mount and keep asking while the run is still moving. The
   // effect never starts a run, so a remount cannot create one.
@@ -302,7 +310,7 @@ export function PreparationPanel({
                 aria-hidden="true"
                 className="inline-block h-2 w-2 animate-pulse rounded-full bg-brass-text"
               />
-              {justStarted ? "Preparing…" : "Working…"}
+              {waitingForBackground ? "Waiting" : justStarted ? "Preparing…" : "Working…"}
             </span>
           ) : null}
           {finishedWell ? (
@@ -316,6 +324,23 @@ export function PreparationPanel({
           ) : null}
         </div>
       </div>
+
+      {waitingForBackground ? (
+        <div role="status" data-testid="preparation-waiting-for-background" className="rounded-control border border-brass bg-brass/10 px-3 py-2 text-meta text-ink">
+          <p>
+            <strong>Product preparation is waiting for the background service.</strong> It carries on by itself as soon as
+            the service is running. Nothing needs to be started again.
+          </p>
+          {canSeeBackgroundWork ? (
+            <p className="mt-1 text-ink/75">
+              Background processing appears to be offline.{" "}
+              <Link href="/admin/jobs" className="font-medium text-blue-600 hover:underline">
+                Open Background work
+              </Link>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {offline ? (
         <p className="text-meta text-brass-text">

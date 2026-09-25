@@ -3879,3 +3879,22 @@ Full Playwright suite: 529 passed, 7 skipped, 0 failed.
   SEO snippet, not the product description, and it was not changed here.
 - The local `preorder` database is still WIN1252. Research must use a UTF8
   database (docs/DATABASE.md, "Encoding").
+
+## Local background scheduler and preparation waiting state (D-121)
+
+`[x]` **Diagnosed.** Revlon run `ad1498a0`: its first `catalog.prepare_product`
+job was queued at 15:38:09 UTC and unclaimed for 14.7 minutes, because nothing
+was calling `/api/cron/jobs`. It is the same condition as the Glorious run.
+It recovered as the same run once a scheduler called in, and is now at
+NEEDS_REVIEW. Only one run exists for the product.
+
+`[x]` **`npm run dev` starts the web server and the scheduler** together
+(`scripts/dev.mjs`), with labelled logs, and stops both together.
+`dev:web` and `jobs:dev` remain. Playwright starts `dev:web`.
+
+`[x]` **Waiting state in the preparation panel**, from the existing heartbeat
+(`lib/preparation/background.ts`). Staff see a plain message; roles with
+Background work also see a link to it.
+
+`[x]` **Tests.** `tests/preparation-background.test.ts` (10) and
+`tests/dev-command.test.ts` (3).

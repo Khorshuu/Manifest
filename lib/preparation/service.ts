@@ -10,6 +10,7 @@ import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { enqueueJob } from "@/lib/jobs/runner";
 import { addProductSource, provideDocument } from "@/lib/pkb/enrichment";
 import { productPatchSchema } from "@/lib/validation/catalog";
+import { preparationBackgroundState } from "./background";
 import { FINISHED_STAGES, PREPARATION_CODES, type PreparationStage, type PreparationView } from "./types";
 
 /**
@@ -64,7 +65,17 @@ export function toView(row: ProductPreparationRun): PreparationView {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     finishedAt: row.finishedAt,
+    background: "running",
   };
+}
+
+/**
+ * The view as a reader sees it: a run still expected to move is checked for a
+ * background scheduler that is not picking its job up (D-121).
+ */
+async function withBackground(view: PreparationView): Promise<PreparationView> {
+  if (!view.active) return view;
+  return { ...view, background: await preparationBackgroundState(view.id, PREPARATION_JOB) };
 }
 
 /** Wakes a run up: the same key while a wake-up is pending is ignored. */
@@ -158,7 +169,7 @@ export async function getPreparation(
     .where(eq(productPreparationRuns.productId, productId))
     .orderBy(desc(productPreparationRuns.createdAt))
     .limit(1);
-  return row ? toView(row) : null;
+  return row ? withBackground(toView(row)) : null;
 }
 
 export async function getPreparationRun(
@@ -167,7 +178,7 @@ export async function getPreparationRun(
 ): Promise<PreparationView | null> {
   requirePermission(actor, "catalog.manage");
   const [row] = await db.select().from(productPreparationRuns).where(eq(productPreparationRuns.id, runId));
-  return row ? toView(row) : null;
+  return row ? withBackground(toView(row)) : null;
 }
 
 /**
