@@ -8,6 +8,7 @@ import {
 } from "./types";
 import { keywordKey } from "./text";
 import { isIdentityLabel, isIdentityLine } from "@/lib/pkb/identity-labels";
+import { labelKey } from "@/lib/pkb/normalize";
 import type { GroundedAttribute } from "@/lib/pkb/publish";
 
 /**
@@ -435,63 +436,138 @@ export function measurementRows(input: SeoPulseInput): Row[] {
  */
 export type KnowledgeSufficiency = {
   sufficient: boolean;
-  /** How many distinct product facts were found. */
+  /**
+   * How many distinct facts *about the product* are established: what it is,
+   * not what it is called and not what it costs. Identity, price, stock,
+   * delivery and warranty terms never count (D-123).
+   */
   facts: number;
-  /** The least a run needs before its copy says anything about the product. */
+  /** The least number of such facts a listing is written from. */
   required: number;
   /** What would most improve it, in the order worth doing. */
   missing: string[];
+  /** Whether the product is at least named: a brand, or an identifier. Necessary, never sufficient. */
+  identified: boolean;
+  /** How the product's family schema was satisfied, when it has one. */
+  family: {
+    name: string;
+    /** Attributes the family requires that are not established. */
+    requiredMissing: string[];
+    /** Attributes the family recommends that are not established. */
+    recommendedMissing: string[];
+    /** Recommended attributes still needed before the family's recommendation is met. */
+    recommendedShort: number;
+  } | null;
+  /**
+   * Set when there is no useful family schema to judge the product by: the
+   * one-time vocabulary work that would let this kind of product be judged
+   * (D-123). Guidance, not a requirement anyone invented.
+   */
+  schemaGap: string | null;
+  /** One sentence for a staff member. */
+  summary: string;
 };
 
-export const SUFFICIENT_FACTS = 4;
+/**
+ * The least number of established product facts a listing is written from.
+ *
+ * Not the old "four facts" rule lowered: that rule counted the brand and an
+ * identifier, so two facts about the product and its name were enough. This
+ * counts only facts about the product itself, and the product's family adds
+ * its own requirements on top (D-123).
+ */
+export const MIN_PRODUCT_FACTS = 3;
+
+/** Terms of the offer, never facts about the product (I-8). */
+const COMMERCIAL_LABEL = /^(price|sale price|regular price|availability|stock|in stock|shipping|delivery|warranty)$/i;
 
 export function knowledgeSufficiency(input: SeoPulseInput): KnowledgeSufficiency {
-  const specifications = specificationRows(input);
-  const measurements = measurementRows(input);
   const missing: string[] = [];
-
-  let facts = 0;
-  if (input.brand) facts += 1;
-  else missing.push("Brand");
-
   const identified =
+    Boolean(input.brand) ||
     Boolean(input.identifierValue) ||
     Boolean(input.details.manufacturerPartNumber) ||
     Boolean(input.details.modelNumber) ||
     (input.knowledge?.identifiers.length ?? 0) > 0;
-  if (identified) facts += 1;
-  else missing.push("A model number, part number or GTIN");
 
   /*
-   * Identity rows are counted above, once, and never again here. The
-   * specification table restates whatever names the product — the brand, the
-   * model name, the model number, the part number, the trade identifier — and
-   * counting those rows as product facts would let a listing carrying nothing
-   * but "Sony / WH-1000XM6" reach four facts and be called researched. What
-   * counts as a specification is something the product *is*, not what it is
-   * called.
+   * Facts about the product, each counted once by its label. Identity rows
+   * are not among them: the specification table restates whatever names the
+   * product — brand, model, part number, trade identifier — and counting those
+   * would let "Sony / WH-1000XM6" be called researched. The warranty is an
+   * assurance term of the offer (D-120), not something the product is.
    */
-  const specificationFacts = specifications.filter((row) => !isIdentityLabel(row.label)).length;
-  facts += Math.min(specificationFacts, 6);
-  if (specificationFacts === 0) missing.push("Specifications");
-
-  facts += Math.min(measurements.length, 3);
-  if (measurements.length === 0) missing.push("Measurements");
+  const described = new Set<string>();
+  for (const row of [...specificationRows(input), ...measurementRows(input)]) {
+    if (isIdentityLabel(row.label) || COMMERCIAL_LABEL.test(row.label.trim())) continue;
+    described.add(labelKey(row.label));
+  }
+  let facts = described.size;
 
   // "Part number: GO-WHITE" written as a key feature is still only a name
-  // (D-119): a product whose features merely restate its identifiers is
-  // identified, not described.
-  // Key features or a description SEO Pulse wrote itself are not evidence that
-  // the product was researched (D-120): counting them would let a generated
-  // listing vouch for itself.
+  // (D-119), and key features or a description SEO Pulse wrote itself vouch
+  // for nothing (D-120).
   const staffFeatures = input.pulseWritten?.bulletFeatures ? [] : input.bulletFeatures;
-  if (staffFeatures.some((feature) => !isIdentityLine(feature))) facts += 1;
-  else missing.push("Key features");
-
+  const hasFeatures = staffFeatures.some((feature) => !isIdentityLine(feature));
+  if (hasFeatures) facts += 1;
   if (input.boxContents.length > 0) facts += 1;
-  else missing.push("What is in the box");
-
   if (!input.pulseWritten?.description && input.descriptionText.length >= 200) facts += 1;
 
-  return { sufficient: facts >= SUFFICIENT_FACTS, facts, required: SUFFICIENT_FACTS, missing };
+  /*
+   * The family decides what else a product of this kind needs (D-123). A
+   * mouse and a hair colour are not asked the same questions: whatever the
+   * family requires must be established, and at least half of what it
+   * recommends (up to three). An optional attribute is never demanded.
+   */
+  const knownKeys = new Set(
+    (input.knowledge?.attributes ?? []).filter((attribute) => attribute.pkbVariantId === null).map((attribute) => attribute.key),
+  );
+  const knownLabels = new Set([
+    ...(input.knowledge?.attributes ?? []).map((attribute) => labelKey(attribute.label)),
+    ...input.specifications.map((row) => labelKey(row.label)),
+    ...input.measurements.map((row) => labelKey(row.label)),
+  ]);
+  const established = (attribute: { key: string; label: string }) =>
+    knownKeys.has(attribute.key) || knownLabels.has(labelKey(attribute.label));
+
+  const schema = input.knowledge?.family ?? null;
+  let family: KnowledgeSufficiency["family"] = null;
+  let schemaGap: string | null = null;
+  if (schema) {
+    const required = schema.attributes.filter((attribute) => attribute.requirement === "required");
+    const recommended = schema.attributes.filter((attribute) => attribute.requirement === "recommended");
+    const recommendedMissing = recommended.filter((attribute) => !established(attribute)).map((attribute) => attribute.label);
+    const recommendedWanted = Math.min(3, Math.ceil(recommended.length / 2));
+    family = {
+      name: schema.name,
+      requiredMissing: required.filter((attribute) => !established(attribute)).map((attribute) => attribute.label),
+      recommendedMissing,
+      recommendedShort: Math.max(0, recommendedWanted - (recommended.length - recommendedMissing.length)),
+    };
+    if (schema.attributes.length === 0) {
+      schemaGap = `The ${schema.name} family asks for no attributes yet. Decide the labels research found for this product — add the useful ones to the family — and later products of this kind are understood automatically.`;
+    }
+  } else {
+    schemaGap =
+      "This kind of product has no specification schema yet. Decide the labels research found for it — add the useful ones to its family — and later products of this kind are understood automatically.";
+  }
+
+  missing.push(...(family?.requiredMissing ?? []));
+  if (family && family.recommendedShort > 0) missing.push(...family.recommendedMissing.slice(0, 3));
+  if (facts < MIN_PRODUCT_FACTS) {
+    missing.push(`Established facts about the product (${facts} of ${MIN_PRODUCT_FACTS})`);
+    if (!hasFeatures) missing.push("Key features");
+  }
+  if (!input.brand) missing.push("Brand");
+
+  const sufficient =
+    facts >= MIN_PRODUCT_FACTS && (family?.requiredMissing.length ?? 0) === 0 && (family?.recommendedShort ?? 0) === 0;
+
+  const summary = sufficient
+    ? `${facts} facts about the product are established${schema ? ` for the ${schema.name} family` : ""}.`
+    : family && family.requiredMissing.length > 0
+      ? `The ${family.name} family needs ${family.requiredMissing.join(", ")}, and ${facts} of the ${MIN_PRODUCT_FACTS} facts about the product needed are established.`
+      : `${facts} of the ${MIN_PRODUCT_FACTS} facts about the product needed are established${schema ? ` (${schema.name})` : ""}.`;
+
+  return { sufficient, facts, required: MIN_PRODUCT_FACTS, missing, identified, family, schemaGap, summary };
 }

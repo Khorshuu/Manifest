@@ -592,3 +592,41 @@ repeating staff-entered identity to be SUPERSEDED, never accepted.
 with SeoPulse once, drives the scheduler through `/api/cron/jobs`, and checks
 the success card, the Before publishing list, Refresh with SeoPulse, the
 hidden Fill button and Advanced details.
+
+## Source-grounded extraction and family-aware sufficiency (D-123)
+
+`tests/source-grounded-extraction.test.ts` (pure, 36 tests) and
+`tests/source-grounded-pipeline.test.ts` (PGlite, 11 tests). Fixtures:
+`tests/fixtures/revlon-colorsilk.html` — the real Revlon page, trimmed, with its
+JSON-LD cut to five of 48 shades — and `tests/fixtures/northfield-barrier-cream.html`,
+a fictional skincare page, so nothing passes because of hair colour. The
+pipeline test replaces `safeFetch` and robots.txt with the fixtures
+(`vi.mock`) and the extraction provider with a scripted one; nothing reaches
+the network.
+
+| What | Where |
+|---|---|
+| Structured readers alone: sections, selected shade, variant group, no "Step 1" labels, no reviews | extraction |
+| Provider not called when the structured readers found enough | pipeline |
+| Prose facts found and kept with the page's excerpt as evidence | extraction, pipeline |
+| Excerpt not on the page, unsupported number, unsupported word, unsupported yes/no — rejected | extraction |
+| Identity, marketing and price never taken from a model | extraction |
+| New label → proposal with the reading's suggestion | pipeline |
+| Family created on the first "Add to family"; the next shade reuses mapping and ignore | pipeline |
+| Product-only fact kept | pipeline |
+| "Shade 10", "10", "(1N)" not identity; real model codes still identity | extraction, pipeline |
+| Brand + exact name + version identifies; a vague name does not | extraction, pipeline |
+| Page showing another shade: its selected shade not used; unresolved version → nothing used | extraction, pipeline |
+| Barcode stated only as a SKU matches; a different declared barcode still mismatches | extraction |
+| Discovery by brand + exact name; vague identity not searched | extraction |
+| Family-aware sufficiency: mouse (required attributes), hair colour (no measurements), empty schema (gap), identity only, offer terms | extraction |
+| Skincare product judged by its own family after reading the fixture | pipeline |
+| No generic SEO title/snippet when research is incomplete; whole statements when it is | extraction |
+| Fill writes no SEO title or meta while insufficient; staff meta untouched | pipeline |
+| "Previous SeoPulse content" only for SeoPulse's own wording, never staff's | extraction |
+| AI-assisted values need the owner's opt-in policy to verify | pipeline |
+
+The Glorious regression is the existing `manufacturer-shop-page` and
+`real-source-*` suites, unchanged except two assertions that encoded the old
+sufficiency rule (identity counted as facts; two facts plus identity were
+enough). Real acceptance on `preorder_utf8` is recorded in PROGRESS.md.

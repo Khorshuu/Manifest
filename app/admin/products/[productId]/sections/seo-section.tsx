@@ -12,6 +12,7 @@ import {
   SaveRow,
   useProductSave,
 } from "../editor-parts";
+import { SeoPulseStateNotice, type SeoPulseContentState } from "../seo-pulse-state";
 
 /**
  * The search listing, with a preview of the result it produces.
@@ -48,7 +49,14 @@ const PRIORITIES = [
   { value: -2, label: "Bury — last among equals" },
 ] as const;
 
-export function SeoSection({ product }: { product: SeoSectionValues }) {
+export function SeoSection({
+  product,
+  pulseState,
+}: {
+  product: SeoSectionValues;
+  /** Whether SeoPulse's wording here is current (D-123). */
+  pulseState?: SeoPulseContentState;
+}) {
   const router = useRouter();
   const { save, pending, error, message, dirty, markDirty } = useProductSave(
     product.id,
@@ -94,6 +102,7 @@ export function SeoSection({ product }: { product: SeoSectionValues }) {
 
   return (
     <form onSubmit={submit} className="flex max-w-2xl flex-col gap-6" noValidate>
+      <SeoPulseStateNotice state={pulseState} scope="seo" />
       <CountedInput
         id="seoMetaTitle"
         label="SEO title"

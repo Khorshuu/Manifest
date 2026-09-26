@@ -79,3 +79,58 @@ export function isIdentityLine(line: string): boolean {
   const match = /^\s*([^:–—-]{1,40}?)\s*[:–—-]\s*\S/.exec(line);
   return match !== null && isIdentityLabel(match[1]);
 }
+
+/*
+ * Which recorded "model numbers" can actually identify a product (D-123).
+ *
+ * The model and part number fields are free text, and they collect whatever a
+ * person had to hand. On a hair colour that was "Shade 10", "10" and "(1N)":
+ * a shade, the shade's number and a tone code. None of them names the product
+ * a manufacturer sells — dozens of products in any catalogue have a "10" — so
+ * none of them may make an identity HIGH_CONFIDENCE or decide that a
+ * manufacturer's page is about this product. They are kept exactly as typed;
+ * they are only not treated as identity.
+ *
+ * Two rules, both about the shape of the value and neither about a category:
+ *
+ *  - a value that names a variant dimension — "Shade 10", "Colour: Black",
+ *    "Size M", "Pack of 2" — describes one version of a product, not the
+ *    product;
+ *  - a code too short to tell products apart — fewer than three letters and
+ *    digits, or three digits alone — is not an identifier, however it was
+ *    labelled.
+ *
+ * A real manufacturer code is untouched: "GLO-OC-WL-BLK", "WH-1000XM5",
+ * "G502", "HP-900" and "GO-WHITE" all stay model identity.
+ */
+
+/** Words that name the dimension one version of a product differs from another in. */
+const VARIANT_DIMENSION =
+  /^(shade (?:no|number|code)|shade|colou?r (?:no|number|code|name)|colou?r|size|flavou?r|scent|fragrance|pack of|pack|count|capacity|storage|style|finish|tone|hue|variant|version|edition)\b\.?\s*[:#–—-]?\s*(.+)$/i;
+
+export type VariantDescriptor = { dimension: string; value: string };
+
+/**
+ * The variant a value describes, when it names one: "Shade 10" is the shade
+ * "10", "Colour: Black" the colour "Black". Null for anything else.
+ */
+export function variantDescriptor(value: string): VariantDescriptor | null {
+  const match = VARIANT_DIMENSION.exec(value.normalize("NFKC").trim());
+  if (!match) return null;
+  const rest = match[2].trim();
+  if (!rest || !/[\p{L}\p{N}]/u.test(rest)) return null;
+  return { dimension: match[1].toLowerCase().replace(/\s+/g, " "), value: rest };
+}
+
+/**
+ * Whether a recorded model or part number is strong enough to identify a
+ * product and to be compared with what a page declares.
+ */
+export function isStrongModelKey(value: string): boolean {
+  const text = value.normalize("NFKC").trim();
+  if (!text || variantDescriptor(text)) return false;
+  const alphanumeric = text.replace(/[^\p{L}\p{N}]/gu, "");
+  if (alphanumeric.length < 3) return false;
+  if (/^\p{N}+$/u.test(alphanumeric) && alphanumeric.length <= 3) return false;
+  return true;
+}

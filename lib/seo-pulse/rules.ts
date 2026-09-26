@@ -5,7 +5,7 @@ import type {
   SeoResearchData,
 } from "./types";
 import { knowledgeSufficiency, measurementRows, specificationRows } from "./facts";
-import { isIdentityLabel, isIdentityLine } from "@/lib/pkb/identity-labels";
+import { isIdentityLabel, isIdentityLine, isStrongModelKey, variantDescriptor } from "@/lib/pkb/identity-labels";
 import { isGenericAlt } from "@/lib/seo/readiness";
 import {
   clampText,
@@ -279,9 +279,15 @@ export function generateByRules(
       ...titleWords.flatMap(spacingVariants),
       ...(brand ? spacingVariants(brand) : []),
       model,
-      ...(input.details.modelNumber ? [input.details.modelNumber, ...spacingVariants(input.details.modelNumber)] : []),
-      ...(input.details.modelName ? [input.details.modelName] : []),
-      ...(input.details.manufacturerPartNumber ? [input.details.manufacturerPartNumber] : []),
+      // Only a code that identifies the product is a search term (D-123):
+      // "10" or "Shade 10" would match every product carrying a ten.
+      ...(input.details.modelNumber && isStrongModelKey(input.details.modelNumber)
+        ? [input.details.modelNumber, ...spacingVariants(input.details.modelNumber)]
+        : []),
+      ...(input.details.modelName && !variantDescriptor(input.details.modelName) ? [input.details.modelName] : []),
+      ...(input.details.manufacturerPartNumber && isStrongModelKey(input.details.manufacturerPartNumber)
+        ? [input.details.manufacturerPartNumber]
+        : []),
     ].filter((term) => keywordKey(term) !== keywordKey(input.title)),
     12,
   );
@@ -320,28 +326,12 @@ export function generateByRules(
 
   const displayName = brand && !containsWords(model, brand) ? `${brand} ${model}` : core;
   const fitted = clampText(displayName, TITLE_BODY_MAX);
-  const candidates = [
-    `${fitted} – Price in Bangladesh`,
-    `Buy ${fitted} in Bangladesh`,
-    productType ? `${fitted} | ${titleCase(productType)}` : "",
-    `${fitted}${color ? ` – ${titleCase(color)}` : ""}`,
-    fitted,
-  ].filter((candidate) => candidate && candidate.length <= TITLE_BODY_MAX + 4);
-  const recommendedTitle = candidates[0] ?? fitted;
 
   // ---------------------------------------------------------- description
 
-  const preorder = input.variants.some((variant) => variant.fulfillmentMode === "preorder");
   // SEO Pulse's own earlier features are not the staff's (D-120): building on
   // them would only print the last version's wording again.
   const ownFeatures = input.pulseWritten?.bulletFeatures ? [] : input.bulletFeatures;
-  const lead = ownFeatures[0]
-    ? `${displayName} — ${ownFeatures[0].replace(/\.$/, "")}.`
-    : `${displayName}.`;
-  const meta = clampText(
-    `${lead} ${preorder ? "Preorder now" : "Order now"}, sourced from the US and delivered across Bangladesh at a fixed landed price.`,
-    158,
-  );
 
   const specs = specificationRows(input);
   const measures = measurementRows(input);
@@ -367,14 +357,74 @@ export function generateByRules(
   // mouse than its sensor or its connection does.
   // The warranty is an assurance term with its own section on the product
   // page, not something the product does; it is not a feature to open on.
+  /*
+   * How to use it and what to be careful of are established facts too, but
+   * they are instructions, not features (D-123): they stay in the
+   * specifications. A value that is a list of the manufacturer's own
+   * statements — "New + improved with…; Less hair lost from breakage…" — is
+   * printed as those statements, one per line, exactly as recorded, rather
+   * than as one run-on line under its label.
+   */
+  const NOT_A_FEATURE = /\b(warranty|how to|directions?|instructions?|usage|steps?|warnings?|cautions?|precautions?)\b/i;
+  const statements = (value: string) => {
+    const parts = value.split(/;\s+/).map((part) => part.trim()).filter(Boolean);
+    return parts.length >= 2 && parts.every((part) => part.length >= 25 && /\s/.test(part)) ? parts : null;
+  };
   const groundedFeatures = [...specs, ...measures]
-    .filter((row) => !isIdentityLabel(row.label) && !/warranty/i.test(row.label))
-    .map((row) => clampText(`${row.label}: ${row.value}`, 180))
+    .filter((row) => !isIdentityLabel(row.label) && !NOT_A_FEATURE.test(row.label))
+    .flatMap((row) => statements(row.value)?.slice(0, 4) ?? [`${row.label}: ${row.value}`])
+    .map((line) => clampText(line, 180))
     .slice(0, 6);
   // Staff-written features are the source when there are any; a line among
   // them that only restates an identifier is not repeated as a feature.
   const staffFeatures = ownFeatures.filter((feature) => !isIdentityLine(feature));
   const features = staffFeatures.length > 0 ? staffFeatures : groundedFeatures;
+  const sufficient = knowledgeSufficiency(input).sufficient;
+
+  // --------------------------------------------------------------- titles
+
+  /*
+   * The title and the snippet say what the product is (D-123). They used to
+   * be "<name> – Price in Bangladesh" and "<name>. Order now, sourced from the
+   * US and delivered across Bangladesh at a fixed landed price." for every
+   * product alike: commerce copy about the shop, identical on every page. The
+   * name is the title; a established fact about the product, when it fits,
+   * tells a searcher which one this is. "price in bangladesh" stays a search
+   * phrase (below), which is what people type — not what a title must say.
+   */
+  // A short labelled fact the name does not already say ("Black (010)" adds
+  // nothing to "… - Black" but its code).
+  const firstFact = groundedFeatures
+    .filter((line) => /^[^:]{1,40}:\s/.test(line))
+    .map((line) => line.replace(/^[^:]{1,40}:\s*/, ""))
+    .find((value) => value.length <= 28 && !keywordKey(value).split(" ").some((word) => word && containsWords(displayName, word)));
+  const candidates = [
+    firstFact && sufficient ? `${fitted} – ${firstFact}` : "",
+    productType ? `${fitted} | ${titleCase(productType)}` : "",
+    `${fitted}${color ? ` – ${titleCase(color)}` : ""}`,
+    fitted,
+  ].filter((candidate, index, all) => candidate && candidate.length <= TITLE_BODY_MAX + 4 && all.indexOf(candidate) === index);
+  const recommendedTitle = candidates[0] ?? fitted;
+
+  /*
+   * The meta description, from established facts only, and none without them
+   * (D-123): a snippet made of the shop's delivery terms describes the shop.
+   */
+  // Whole statements only, as many as fit: a snippet cut mid-sentence says
+  // something the manufacturer did not.
+  const snippetLead = firstFact ? `${displayName} – ${firstFact}` : displayName;
+  const snippetFacts = features
+    .map((line) => line.replace(/[.\s]+$/, ""))
+    .filter((line) => !firstFact || !line.endsWith(firstFact));
+  let meta = "";
+  if (sufficient && snippetFacts.length > 0) {
+    const taken: string[] = [];
+    for (const line of snippetFacts) {
+      if (`${snippetLead}: ${[...taken, line].join("; ")}.`.length > 155) break;
+      taken.push(line);
+    }
+    meta = taken.length > 0 ? `${snippetLead}: ${taken.join("; ")}.` : clampText(`${snippetLead}: ${snippetFacts[0]}`, 155);
+  }
 
   const escape = (value: string) =>
     value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -407,19 +457,18 @@ export function generateByRules(
 
   // Only descriptors the listing actually records, and only once each: they
   // are the words a shopper scans for, and the words a search engine matches.
-  const descriptors = [
-    material ? `${material} construction` : "",
-    color ? `finished in ${color}` : "",
-  ].filter(Boolean);
   // "It comes with in Standard." was what a size on its own produced, and
   // "It comes in Standard." what came after it (D-120): a named size is not a
   // phrase that fits "comes in". Only a measured size ("42 mm") is said here;
   // a named one stays in the specifications, where it reads as "Size: Standard".
   const sayableSize = size && /\d/.test(size) ? size : null;
-  if (descriptors.length > 0) {
-    opening.push(`It comes with ${descriptors.join(", ")}${sayableSize ? `, in ${sayableSize}` : ""}.`);
-  } else if (sayableSize) {
-    opening.push(`It comes in ${sayableSize}.`);
+  // "It comes with finished in Black (010)." was what a colour on its own
+  // produced (D-123): each descriptor now has a verb that fits it.
+  const comesIn = [color, sayableSize].filter(Boolean).join(", ");
+  if (material) {
+    opening.push(`It has ${material} construction${comesIn ? ` and comes in ${comesIn}` : ""}.`);
+  } else if (comesIn) {
+    opening.push(`It comes in ${comesIn}.`);
   }
 
   if (use) opening.push(sentence(`It is intended for ${use}`));
@@ -437,7 +486,6 @@ export function generateByRules(
    * (D-115): what would remain is a name and a sentence of filler, and the
    * description is left for a person or a later, researched run to write.
    */
-  const sufficient = knowledgeSufficiency(input).sufficient;
   const suggestedHtml = !sufficient
     ? null
     : [
@@ -591,8 +639,11 @@ export function generateByRules(
       reason: `Leads with the product name so the page is recognisable, and fits within 60 characters once the site name is added.`,
     },
     metaDescription: {
-      recommended: meta.length >= 50 ? meta : clampText(`${meta} Sourced from the US for shoppers in Bangladesh.`, 158),
-      reason: "Names the product, gives one real feature, and says how it reaches Bangladesh — under 160 characters so it shows in full.",
+      // Under 50 characters is too short to be a snippet; empty is honest.
+      recommended: meta.length >= 50 ? meta : "",
+      reason: meta.length >= 50
+        ? "Names the product and the established facts a searcher compares, under 160 characters so it shows in full."
+        : "Left empty: too little is established about the product to say anything true in a search snippet. It is prepared once product information is verified.",
     },
     h1: {
       recommended:

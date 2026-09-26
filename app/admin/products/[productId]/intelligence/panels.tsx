@@ -4,7 +4,10 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/button";
 import type { ProductIntelligence, VocabularyView } from "@/lib/pkb/intelligence";
+import { PROPOSAL_GROUP_LABELS, proposalGroup, type ProposalGroup } from "@/lib/pkb/proposal-groups";
 import { inputClass } from "../editor-parts";
+
+const PROPOSAL_GROUP_ORDER: ProposalGroup[] = ["facts", "version", "composition", "use", "safety", "box", "passages"];
 
 /**
  * The review surface: identity, completeness, proposed values with their
@@ -65,6 +68,24 @@ export function IntelligencePanels({
       return next;
     });
   }
+
+  const [mapTo, setMapTo] = useState<Record<string, string>>({});
+  const [names, setNames] = useState<Record<string, string>>({});
+  /** The attribute's name if a new one is defined: the source's label, less its shouting. */
+  const nameFor = (proposal: { id: string; label: string }) =>
+    names[proposal.id] ??
+    (proposal.label === proposal.label.toUpperCase() && /\p{L}/u.test(proposal.label)
+      ? proposal.label.charAt(0) + proposal.label.slice(1).toLowerCase()
+      : proposal.label);
+  // Grouped for review (D-123): the same decision for similar labels, next to each other.
+  const grouped = new Map<ProposalGroup, typeof intelligence.proposals>();
+  for (const proposal of intelligence.proposals) {
+    const group = proposalGroup(proposal);
+    grouped.set(group, [...(grouped.get(group) ?? []), proposal]);
+  }
+  const mappable = definitions
+    .filter((definition) => definition.status === "approved")
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   const chosen = [...selected];
   const chosenClaims = open.filter((row) => selected.has(row.claim.id));
@@ -256,71 +277,145 @@ export function IntelligencePanels({
 
       <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4">
         <h2 className="font-display text-lg text-ink">New attributes found</h2>
+        {intelligence.proposals.length > 0 ? (
+          <p className="text-[0.8rem] text-ink/65">
+            Labels the sources use that nothing in this shop names yet. Decide each once: the decision is remembered, so
+            the next product of this kind is read without asking again. <strong>Add to family</strong> asks every product of
+            this kind for it; <strong>This product only</strong> keeps it here; <strong>Map to existing</strong> says it is
+            an attribute you already have; <strong>Ignore</strong> is for marketing text and page furniture.
+          </p>
+        ) : null}
         {intelligence.proposals.length === 0 ? (
           <p className="text-sm text-ink/65">No unknown labels are waiting.</p>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {intelligence.proposals.map((proposal) => (
-              <li key={proposal.id} className="rounded-lg border border-line p-3">
-                <p className="text-sm font-medium text-ink">
-                  {proposal.label}: {proposal.exampleValue}
-                </p>
-                <p className="text-[0.75rem] text-ink/60">
-                  looks like {proposal.dataType}
-                  {proposal.displayUnit ? ` in ${proposal.displayUnit}` : ""}
-                  {proposal.sourceTitle ? ` · ${proposal.sourceTitle}` : ""}
-                </p>
-                {mayDecideVocabulary ? (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={pending !== null}
-                      onClick={() =>
-                        void post(
-                          "/proposals",
-                          { proposalId: proposal.id, action: "add_to_family" },
-                          proposal.id,
-                          "Added to the family.",
-                        )
-                      }
-                    >
-                      Add to family
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      disabled={pending !== null}
-                      onClick={() =>
-                        void post(
-                          "/proposals",
-                          { proposalId: proposal.id, action: "product_only" },
-                          `${proposal.id}-product`,
-                          "Kept for this product only.",
-                        )
-                      }
-                    >
-                      This product only
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      disabled={pending !== null}
-                      onClick={() =>
-                        void post("/proposals", { proposalId: proposal.id, action: "ignore" }, `${proposal.id}-ignore`, "Ignored.")
-                      }
-                    >
-                      Ignore
-                    </Button>
-                  </div>
-                ) : (
-                  <p className="mt-1 text-[0.75rem] text-ink/55">A knowledge manager decides these.</p>
-                )}
-              </li>
-            ))}
-          </ul>
+          PROPOSAL_GROUP_ORDER.filter((group) => grouped.has(group)).map((group) => (
+            <div key={group} className="flex flex-col gap-2" data-proposal-group={group}>
+              <h3 className="text-[0.8rem] font-semibold uppercase tracking-[0.06em] text-ink/70">
+                {PROPOSAL_GROUP_LABELS[group]} ({grouped.get(group)!.length})
+              </h3>
+              <ul className="flex flex-col gap-2">
+                {grouped.get(group)!.map((proposal) => (
+                  <li key={proposal.id} className="rounded-lg border border-line p-3" data-proposal={proposal.label}>
+                    <p className="text-sm font-medium text-ink [overflow-wrap:anywhere]">
+                      {proposal.label}: {proposal.exampleValue.length > 220 ? `${proposal.exampleValue.slice(0, 217)}…` : proposal.exampleValue}
+                    </p>
+                    <p className="text-[0.75rem] text-ink/60">
+                      Looks like {proposal.dataType}
+                      {proposal.displayUnit ? ` in ${proposal.displayUnit}` : ""}
+                      {proposal.suggestion?.meaning ? ` · suggested meaning: ${proposal.suggestion.meaning}` : ""}
+                      {" · "}
+                      {proposal.extractionMethod === "ai_assisted"
+                        ? "read with AI assistance and checked against the page's text"
+                        : proposal.extractionMethod === "structured_data"
+                          ? "from the page's structured data"
+                          : "from the page's layout"}
+                    </p>
+                    {proposal.evidenceExcerpt ? (
+                      <p className="mt-1 text-[0.75rem] italic text-ink/55 [overflow-wrap:anywhere]">
+                        “{proposal.evidenceExcerpt.length > 300 ? `${proposal.evidenceExcerpt.slice(0, 297)}…` : proposal.evidenceExcerpt}”
+                        {proposal.sourceUrl ? (
+                          <>
+                            {" "}
+                            <a className="not-italic text-blue-600 hover:underline" href={proposal.sourceUrl} target="_blank" rel="noreferrer">
+                              source
+                            </a>
+                          </>
+                        ) : null}
+                      </p>
+                    ) : null}
+                    {mayDecideVocabulary ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <label className="flex items-center gap-1 text-[0.75rem] text-ink/70">
+                          Name
+                          <input
+                            className={`${inputClass} max-w-[11rem] py-1 text-[0.75rem]`}
+                            value={nameFor(proposal)}
+                            maxLength={80}
+                            onChange={(event) => setNames((current) => ({ ...current, [proposal.id]: event.target.value }))}
+                          />
+                        </label>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={pending !== null}
+                          onClick={() =>
+                            void post(
+                              "/proposals",
+                              { proposalId: proposal.id, action: "add_to_family", label: nameFor(proposal).trim() || proposal.label },
+                              proposal.id,
+                              "Added to the family. Products of this kind are now asked for it.",
+                            )
+                          }
+                        >
+                          Add to family
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={pending !== null}
+                          onClick={() =>
+                            void post(
+                              "/proposals",
+                              { proposalId: proposal.id, action: "product_only", label: nameFor(proposal).trim() || proposal.label },
+                              `${proposal.id}-product`,
+                              "Kept for this product only.",
+                            )
+                          }
+                        >
+                          This product only
+                        </Button>
+                        <label className="flex items-center gap-1 text-[0.75rem] text-ink/70">
+                          <span className="sr-only">Existing attribute for {proposal.label}</span>
+                          <select
+                            className={`${inputClass} max-w-[12rem] py-1 text-[0.75rem]`}
+                            value={mapTo[proposal.id] ?? ""}
+                            onChange={(event) => setMapTo((current) => ({ ...current, [proposal.id]: event.target.value }))}
+                          >
+                            <option value="">Map to existing…</option>
+                            {mappable.map((definition) => (
+                              <option key={definition.id} value={definition.id}>
+                                {definition.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={pending !== null || !mapTo[proposal.id]}
+                          onClick={() =>
+                            void post(
+                              "/proposals",
+                              { proposalId: proposal.id, action: "product_only", definitionId: mapTo[proposal.id] },
+                              `${proposal.id}-map`,
+                              "Mapped. The same label is placed this way from now on.",
+                            )
+                          }
+                        >
+                          Map
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={pending !== null}
+                          onClick={() =>
+                            void post("/proposals", { proposalId: proposal.id, action: "ignore" }, `${proposal.id}-ignore`, "Ignored.")
+                          }
+                        >
+                          Ignore
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-[0.75rem] text-ink/55">A knowledge manager decides these.</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
         )}
       </section>
 

@@ -231,12 +231,16 @@ describe("SEO Pulse one-click fill", () => {
     await colourOn(sofaA, ["White"]);
 
     const result = await fillWithSeoPulse(staff, sofaA);
-    expect(result.filled).toEqual(expect.arrayContaining(["Focus keyword", "Meta description"]));
-    expect(result.kept).toContain("SEO title");
+    expect(result.filled).toContain("Focus keyword");
+    // Nothing is established, so no search snippet is written either (D-123):
+    // it would describe the shop, not the sofa.
+    expect(result.filled).not.toContain("Meta description");
+    expect(result.filled).not.toContain("SEO title");
     expect(result.needsInput).toEqual(expect.arrayContaining(["Dimensions", "Weight", "Material"]));
 
     const [row] = await harness.db.select().from(products).where(eq(products.id, sofaA));
     expect(row.seoMetaTitle).toBe("My own title");
+    expect(row.seoMetaDescription).toBeNull();
     expect(row.seoFocusKeyword).toBeTruthy();
     // Nothing is established about the sofa, so no description is written
     // from the shop's own terms (D-119); the reason is returned instead.

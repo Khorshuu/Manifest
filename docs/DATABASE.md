@@ -743,6 +743,22 @@ Constraints and indexes:
 The table holds no product fact, no claim, no evidence and no offer data. It
 records which work was started and how far it got.
 
+## Migration 0044 — what research suggests a label is (D-123)
+
+One nullable column, `pkb_attribute_proposals.suggestion jsonb`:
+`{kind, meaning, method}` — the kind of statement an intelligent reading said a
+discovered label's value is (product fact, composition, warning, a version's
+own fact…), the attribute it appeared to mean, and how the page was read. It
+groups the review screen and decides nothing: no column of any canonical table
+is written from it. Proposals from before, and from the structured readers,
+carry `{kind: null, method}` or nothing.
+
+No other schema change. AI-assisted evidence uses the `ai_assisted` extraction
+method and the excerpt requirement (`pkb_evidence_ai_quotes_check`) that
+migration 0031 already defined. The draft verification policy
+`official_manufacturer_documentation_ai_read` is created by
+`ensureDefaultPolicies`, like every default policy, and is off until activated.
+
 ## Encoding (D-119)
 
 > **Operational requirement: the PostgreSQL database's encoding must be UTF8.**

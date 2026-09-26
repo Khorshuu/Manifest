@@ -9,6 +9,7 @@ import {
   SaveRow,
   useProductSave,
 } from "../editor-parts";
+import { isStrongModelKey, variantDescriptor } from "@/lib/pkb/identity-labels";
 
 export type CategoryOption = { id: string; label: string };
 
@@ -218,6 +219,7 @@ export function BasicsSection({
             }}
             className={inputClass}
           />
+          <WeakCodeNote value={modelName} kind="name" />
         </LabelledField>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -232,6 +234,7 @@ export function BasicsSection({
               }}
               className={inputClass}
             />
+            <WeakCodeNote value={modelNumber} kind="code" />
           </LabelledField>
 
           <LabelledField label="Manufacturer part number (MPN)" htmlFor="mpn">
@@ -245,6 +248,7 @@ export function BasicsSection({
               }}
               className={inputClass}
             />
+            <WeakCodeNote value={mpn} kind="code" />
           </LabelledField>
         </div>
       </div>
@@ -301,5 +305,25 @@ export function BasicsSection({
         label="Save changes"
       />
     </form>
+  );
+}
+
+/**
+ * Says when a value typed into a model field cannot identify a product
+ * (D-123): "Shade 10" is a shade, "10" and "(1N)" are too short. The value is
+ * kept as typed; it is only not used to decide which product this is.
+ */
+function WeakCodeNote({ value, kind }: { value: string; kind: "name" | "code" }) {
+  const text = value.trim();
+  if (!text) return null;
+  const variant = variantDescriptor(text);
+  if (kind === "name" && !variant) return null;
+  if (kind === "code" && isStrongModelKey(text)) return null;
+  return (
+    <p className="text-meta text-ink/70" data-weak-code>
+      {variant
+        ? `“${text}” reads as a ${variant.dimension}, not the manufacturer's model. It is kept, but not used to identify the product.`
+        : `“${text}” is too short to identify a product — it reads like a shade, size or tone code — so it is not used to match sources. Add the GTIN/UPC from the package if there is no manufacturer model number.`}
+    </p>
   );
 }

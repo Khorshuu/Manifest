@@ -3400,3 +3400,169 @@ apart from specifications in the Specifications section.
 
 Permissions are unchanged: preparing and the new apply step ask for
 `catalog.manage`, each PKB decision still asks for `knowledge.manage`.
+
+## D-123 — Reading what a manufacturer says in prose, without letting a model say it
+
+**The problem, found on a real product.** "Revlon Colorsilk Hair Color - Black"
+stopped at "Research incomplete" with an empty listing, while its SEO fields
+held "Revlon Colorsilk Hair Color – Price in Bangladesh" and "Order now,
+sourced from the US and delivered across Bangladesh at a fixed landed price."
+Three causes, none specific to Revlon:
+
+1. **Identity.** Staff had typed the shade into the model fields: model name
+   "Shade 10", model number "(1N)", MPN "10". Those made the identity
+   HIGH_CONFIDENCE and then decided nothing: Revlon's page declares no model
+   number, only a numeric SKU (not compared) and a ProductGroup of 48 shades.
+   The page verdict was `unknown`, so the page proposed nothing.
+2. **Reading.** Even when a page is accepted, the structured readers turn prose
+   sections (DESCRIPTION, DETAILS, HOW TO USE IT) into one paragraph per
+   heading. The facts in them — 100% gray coverage, 25 minutes, up to 8 weeks —
+   are sentences, not rows.
+3. **Judgement and copy.** Sufficiency was one rule for every product (four
+   facts, two of which could be the brand and a code, and "Measurements" always
+   asked for). The rules generator's default title and snippet were commerce
+   copy, and Fill wrote them on a product nobody had researched.
+
+**What a code can identify (`lib/pkb/identity-labels.ts`).** A model or part
+number identifies a product only when it can: `isStrongModelKey` refuses a
+value that names a variant dimension ("Shade 10", "Colour: Black", "Size M",
+"Pack of 2") and a code of fewer than three letters and digits, or three digits
+alone ("10", "(1N)", "010"). Such values are kept exactly as typed and shown
+with a note in the identity panel; they never make an identity HIGH_CONFIDENCE,
+never match or mismatch a page, and never become search terms.
+"GLO-OC-WL-BLK", "WH-1000XM5", "G502", "HP-900" and "GO-WHITE" are unchanged. A
+model name that is a variant is shown in Specifications as what it is
+("Shade (entered as model): 10") — display only.
+
+**Identity without a code (`identifiedByName`).** A shade of a hair colour or a
+flavour of a food is identified by brand, exact name and version. Resolution
+accepts that as HIGH_CONFIDENCE, narrowly: one brand, at least three identity
+words in the name besides the brand, or two and a recorded version (colour,
+size, a model name that is a variant). The existing ambiguity check (same brand
+and exact name) still applies. This basis does not vouch for any page:
+`identityVerdict` accepts a page for such a product only when the page names the
+brand and every identity word of the name, in what the page calls itself or in
+the one version it resolves to. The signature a person's confirmation is tied to
+includes the name and version for these products only, so no existing
+confirmation changed.
+
+**Pages selling several versions.** The extractor reads a ProductGroup's
+`hasVariant` (name, distinguishing words, SKU, GTINs, address) and which version
+the page shows (the one whose address was read, or whose SKU the page's own
+Product states). `resolveVariant` picks this product's version by GTIN, else by
+the version whose distinguishing words all appear in the product's name or
+recorded version — the most specific one, and only when exactly one is most
+specific. Facts about the line are used; the selected option ("Color — Black
+(010)", read from the variant picker's `<label>`) is used only when the version
+shown is this product's; and a product that is one version the page cannot
+resolve gets nothing from the page (`variant_unresolved`, said as such in
+preparation). A numeric SKU that is a checksum-valid GTIN matches a recorded
+GTIN, for equality only — a SKU that is not this product's barcode is never a
+mismatch.
+
+**Intelligent extraction, an optional second reading.** A new provider
+boundary, `lib/providers/extraction` (`none` | `anthropic`;
+`PRODUCT_EXTRACTION_PROVIDER`, `ANTHROPIC_API_KEY`, `PRODUCT_EXTRACTION_MODEL`,
+default `claude-opus-5`), separate from SeoPulse's content provider because the
+trust rules are opposite: that one writes from established facts, this one
+points at facts in a source. Order, in `lib/pkb/assist.ts`: the deterministic
+readers first; the provider only when they found fewer than six value-like pairs
+and the page has text; it gets only the text Manifest retrieved (it cannot
+browse) and returns strict JSON — label, value, unit, excerpt, section,
+suggested meaning, and a kind (identity, product fact, version fact, box
+content, composition, use, warning, marketing). The run records what it did
+beside discovery ("extraction:anthropic OK — 12 read, 9 confirmed against its
+text, 3 discarded", or NOT_CONFIGURED). Provided documents get the same second
+reading, before their transaction opens.
+
+**Grounding (`lib/pkb/grounding.ts`), deterministic and strict.** A candidate is
+dropped unless its excerpt is in the page's text (folding only case,
+whitespace, quote and dash styles, footnote marks and trademark signs; an
+ellipsis-quoted excerpt must have every piece, in order, within 1,500
+characters); every number in its value and label is a number in that excerpt;
+every significant word of its value is stated there (a plural or the same unit,
+"min" for "minutes", is allowed); a yes/no value has its label's words in the
+excerpt; it is not identity, marketing or an offer term (price, stock,
+delivery); and, on a multi-version page, a version's fact names this product's
+version. What survives becomes an `ai_assisted` pair whose excerpt is the page's
+original text at the matched position (the schema already required an AI
+excerpt, `pkb_evidence_ai_quotes_check`). The model's wording survives only as
+the label a person is asked about. The pair then takes the ordinary path:
+evidence → claim, when a label or mapping names it, or attribute proposal → a
+person. Box items arrive one per excerpt and continue the list's positions.
+
+**Verifying AI readings is an owner's opt-in.** The default policies already
+refused `ai_assisted` evidence. A new *draft* policy, "Official manufacturer
+documentation, read with AI assistance", allows it under the same conditions as
+the official-documentation policy (approved official domain for the brand, tier
+1). Until someone with `knowledge.manage` activates it, such values can only be
+accepted as UNVERIFIED, which does not count as knowledge. Nothing else about
+verification changed.
+
+**Family-aware sufficiency (`knowledgeSufficiency`).** `facts` now counts only
+facts about the product itself — never identity, price, stock, delivery or
+warranty terms. A product needs at least `MIN_PRODUCT_FACTS` (3) of them, every
+attribute its family requires, and at least half (up to three) of what the
+family recommends; optional attributes are never demanded, so "Measurements" is
+no longer universal. With no family, or an empty schema, the verdict carries a
+`schemaGap` telling staff to decide the labels research found so the kind of
+product is understood next time. The family schema reaches SeoPulse through
+`groundedKnowledge().family`. Preparation's message is the verdict's own
+summary and missing list. This is stricter than the old rule for products
+described only by identity plus two facts, which were "sufficient" before.
+
+**Vocabulary learnt once.** "Add to family" on a product whose category asks for
+nothing no longer stops: the first accepted attribute is added to the category,
+which creates its family (D-064), and the product joins it. The review screen
+groups labels (product facts, this version only, ingredients and materials,
+use, warnings, in the box, passages of text), shows the evidence excerpt, the
+source, how it was read and what research suggested, lets a person name the
+attribute, and offers Map to existing. The mapping is always remembered under
+the label the *source* wrote, so renaming "HOW TO USE IT" to "How to use" no
+longer stops the next page's "HOW TO USE IT" from being recognised. Migration
+0044 adds `pkb_attribute_proposals.suggestion` (kind, meaning, reading method) —
+for grouping only.
+
+**Discovery (`buildQuery`).** GTIN, then a strong model code, then brand + exact
+name (+ a recorded version the name does not say). No brand, or a name of fewer
+than three identity words (two with a recorded version), is not searched. A
+result is still only an address.
+
+**SEO waits for knowledge, and says so.** The SEO title and meta description are
+not offered, filled or prepared while knowledge is insufficient; the focus
+keyword, tags and search terms still are — they describe how people search, not
+the product. The rules generator no longer defaults to "… – Price in
+Bangladesh" or writes the delivery sentence: its title is the name with a short
+established fact when one adds something, its snippet is whole established
+statements, and it is empty rather than generic (the schema allows an empty
+meta description). In the editor, SeoPulse's own wording is labelled "Previous
+SeoPulse content" when the research does not stand behind it (insufficient, or
+the latest preparation stopped); an empty section says "SEO will be prepared
+after enough product information is verified". A person's wording is never
+labelled.
+
+**Smaller generic fixes found on the way.** "Step 1: …" lines stay in their
+section instead of becoming attributes called "Step 1"; a long section keeps
+whole statements instead of being cut mid-sentence; a value that is a list of
+the manufacturer's statements becomes one key feature per statement;
+instructions and warnings stay specifications, not key features; "It comes
+with finished in Black" became "It comes in Black (010)."; weak codes are no
+longer search aliases. Owners see the three optional services — automatic
+source discovery, intelligent document extraction, SeoPulse content AI — as
+Configured / Not configured / Rules fallback on the Intelligence SeoPulse tab
+and under a product's Advanced tools: states only, never a key.
+
+**Known limitations.**
+
+- The Anthropic extraction provider is UNVERIFIED against the live API: no key
+  was available. The pipeline around it is tested with a scripted provider.
+- A section's deterministic value is capped at 400 characters (a listing's
+  specification value caps at 500), so the fourth DETAILS statement on Revlon's
+  page — the one saying "100% gray coverage" — is not in the Details fact.
+  Intelligent extraction reads the whole text and would propose it separately.
+- Lists (tags, search terms) are only added to (D-122), so search terms an
+  earlier run derived from weak codes ("10", "1n") stay until a person removes
+  them.
+- A page re-read after its domain is approved keeps the earlier source row's
+  type when its bytes are unchanged; its values qualify only once research
+  reads a changed copy (Revlon's page differs on each read, so it did).

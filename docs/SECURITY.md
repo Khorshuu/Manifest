@@ -367,3 +367,25 @@ The provider is not a way around the retrieval rules. It returns addresses; ever
 one of them is still fetched through `safeFetch` with its SSRF, redirect, size
 and content-type controls, still checked against robots.txt, and still refused if
 the Brand Source Registry blocks its domain (D-114).
+
+### Intelligent document extraction (D-123)
+
+- **The model reads; it does not fetch.** `lib/providers/extraction` is given
+  the stored text of a document Manifest already retrieved through `safeFetch`
+  (or a person provided). It has no tools, no browsing and no address to follow.
+- **Its answer is untrusted input.** Strict JSON, reduced to well-formed
+  candidates (`readCandidates`), then checked deterministically against the
+  document's own text (`lib/pkb/grounding.ts`). A value whose excerpt is not in
+  the document, whose numbers or words the excerpt does not state, or which is
+  identity, marketing or an offer term, is dropped. The stored evidence is the
+  document's excerpt, never the model's wording.
+- **It decides nothing.** A surviving candidate is a claim or a proposal like any
+  other, decided by a person with the usual permission. It can count as VERIFIED
+  only under a policy an owner explicitly activates.
+- **Prompt injection in a page** can at worst make the model point at text that
+  is really on the page: grounding admits nothing else, and nothing becomes a
+  fact without a person.
+- **The credential.** `ANTHROPIC_API_KEY` is read on the server only
+  (`lib/env.ts`, `lib/seo-pulse/config.ts`), sent only to Anthropic by the
+  official SDK, and never shown: the admin screens report only "Configured" or
+  "Not configured".

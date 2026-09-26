@@ -19,6 +19,12 @@ export type ResearchQuery = {
   /** Domains the Brand Source Registry already approves for this brand. */
   preferredDomains: string[];
   limit: number;
+  /**
+   * What sets this version apart — a shade, colour or size the knowledge base
+   * records (D-123). Added to a name-only query when the name does not
+   * already say it.
+   */
+  variantValues?: string[];
 };
 
 export type ResearchCandidate = {

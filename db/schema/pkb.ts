@@ -685,6 +685,13 @@ export const pkbIdentifierHistory = pgTable("pkb_identifier_history", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** What research suggests a discovered label is (D-123): grouping for a person, never a decision. */
+export type PkbProposalSuggestion = {
+  kind: string | null;
+  meaning: string | null;
+  method: string | null;
+};
+
 export type PkbProviderState = {
   provider: string;
   status: "OK" | "NOT_CONFIGURED" | "UNAVAILABLE" | "FAILED";
@@ -753,6 +760,8 @@ export const pkbAttributeProposals = pgTable("pkb_attribute_proposals", {
   evidenceId: uuid("evidence_id")
     .notNull()
     .references(() => pkbEvidence.id, { onDelete: "cascade" }),
+  /** What research suggests the label is (migration 0044, D-123). Never canonical. */
+  suggestion: jsonb("suggestion").$type<PkbProposalSuggestion | null>(),
   status: text("status").$type<"open" | "added_to_family" | "product_only" | "ignored">().notNull().default("open"),
   familyId: uuid("family_id").references(() => pkbFamilies.id),
   definitionId: uuid("definition_id").references(() => pkbAttributeDefinitions.id),

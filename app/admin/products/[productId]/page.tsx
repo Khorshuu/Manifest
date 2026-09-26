@@ -26,10 +26,10 @@ import { SearchPerformanceBox } from "./search-performance-box";
 import { SeoReadinessBox } from "./seo-readiness-box";
 import { db } from "@/db";
 import { groundedKnowledge } from "@/lib/pkb/publish";
-import { isIdentityLabel } from "@/lib/pkb/identity-labels";
+import { isIdentityLabel, variantDescriptor } from "@/lib/pkb/identity-labels";
 import { listingAudit } from "@/lib/seo/audit";
 import { listingSearchPerformance } from "@/lib/search-console/listing";
-import { fieldStates, seoFieldLabel } from "@/lib/seo/fields";
+import { contentOwnership, fieldStates, seoFieldLabel } from "@/lib/seo/fields";
 import { slugHistory } from "@/lib/seo/redirects";
 import { SEO_FIELDS } from "@/db/schema";
 import { AssuranceSection } from "./sections/assurance-section";
@@ -50,8 +50,10 @@ import {
   seoPulseRecommendations,
 } from "@/lib/seo-pulse";
 import { SeoPulseRecommendationsPanel } from "./seo-pulse-recommendations";
+import { ResearchSetupList } from "@/components/research-setup";
+import { researchSetup } from "@/lib/preparation/setup";
 import { getPreparation, productResearchStatus } from "@/lib/preparation";
-import { describeIdentityState } from "@/lib/preparation/presentation";
+import { describeIdentityState, seoPulseContentState } from "@/lib/preparation/presentation";
 import { getProductResearchProvider } from "@/lib/providers/research";
 import { eq } from "drizzle-orm";
 import { pkbProducts } from "@/db/schema";
@@ -171,6 +173,36 @@ export default async function AdminProductPage({
   const identityStatus = describeIdentityState(knowledge?.resolutionState ?? null);
   const discoveryConfigured = getProductResearchProvider().key !== "none";
 
+  /*
+   * Whether SeoPulse's wording in each section is current (D-123): wording it
+   * wrote before the research could stand behind it is labelled as previous
+   * SeoPulse content, never presented as the latest research's result.
+   */
+  const pulseOwners = await contentOwnership(db, product.id, [
+    "seoMetaTitle",
+    "seoMetaDescription",
+    "descriptionHtml",
+    "bulletFeatures",
+  ] as const);
+  const researchSufficient = research?.state === "ready";
+  const latestStage = preparation?.stage ?? null;
+  const seoPulseState = seoPulseContentState({
+    fields: [
+      { label: "SEO title", owner: pulseOwners.get("seoMetaTitle") },
+      { label: "meta description", owner: pulseOwners.get("seoMetaDescription") },
+    ],
+    sufficient: researchSufficient,
+    latestStage,
+  });
+  const contentPulseState = seoPulseContentState({
+    fields: [
+      { label: "key features", owner: pulseOwners.get("bulletFeatures") },
+      { label: "description", owner: pulseOwners.get("descriptionHtml") },
+    ],
+    sufficient: researchSufficient,
+    latestStage,
+  });
+
   const warranty = (product.warranty as ProductWarranty | null) ?? null;
   const compliance = (product.compliance as ProductCompliance | null) ?? null;
   const details = (product.details as ProductDetails | null) ?? null;
@@ -246,6 +278,7 @@ export default async function AdminProductPage({
           />
           <ContentSection
             key={appliedKey}
+            pulseState={contentPulseState}
             product={{
               id: product.id,
               descriptionHtml: product.descriptionHtml,
@@ -275,13 +308,29 @@ export default async function AdminProductPage({
           }}
           established={established.attributes
             .filter((attribute) => attribute.pkbVariantId === null)
-            .map((attribute) => ({
-              label: attribute.label,
-              value: attribute.value,
-              unit: attribute.unit,
-              state: attribute.state,
-              identity: isIdentityLabel(attribute.label),
-            }))}
+            .map((attribute) => {
+              /*
+               * A model name that is really a version ("Shade 10") is shown as
+               * what it is, beside the facts, and not as an identifier (D-123).
+               * Only the display changes; the value is still as staff typed it.
+               */
+              const version = isIdentityLabel(attribute.label) ? variantDescriptor(attribute.value) : null;
+              return version
+                ? {
+                    label: `${version.dimension.charAt(0).toUpperCase()}${version.dimension.slice(1)} (entered as ${attribute.label.toLowerCase()})`,
+                    value: version.value,
+                    unit: null,
+                    state: attribute.state,
+                    identity: false,
+                  }
+                : {
+                    label: attribute.label,
+                    value: attribute.value,
+                    unit: attribute.unit,
+                    state: attribute.state,
+                    identity: isIdentityLabel(attribute.label),
+                  };
+            })}
         />
       ),
     },
@@ -369,6 +418,7 @@ export default async function AdminProductPage({
         />
         <SeoSection
           key={appliedKey}
+          pulseState={seoPulseState}
           product={{
             id: product.id,
             title: product.title,
@@ -606,6 +656,8 @@ export default async function AdminProductPage({
               <p className="text-[0.75rem] text-ink/65">
                 The facts behind this listing, where each came from, and anything waiting for a decision.
               </p>
+              {/* What preparation can use here (D-123): states only, never a key. */}
+              <ResearchSetupList items={researchSetup()} compact />
               <SeoPulseBox
                 productId={product.id}
                 lastRunId={lastRun?.id ?? null}

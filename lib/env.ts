@@ -68,6 +68,18 @@ const schema = z.object({
   /** Only read when PRODUCT_RESEARCH_PROVIDER=brave. Never committed. */
   BRAVE_SEARCH_API_KEY: z.string().min(8).optional(),
   /**
+   * Source-grounded reading of a retrieved page whose facts are in prose
+   * rather than tables (D-123). `none` is the default and fully supported:
+   * the deterministic readers run exactly as before. `anthropic` asks Claude
+   * to point at what the page says — every answer is checked against the
+   * page's own text before it can become even a proposal — and needs
+   * ANTHROPIC_API_KEY. It never browses and never decides a fact.
+   */
+  PRODUCT_EXTRACTION_PROVIDER: z.enum(["none", "anthropic"]).default("none"),
+  PRODUCT_EXTRACTION_MODEL: z.string().min(1).default("claude-opus-5"),
+  /** Shared with SEO Pulse's content generator. Never committed. */
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  /**
    * Shared secret the payment provider signs webhooks with. Without it every
    * webhook is refused, which is the safe failure.
    */

@@ -331,7 +331,8 @@ async function stepIdentity(context: Context): Promise<Outcome> {
       failure: {
         code: PREPARATION_CODES.IDENTITY_UNRESOLVED,
         message: `There is not enough to say which product this is: ${assessment.reasons.map((reason) => reason.message).join(" ")}`,
-        remedy: "Add the brand and a model number, part number or GTIN, then prepare it again.",
+        remedy:
+          "Add the brand and the GTIN/UPC or the manufacturer's model number — or, for a product sold by shade, colour, size or flavour, its full name with that version — then continue.",
       },
     };
   }
@@ -553,10 +554,19 @@ async function stepEnrichment(context: Context): Promise<Outcome> {
     .from(pkbSourceDocuments)
     .where(and(eq(pkbSourceDocuments.runId, runId), eq(pkbSourceDocuments.status, "retrieved")));
   const unmatched = Number(verdicts?.unmatched ?? 0);
+  // A page selling several versions where this product's version could not
+  // be told (D-123): said as such, because the remedy is different.
+  const [versions] = await db
+    .select({ unresolved: sql<number>`count(*) filter (where ${pkbSourceDocuments.identityNotes}->>'reason' = 'variant_unresolved')::int` })
+    .from(pkbSourceDocuments)
+    .where(and(eq(pkbSourceDocuments.runId, runId), eq(pkbSourceDocuments.status, "retrieved")));
+  const unresolvedVersions = Number(versions?.unresolved ?? 0);
   const unmatchedNote =
-    unmatched > 0
-      ? ` ${unmatched} of them ${unmatched === 1 ? "does" : "do"} not say enough about which product ${unmatched === 1 ? "it is" : "they are"} for, so nothing on ${unmatched === 1 ? "it" : "them"} was used — add the manufacturer's page for this exact model, or paste its specification.`
-      : "";
+    unresolvedVersions > 0
+      ? ` The page sells several versions (shades, colours or sizes), and which one this product is could not be told, so nothing on it was used rather than mix one version's facts into another's — name the version in the product's name (for example its shade), or give the page for this exact version.`
+      : unmatched > 0
+        ? ` ${unmatched} of them ${unmatched === 1 ? "does" : "do"} not say enough about which product ${unmatched === 1 ? "it is" : "they are"} for, so nothing on ${unmatched === 1 ? "it" : "them"} was used — add the manufacturer's page for this exact model, or paste its specification.`
+        : "";
 
   return {
     kind: "done",
@@ -696,10 +706,15 @@ async function stepContent(context: Context): Promise<Outcome> {
       notes: [
         {
           code: PREPARATION_CODES.INSUFFICIENT_KNOWLEDGE,
-          message: `There is too little established about this product to write a product listing from: ${sufficiency.facts} of the ${sufficiency.required} facts needed. Anything generated now would describe the shop rather than the product.`,
-          remedy: sufficiency.missing.length
-            ? `Add what is missing — ${sufficiency.missing.join(", ")} — or attach the manufacturer's page or specification, then continue.`
-            : "Add what the product's specification says, then continue.",
+          message: `There is too little established about this product to write customer content from. ${sufficiency.summary} SEO and customer content will be prepared once enough product information is verified.`,
+          remedy: [
+            sufficiency.missing.length
+              ? `What is missing: ${sufficiency.missing.join("; ")}. Accept the values research found, add them by hand, or attach the manufacturer's page, then continue.`
+              : "Add what the product's specification says, then continue.",
+            sufficiency.schemaGap,
+          ]
+            .filter(Boolean)
+            .join(" "),
         },
       ],
     };

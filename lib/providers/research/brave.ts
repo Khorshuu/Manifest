@@ -1,3 +1,4 @@
+import { isStrongModelKey } from "@/lib/pkb/identity-labels";
 import type { ProductResearchProvider, ResearchCandidate, ResearchQuery, ResearchResult } from "./types";
 
 /**
@@ -58,11 +59,55 @@ function usableUrl(value: unknown): string | null {
   }
 }
 
+/** A name's identity words: lower case, punctuation and trademark signs dropped. */
+function words(value: string): string[] {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .replace(/[™®©℠]/g, " ")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .split(" ")
+    .filter((word) => word && !["the", "and", "with", "for", "of", "a", "an", "by", "in", "new"].includes(word));
+}
+
+/**
+ * The search, from the strongest identity the product has (D-114, D-123):
+ *
+ *  1. a GTIN, with the brand;
+ *  2. a manufacturer model or part number that can identify a product, with
+ *     the brand — never "10" or "(1N)", which would match a thousand pages;
+ *  3. the brand and the exact product name, in quotes, with the version that
+ *     sets it apart when the name does not already say it — how a shade of a
+ *     hair colour or a flavour of a food is identified.
+ *
+ * Anything vaguer is not searched: no brand, or a name of fewer than three
+ * words besides the brand (two with a recorded version). "Revlon hair color"
+ * is a category, not a product. A result is only ever an address; it is
+ * fetched, matched against this product's identity and reviewed like any
+ * other page.
+ */
 export function buildQuery(query: ResearchQuery): string | null {
-  const identifier = query.gtins[0] ?? query.modelNumbers[0] ?? null;
-  if (!identifier) return null;
-  const parts = [query.brand, identifier].filter((part): part is string => Boolean(part && part.trim()));
-  return parts.join(" ").slice(0, 200);
+  const brand = query.brand?.trim() || null;
+  const withBrand = (identifier: string) =>
+    [brand, identifier].filter((part): part is string => Boolean(part && part.trim())).join(" ").slice(0, 200);
+
+  if (query.gtins[0]) return withBrand(query.gtins[0]);
+  const model = query.modelNumbers.find((value) => isStrongModelKey(value));
+  if (model) return withBrand(model);
+
+  if (!brand) return null;
+  const brandWords = new Set(words(brand));
+  let name = query.name.trim();
+  if (name.toLowerCase().startsWith(`${brand.toLowerCase()} `)) name = name.slice(brand.length).trim();
+  const nameWords = words(name).filter((word) => !brandWords.has(word));
+  const extra = (query.variantValues ?? [])
+    .map((value) => value.trim())
+    .filter((value) => value && words(value).some((word) => !nameWords.includes(word)));
+  if (nameWords.length < 3 && !(nameWords.length >= 2 && (query.variantValues ?? []).length > 0)) return null;
+  // The whole name, not a quoted phrase: a manufacturer rarely prints a shop's
+  // title verbatim, and every word is still required by the identity check.
+  return [brand, name.replace(/["“”]/g, "").replace(/\s[–—-]\s/g, " "), ...extra.slice(0, 1)].join(" ").slice(0, 200);
 }
 
 /**

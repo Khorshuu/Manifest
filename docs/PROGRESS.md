@@ -3962,3 +3962,74 @@ passed, 8 skipped (`--maxWorkers=4`). Production build passed. Playwright
 - The D-120 list-slot limitation (accept list items in order) still stands.
 - The home page slider's colour contrast fails axe intermittently (above).
 - Case C's stored remedy still reads "then prepare it again": it was written by the run before the wording changed to "then continue"; new runs use the new wording.
+
+## Source-grounded extraction and family-aware knowledge (D-123)
+
+`[x]` **Revlon root cause found.** "Revlon Colorsilk Hair Color - Black" stopped
+at "Research incomplete" because the shade typed into the model fields ("Shade
+10", "(1N)", "10") was treated as model identity: Revlon's page declares no
+model number and sells 48 shades, so the page verdict was `unknown` and it
+proposed nothing. Its SEO fields held "… – Price in Bangladesh" and the
+delivery sentence, written by an earlier Fill while nothing was known.
+
+`[x]` **Generic fixes** (details in D-123): weak codes and variant values are
+not identity; brand + exact name + version is an identity, and a page must
+name all of it; multi-version pages resolve this product's version and never
+lend it another version's facts; optional source-grounded intelligent
+extraction behind `lib/providers/extraction` with deterministic grounding;
+family-aware sufficiency with schema-gap guidance; first "Add to family"
+creates the category's family; proposal review grouped with evidence, naming
+and Map to existing; discovery by brand + exact name; SEO title and meta wait
+for knowledge; rules boilerplate removed; previous SeoPulse wording labelled
+in the editor; research setup shown to owners. Migration 0044.
+
+`[x]` **Real acceptance on `preorder_utf8`** (live network; no Anthropic key, so
+the structured readers only):
+
+- Revlon, before: the editor labelled the old SEO title and meta as "Previous
+  SeoPulse content"; Product content said it would be prepared once enough is
+  verified.
+- Revlon, Continue with the manufacturer's page: the page now matched (version
+  Black resolved by name among 48; the page was showing Black). It proposed
+  Colour "Black (010)" and four labels, and stopped for review. Setup showed
+  intelligent extraction "Not configured".
+- Human decisions, made as the knowledge manager through the review functions
+  the screens call: revlon.com approved as Revlon's official product site;
+  DETAILS → Add to family as "Details"; HOW TO USE IT → Add to family as "How to
+  use"; DESCRIPTION and "Best Seller" → Ignore. The first Add to family created
+  the Beauty & Care family. Research read the page again under the approved
+  domain (no new label questions), three values were accepted as VERIFIED,
+  and Continue reached **READY** in 9 s: description, key features, SEO title,
+  meta description, tags and search terms written from the three facts.
+  "Refresh with SeoPulse" then re-read the page and reached READY in 27 s with
+  nothing to decide.
+- Second shade, a clean Add Product ("Revlon Colorsilk Hair Color - Soft
+  Black" + its page): **no label questions**; its own shade "Soft Black (011)"
+  proposed with Details and How to use; three values accepted → READY. (A first
+  name carrying "(acceptance D-123)" was correctly refused: the page does not
+  say those words.)
+- Glorious Model O Classic Wireless (case B): Refresh → READY in 21 s, 25
+  values re-read as repeats, no intelligent reading needed. GO-WHITE listing
+  against the Classic page: read again, "appears to describe a different
+  product", nothing used.
+- UI inspected at 1280 px and 375 px (content, specifications, SEO, review
+  screen, research setup): no horizontal overflow.
+
+`[x]` **Verified.** Typecheck clean. Lint clean. Vitest (`--maxWorkers=4`): 122
+files, 1,709 passed, 8 skipped, 1 failed — `product-options.test.ts` asserted
+that Fill writes a meta description while nothing is known, which D-123
+removes; updated and re-run: 15/15. Production build passed. Playwright
+(production build, 2 workers), relevant specs (preparation, intelligence,
+product edit, regeneration, catalogue, wizard, SEO): 105 passed, 1 skipped;
+accessibility, variants, media, admin boundary: 61 passed, 1 failed — the
+home page campaign tile's colour contrast on desktop (storefront, untouched;
+passed 2/2 when re-run alone; noted under D-122).
+
+`[!]` **UNVERIFIED — external integration unavailable.** The Anthropic
+extraction provider was not run against the live API (no `ANTHROPIC_API_KEY`).
+It is exercised through a scripted provider in the tests.
+
+`[!]` **Known limitations** — see D-123: the 400-character section cap drops
+Revlon's fourth DETAILS statement (with "100% gray coverage") from the Details
+fact; search terms derived earlier from weak codes stay until removed by hand;
+a page re-read with unchanged bytes keeps its old source type.

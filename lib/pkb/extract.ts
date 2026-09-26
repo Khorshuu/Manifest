@@ -20,9 +20,17 @@ export type ExtractedPair = {
   label: string;
   value: string;
   unit: string | null;
-  method: "structured_data" | "html_table" | "html_text";
+  method: "structured_data" | "html_table" | "html_text" | "ai_assisted";
   locator: string;
   excerpt: string;
+  /**
+   * "variant" when the pair describes the one version of the product the page
+   * is showing — the selected colour or shade — rather than every version it
+   * sells (D-123). Such a pair is only used when that version is this product.
+   */
+  scope?: "variant";
+  /** What an intelligent reading suggested the statement is (D-123); for the person reviewing only. */
+  suggestion?: { kind: string; meaning: string | null };
 };
 
 export type ExtractedIdentity = {
@@ -45,6 +53,29 @@ export type ExtractedIdentity = {
    * cannot say which identifiers arrived together.
    */
   offers?: ExtractedOffer[];
+  /**
+   * The versions a page sells, when its structured data declares a product
+   * family — a ProductGroup's `hasVariant`, one entry per shade, colour or
+   * size (D-123). Their identifiers are kept here, apart from the flat lists
+   * above, so a page selling forty shades is not read as one product carrying
+   * forty GTINs.
+   */
+  variants?: ExtractedVariant[];
+  /** Which of `variants` the page is showing, when that can be told. */
+  displayedVariant?: number | null;
+};
+
+export type ExtractedVariant = {
+  name: string | null;
+  /**
+   * What sets this version apart, as the page names it: the part of its name
+   * after the family's name ("Black"), and any colour, size or pattern it
+   * declares.
+   */
+  distinguishing: string[];
+  sku: string | null;
+  gtins: string[];
+  url: string | null;
 };
 
 export type ExtractedOffer = {
@@ -122,7 +153,98 @@ const IDENTITY_FIELD: Partial<Record<IdentityLabelKind, "names" | "brands" | "gt
 const GTIN_FIELDS = ["gtin", "gtin8", "gtin12", "gtin13", "gtin14", "isbn"] as const;
 
 function emptyIdentity(): Required<ExtractedIdentity> {
-  return { names: [], brands: [], gtins: [], mpns: [], models: [], skus: [], offers: [] };
+  return { names: [], brands: [], gtins: [], mpns: [], models: [], skus: [], offers: [], variants: [], displayedVariant: null };
+}
+
+/** The address as compared: host, path and query, without scheme, fragment or a leading "www.". */
+function comparableUrl(value: string | null, base?: string): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value, base ?? "https://example.invalid");
+    const query = [...url.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const search = query.length ? `?${query.map(([key, entry]) => `${key}=${entry}`).join("&")}` : "";
+    const host = base && url.hostname === "example.invalid" ? "" : url.hostname.replace(/^www\./, "");
+    return `${host}${url.pathname.replace(/\/+$/, "")}${search}`.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** A family member's name, less the family's own name: "… Hair Dye - Black" → "Black". */
+function nameSuffix(name: string | null, groupName: string | null): string | null {
+  if (!name || !groupName) return null;
+  const folded = labelKey(name);
+  const group = labelKey(groupName);
+  if (!group || !folded.startsWith(group) || folded.length === group.length) return null;
+  // The same number of words as the group's name are dropped from the original.
+  const words = cleanText(name).split(" ");
+  const groupWords = group.split(" ").length;
+  let taken = 0;
+  let index = 0;
+  while (index < words.length && taken < groupWords) {
+    if (labelKey(words[index])) taken += labelKey(words[index]).split(" ").length;
+    index += 1;
+  }
+  const rest = words.slice(index).join(" ").replace(/^[\s,:;–—|/-]+/, "").trim();
+  return rest || null;
+}
+
+/**
+ * The versions a ProductGroup declares (D-123), and which of them the page is
+ * showing: the one whose address is the address that was read, or failing
+ * that the one whose SKU the page's own Product states.
+ */
+function readVariants(
+  group: Record<string, unknown>,
+  identity: Required<ExtractedIdentity>,
+  context: { url?: string; displayedSkus: string[]; displayedUrls: string[] },
+) {
+  const groupName = textOf(group.name);
+  const entries = ([] as unknown[]).concat(group.hasVariant ?? []).slice(0, 200);
+  const base = context.url;
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object" || identity.variants.length >= 200) continue;
+    const record = entry as Record<string, unknown>;
+    const name = textOf(record.name);
+    const offers = offersOf(record);
+    const url =
+      (typeof offers[0]?.url === "string" ? (offers[0].url as string) : null) ??
+      (typeof record.url === "string" ? record.url : null) ??
+      (typeof record["@id"] === "string" ? (record["@id"] as string).replace(/#.*$/, "") : null);
+    const declared = [textOf(record.color), textOf(record.size), textOf(record.pattern), textOf(record.material)].filter(
+      (value): value is string => Boolean(value),
+    );
+    const suffix = nameSuffix(name, groupName);
+    let absolute: string | null = null;
+    try {
+      absolute = url ? new URL(url, base ?? "https://example.invalid").toString() : null;
+    } catch {
+      absolute = null;
+    }
+    identity.variants.push({
+      name,
+      distinguishing: [...new Set([...(suffix ? [suffix] : []), ...declared])],
+      sku: textOf(record.sku) ?? textOf(offers[0]?.sku),
+      gtins: GTIN_FIELDS.map((field) => textOf(record[field])).filter((value): value is string => Boolean(value)),
+      url: absolute,
+    });
+  }
+
+  if (identity.displayedVariant !== null || identity.variants.length === 0) return;
+  const wanted = new Set(
+    [base ?? null, ...context.displayedUrls].map((value) => comparableUrl(value, base)).filter((value): value is string => Boolean(value)),
+  );
+  const byUrl = identity.variants.findIndex((variant) => {
+    const key = comparableUrl(variant.url, base);
+    return key !== null && wanted.has(key);
+  });
+  if (byUrl >= 0) {
+    identity.displayedVariant = byUrl;
+    return;
+  }
+  const skus = new Set(context.displayedSkus.map((sku) => labelKey(sku)));
+  const bySku = identity.variants.findIndex((variant) => variant.sku !== null && skus.has(labelKey(variant.sku)));
+  if (bySku >= 0) identity.displayedVariant = bySku;
 }
 
 function clip(text: string, max: number): string {
@@ -198,8 +320,18 @@ function offersOf(product: Record<string, unknown>): Record<string, unknown>[] {
   return found;
 }
 
-function readJsonLd(scripts: string[], pairs: ExtractedPair[], identity: Required<ExtractedIdentity>, structured: unknown[]) {
+function readJsonLd(
+  scripts: string[],
+  pairs: ExtractedPair[],
+  identity: Required<ExtractedIdentity>,
+  structured: unknown[],
+  options: { url?: string } = {},
+) {
   let productIndex = -1;
+  const groups: Record<string, unknown>[] = [];
+  /** What the page's own (non-group) Products state: the version on show. */
+  const displayedSkus: string[] = [];
+  const displayedUrls: string[] = [];
   scripts.forEach((script, scriptIndex) => {
     if (script.length > MAX_JSON_LD_BYTES) return;
     let parsed: unknown;
@@ -230,6 +362,17 @@ function readJsonLd(scripts: string[], pairs: ExtractedPair[], identity: Require
 
       const name = textOf(product.name);
       if (name) identity.names.push(name);
+      if (typesOf(product).includes("ProductGroup")) {
+        groups.push(product);
+      } else {
+        const ownSku = textOf(product.sku);
+        if (ownSku) displayedSkus.push(ownSku);
+        for (const offer of offersOf(product)) {
+          if (typeof offer.url === "string") displayedUrls.push(offer.url);
+          const offerSku = textOf(offer.sku);
+          if (offerSku) displayedSkus.push(offerSku);
+        }
+      }
       const brand = textOf(product.brand);
       if (brand) {
         identity.brands.push(brand);
@@ -287,6 +430,7 @@ function readJsonLd(scripts: string[], pairs: ExtractedPair[], identity: Require
       });
     }
   });
+  for (const group of groups) readVariants(group, identity, { url: options.url, displayedSkus, displayedUrls });
 }
 
 /*
@@ -330,6 +474,14 @@ const MAX_HEADING_PARTS = 40;
 const LINK_TEXT_SHARE = 0.5;
 /** A "Label: value" line inside a block, read as its own pair. */
 const LABELLED_LINE = /^\s*([^:]{1,60}?)\s*:\s+(\S.*)$/;
+/** A numbered step, tip or note: a position in a sequence, never an attribute. */
+const SEQUENCE_LABEL = /^(?:step|tip|note|stage|phase)\s*\d{1,2}$/i;
+/**
+ * The option a variant picker shows as chosen: "Color — Black (010)",
+ * "Size: M". Read only from a `<label>`, which is where every shop platform
+ * prints it, and only as a short name and a short value.
+ */
+const SELECTED_OPTION = /^([\p{L}][\p{L} ]{0,30}?)\s*[—–:]\s*(\S.{0,79})$/u;
 
 /*
  * Page furniture a specification is never in (D-119).
@@ -527,7 +679,12 @@ function dedupePairs(pairs: ExtractedPair[]): ExtractedPair[] {
   });
 }
 
-export function extractHtml(html: string): Extraction {
+export type ExtractOptions = {
+  /** The address the document was read from; it tells which version a family page is showing. */
+  url?: string;
+};
+
+export function extractHtml(html: string, options: ExtractOptions = {}): Extraction {
   const pairs: ExtractedPair[] = [];
   const identity = emptyIdentity();
   const structured: unknown[] = [];
@@ -594,7 +751,9 @@ export function extractHtml(html: string): Extraction {
     const folded: string[] = [];
     for (const line of lines) {
       const labelled = LABELLED_LINE.exec(line);
-      if (labelled && /\p{L}/u.test(labelled[1])) {
+      // "Step 2: Apply…" is a line of the heading's procedure, not an
+      // attribute called "Step 2" (D-123).
+      if (labelled && /\p{L}/u.test(labelled[1]) && !SEQUENCE_LABEL.test(cleanText(labelled[1]))) {
         emit({
           label: labelled[1],
           value: labelled[2],
@@ -607,7 +766,20 @@ export function extractHtml(html: string): Extraction {
       folded.push(line);
     }
     if (folded.length === 0) return;
-    const value = folded.join("; ");
+    /*
+     * A long section is kept as whole statements (D-123): the statements that
+     * fit, rather than a cut in the middle of a sentence that would then be
+     * stored, and shown, as though the manufacturer had written it.
+     */
+    let value = folded.join("; ");
+    if (value.length > MAX_VALUE) {
+      const whole: string[] = [];
+      for (const line of folded) {
+        if ([...whole, line].join("; ").length > MAX_VALUE) break;
+        whole.push(line);
+      }
+      if (whole.length > 0) value = whole.join("; ");
+    }
     emit({
       label,
       value,
@@ -770,6 +942,21 @@ export function extractHtml(html: string): Extraction {
           frame.selling = true;
           frame.interactive = true;
         }
+        // The option a variant picker shows as selected (D-123).
+        if (frame.tag === "label" && !frame.furniture && !frame.hasBlockChild) {
+          const selected = SELECTED_OPTION.exec(cleanText(frame.text));
+          if (selected && selected[1].trim().split(" ").length <= 3 && !isNoiseText(selected[2])) {
+            const before = pairs.length;
+            addPair(pairs, identity, {
+              label: selected[1],
+              value: selected[2],
+              method: "html_text",
+              locator: `selected option "${cleanText(selected[1]).slice(0, 40)}"`,
+              excerpt: clip(cleanText(frame.text), 1000),
+            });
+            if (pairs.length > before) pairs[pairs.length - 1].scope = "variant";
+          }
+        }
         if ((frame.tag === "title" || frame.tag === "h1") && !frame.furniture && documentNames < 4) {
           const name = cleanText(frame.text);
           if (name) {
@@ -838,7 +1025,7 @@ export function extractHtml(html: string): Extraction {
   // Anything still open when the document ended.
   for (const frame of frames) flushHeading(frame);
 
-  readJsonLd(jsonLd, pairs, identity, structured);
+  readJsonLd(jsonLd, pairs, identity, structured, options);
   return { pairs: dedupePairs(pairs), identity: dedupeIdentity(identity), structuredData: structured, text: collapse(text.join(" ")) };
 }
 export function extractText(content: string): Extraction {
@@ -859,17 +1046,17 @@ export function extractText(content: string): Extraction {
   return { pairs, identity: dedupeIdentity(identity), structuredData: [], text: collapse(content.slice(0, MAX_TEXT)) };
 }
 
-export function extractJson(content: string): Extraction {
+export function extractJson(content: string, options: ExtractOptions = {}): Extraction {
   const pairs: ExtractedPair[] = [];
   const identity = emptyIdentity();
   const structured: unknown[] = [];
-  readJsonLd([content], pairs, identity, structured);
+  readJsonLd([content], pairs, identity, structured, options);
   return { pairs: dedupePairs(pairs), identity: dedupeIdentity(identity), structuredData: structured, text: collapse(content.slice(0, MAX_TEXT)) };
 }
 
-export function extractDocument(content: string, contentType: string): Extraction {
-  if (contentType === "text/html" || contentType === "application/xhtml+xml") return extractHtml(content);
-  if (contentType === "application/json" || contentType === "application/ld+json") return extractJson(content);
+export function extractDocument(content: string, contentType: string, options: ExtractOptions = {}): Extraction {
+  if (contentType === "text/html" || contentType === "application/xhtml+xml") return extractHtml(content, options);
+  if (contentType === "application/json" || contentType === "application/ld+json") return extractJson(content, options);
   return extractText(content);
 }
 
@@ -888,5 +1075,7 @@ function dedupeIdentity(identity: Required<ExtractedIdentity>): ExtractedIdentit
     models: unique(identity.models),
     skus: unique(identity.skus),
     offers: identity.offers,
+    variants: identity.variants,
+    displayedVariant: identity.displayedVariant,
   };
 }

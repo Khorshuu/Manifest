@@ -463,3 +463,37 @@ export function decisionSummary(decisions: OutcomeInput["decisions"]): string | 
   if (count === 0) return null;
   return count === 1 ? "1 recommendation needs your decision" : `${count} recommendations need your decision`;
 }
+
+// ------------------------------------------------ previous SeoPulse wording
+
+/**
+ * Whether the SeoPulse wording a section holds is current (D-123).
+ *
+ * A field is *previous SeoPulse content* when SeoPulse wrote it and nobody
+ * changed it since (`contentOwnership` answered `seo_pulse`), and the research
+ * behind the product does not stand behind it now: too little is verified, or
+ * the latest preparation stopped before it finished. A person's wording is
+ * never labelled — it is theirs, whatever the research says. A field waiting
+ * for knowledge says so rather than being filled with generic copy.
+ */
+export type SeoPulseContentState = {
+  stale: string[];
+  reason: "insufficient" | "latest_incomplete" | null;
+  pending: boolean;
+};
+
+const UNFINISHED = new Set<PreparationStage>(["NEEDS_REVIEW", "BLOCKED", "FAILED"]);
+
+export function seoPulseContentState(input: {
+  fields: { label: string; owner: "empty" | "seo_pulse" | "staff" | "locked" | undefined }[];
+  sufficient: boolean;
+  latestStage: PreparationStage | null;
+}): SeoPulseContentState {
+  const unfinished = input.latestStage !== null && UNFINISHED.has(input.latestStage);
+  const stale = !input.sufficient || unfinished ? input.fields.filter((field) => field.owner === "seo_pulse").map((field) => field.label) : [];
+  return {
+    stale,
+    reason: stale.length === 0 ? null : !input.sufficient ? "insufficient" : "latest_incomplete",
+    pending: !input.sufficient,
+  };
+}

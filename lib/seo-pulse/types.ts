@@ -215,7 +215,13 @@ export const generatedSchema = z.object({
     reason: text(300),
   }),
   metaDescription: z.object({
-    recommended: z.string().trim().min(50).max(170),
+    // Empty when too little is established to write a snippet (D-123): an
+    // honest gap, never a sentence about the shop to fill the space.
+    recommended: z
+      .string()
+      .trim()
+      .max(170)
+      .refine((value) => value === "" || value.length >= 50, "A meta description is empty or at least 50 characters."),
     reason: text(300),
   }),
   h1: z.object({ recommended: text(200), reason: text(300) }),

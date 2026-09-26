@@ -11,6 +11,7 @@ import {
   SaveRow,
   useProductSave,
 } from "../editor-parts";
+import { SeoPulseStateNotice, type SeoPulseContentState } from "../seo-pulse-state";
 
 /**
  * What the listing says about itself: the description, the highlights at the
@@ -32,7 +33,14 @@ export type ContentSectionValues = {
   boxContents: string[];
 };
 
-export function ContentSection({ product }: { product: ContentSectionValues }) {
+export function ContentSection({
+  product,
+  pulseState,
+}: {
+  product: ContentSectionValues;
+  /** Whether SeoPulse's wording here is current (D-123). */
+  pulseState?: SeoPulseContentState;
+}) {
   const router = useRouter();
   const { save, pending, error, message, dirty, markDirty } = useProductSave(
     product.id,
@@ -81,6 +89,7 @@ export function ContentSection({ product }: { product: ContentSectionValues }) {
 
   return (
     <form onSubmit={submit} className="flex max-w-2xl flex-col gap-8" noValidate>
+      <SeoPulseStateNotice state={pulseState} scope="content" />
       <ListEditor
         label="Key features"
         hint="Shown at the top of the product page, in this order. Short claims work best."

@@ -23,6 +23,8 @@ import {
   type SeoPulseFilter,
 } from "../filters";
 import { Metric, MetricGrid, Section, TabHeading, TableShell } from "../ui";
+import { ResearchSetupList } from "@/components/research-setup";
+import { researchSetup } from "@/lib/preparation/setup";
 
 /**
  * The SeoPulse tab: product research and preparation across the catalogue.
@@ -158,6 +160,14 @@ export async function SeoPulsePanel({
           href="/admin/intelligence/seo-pulse?filter=failed"
         />
       </MetricGrid>
+
+      <Section
+        id="setup"
+        title="Research setup"
+        description="The optional services product preparation can use. Preparation works with all of them off; each one only widens what it can find or read."
+      >
+        <ResearchSetupList items={researchSetup()} />
+      </Section>
 
       {!ai.configured || !data.configured ? (
         <p className="admin-card border-brass bg-brass/5 p-3.5 text-[0.8125rem] text-ink/80">

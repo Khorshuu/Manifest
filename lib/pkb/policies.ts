@@ -23,6 +23,7 @@ type DefaultPolicy = {
   registryRoles: PkbRegistryRole[] | null;
   maxAuthorityTier: number | null;
   minIndependentSources: number;
+  allowAiAssisted?: boolean;
 };
 
 export const DEFAULT_POLICIES: DefaultPolicy[] = [
@@ -57,6 +58,26 @@ export const DEFAULT_POLICIES: DefaultPolicy[] = [
     registryRoles: null,
     maxAuthorityTier: null,
     minIndependentSources: 1,
+  },
+  /*
+   * The same official evidence, read with AI assistance (D-123). The value is
+   * the manufacturer's own words — the stored excerpt is the page's text, and
+   * the grounding checks refused anything the excerpt does not state — but
+   * the reading was a model's, so verifying it is an owner's decision to opt
+   * into. Off until someone with `knowledge.manage` activates it; a person
+   * still accepts every value.
+   */
+  {
+    key: "official_manufacturer_documentation_ai_read",
+    name: "Official manufacturer documentation, read with AI assistance",
+    description:
+      "A value quoted from the manufacturer's own page on a domain approved for the brand, found by intelligent extraction and checked word for word against the page. Off until someone activates it.",
+    status: "draft",
+    qualifyingSourceTypes: ["manufacturer_website", "manufacturer_documentation", "manufacturer_support"],
+    registryRoles: ["official_product", "official_support", "official_documentation"],
+    maxAuthorityTier: 1,
+    minIndependentSources: 1,
+    allowAiAssisted: true,
   },
   {
     key: "two_trusted_secondary_sources",

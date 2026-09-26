@@ -20,14 +20,23 @@ import { enqueueJob } from "@/lib/jobs/runner";
 import { logEvent } from "@/lib/observability/log";
 import { getProductResearchProvider, type ResearchQuery } from "@/lib/providers/research";
 import { PkbError, queryRows, type Executor } from "./common";
+import { assistExtraction } from "./assist";
 import { proposeAttribute } from "./discovery";
-import { extractDocument, type Extraction } from "./extract";
+import { extractDocument, type ExtractedVariant, type Extraction } from "./extract";
+import { isStrongModelKey } from "./identity-labels";
 import { normalizeIdentifier } from "./identifiers";
 import { loadLabelMappings, resolveLabel } from "./mappings";
 import { checkRobots } from "./net/robots";
 import { decodeBody, safeFetch } from "./net/safe-fetch";
 import { cleanText, labelKey, listItems, normalizeUrl } from "./normalize";
-import { canEnrich, loadIdentity, refreshResolution, type ProductIdentity } from "./resolution";
+import {
+  canEnrich,
+  loadIdentity,
+  nameTokens,
+  productNameTokens,
+  refreshResolution,
+  type ProductIdentity,
+} from "./resolution";
 import { createClaim } from "./review";
 import { approvedRegistryFor, matchRegistry, trustedBrandIds } from "./trust";
 import { loadDefinitions } from "./vocabulary";
@@ -193,6 +202,21 @@ export async function provideDocument(
   const content = input.content;
   if (!content.trim()) throw new PkbError("The document is empty.");
 
+  /*
+   * Read before the transaction: the optional second reading (D-123) may wait
+   * on the network, and a transaction must not. A document a person hands
+   * over is taken as being about this product, so it has no version to
+   * resolve; a version's own fact is kept only if the text is about one.
+   */
+  const known = await loadIdentity(db, pkbProductId);
+  if (!known) throw new PkbError("That product is not in the knowledge base.", 404);
+  const deterministic = extractDocument(content, input.contentType ?? "text/plain", { url: input.url ?? undefined });
+  const assisted = await assistExtraction(known, deterministic, {
+    url: input.url ?? null,
+    title: cleanText(input.title) || null,
+    version: { multiVersion: false, ours: null },
+  });
+
   return db.transaction(async (tx) => {
     const identity = await loadIdentity(tx, pkbProductId);
     if (!identity) throw new PkbError("That product is not in the knowledge base.", 404);
@@ -235,7 +259,7 @@ export async function provideDocument(
             .returning({ id: pkbSources.id })
         )[0];
 
-    const extraction = extractDocument(content, input.contentType ?? "text/plain");
+    const extraction = assisted.extraction;
     const [document] = await tx
       .insert(pkbSourceDocuments)
       .values({
@@ -436,6 +460,8 @@ export async function runEnrichment(runId: string): Promise<RunReport> {
       report.claimsProposed += outcome.claimsProposed;
       report.conflicts += outcome.conflicts;
       report.proposalsCreated += outcome.proposalsCreated;
+      // What the second reading did on each page it was needed for (D-123).
+      if (outcome.extraction) report.providers.push(outcome.extraction);
     }
 
     report.status = "completed";
@@ -587,6 +613,7 @@ async function findCandidates(identity: ProductIdentity): Promise<{ candidates: 
     name: identity.name,
     brand: identity.brands[0]?.name ?? null,
     modelNumbers: identity.modelKeys,
+    variantValues: identity.variantValues ?? [],
     gtins: identity.gtins.map((row) => row.gtin14),
     preferredDomains,
     limit: MAX_CANDIDATES,
@@ -672,7 +699,7 @@ async function readCandidate(
   identity: ProductIdentity,
   candidate: Candidate,
   robotsCache: Map<string, string | null | "unreachable">,
-): Promise<EnrichmentOutcome & { retrieved: boolean }> {
+): Promise<EnrichmentOutcome & { retrieved: boolean; extraction?: PkbProviderState | null }> {
   const empty = { claimsProposed: 0, conflicts: 0, proposalsCreated: 0 };
   const domain = (() => {
     try {
@@ -705,11 +732,37 @@ async function readCandidate(
   }
 
   const content = decodeBody(fetched.body, fetched.charset);
-  const extraction = extractDocument(content, fetched.contentType);
+  const extraction = extractDocument(content, fetched.contentType, { url: fetched.url });
   const sha256 = createHash("sha256").update(fetched.body).digest("hex");
   const verdict = identityVerdict(identity, extraction, {
     brandVouched: match !== null && !match.blocked && match.brandSpecific,
   });
+  // What the page says about a version that is not this product is not used (D-123).
+  let usable: Extraction = verdict.variantPairsUsable
+    ? extraction
+    : { ...extraction, pairs: extraction.pairs.filter((pair) => pair.scope !== "variant") };
+
+  /*
+   * The optional second reading (D-123), only for a page that is about this
+   * product and whose structure said little. Outside the transaction: it may
+   * wait on the network, and nothing it returns is written unchecked.
+   */
+  let extractionState: PkbProviderState | null = null;
+  if (verdict.match === "match") {
+    const variants = extraction.identity.variants ?? [];
+    const multiVersion = variants.length >= 2;
+    const resolved = multiVersion ? resolveVariant(identity, variants) : null;
+    const assisted = await assistExtraction(identity, usable, {
+      url: fetched.url,
+      title: extraction.identity.names[0] ?? candidate.title,
+      version: {
+        multiVersion,
+        ours: resolved?.index != null ? variants[resolved.index].distinguishing : null,
+      },
+    });
+    usable = assisted.extraction;
+    extractionState = assisted.state;
+  }
 
   return storeRead(fetched.url, () => db.transaction(async (tx) => {
     const sourceId = await ensureRetrievedSource(tx, {
@@ -762,14 +815,14 @@ async function readCandidate(
 
     const outcome = await proposeFromExtraction(tx, {
       identity,
-      extraction,
+      extraction: usable,
       sourceId: source.id,
       documentId: document.id,
       runId: run.id,
       actorId: null,
       extractionMethodOf: (pair) => pair.method,
     });
-    return { ...outcome, retrieved: true };
+    return { ...outcome, retrieved: true, extraction: extractionState };
   }));
 }
 
@@ -914,6 +967,60 @@ export function modelLikeSkus(skus: string[]): string[] {
  * model-like name fragment can agree; anything weaker is `unknown`, which
  * proposes nothing.
  */
+export type IdentityVerdict = {
+  match: "match" | "mismatch" | "unknown";
+  notes: Record<string, unknown>;
+  /**
+   * Whether what the page says about the one version it is showing — the
+   * selected colour or shade (`ExtractedPair.scope`) — is about this product
+   * (D-123). False on a page showing a different version, or a family page
+   * whose version this product is not.
+   */
+  variantPairsUsable: boolean;
+};
+
+/** Checksum-valid GTINs among values that were not declared as GTINs, such as a shop's numeric SKU. */
+function gtinsAmong(values: (string | null)[]): Set<string> {
+  const found = new Set<string>();
+  for (const value of values) {
+    if (!value || !/^\d{8}$|^\d{12,14}$/.test(value.trim())) continue;
+    const normalized = normalizeIdentifier("gtin", value.trim());
+    if (normalized.validation === "valid" && normalized.gtin14) found.add(normalized.gtin14);
+  }
+  return found;
+}
+
+/**
+ * Which of a family page's versions this product is (D-123): the one carrying
+ * this product's GTIN, or else the one whose distinguishing words ("Black",
+ * "Soft Black") all appear in this product's name or recorded variant — the
+ * most specific such version, and only when exactly one is most specific.
+ */
+export function resolveVariant(
+  identity: ProductIdentity,
+  variants: ExtractedVariant[],
+): { index: number | null; by: "gtin" | "name" | null; ambiguous: boolean } {
+  const ours = new Set(identity.gtins.map((row) => row.gtin14));
+  if (ours.size > 0) {
+    const byGtin = variants.findIndex((variant) =>
+      [...gtinsAmong([variant.sku, ...variant.gtins])].some((gtin) => ours.has(gtin)),
+    );
+    if (byGtin >= 0) return { index: byGtin, by: "gtin", ambiguous: false };
+  }
+  const words = new Set([
+    ...nameTokens(identity.name),
+    ...(identity.variantValues ?? []).flatMap((value) => nameTokens(value)),
+  ]);
+  const candidates = variants
+    .map((variant, index) => ({ index, tokens: new Set(variant.distinguishing.flatMap((value) => nameTokens(value))) }))
+    .filter((candidate) => candidate.tokens.size > 0 && [...candidate.tokens].every((token) => words.has(token)));
+  if (candidates.length === 0) return { index: null, by: null, ambiguous: false };
+  const widest = Math.max(...candidates.map((candidate) => candidate.tokens.size));
+  const top = candidates.filter((candidate) => candidate.tokens.size === widest);
+  if (top.length !== 1) return { index: null, by: null, ambiguous: true };
+  return { index: top[0].index, by: "name", ambiguous: false };
+}
+
 export function identityVerdict(
   identity: ProductIdentity,
   extraction: Extraction,
@@ -929,6 +1036,51 @@ export function identityVerdict(
      */
     brandVouched?: boolean;
   } = {},
+): IdentityVerdict {
+  const verdict = baseVerdict(identity, extraction, options);
+  const variants = extraction.identity.variants ?? [];
+  if (verdict.match !== "match" || variants.length < 2) {
+    return { ...verdict, variantPairsUsable: verdict.match === "match" };
+  }
+
+  /*
+   * A page selling several versions (D-123). What it says about the product
+   * line is usable; what it says about the version on show is usable only
+   * when that version is this product. And when this product is one version
+   * but which one cannot be told, the page is not used at all rather than
+   * mixing one shade's facts into another's listing.
+   */
+  const displayed = extraction.identity.displayedVariant ?? null;
+  const resolved = resolveVariant(identity, variants);
+  const pageWords = new Set(extraction.identity.names.flatMap((name) => nameTokens(name)));
+  // Words of this product's name the page's own names do not carry: the part
+  // that says which version it is.
+  const versionWords = [...new Set(productNameTokens(identity).filter((word) => !pageWords.has(word)))];
+  const notes = {
+    ...verdict.notes,
+    variants: {
+      count: variants.length,
+      displayed: displayed === null ? null : variants[displayed]?.name ?? null,
+      ours: resolved.index === null ? null : variants[resolved.index]?.name ?? null,
+      resolvedBy: resolved.by,
+      ambiguous: resolved.ambiguous,
+    },
+  };
+
+  if (resolved.index === null) {
+    if (versionWords.length > 0 || resolved.ambiguous || (identity.variantValues ?? []).length > 0) {
+      return { match: "unknown", notes: { ...notes, reason: "variant_unresolved" }, variantPairsUsable: false };
+    }
+    // The listing is the product line itself: common facts only.
+    return { match: "match", notes, variantPairsUsable: false };
+  }
+  return { match: "match", notes, variantPairsUsable: displayed === null ? false : displayed === resolved.index };
+}
+
+function baseVerdict(
+  identity: ProductIdentity,
+  extraction: Extraction,
+  options: { brandVouched?: boolean },
 ): { match: "match" | "mismatch" | "unknown"; notes: Record<string, unknown> } {
   /*
    * Both sides as written, so a person told "this page appears to describe a
@@ -959,6 +1111,23 @@ export function identityVerdict(
       })
       .filter((value): value is string => value !== null),
   );
+  /*
+   * GTINs a page states without calling them GTINs (D-123): a shop's SKU that
+   * is a checksum-valid barcode number, and the barcodes of the versions a
+   * family page sells. Compared for equality only — a SKU that is not this
+   * product's barcode is not evidence of a different product, because most
+   * SKUs are not barcodes at all.
+   */
+  const variantsDeclared = extraction.identity.variants ?? [];
+  const impliedGtins = gtinsAmong([
+    ...(extraction.identity.skus ?? []),
+    ...variantsDeclared.flatMap((variant) => [variant.sku, ...variant.gtins]),
+  ]);
+  const impliedShared = [...impliedGtins].filter((value) => ourGtins.has(value));
+  if (ourGtins.size > 0 && impliedShared.length > 0) {
+    notes.gtins = { ours: [...ourGtins], theirs: [...theirGtins], impliedMatch: impliedShared };
+    return { match: "match", notes };
+  }
   if (ourGtins.size > 0 && theirGtins.size > 0) {
     const shared = [...theirGtins].filter((value) => ourGtins.has(value));
     notes.gtins = { ours: [...ourGtins], theirs: [...theirGtins] };
@@ -966,7 +1135,11 @@ export function identityVerdict(
     return { match: shared.length > 0 ? "match" : "mismatch", notes };
   }
 
-  const ourModels = new Set(identity.modelKeys.map((value) => labelKey(value).replace(/\s+/g, "")));
+  // Only a code that can identify a product is compared (D-123): "10" or
+  // "(1N)" neither matches a page nor makes one a different product.
+  const ourModels = new Set(
+    identity.modelKeys.filter((value) => isStrongModelKey(value)).map((value) => labelKey(value).replace(/\s+/g, "")),
+  );
   const theirModels = new Set(
     [...extraction.identity.mpns, ...extraction.identity.models, ...modelLikeSkus(extraction.identity.skus ?? [])].map(
       (value) => labelKey(value).replace(/\s+/g, ""),
@@ -982,12 +1155,34 @@ export function identityVerdict(
   const ourBrands = new Set(identity.brands.map((brand) => brand.key));
   const theirBrands = new Set(extraction.identity.brands.map((value) => labelKey(value)));
   const brandAgrees = [...theirBrands].some((value) => ourBrands.has(value));
-  const nameAgrees =
+  const modelInName =
     ourModels.size > 0 &&
     extraction.identity.names.some((name) => {
       const folded = labelKey(name).replace(/\s+/g, "");
       return [...ourModels].some((model) => model.length >= 4 && folded.includes(model));
     });
+
+  /*
+   * A product identified by its name alone (D-123) — no GTIN, no model code —
+   * agrees with a page only when every identity word of its name appears in
+   * what the page calls itself or in the name of the one version it resolves
+   * to. "Revlon ColorSilk Hair Color - Black" needs colorsilk, hair, color and
+   * black; a page about ColorSilk in Brown has no "black" to offer, and a
+   * page about another Revlon line has no "colorsilk".
+   */
+  let nameAgrees = modelInName;
+  if (!nameAgrees && ourModels.size === 0 && ourGtins.size === 0) {
+    const words = productNameTokens(identity);
+    const pageWords = new Set(extraction.identity.names.flatMap((name) => nameTokens(name)));
+    const resolved = variantsDeclared.length > 0 ? resolveVariant(identity, variantsDeclared) : null;
+    const variantWords = resolved?.index != null
+      ? variantsDeclared[resolved.index].distinguishing.flatMap((value) => nameTokens(value))
+      : [];
+    for (const word of variantWords) pageWords.add(word);
+    const missing = words.filter((word) => !pageWords.has(word));
+    notes.name = { words, missing };
+    nameAgrees = words.length >= 2 && missing.length === 0;
+  }
   const vouched = Boolean(options.brandVouched) && theirBrands.size === 0;
   notes.brands = { ours: [...ourBrands], theirs: [...theirBrands], vouchedByRegistry: vouched };
   if ((brandAgrees || vouched) && nameAgrees) return { match: "match", notes };
@@ -1009,7 +1204,7 @@ async function proposeFromExtraction(
     documentId: string;
     runId: string | null;
     actorId: string | null;
-    extractionMethodOf: (pair: Extraction["pairs"][number]) => "structured_data" | "html_table" | "html_text";
+    extractionMethodOf: (pair: Extraction["pairs"][number]) => Extraction["pairs"][number]["method"];
   },
 ): Promise<EnrichmentOutcome> {
   const outcome: EnrichmentOutcome = { claimsProposed: 0, conflicts: 0, proposalsCreated: 0 };
@@ -1024,6 +1219,8 @@ async function proposeFromExtraction(
   ]);
 
   const usedSlots = new Set<string>();
+  const nextOrdinal = new Map<string, number>();
+  const listed = new Set<string>();
   for (const pair of input.extraction.pairs.slice(0, MAX_PAIRS_PER_DOCUMENT)) {
     const placed = resolveLabel(definitions, mappings, pair.label, "source_document", family);
     if (placed.kind === "ignored") continue;
@@ -1048,12 +1245,30 @@ async function proposeFromExtraction(
       // One value per slot per document: a page repeating a specification
       // does not corroborate itself.
       const slot = `${placed.definition.id}`;
-      if (usedSlots.has(slot)) continue;
+      const list = placed.definition.cardinality === "multiple";
+      /*
+       * An intelligent reading reports a list one item at a time, each with
+       * its own excerpt (D-123) — "coloring gloves" from step 1, "cream
+       * developer" from step 2 — so for a list attribute its items continue
+       * the list in the next free positions. A repeat of an item already
+       * proposed from this document is not proposed again.
+       */
+      const continuing = list && pair.method === "ai_assisted" && usedSlots.has(slot);
+      if (usedSlots.has(slot) && !continuing) continue;
       usedSlots.add(slot);
       // A list attribute written as one bulleted value ("• 1× Receiver
       // • 1× Cable") is one claim per item, each in its own slot (D-119).
-      const values = placed.definition.cardinality === "multiple" ? listItems(pair.value) : [pair.value];
-      for (const [ordinal, raw] of values.entries()) {
+      const items = (list ? listItems(pair.value) : [pair.value]).filter((item) => {
+        const key = `${slot}|${labelKey(item)}`;
+        if (listed.has(key)) return false;
+        listed.add(key);
+        return true;
+      });
+      const first = nextOrdinal.get(slot) ?? 0;
+      nextOrdinal.set(slot, first + items.length);
+      const values = items;
+      for (const [position, raw] of values.entries()) {
+        const ordinal = first + position;
         const claim = await createClaim(tx, {
           pkbProductId: input.identity.pkbProductId,
           pkbVariantId: null,
@@ -1079,6 +1294,10 @@ async function proposeFromExtraction(
       exampleValue: pair.value,
       evidenceId: evidence.id,
       unitHint: pair.unit,
+      suggestion: pair.suggestion
+        ? { kind: pair.suggestion.kind, meaning: pair.suggestion.meaning, method: pair.method }
+        : { kind: null, meaning: null, method: pair.method },
+      variantDefining: pair.scope === "variant",
     });
     if (proposal.created) outcome.proposalsCreated += 1;
   }
@@ -1145,6 +1364,7 @@ export async function sourceOutlook(pkbProductId: string): Promise<SourceOutlook
     name: identity.name,
     brand: identity.brands[0]?.name ?? null,
     modelNumbers: identity.modelKeys,
+    variantValues: identity.variantValues ?? [],
     gtins: identity.gtins.map((row) => row.gtin14),
     preferredDomains,
     limit: MAX_CANDIDATES,

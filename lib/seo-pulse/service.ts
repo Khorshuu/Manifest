@@ -1113,8 +1113,9 @@ export async function fillWithSeoPulse(
       : null;
 
   text("seoFocusKeyword", analysis.primaryKeyword.keyword, "Focus keyword");
-  text("seoMetaTitle", analysis.seoTitle.recommended, "SEO title");
-  text("seoMetaDescription", analysis.metaDescription.recommended, "Meta description");
+  // A search snippet waits for knowledge like the description does (D-123).
+  if (!needsKnowledge) text("seoMetaTitle", analysis.seoTitle.recommended, "SEO title");
+  if (!needsKnowledge) text("seoMetaDescription", analysis.metaDescription.recommended, "Meta description");
   if (!needsKnowledge) text("descriptionHtml", analysis.description.suggestedHtml, "Description");
 
   const features = needsKnowledge ? [] : (analysis.keyFeatures ?? []);
@@ -1473,9 +1474,16 @@ type ProposedValues = Partial<Record<RecommendedField, string | string[]>>;
 function proposedValues(analysis: SeoAnalysis, sufficient: boolean): ProposedValues {
   const values: ProposedValues = {
     seoFocusKeyword: analysis.primaryKeyword.keyword,
-    seoMetaTitle: analysis.seoTitle.recommended,
-    seoMetaDescription: analysis.metaDescription.recommended,
   };
+  /*
+   * The SEO title and meta description are what a search result says about
+   * the product, so they wait for the same knowledge as the description
+   * (D-123). Offering "<name> – Price in Bangladesh" for a product nobody has
+   * researched filled the field with commerce copy that looked finished. The
+   * focus keyword is only how people search for the name, and is still offered.
+   */
+  if (sufficient && analysis.seoTitle.recommended.trim()) values.seoMetaTitle = analysis.seoTitle.recommended;
+  if (sufficient && analysis.metaDescription.recommended.trim()) values.seoMetaDescription = analysis.metaDescription.recommended;
   if (sufficient && analysis.description.suggestedHtml) {
     values.descriptionHtml = sanitizeDescriptionHtml(analysis.description.suggestedHtml);
   }

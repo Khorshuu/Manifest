@@ -9,7 +9,9 @@ import {
   pkbLegacyAttributeMap,
   pkbProducts,
   pkbSources,
+  products,
   type PkbLabelContext,
+  type PkbProposalSuggestion,
 } from "@/db/schema";
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
@@ -92,6 +94,10 @@ export type AttributeProposalInput = {
   evidenceId: string;
   unitHint?: string | null;
   shape?: Partial<ProposedShape>;
+  /** What research suggests the label is (D-123). Shown to the person deciding; decides nothing. */
+  suggestion?: PkbProposalSuggestion | null;
+  /** The value describes one version of the product (a shade, a colour, a size). */
+  variantDefining?: boolean;
 };
 
 /**
@@ -135,6 +141,8 @@ export async function proposeAttribute(
       unitDimension: shape.unitDimension,
       displayUnit: shape.displayUnit,
       evidenceId: input.evidenceId,
+      suggestion: input.suggestion ?? null,
+      variantDefining: input.variantDefining ?? false,
     })
     .returning({ id: pkbAttributeProposals.id });
   return { proposalId: created.id, created: true };
@@ -153,11 +161,17 @@ export type AttributeProposalView = {
   status: "open" | "added_to_family" | "product_only" | "ignored";
   evidenceId: string;
   evidenceExcerpt: string | null;
+  evidenceLocator: string | null;
+  extractionMethod: string | null;
   sourceTitle: string | null;
   sourceUrl: string | null;
   definitionId: string | null;
+  suggestion: PkbProposalSuggestion | null;
+  variantDefining: boolean;
   createdAt: Date;
 };
+
+export { PROPOSAL_GROUP_LABELS, proposalGroup, type ProposalGroup } from "./proposal-groups";
 
 export async function listAttributeProposals(
   executor: Executor,
@@ -176,9 +190,13 @@ export async function listAttributeProposals(
       status: pkbAttributeProposals.status,
       evidenceId: pkbAttributeProposals.evidenceId,
       evidenceExcerpt: pkbEvidence.excerpt,
+      evidenceLocator: pkbEvidence.locator,
+      extractionMethod: pkbEvidence.extractionMethod,
       sourceTitle: pkbSources.title,
       sourceUrl: pkbSources.url,
       definitionId: pkbAttributeProposals.definitionId,
+      suggestion: pkbAttributeProposals.suggestion,
+      variantDefining: pkbAttributeProposals.variantDefining,
       createdAt: pkbAttributeProposals.createdAt,
     })
     .from(pkbAttributeProposals)
@@ -246,12 +264,16 @@ export async function decideAttributeProposal(
       .where(eq(pkbProducts.id, proposal.pkbProductId));
     if (!product) throw new PkbError("That product is not in the knowledge base.", 404);
 
+    // The attribute may be given a better name; the mapping is always remembered
+    // under the label the source wrote, or the next page writing it would not
+    // be recognised (D-123).
     const label = (decision.label ?? proposal.label).trim();
+    const sourceLabel = proposal.label.trim();
     const context: PkbLabelContext = decision.context ?? "source_document";
     const now = new Date();
 
     if (decision.action === "ignore") {
-      await recordLabelMapping(tx, staff.id, { label, context, action: "ignore", note: decision.note ?? null });
+      await recordLabelMapping(tx, staff.id, { label: sourceLabel, context, action: "ignore", note: decision.note ?? null });
       await tx
         .update(pkbAttributeProposals)
         .set({ status: "ignored", decidedBy: staff.id, decidedAt: now })
@@ -283,7 +305,7 @@ export async function decideAttributeProposal(
     // A family mirrored from a category takes the attribute through the
     // category, so the mirror keeps it on the next pass instead of dropping a
     // version added behind its back.
-    const family = product.familyId
+    let family = product.familyId
       ? (
           await tx
             .select({ id: pkbFamilies.id, status: pkbFamilies.status, legacyCategoryId: pkbFamilies.legacyCategoryId })
@@ -292,7 +314,58 @@ export async function decideAttributeProposal(
         )[0]
       : undefined;
 
-    if (decision.action === "add_to_family") {
+    /*
+     * A category that asks for no specifications yet has no family, and "Add
+     * to family" used to stop there (D-123). The product's own category is
+     * the family it belongs to, so the first attribute accepted for it is
+     * added to that category — which is what creates the category's family
+     * (D-064) — and the product joins that family. Every later product filed
+     * under the category then shares the schema and the label mapping, so the
+     * vocabulary is learnt once, not once per product.
+     */
+    let createdFor: string | null = null;
+    if (decision.action === "add_to_family" && !family) {
+      if (definitionId) {
+        throw new PkbError("This product has no family yet. Add the label as a new attribute of its category, or map it for this product only.", 409);
+      }
+      const [listing] = await tx
+        .select({ categoryId: products.categoryId })
+        .from(products)
+        .where(eq(products.pkbProductId, product.id))
+        .limit(1);
+      if (!listing) throw new PkbError("Assign the product to a family before adding an attribute to it.", 409);
+      const created = await createCategoryAttributeIn(tx, staff.id, listing.categoryId, {
+        name: label,
+        dataType: LEGACY_DATA_TYPE[shape.dataType] as never,
+        unit: shape.displayUnit ?? null,
+        options: shape.dataType === "enum" ? [proposal.exampleValue] : null,
+        isRequired: decision.requirement === "required",
+        isFilterable: decision.filterable ?? undefined,
+        isSearchable: decision.searchable ?? undefined,
+      } as never);
+      createdFor = created.id;
+      const [category] = await tx
+        .select({ defaultFamilyId: categories.defaultFamilyId })
+        .from(categories)
+        .where(eq(categories.id, listing.categoryId));
+      if (!category?.defaultFamilyId) throw new PkbError("The category's family was not created.", 500);
+      await tx
+        .update(pkbProducts)
+        .set({ familyId: category.defaultFamilyId, familyAssignment: "assigned", familyAssignmentSource: "legacy_category", updatedAt: now })
+        .where(eq(pkbProducts.id, product.id));
+      [family] = await tx
+        .select({ id: pkbFamilies.id, status: pkbFamilies.status, legacyCategoryId: pkbFamilies.legacyCategoryId })
+        .from(pkbFamilies)
+        .where(eq(pkbFamilies.id, category.defaultFamilyId));
+      const [mapped] = await tx
+        .select({ definitionId: pkbLegacyAttributeMap.definitionId })
+        .from(pkbLegacyAttributeMap)
+        .where(eq(pkbLegacyAttributeMap.categoryAttributeId, created.id));
+      if (!mapped) throw new PkbError("The category's family schema did not pick up the new specification.", 500);
+      definitionId = mapped.definitionId;
+    }
+
+    if (decision.action === "add_to_family" && !createdFor) {
       if (!family) throw new PkbError("Assign the product to a family before adding an attribute to it.", 409);
       if (family.legacyCategoryId) {
         if (definitionId) {
@@ -348,7 +421,7 @@ export async function decideAttributeProposal(
     // Remembered for the next product that writes the same label. Scoped to
     // the family when the decision was about this kind of product.
     await recordLabelMapping(tx, staff.id, {
-      label,
+      label: sourceLabel,
       context,
       familyId: decision.action === "add_to_family" ? (family?.id ?? null) : null,
       action: "map",

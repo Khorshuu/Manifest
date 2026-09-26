@@ -182,6 +182,26 @@ Every route under `/admin` and every mutation checks permissions server-side bef
 
 SEO Pulse follows the same pattern with two interfaces in `lib/seo-pulse/providers/`: `SeoDataProvider` (external keyword and search-results data; DataForSEO, or none) and `SeoIntelligenceProvider` (writes recommendations; Claude through the Anthropic SDK, or the free rules generator). They are chosen by `SEO_PULSE_DATA_PROVIDER` and `SEO_PULSE_AI_PROVIDER`, read in `lib/seo-pulse/config.ts`. The default — rules, no external data — needs no credentials and costs nothing.
 
+`lib/providers/extraction/` is the knowledge base's optional second reader
+(D-123): `ProductDocumentExtractionProvider`, `none` by default, `anthropic`
+with `PRODUCT_EXTRACTION_PROVIDER` and `ANTHROPIC_API_KEY`. It is deliberately
+not SeoPulse's `SeoIntelligenceProvider`, though both can use Claude: that one
+writes wording from established facts, this one points at facts inside a
+document Manifest already retrieved, and nothing it returns is kept until
+`lib/pkb/grounding.ts` has checked it against the document's own text.
+
+```
+retrieved page ─▶ extractDocument (JSON-LD, tables, headings, rows, cards, variant groups)
+                    │  identityVerdict + resolveVariant (which product, which version)
+                    │  extractionUsefulness ─ enough? ─▶ yes: unchanged
+                    ▼  no, and a provider is configured
+                  assistExtraction ─▶ provider.extract(text only)
+                    │  groundCandidates: excerpt in text, numbers and words stated,
+                    │  no identity / marketing / offer terms, version checked
+                    ▼
+                  mergeGroundedPairs ─▶ evidence (page excerpt) ─▶ claim or proposal ─▶ a person
+```
+
 `lib/providers/search-console/` is the same shape again (D-096): one interface
 for what is configured and one page of performance rows, a default that reports
 `NOT_CONFIGURED`, and `GoogleSearchConsoleProvider` as the only file that reads

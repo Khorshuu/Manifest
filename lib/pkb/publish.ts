@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { queryRows, type Executor } from "./common";
+import { resolveFamilySchema } from "./families";
 
 /**
  * What the knowledge base is willing to publish about a product (D-080).
@@ -186,6 +187,17 @@ export type GroundedRelationship = {
   direction: "outgoing" | "incoming";
 };
 
+/**
+ * What this kind of product is expected to be described by (D-123): the
+ * product's family and its effective schema. Schema, not knowledge — it says
+ * which attributes matter, never what their values are.
+ */
+export type GroundedFamily = {
+  id: string;
+  name: string;
+  attributes: { key: string; label: string; requirement: "required" | "recommended" | "optional" }[];
+};
+
 export type GroundedKnowledge = {
   pkbProductId: string | null;
   /** The knowledge base's own name for the product, which may differ from the listing's title. */
@@ -196,6 +208,8 @@ export type GroundedKnowledge = {
   identifiers: PublishableIdentifier[];
   attributes: GroundedAttribute[];
   relationships: GroundedRelationship[];
+  /** Null when the product has no family yet; absent in older callers' fixtures. */
+  family?: GroundedFamily | null;
 };
 
 export const EMPTY_GROUNDED: GroundedKnowledge = {
@@ -217,9 +231,12 @@ export async function groundedKnowledge(
   const states = `{${PUBLISHABLE.join(",")}}`;
 
   const [productRows, identifierRows, attributeRows, relationshipRows] = await Promise.all([
-    queryRows<{ name: string; resolution_state: string }>(
+    queryRows<{ name: string; resolution_state: string; family_id: string | null; family_name: string | null }>(
       executor,
-      sql`select name, resolution_state from pkb_products where id = ${pkbProductId} and status = 'active'`,
+      sql`select p.name, p.resolution_state, f.id as family_id, f.name as family_name
+          from pkb_products p
+          left join pkb_families f on f.id = p.family_id and f.status = 'approved'
+          where p.id = ${pkbProductId} and p.status = 'active'`,
     ),
     queryRows<{ identifier_type: string; value: string; pkb_variant_id: string | null; verification_state: string }>(
       executor,
@@ -282,8 +299,25 @@ export async function groundedKnowledge(
     state: row.verification_state,
   }));
 
+  const familyId = productRows[0]?.family_id ?? null;
+  const schema = familyId ? await resolveFamilySchema(executor, familyId) : [];
+  const family: GroundedFamily | null = familyId
+    ? {
+        id: familyId,
+        name: productRows[0].family_name ?? "",
+        attributes: schema
+          .filter((attribute) => attribute.definition.status === "approved")
+          .map((attribute) => ({
+            key: attribute.definition.key,
+            label: attribute.definition.label,
+            requirement: attribute.requirement,
+          })),
+      }
+    : null;
+
   return {
     pkbProductId,
+    family,
     name: productRows[0]?.name ?? null,
     brand: attributes.find((row) => row.key === "brand")?.value ?? null,
     modelName: attributes.find((row) => row.key === "model_name")?.value ?? null,

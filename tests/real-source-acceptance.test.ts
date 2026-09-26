@@ -188,7 +188,9 @@ describe("whether there is enough established fact to write from", () => {
   it("does not count the product's own name as knowledge about it", () => {
     const verdict = knowledgeSufficiency(sampleInput());
     expect(verdict.sufficient).toBe(false);
-    expect(verdict.facts).toBe(2);
+    // Named, not described: the brand and the model number are identity (D-123).
+    expect(verdict.identified).toBe(true);
+    expect(verdict.facts).toBe(0);
   });
 
   it("counts what the knowledge base established from the manufacturer", () => {
@@ -228,6 +230,7 @@ describe("what the rules generator writes once a product is researched", () => {
         knowledge: knowledgeWith([
           { label: "Mass", value: "Approx. 254 g (9 oz)" },
           { label: "Communication system", value: "Bluetooth Specification version 5.3" },
+          { label: "Supported Codec", value: "SBC; AAC; LDAC; LC3" },
         ]),
       }),
       emptyResearch,
