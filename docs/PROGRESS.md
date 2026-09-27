@@ -4033,3 +4033,49 @@ It is exercised through a scripted provider in the tests.
 Revlon's fourth DETAILS statement (with "100% gray coverage") from the Details
 fact; search terms derived earlier from weak codes stay until removed by hand;
 a page re-read with unchanged bytes keeps its old source type.
+
+## D-123 correctness pass
+
+`[x]` **Page sections are not attributes.** Prose under a heading is kept whole
+as a narrative section for intelligent extraction, not proposed as an
+attribute. The acceptance database's "Details" and "How to use" attributes
+were removed.
+
+`[x]` **Honest insufficiency.** Research records which prose sections were not
+read; preparation says so when knowledge is insufficient. The sufficiency
+summary names the family as a family ("… established for the Beauty & Care
+family"), not as though it were a fact.
+
+`[x]` **Registry decisions apply to a page already read**, including unchanged
+bytes; how it was found is never rewritten.
+
+`[x]` **SeoPulse's own tags and search terms are replaced, not only added to**,
+in preparation and Manual fill; staff lists are only added to; locked lists
+untouched.
+
+`[x]` **Weak identity reclassification.** Notice on the identity section once
+the version is established; staff-only API; ordinary product save, resolution
+reassessed, audited.
+
+`[x]` **Real acceptance on `preorder_utf8`.** Revlon Colorsilk Black: notice
+listed Model "Shade 10" (same as Colour: Black (010)), Model number "(1N)" and
+MPN "10"; "Reclassify these values" cleared all three; identity stayed
+identified by name and shade. Without an extraction provider, preparation now
+stops with "1 of the 3 facts … established" and the prose explanation, rather
+than READY on three facts, two of them paragraphs. Inspected at 375 px and 1280 px; no
+horizontal overflow.
+
+`[x]` **Verified.** Typecheck clean. Lint clean. Vitest (`--maxWorkers=4`, real
+PostgreSQL running): 122 files, 1,718 passed, 8 skipped. Production build
+passed. Playwright (production build, 2 workers; preparation, intelligence,
+product edit, regeneration, catalogue, wizard, SEO, admin boundary): 115
+passed, 1 skipped. Added afterwards and run: a customer and an anonymous caller
+are refused by the reclassify service (3/3 in its group), and the summary
+wording change (96/96 across preparation, SeoPulse and pipeline suites).
+
+`[x]` **Test harness fix.** `tests/seo-apply-concurrency.test.ts` ran its real
+PostgreSQL race without `skipIf(!available)` and failed with "You need to sign
+in to do that." whenever no server was running. It now skips like its siblings.
+
+`[!]` **UNVERIFIED — external integration unavailable.** The Anthropic
+extraction provider (no `ANTHROPIC_API_KEY`).

@@ -1137,16 +1137,38 @@ export async function fillWithSeoPulse(
    * knowledge base; the analysis still lists them in the report.
    */
 
-  const tags = strings(product.tags);
-  const nextTags = mergeTerms(tags, analysis.tags, 30, 40);
-  if (nextTags.length > tags.length && offer("tags", "Tags", analysis.tags)) {
-    fields.tags = nextTags;
-    filled.push(`Tags (+${nextTags.length - tags.length})`);
-  }
-
-  const keywords = strings(product.searchKeywords);
-  const nextKeywords = mergeTerms(
-    keywords,
+  /*
+   * Lists by owner (D-123), as preparation treats them: SeoPulse's own
+   * unedited list is replaced by the current one, so terms an earlier run
+   * derived from something since corrected disappear; an empty one is
+   * written; a person's list is only ever added to, never trimmed; a locked
+   * one is left alone.
+   */
+  const listOwners = await contentOwnership(db, productId, ["tags", "searchKeywords"] as const);
+  const overwriteLists: ApplyField[] = [];
+  const list = (field: "tags" | "searchKeywords", label: string, terms: string[], max: number, length: number) => {
+    const owner = listOwners.get(field) ?? "staff";
+    if (owner === "locked") return;
+    const existing = strings(product[field]);
+    if (owner === "seo_pulse") {
+      const current = mergeTerms([], terms, max, length);
+      if (current.length === 0 || sameContent(existing, current)) return;
+      if (!offer(field, label, terms)) return;
+      fields[field] = current;
+      overwriteLists.push(field);
+      filled.push(`${label} (refreshed)`);
+      return;
+    }
+    const next = mergeTerms(existing, terms, max, length);
+    if (next.length > existing.length && offer(field, label, terms)) {
+      fields[field] = next;
+      filled.push(`${label} (+${next.length - existing.length})`);
+    }
+  };
+  list("tags", "Tags", analysis.tags, 30, 40);
+  list(
+    "searchKeywords",
+    "Search terms",
     [
       ...analysis.searchAliases,
       ...analysis.misspellings.map((entry) => entry.term),
@@ -1156,13 +1178,9 @@ export async function fillWithSeoPulse(
     40,
     60,
   );
-  if (nextKeywords.length > keywords.length && offer("searchKeywords", "Search terms", analysis.searchAliases)) {
-    fields.searchKeywords = nextKeywords;
-    filled.push(`Search terms (+${nextKeywords.length - keywords.length})`);
-  }
 
   if (Object.keys(fields).length > 0) {
-    await applySeoPulse(staff, productId, { runId: run.id, fields, overwrite: [] });
+    await applySeoPulse(staff, productId, { runId: run.id, fields, overwrite: overwriteLists });
   }
 
   /*
@@ -1724,7 +1742,7 @@ export async function applyPreparedContent(
   if (!product) throw new SeoPulseError("That product was not found.", 404);
 
   const fields: SeoPulseApplyPayload["fields"] = {};
-  const overwrite: RecommendedField[] = [];
+  const overwrite: ApplyField[] = [];
   /** The owner each written field had when it was chosen, re-checked under the lock. */
   const expected = new Map<RecommendedField | (typeof listFields)[number], ContentOwner>();
   const reviewFirst = analysis.generator.kind === "ai";
@@ -1771,14 +1789,23 @@ export async function applyPreparedContent(
         label: "Search terms",
       },
     };
+    /*
+     * A list is owned like a text field (D-123). Empty: the current list is
+     * written. SeoPulse's own unedited list: replaced by the current one, so a
+     * term an earlier run derived from something since corrected — "10" from a
+     * shade typed as a model number — goes, as a refreshed description's old
+     * sentence goes. A list a person wrote or edited is theirs and is never
+     * touched; a locked one neither. Nothing is removed by matching strings.
+     */
     for (const field of listFields) {
       const owner = owners.get(field) ?? "staff";
       if (owner !== "empty" && owner !== "seo_pulse") continue;
       const existing = strings(product[field]);
-      const merged = mergeTerms(existing, additions[field].terms, additions[field].max, additions[field].length);
-      if (merged.length <= existing.length) continue;
-      fields[field] = merged;
+      const current = mergeTerms([], additions[field].terms, additions[field].max, additions[field].length);
+      if (current.length === 0 || sameContent(existing, current)) continue;
+      fields[field] = current;
       expected.set(field, owner);
+      if (owner === "seo_pulse") overwrite.push(field);
       (owner === "empty" ? result.applied : result.refreshed).push(additions[field].label);
     }
   }

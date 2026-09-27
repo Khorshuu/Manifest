@@ -87,6 +87,14 @@ export type ExtractedOffer = {
   gtins: string[];
 };
 
+export type ExtractedNarrative = {
+  /** The section's heading, as the page writes it: "DETAILS", "How to use". */
+  heading: string;
+  /** The section's statements, whole, one per line. */
+  text: string;
+  locator: string;
+};
+
 export type Extraction = {
   pairs: ExtractedPair[];
   identity: ExtractedIdentity;
@@ -94,6 +102,12 @@ export type Extraction = {
   structuredData: unknown[];
   /** Visible text, collapsed, for the stored document. */
   text: string;
+  /**
+   * Page sections written as prose (D-123). Not pairs: a heading over
+   * paragraphs is where facts are, not an attribute. Kept whole for an
+   * intelligent reader; the structured readers propose nothing from them.
+   */
+  narratives?: ExtractedNarrative[];
 };
 
 const MAX_PAIRS = 300;
@@ -552,6 +566,21 @@ const OFFER_BLOCK_TEXT = 1_000;
 /** …and at most this many elements directly inside it: a tile, not a page region. */
 const OFFER_BLOCK_CHILDREN = 4;
 
+/** Narrative sections kept per document, and the text kept of each. */
+const MAX_NARRATIVES = 40;
+const MAX_NARRATIVE_TEXT = 20_000;
+
+/**
+ * Whether a heading's content is prose rather than a value (D-123): longer
+ * than any value is kept, or a paragraph of two or more sentences. Shape only,
+ * never the heading's wording.
+ */
+function isNarrative(lines: string[]): boolean {
+  const text = lines.join(" ");
+  const sentences = (text.match(/[.!?](?=\s|$)/g) ?? []).length;
+  return text.length > MAX_VALUE || (text.length >= 160 && sentences >= 2);
+}
+
 /** A layout row or card whose title runs past this many words is prose, not a label. */
 const MAX_LABEL_WORDS = 8;
 
@@ -686,6 +715,7 @@ export type ExtractOptions = {
 
 export function extractHtml(html: string, options: ExtractOptions = {}): Extraction {
   const pairs: ExtractedPair[] = [];
+  const narratives: ExtractedNarrative[] = [];
   const identity = emptyIdentity();
   const structured: unknown[] = [];
   const jsonLd: string[] = [];
@@ -766,19 +796,22 @@ export function extractHtml(html: string, options: ExtractOptions = {}): Extract
       folded.push(line);
     }
     if (folded.length === 0) return;
+    const value = folded.join("; ");
     /*
-     * A long section is kept as whole statements (D-123): the statements that
-     * fit, rather than a cut in the middle of a sentence that would then be
-     * stored, and shown, as though the manufacturer had written it.
+     * A page section, not an attribute (D-123). "DETAILS", "DESCRIPTION",
+     * "HOW TO USE IT" over paragraphs of sentences is where the facts are, not
+     * what they are called; turned into a pair it became a label a person was
+     * asked to make an attribute of, and a value cut at 400 characters. It is
+     * kept whole instead, beside the pairs, for a reader that can find the
+     * statements inside it. Judged by shape only: a short value — "SBC; AAC;
+     * LDAC", "48 Ω (1 kHz)", even a two-sentence note — is still a value.
      */
-    let value = folded.join("; ");
-    if (value.length > MAX_VALUE) {
-      const whole: string[] = [];
-      for (const line of folded) {
-        if ([...whole, line].join("; ").length > MAX_VALUE) break;
-        whole.push(line);
+    if (isNarrative(folded)) {
+      frame.consumed = true;
+      if (narratives.length < MAX_NARRATIVES) {
+        narratives.push({ heading: label, text: folded.join("\n").slice(0, MAX_NARRATIVE_TEXT), locator: `section "${label.slice(0, 40)}"` });
       }
-      if (whole.length > 0) value = whole.join("; ");
+      return;
     }
     emit({
       label,
@@ -803,6 +836,13 @@ export function extractHtml(html: string, options: ExtractOptions = {}): Extract
     // A sentence broken across two elements is not a label and its value.
     if (label.split(" ").length > MAX_LABEL_WORDS) return;
     if ((first.linkChars + second.linkChars) / (label.length + value.length) > LINK_TEXT_SHARE) return;
+    // A title over a paragraph of prose is a section, kept whole (D-123).
+    if (isNarrative([value])) {
+      if (narratives.length < MAX_NARRATIVES && !narratives.some((entry) => entry.heading === label)) {
+        narratives.push({ heading: label, text: value.slice(0, MAX_NARRATIVE_TEXT), locator: `section "${label.slice(0, 40)}"` });
+      }
+      return;
+    }
     addPair(pairs, identity, {
       label,
       value,
@@ -839,6 +879,13 @@ export function extractHtml(html: string, options: ExtractOptions = {}): Extract
     if (label.split(" ").length > MAX_LABEL_WORDS) return;
     if (/[.!?]$/.test(label) || value.length <= label.length) return;
     if ((title.linkChars + body.linkChars) / (label.length + value.length) > LINK_TEXT_SHARE) return;
+    // A card whose paragraph is prose is a small section, kept whole (D-123).
+    if (isNarrative([value])) {
+      if (narratives.length < MAX_NARRATIVES) {
+        narratives.push({ heading: label, text: value.slice(0, MAX_NARRATIVE_TEXT), locator: `card "${label.slice(0, 40)}"` });
+      }
+      return;
+    }
     addPair(pairs, identity, {
       label,
       value,
@@ -1026,7 +1073,7 @@ export function extractHtml(html: string, options: ExtractOptions = {}): Extract
   for (const frame of frames) flushHeading(frame);
 
   readJsonLd(jsonLd, pairs, identity, structured, options);
-  return { pairs: dedupePairs(pairs), identity: dedupeIdentity(identity), structuredData: structured, text: collapse(text.join(" ")) };
+  return { pairs: dedupePairs(pairs), identity: dedupeIdentity(identity), structuredData: structured, text: collapse(text.join(" ")), narratives };
 }
 export function extractText(content: string): Extraction {
   const pairs: ExtractedPair[] = [];

@@ -72,10 +72,18 @@ describe("the deterministic readers, on their own", () => {
     const pairs = pairsByLabel(revlon);
     expect(pairs.Color.value).toBe("Black (010)");
     expect(pairs.Color.scope).toBe("variant");
-    expect(pairs.DETAILS.value).toContain("up to 98% less breakage");
-    expect(pairs["HOW TO USE IT"].value).toContain("Step 1: Mix.");
+    // Prose sections are sections, not attributes: kept whole, never pairs.
+    expect(Object.keys(pairs)).not.toEqual(expect.arrayContaining(["DETAILS"]));
+    expect(Object.keys(pairs).filter((label) => /^(DESCRIPTION|DETAILS|HOW TO USE IT)$/.test(label))).toEqual([]);
+    expect(revlon.narratives?.map((section) => section.heading)).toEqual(["DESCRIPTION", "DETAILS", "HOW TO USE IT"]);
+    const details = revlon.narratives!.find((section) => section.heading === "DETAILS")!;
+    // Longer than any value is kept, and its last statement is still there.
+    expect(details.text.length).toBeGreaterThan(400);
+    expect(details.text).toContain("Ammonia-free** color delivers 100% gray coverage and up to 8 weeks");
+    expect(revlon.text).toContain("Ammonia-free** color delivers 100% gray coverage and up to 8 weeks");
     // A numbered step is part of the procedure, not an attribute called "Step 3".
     expect(Object.keys(pairs).some((label) => /^step \d/i.test(label))).toBe(false);
+    expect(revlon.narratives!.find((section) => section.heading === "HOW TO USE IT")!.text).toContain("Leave it on for 25 minutes total.");
     // Reviews and navigation are furniture.
     expect(revlon.pairs.some((pair) => /5\/5|Nathan/.test(`${pair.label} ${pair.value}`))).toBe(false);
     expect(revlon.identity.variants).toHaveLength(5);
@@ -90,6 +98,23 @@ describe("the deterministic readers, on their own", () => {
     expect(pairs["How to use"].value).toContain("pea-sized");
     expect(pairs.Warnings.value).toContain("external use only");
     expect(northfield.pairs.some((pair) => /Priya|4\.5 out of 5/.test(`${pair.label} ${pair.value}`))).toBe(false);
+  });
+
+  it("keep a table row, a JSON-LD field and a short heading value as facts, and a paragraph as a section", () => {
+    const page = extractHtml(
+      `<script type="application/ld+json">{"@type":"Product","name":"X","brand":"Y","color":"Black"}</script>
+       <main><table><tr><td>Processing time</td><td>25 minutes</td></tr></table>
+       <h4>Supported Codec</h4><p>SBC</p><p>AAC</p><p>LDAC</p>
+       <h4>Warnings</h4><p>For external use only. Stop use if irritation occurs.</p>
+       <h3>Overview</h3><p>${"A long sentence about what the product does for you every day. ".repeat(4)}</p></main>`,
+    );
+    const pairs = pairsByLabel(page);
+    expect(pairs["Processing time"].value).toBe("25 minutes");
+    expect(pairs.Colour.value).toBe("Black");
+    expect(pairs["Supported Codec"].value).toBe("SBC; AAC; LDAC");
+    expect(pairs.Warnings.value).toBe("For external use only. Stop use if irritation occurs.");
+    expect(pairs.Overview).toBeUndefined();
+    expect(page.narratives?.map((section) => section.heading)).toEqual(["Overview"]);
   });
 
   it("measure a specification page as useful and a prose page as needing a second reading", () => {

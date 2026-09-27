@@ -567,7 +567,7 @@ export function knowledgeSufficiency(input: SeoPulseInput): KnowledgeSufficiency
     ? `${facts} facts about the product are established${schema ? ` for the ${schema.name} family` : ""}.`
     : family && family.requiredMissing.length > 0
       ? `The ${family.name} family needs ${family.requiredMissing.join(", ")}, and ${facts} of the ${MIN_PRODUCT_FACTS} facts about the product needed are established.`
-      : `${facts} of the ${MIN_PRODUCT_FACTS} facts about the product needed are established${schema ? ` (${schema.name})` : ""}.`;
+      : `${facts} of the ${MIN_PRODUCT_FACTS} facts about the product needed are established${schema ? ` for the ${schema.name} family` : ""}.`;
 
   return { sufficient, facts, required: MIN_PRODUCT_FACTS, missing, identified, family, schemaGap, summary };
 }

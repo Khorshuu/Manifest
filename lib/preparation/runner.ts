@@ -701,12 +701,28 @@ async function stepContent(context: Context): Promise<Outcome> {
 
   const sufficiency = knowledgeSufficiency(input);
   if (!sufficiency.sufficient) {
+    /*
+     * When the page's facts are in prose that nothing read (D-123), that is
+     * the honest reason, not "the source had nothing": said as such, with the
+     * extraction state the research run recorded.
+     */
+    const [research] = context.run.enrichmentRunId
+      ? await db.select({ providers: pkbEnrichmentRuns.providers }).from(pkbEnrichmentRuns).where(eq(pkbEnrichmentRuns.id, context.run.enrichmentRunId))
+      : [];
+    const unread = (research?.providers ?? []).find(
+      (provider) => provider.provider.startsWith("extraction:") && provider.status !== "OK" && /not read into facts/.test(provider.message ?? ""),
+    );
+    const prose = unread
+      ? unread.status === "NOT_CONFIGURED"
+        ? " The manufacturer's page describes the product in prose, and intelligent document extraction is not configured, so those statements were not read into facts."
+        : " The manufacturer's page describes the product in prose, and intelligent document extraction is unavailable just now, so those statements were not read into facts."
+      : "";
     return {
       kind: "review",
       notes: [
         {
           code: PREPARATION_CODES.INSUFFICIENT_KNOWLEDGE,
-          message: `There is too little established about this product to write customer content from. ${sufficiency.summary} SEO and customer content will be prepared once enough product information is verified.`,
+          message: `There is too little established about this product to write customer content from. ${sufficiency.summary}${prose} SEO and customer content will be prepared once enough product information is verified.`,
           remedy: [
             sufficiency.missing.length
               ? `What is missing: ${sufficiency.missing.join("; ")}. Accept the values research found, add them by hand, or attach the manufacturer's page, then continue.`

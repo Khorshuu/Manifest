@@ -3566,3 +3566,64 @@ and under a product's Advanced tools: states only, never a key.
 - A page re-read after its domain is approved keeps the earlier source row's
   type when its bytes are unchanged; its values qualify only once research
   reads a changed copy (Revlon's page differs on each read, so it did).
+
+### D-123, correctness pass
+
+A second look at the Revlon acceptance found that part of it was accepted for
+the wrong reason. Five generic corrections followed; code comments cite D-123.
+
+1. **A page section is not an attribute.** The acceptance had turned
+   "DETAILS" and "HOW TO USE IT" into family attributes, "Details" and "How to
+   use". Those headings are where the facts are, not what the facts are called.
+   Their values were paragraphs cut at 400 characters. The extractor now judges
+   a heading's content by shape (`isNarrative`: longer than any kept value, or
+   160 characters or more with two or more sentences). A prose section becomes
+   an `ExtractedNarrative` (heading, whole text, locator) beside the pairs, not a
+   pair. The structured readers propose nothing from it; intelligent extraction
+   reads it. Short values ("SBC; AAC; LDAC", "48 Ω (1 kHz)", a two-sentence
+   note) are still values. The acceptance database's two attributes and their
+   label mappings were removed through the Categories and Sources & Policies
+   functions.
+2. **Saying what was not read.** When intelligent extraction is not configured
+   or fails, the research run's provider entry names the prose sections left
+   unread. When knowledge is then insufficient, preparation says the page
+   describes the product in prose that was not read into facts. It no longer
+   implies the source had nothing. As a result, Revlon without an extraction
+   provider now stops honestly: "1 of the 3 facts about the product needed are
+   established for the Beauty & Care family". Before, it reached READY on three facts, two of them
+   paragraphs.
+3. **A trust decision applies to a page already read.** When the Brand Source
+   Registry classifies a page (approved, not blocked), a re-read updates the
+   existing source row's `sourceType` and `authorityTier`, even when the bytes
+   are unchanged. How the page was found (`acquisitionMethod`, `origin`) is
+   history and is never rewritten. A read with no registry answer never
+   downgrades a row. This removes the D-123 limitation "a page re-read with
+   unchanged bytes keeps its old source type".
+4. **SeoPulse's own lists are owned like its text.** Preparation's listing step
+   and Manual fill now treat tags and search terms by owner. An empty list is
+   written. SeoPulse's own unedited list is replaced by the current one, so
+   terms derived from a since-corrected value ("10", "1n") disappear. A list a
+   person wrote or edited is only added to. A locked list is left alone. No term
+   is removed by string matching. This removes the D-123 limitation about stale
+   search terms from weak codes.
+5. **Weak identity values, reclassified by a person.** `lib/catalog/identity-cleanup.ts`
+   finds weak values in Model, Model number and MPN (a variant descriptor, or a
+   code `isStrongModelKey` refuses). It offers them for cleanup only once the
+   knowledge base has established the product's version (a colour, size or
+   other version fact). The notice on the identity section lists each value and
+   the established fact it restates, if any. Nothing changes on page load. On
+   "Reclassify these values", `POST /api/admin/products/[productId]/identity/reclassify`
+   (staff only, `catalog.manage`, fields named by the request, re-checked on
+   the server) clears them through the ordinary product update, reassesses
+   resolution, and writes a `product.identity_reclassified` audit row with the
+   values removed and the facts that justified it. Real codes ("GLO-OC-WL-BLK")
+   are never offered.
+
+Also: the "Previous SeoPulse content" notice now says the verified information
+does not stand behind the wording, instead of claiming it was written before
+research completed (it may have been written after).
+
+**Still open.** The Anthropic extraction provider remains UNVERIFIED against the
+live API. Without it, a manufacturer that describes a product only in prose
+cannot reach READY from its page alone; staff add facts by hand or configure
+the provider. This is the intended, honest outcome.

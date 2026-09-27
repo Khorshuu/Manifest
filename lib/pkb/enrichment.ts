@@ -788,6 +788,7 @@ async function readCandidate(
       contentSha256: sha256,
       httpStatus: fetched.status,
       robotsAllowed: true,
+      classifiedByRegistry: match !== null && !match.blocked,
     });
     const source = { id: sourceId };
 
@@ -861,6 +862,8 @@ async function ensureRetrievedSource(
     contentSha256: string | null;
     httpStatus: number | null;
     robotsAllowed: boolean | null;
+    /** The source type and tier come from a current, approved registry entry for the brand. */
+    classifiedByRegistry?: boolean;
   },
 ): Promise<string> {
   const normalized = normalizeUrl(input.url) ?? input.url;
@@ -875,14 +878,25 @@ async function ensureRetrievedSource(
       ),
     );
   if (existing) {
-    // The row stays; only what this retrieval learned about it is refreshed.
+    /*
+     * The row stays; only what this retrieval learned about it is refreshed.
+     *
+     * That includes the trust classification when the Brand Source Registry
+     * now gives one (D-123): a page read as `public_web` before somebody
+     * approved its domain is the manufacturer's page once they have, whether
+     * or not its bytes changed. How it was found (`acquisitionMethod`,
+     * `origin`) is history and is never rewritten. A read that has no
+     * registry answer leaves the classification and tier as they are, so a
+     * later run with less context never downgrades a page.
+     */
     await tx
       .update(pkbSources)
       .set({
         retrievedAt,
         httpStatus: input.httpStatus,
         robotsAllowed: input.robotsAllowed,
-        authorityTier: input.authorityTier,
+        ...(input.classifiedByRegistry ? { sourceType: input.sourceType, authorityTier: input.authorityTier } : {}),
+        ...(!input.classifiedByRegistry && input.authorityTier !== null ? { authorityTier: input.authorityTier } : {}),
         ...(input.title ? { title: input.title } : {}),
       })
       .where(eq(pkbSources.id, existing.id));

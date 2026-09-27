@@ -73,6 +73,8 @@ export type AuditAction =
   | "knowledge.source_added"
   /** Product preparation — docs/KNOWLEDGE_PLATFORM.md section 3H, D-112. */
   | "product.preparation_started"
+  /** Weak values taken out of the identity fields by a person (D-123). */
+  | "product.identity_reclassified"
   | "product.preparation_retried"
   | "product.preparation_cancelled"
   /** Search Console and the SEO opportunity engine — docs/KNOWLEDGE_PLATFORM.md. */

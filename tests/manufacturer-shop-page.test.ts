@@ -315,6 +315,14 @@ describe("the specification table", () => {
     ]);
   });
 
+  it("never becomes a narrative section, and neither does a one-sentence feature card (D-123)", () => {
+    const narratives = extractHtml(SHOP_PAGE).narratives ?? [];
+    const headings = narratives.map((section) => section.heading);
+    for (const label of ["Warranty", "Weight", "Max Sensitivity (DPI)", "Included", "Gaming Grade 2.4GHz Wireless"]) {
+      expect(headings).not.toContain(label);
+    }
+  });
+
   it("is still read inside a modal, a drawer or a dialog — where full specifications often live", () => {
     const html = `<div class="specs-modal" role="dialog" aria-modal="true"><table><tr><td>Sensor</td><td>19k Optical</td></tr></table></div>
       <div class="spec-drawer"><div class="row"><div>Feet</div><div>PTFE</div></div></div>`;

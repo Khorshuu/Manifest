@@ -51,6 +51,8 @@ import {
 } from "@/lib/seo-pulse";
 import { SeoPulseRecommendationsPanel } from "./seo-pulse-recommendations";
 import { ResearchSetupList } from "@/components/research-setup";
+import { identityCleanup } from "@/lib/catalog/identity-cleanup";
+import { IdentityCleanupNotice } from "./identity-cleanup-notice";
 import { researchSetup } from "@/lib/preparation/setup";
 import { getPreparation, productResearchStatus } from "@/lib/preparation";
 import { describeIdentityState, seoPulseContentState } from "@/lib/preparation/presentation";
@@ -171,6 +173,8 @@ export default async function AdminProductPage({
         .where(eq(pkbProducts.id, product.pkbProductId))
     : [];
   const identityStatus = describeIdentityState(knowledge?.resolutionState ?? null);
+  // Weak values in the identity fields, offered for cleanup once the version is established (D-123).
+  const identityIssues = await identityCleanup(product.id);
   const discoveryConfigured = getProductResearchProvider().key !== "none";
 
   /*
@@ -242,8 +246,11 @@ export default async function AdminProductPage({
       label: "Product identity",
       summary: "Which product this is: what it is called, who makes it, and the numbers that tell versions apart.",
       content: (
+        <div className="flex flex-col gap-5">
+        {identityIssues ? <IdentityCleanupNotice productId={product.id} cleanup={identityIssues} /> : null}
         <BasicsSection
-          key={`${archived ? "archived" : "live"}-${appliedKey}`}
+          // Remounted when the identity fields change underneath it (a reclassification).
+          key={`${archived ? "archived" : "live"}-${appliedKey}-${JSON.stringify([details?.modelName, details?.modelNumber, details?.manufacturerPartNumber])}`}
           categories={categories}
           identityStatus={identityStatus}
           intelligenceHref={`/admin/products/${product.id}/intelligence`}
@@ -263,6 +270,7 @@ export default async function AdminProductPage({
             archived,
           }}
         />
+        </div>
       ),
     },
     {

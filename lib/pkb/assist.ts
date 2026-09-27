@@ -74,7 +74,13 @@ export async function assistExtraction(
   }
 
   if (result.status !== "OK") {
-    return { ...unchanged, state: { provider: label, status: result.status, message: result.message } };
+    // Say what was left unread, so "not configured" is not mistaken for "nothing there" (D-123).
+    const sections = (extraction.narratives ?? []).map((entry) => entry.heading);
+    const unread =
+      sections.length > 0
+        ? ` ${sections.length} section${sections.length === 1 ? "" : "s"} of prose on this page (${sections.slice(0, 4).join(", ")}${sections.length > 4 ? ", …" : ""}) ${sections.length === 1 ? "was" : "were"} not read into facts.`
+        : "";
+    return { ...unchanged, state: { provider: label, status: result.status, message: `${result.message}${unread}` } };
   }
 
   const report = groundCandidates(result.candidates, {

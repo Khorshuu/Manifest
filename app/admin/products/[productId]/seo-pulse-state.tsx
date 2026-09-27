@@ -32,7 +32,7 @@ export function SeoPulseStateNotice({
       >
         <strong>Previous SeoPulse content.</strong>{" "}
         {state.reason === "insufficient"
-          ? `The ${list} below ${verb} written by SeoPulse before this product's research was complete, so ${state.stale.length === 1 ? "it describes" : "they describe"} the product's name, not verified facts.`
+          ? `The ${list} below ${verb} written by SeoPulse, and the product's verified information does not stand behind ${state.stale.length === 1 ? "it" : "them"} now: too little is established.`
           : `The ${list} below ${verb} written by an earlier SeoPulse run. The latest preparation has not finished, so ${state.stale.length === 1 ? "it is" : "they are"} not its result.`}{" "}
         Keep, edit or clear {state.stale.length === 1 ? "it" : "them"}; SeoPulse replaces its own wording when it prepares the product from verified information.
       </p>

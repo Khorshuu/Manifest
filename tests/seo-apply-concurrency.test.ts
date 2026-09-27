@@ -49,7 +49,7 @@ async function listingWithRun(title: string) {
   return { listing, run };
 }
 
-describe("two applies racing for the same field", () => {
+describe.skipIf(!available)("two applies racing for the same field", () => {
   it("lets one through and refuses the other, rather than replacing silently", async () => {
     // Several rounds: a race that happens to serialise once proves nothing.
     let refused = 0;
