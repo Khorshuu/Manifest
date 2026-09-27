@@ -50,10 +50,9 @@ import {
   seoPulseRecommendations,
 } from "@/lib/seo-pulse";
 import { SeoPulseRecommendationsPanel } from "./seo-pulse-recommendations";
-import { ResearchSetupList } from "@/components/research-setup";
+import { ResearchSetup } from "@/components/research-setup";
 import { identityCleanup } from "@/lib/catalog/identity-cleanup";
 import { IdentityCleanupNotice } from "./identity-cleanup-notice";
-import { researchSetup } from "@/lib/preparation/setup";
 import { getPreparation, productResearchStatus } from "@/lib/preparation";
 import { describeIdentityState, seoPulseContentState } from "@/lib/preparation/presentation";
 import { getProductResearchProvider } from "@/lib/providers/research";
@@ -665,7 +664,7 @@ export default async function AdminProductPage({
                 The facts behind this listing, where each came from, and anything waiting for a decision.
               </p>
               {/* What preparation can use here (D-123): states only, never a key. */}
-              <ResearchSetupList items={researchSetup()} compact />
+              <ResearchSetup compact />
               <SeoPulseBox
                 productId={product.id}
                 lastRunId={lastRun?.id ?? null}

@@ -18,7 +18,7 @@ import type { SessionUser } from "@/lib/auth/session";
 import { describeDatabaseError, isEncodingDatabaseError } from "@/lib/db-errors";
 import { enqueueJob } from "@/lib/jobs/runner";
 import { logEvent } from "@/lib/observability/log";
-import { getProductResearchProvider, type ResearchQuery } from "@/lib/providers/research";
+import { getProductResearchProvider, type ResearchQuery, type ResearchResult } from "@/lib/providers/research";
 import { PkbError, queryRows, type Executor } from "./common";
 import { assistExtraction } from "./assist";
 import { proposeAttribute } from "./discovery";
@@ -27,7 +27,9 @@ import { isStrongModelKey } from "./identity-labels";
 import { normalizeIdentifier } from "./identifiers";
 import { loadLabelMappings, resolveLabel } from "./mappings";
 import { checkRobots } from "./net/robots";
+import { getPageRenderer, needsRendering } from "./net/render";
 import { decodeBody, safeFetch } from "./net/safe-fetch";
+import { relatedPageLinks, type RelatedLink } from "./related-pages";
 import { cleanText, labelKey, listItems, normalizeUrl } from "./normalize";
 import {
   canEnrich,
@@ -61,6 +63,8 @@ import { loadDefinitions } from "./vocabulary";
  */
 
 const MAX_CANDIDATES = 12;
+/** Related pages of the same product read in one run, across all its matched pages (D-124). */
+const MAX_RELATED_PER_RUN = 4;
 const MAX_PAIRS_PER_DOCUMENT = 120;
 
 export type EnrichmentRequest = {
@@ -386,6 +390,15 @@ export type RunReport = EnrichmentOutcome & {
   blockedReason: string | null;
 };
 
+type ReadOutcome = EnrichmentOutcome & {
+  retrieved: boolean;
+  extraction?: PkbProviderState | null;
+  /** What browser rendering did, when the static page needed it (D-124). */
+  rendering?: PkbProviderState | null;
+  /** Related pages of the same product this page links to (D-124). */
+  related?: RelatedLink[];
+};
+
 type Candidate = {
   url: string;
   sourceType: PkbSourceType;
@@ -394,6 +407,8 @@ type Candidate = {
   registryEntryId: string | null;
   providerKey: string | null;
   title: string | null;
+  /** The product page that linked to this one, for a related page (D-124). Never followed further. */
+  relatedTo?: string;
 };
 
 /**
@@ -453,7 +468,13 @@ export async function runEnrichment(runId: string): Promise<RunReport> {
     report.providers = found.providers;
     const robotsCache = new Map<string, string | null | "unreachable">();
 
-    for (const candidate of found.candidates.slice(0, MAX_CANDIDATES)) {
+    // The candidates, then — one level only — the related pages of the same
+    // product that a matched page links to (D-124), within one bound per run.
+    const queue: Candidate[] = found.candidates.slice(0, MAX_CANDIDATES);
+    const queued = new Set(queue.map((candidate) => candidate.url.toLowerCase()));
+    let relatedQueued = 0;
+    for (let index = 0; index < queue.length; index++) {
+      const candidate = queue[index];
       const outcome = await readCandidate(run, identity, candidate, robotsCache);
       if (outcome.retrieved) report.documentsRetrieved += 1;
       else report.documentsRefused += 1;
@@ -462,6 +483,14 @@ export async function runEnrichment(runId: string): Promise<RunReport> {
       report.proposalsCreated += outcome.proposalsCreated;
       // What the second reading did on each page it was needed for (D-123).
       if (outcome.extraction) report.providers.push(outcome.extraction);
+      if (outcome.rendering) report.providers.push(outcome.rendering);
+      if (index >= MAX_CANDIDATES || candidate.relatedTo) continue;
+      for (const link of outcome.related ?? []) {
+        if (relatedQueued >= MAX_RELATED_PER_RUN || queued.has(link.url.toLowerCase())) continue;
+        queued.add(link.url.toLowerCase());
+        relatedQueued += 1;
+        queue.push({ ...candidate, url: link.url, title: link.text || null, relatedTo: candidate.url });
+      }
     }
 
     report.status = "completed";
@@ -622,7 +651,7 @@ async function findCandidates(identity: ProductIdentity): Promise<{ candidates: 
   providers.push({
     provider: provider.key,
     status: result.status,
-    message: result.status === "OK" ? `${result.candidates.length} candidate pages` : result.message,
+    message: discoveryMessage(result),
   });
   if (result.status === "OK") {
     for (const found of result.candidates) {
@@ -639,6 +668,13 @@ async function findCandidates(identity: ProductIdentity): Promise<{ candidates: 
   }
 
   return { candidates, providers };
+}
+
+/** What discovery did, with what it could not do (D-124), bounded for the run record. */
+function discoveryMessage(result: ResearchResult): string {
+  if (result.status !== "OK") return result.message;
+  const notes = result.notes?.length ? ` — ${result.notes.join(" ")}` : "";
+  return `${result.candidates.length} candidate page${result.candidates.length === 1 ? "" : "s"}${notes}`.slice(0, 1_000);
 }
 
 /**
@@ -699,7 +735,7 @@ async function readCandidate(
   identity: ProductIdentity,
   candidate: Candidate,
   robotsCache: Map<string, string | null | "unreachable">,
-): Promise<EnrichmentOutcome & { retrieved: boolean; extraction?: PkbProviderState | null }> {
+): Promise<ReadOutcome> {
   const empty = { claimsProposed: 0, conflicts: 0, proposalsCreated: 0 };
   const domain = (() => {
     try {
@@ -731,9 +767,53 @@ async function readCandidate(
     return { ...empty, retrieved: false };
   }
 
-  const content = decodeBody(fetched.body, fetched.charset);
-  const extraction = extractDocument(content, fetched.contentType, { url: fetched.url });
-  const sha256 = createHash("sha256").update(fetched.body).digest("hex");
+  let content = decodeBody(fetched.body, fetched.charset);
+  let extraction = extractDocument(content, fetched.contentType, { url: fetched.url });
+  let body = fetched.body;
+
+  /*
+   * The static copy first, always (D-124). Only a page that is clearly an
+   * empty JavaScript shell is rendered, by the optional local browser, whose
+   * every subrequest goes through safeFetch; what it renders replaces the
+   * static copy only when it says more.
+   */
+  let rendering: PkbProviderState | null = null;
+  const html = fetched.contentType === "text/html" || fetched.contentType === "application/xhtml+xml";
+  if (html && needsRendering(content, extraction)) {
+    const renderer = await getPageRenderer();
+    if (!renderer) {
+      rendering = {
+        provider: "renderer:none",
+        status: "NOT_CONFIGURED",
+        message: `${domain ?? "This page"} shows little without JavaScript and browser rendering is not configured, so only the static page was read.`,
+      };
+    } else {
+      const rendered = await renderer.render({ url: fetched.url, html: content, contentType: fetched.contentType, robotsCache });
+      if (rendered.ok) {
+        const again = extractDocument(rendered.html, "text/html", { url: fetched.url });
+        const better = again.text.length > extraction.text.length || again.structuredData.length > extraction.structuredData.length || again.pairs.length > extraction.pairs.length;
+        rendering = {
+          provider: `renderer:${renderer.key}`,
+          status: "OK",
+          message: better
+            ? `${domain ?? "The page"} was rendered in a local browser (${rendered.requests} requests, ${rendered.refused} refused) and read from the rendered page.`
+            : `${domain ?? "The page"} was rendered in a local browser but showed nothing more; the static page was read.`,
+        };
+        if (better) {
+          content = rendered.html;
+          extraction = again;
+          body = Buffer.from(rendered.html, "utf8");
+        }
+      } else {
+        rendering = {
+          provider: `renderer:${renderer.key}`,
+          status: rendered.code === "UNAVAILABLE" ? "UNAVAILABLE" : "FAILED",
+          message: `${domain ?? "This page"} shows little without JavaScript and could not be rendered (${rendered.reason}); only the static page was read.`,
+        };
+      }
+    }
+  }
+  const sha256 = createHash("sha256").update(body).digest("hex");
   const verdict = identityVerdict(identity, extraction, {
     brandVouched: match !== null && !match.blocked && match.brandSpecific,
   });
@@ -764,7 +844,17 @@ async function readCandidate(
     extractionState = assisted.state;
   }
 
-  return storeRead(fetched.url, () => db.transaction(async (tx) => {
+  /*
+   * Pages this product page links to that say more about the same product
+   * (D-124): found only on a page that matched, and read one level deep by
+   * the run, each checked against the product like any other page.
+   */
+  const related =
+    verdict.match === "match" && html
+      ? relatedPageLinks(content, fetched.url, [identity.name, ...identity.modelKeys, ...identity.gtins.map((row) => row.gtin14)])
+      : [];
+
+  const stored = await storeRead(fetched.url, () => db.transaction(async (tx) => {
     const sourceId = await ensureRetrievedSource(tx, {
       /*
        * What kind of source this is, is the registry's answer where the
@@ -801,7 +891,7 @@ async function readCandidate(
         status: "retrieved",
         httpStatus: fetched.status,
         contentType: fetched.contentType,
-        byteSize: fetched.body.byteLength,
+        byteSize: body.byteLength,
         sha256,
         textContent: extraction.text.slice(0, 200_000),
         structuredData: extraction.structuredData.length > 0 ? extraction.structuredData : null,
@@ -825,6 +915,7 @@ async function readCandidate(
     });
     return { ...outcome, retrieved: true, extraction: extractionState };
   }));
+  return { ...stored, rendering, related };
 }
 
 /** Runs the write of one read page, saying so when that is what failed. */
@@ -1390,7 +1481,7 @@ export async function sourceOutlook(pkbProductId: string): Promise<SourceOutlook
     provider: {
       provider: provider.key,
       status: result.status,
-      message: result.status === "OK" ? `${result.candidates.length} candidate pages` : result.message,
+      message: discoveryMessage(result),
     },
   };
 }

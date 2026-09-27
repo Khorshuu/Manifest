@@ -3627,3 +3627,184 @@ research completed (it may have been written after).
 live API. Without it, a manufacturer that describes a product only in prose
 cannot reach READY from its page alone; staff add facts by hand or configure
 the provider. This is the intended, honest outcome.
+
+---
+
+## D-124 — A free, local research and SeoPulse engine
+
+**The requirement.** The owner's original brief was a product-research and
+SeoPulse system that costs nothing per product: crawling from the owner's PC,
+AI inference on the owner's PC, no paid search API and no paid AI API. Until
+now, automatic discovery needed Brave (a paid key), prose extraction needed
+Anthropic, and SeoPulse's written content needed Anthropic too. The trust model
+does not change here. Only the provider and crawler layer around it widens.
+Setup steps for the owner are in `docs/LOCAL_AI_SETUP.md`.
+
+**Configuration.** Every setting is optional, and each absent piece degrades to
+what existed before.
+
+```
+PRODUCT_RESEARCH_PROVIDER=local        # none | brave | local
+PRODUCT_EXTRACTION_PROVIDER=ollama     # none | anthropic | ollama
+SEO_PULSE_AI_PROVIDER=ollama           # rules | anthropic | ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=<a model installed in Ollama>   # or OLLAMA_EXTRACTION_MODEL / OLLAMA_SEO_MODEL
+SEARXNG_BASE_URL=http://127.0.0.1:8080       # optional
+LOCAL_BROWSER_RENDERER=playwright            # none (default) | playwright
+```
+
+`lib/providers/local/config.ts` reads these with its own schema, like SEO
+Pulse's settings, so research and SeoPulse share it without depending on each
+other. No model name is defaulted: the owner chooses one. The old providers
+stay for compatibility.
+
+**Local only means loopback.** `OLLAMA_BASE_URL` and `SEARXNG_BASE_URL` are
+accepted only for `127.0.0.1`, `localhost` or `::1`, unless
+`OLLAMA_ALLOW_REMOTE` or `SEARXNG_ALLOW_REMOTE` is set. A mistyped hosted
+endpoint therefore cannot silently receive product documents. Requests to these
+services follow no redirects and are size- and time-capped (`localRequest`).
+With `ollama` selected there is no cloud fallback of any kind. Extraction
+reports UNAVAILABLE and the structured readers stand alone. SeoPulse falls back
+to the rules generator, which is also local, and labels the run as rule-based.
+While `SEO_PULSE_AI_PROVIDER=ollama`, DataForSEO is not called either, even if
+it is configured, so product data does not reach a hosted data service.
+
+**Ollama extraction** (`lib/providers/extraction/ollama.ts`) implements the
+existing `ProductDocumentExtractionProvider`. The prompt, the JSON schema and
+`readCandidates` moved to `lib/providers/extraction/prompt.ts` and are shared
+with the Anthropic provider, so both are asked the same question and held to
+the same answer. `/api/chat` is called with `format` set to the schema,
+`temperature: 0`, and a configurable context window (`OLLAMA_NUM_CTX`, default
+16,384); the document is cut to fit. Manifest parses and shape-checks the
+answer itself. A malformed or cut-off answer is asked for once more, with the
+problem stated; after that the result is FAILED and nothing from it is kept
+(`chatJson`). Every candidate still passes `groundCandidates()`. The model is
+not evidence; the page's excerpt is. D-123's rejections (unsupported number,
+unsupported value, other version, identity, marketing, offer terms) are
+unchanged.
+
+**Ollama SeoPulse** (`lib/seo-pulse/providers/ollama.ts`) implements
+`SeoIntelligenceProvider` with the shared prompt and schema
+(`lib/seo-pulse/providers/prompt.ts`). The model is shown only
+`groundedPromptInput`:
+
+- name, brand and category;
+- the rows SEO Pulse itself treats as established (`specificationRows`,
+  `measurementRows`), which include `groundedKnowledge()`'s VERIFIED or MANUAL
+  values;
+- staff-written key features, box contents and description;
+- the family's schema and the site's own search data.
+
+It is not shown SeoPulse's own earlier wording (D-120) or offer terms. The
+answer goes through `sanitizeGenerated` and then `withholdUnsupportedFigures`.
+Any keyword, tag, feature, title, meta description, H1, FAQ answer or
+description that states a figure none of those facts contains is withheld.
+List entries are dropped; the title, meta description and H1 fall back to the
+rules wording; the description's improvements say what was withheld. Words
+cannot be checked mechanically the way numbers can, so they are left to the
+prompt's rules and to review. As for any AI provider, preparation offers AI
+prose for review instead of writing it (D-122). Staff-owned and locked fields
+are never touched.
+
+**Free discovery** (`lib/providers/research/local.ts`) has two strategies.
+
+- *Official sitemaps* (`sitemap.ts`), for each domain the Brand Source Registry
+  approves for the brand. robots.txt is read first; if it cannot be read, no
+  sitemap is read, as for pages, and its rules apply to the sitemap files. The
+  sitemaps are its `Sitemap:` declarations, or else `/sitemap.xml` and
+  `/sitemap_index.xml`. Indexes are followed product-looking children first,
+  and blog, news, image and video sitemaps never. Gzip is supported with the
+  same size cap. Only addresses on the approved domain are kept. Limits: depth
+  3, 25 files, 50,000 addresses, 10 MB and 15 s per file, 60 s per domain. The
+  result is cached per domain in memory for 6 hours (1 hour when empty), so a
+  brand's sitemaps are read once for many products. `rankProductUrls` ranks
+  addresses by identity: a GTIN in the address, a strong model number
+  (`isStrongModelKey`, so never "10"), or most words of the exact name, which
+  must be as specific as a search query. Blogs, reviews, categories, carts,
+  accounts and promotions are never offered.
+- *Local SearXNG* (`searxng.ts`), when configured. It uses the existing
+  conservative query (`buildQuery`, moved to `query.ts` and shared with Brave)
+  and JSON output. Approved domains are ordered first (`preferOfficial`, which
+  now also matches subdomains). A 403 means JSON output is disabled and is
+  reported as such. Results are cached 10 minutes per query.
+
+A result is an address. A title and a snippet travel as the provider's note and
+are never read as facts. Every address is then retrieved through robots.txt and
+`safeFetch`, matched by `identityVerdict`, extracted, grounded and reviewed.
+What a strategy could not do is returned as notes and recorded on the run, for
+example "1 candidate page — Local web search (SearXNG): the service is not
+running …". Only when neither strategy could run is the answer UNAVAILABLE.
+Manifest does not scrape Google or Bing, and does not pretend to crawl the web
+without an index: known URLs, the registry, sitemaps and a local SearXNG are
+the sources.
+
+**Crawler.** `safeFetch` stays the first and usual way a page is read. A page is
+rendered only when `needsRendering` finds that its static copy is an empty
+JavaScript shell: no Product structured data and next to no pairs, short
+visible text, and an empty app mount point, a `<noscript>` asking for
+JavaScript, or far more script than text. The rendering replaces the static
+copy only when it says more. The run records what happened.
+
+**Browser rendering security** (`lib/pkb/net/render.ts`,
+`LOCAL_BROWSER_RENDERER=playwright`, `playwright-core` with its Chromium). The
+browser never touches the network itself.
+
+- It starts only from an address that `vetDestination` accepts. That function
+  is the `safeFetch` destination check, newly exported.
+- Chromium is launched with every host name resolving to nothing and all
+  traffic, loopback included, sent to a proxy that does not exist
+  (`ISOLATION_ARGS`). A test proves that a page cannot reach a loopback server
+  with these flags even when nothing is intercepted; without them it can.
+- Every request is intercepted. The page's document is answered from the copy
+  already retrieved. Scripts, stylesheets, XHR and fetch requests are retrieved
+  by `safeFetch` after robots.txt allows them: public addresses only, redirects
+  re-checked, size and time capped, no cookies or credentials. Images, media,
+  fonts, frames, WebSockets, beacons, non-GET requests and navigation away are
+  refused. Limits: 120 requests, 12 MB, 25 s.
+- Each page gets a fresh context, with service workers blocked, no downloads,
+  dialogs dismissed and pop-ups closed. The browser is closed in `finally`.
+- Nothing is clicked or typed. A CAPTCHA or bot check is reported and not used.
+
+If the runtime or the Chromium binary is missing, rendering is UNAVAILABLE. The
+static page is used, with a note that rendering might have helped.
+
+**Related official pages** (`lib/pkb/related-pages.ts`). Links are taken only
+from a page that matched the product, and followed one level only, never from
+a related page. At most three per page and four per run. A link qualifies when
+it is on the same site; when its address or text says specifications,
+technical details, support, manual, documentation, details, ingredients, how
+to use or FAQ; and when its address shares a word with the product page's
+address or the product's identity. A header's generic "Support" link therefore
+does not qualify. Reviews, blogs, categories, carts, accounts, promotions,
+social links and non-HTML files never do. Each related page is read like any
+other candidate and must match the product by `identityVerdict`.
+
+**Setup panel and health.** `researchSetup()` is now async and shows four items:
+local web discovery, local intelligent extraction, SeoPulse content AI, and the
+crawler. Their states are the ones the brief asks for: Ready, SearXNG not
+running, official-domain sitemaps only; Ollama ready, not running, model not
+installed, no model chosen; rules mode; static fetch ready with the renderer
+ready, off or not installed. `lib/providers/local/health.ts` checks Ollama
+(`/api/tags`), SearXNG (a JSON search, which SearXNG refuses before searching
+when JSON is off) and Playwright (runtime and binary on disk, no launch). Each
+check is bounded to 2–2.5 s and cached for 30 s. The panel streams behind a
+Suspense boundary, so the product page never waits for it. It shows states
+only, never a secret.
+
+**Not done here, on purpose.** There is no catalogue-wide preparation button
+(Part 23 of the brief): the engine is proved on single products first.
+Attribute learning is the existing workflow (proposal, then map to existing,
+add to family, product only or ignore); an approved mapping is reused for the
+family's next product (D-123), unchanged.
+
+**Assumptions.** The sitemap and search caches are in memory: the scheduler and
+the web server share a process locally (D-121), and a restart costs only one
+re-read. A related page on another subdomain of the same brand counts as the
+same site. The robots rules for a sitemap on a subdomain are read from the
+approved domain's own robots.txt.
+
+**Verification status.** Phase A (code complete, mocked integration) is
+verified; see PROGRESS.md. Phase B, live acceptance against a real Ollama and
+SearXNG on the owner's PC, is **UNVERIFIED — local services not installed**.
+Neither Ollama nor SearXNG is installed on this machine. Playwright's Chromium
+is, and the renderer was run for real against a local fixture.

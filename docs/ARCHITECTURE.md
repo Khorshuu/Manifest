@@ -202,6 +202,37 @@ retrieved page ─▶ extractDocument (JSON-LD, tables, headings, rows, cards, v
                   mergeGroundedPairs ─▶ evidence (page excerpt) ─▶ claim or proposal ─▶ a person
 ```
 
+### Local providers (D-124)
+
+The same boundaries have free, local implementations, configured in
+`lib/providers/local/config.ts` and set up as described in `LOCAL_AI_SETUP.md`:
+
+- `ProductResearchProvider` → `LocalResearchProvider` (`lib/providers/research/local.ts`):
+  the sitemaps of the brand's approved official domains (`sitemap.ts`) and an
+  optional SearXNG on this computer (`searxng.ts`). It returns addresses only.
+- `ProductDocumentExtractionProvider` → `OllamaExtractionProvider`, sharing the
+  prompt and schema in `extraction/prompt.ts` with the Anthropic provider.
+- `SeoIntelligenceProvider` → `OllamaIntelligenceProvider`
+  (`lib/seo-pulse/providers/ollama.ts`), sharing `providers/prompt.ts`, shown
+  only established facts, with unsupported figures withheld.
+- Crawling: `safeFetch` first; `lib/pkb/net/render.ts` renders an empty
+  JavaScript shell in an isolated Chromium whose every request goes through
+  `safeFetch`; `lib/pkb/related-pages.ts` follows a matched page's own
+  specification and support links, one level.
+- `lib/providers/local/health.ts` checks Ollama, SearXNG and Playwright for the
+  owner's setup panel, with short bounds and a 30 s cache.
+
+```
+Prepare with SeoPulse
+  └ sources ─▶ LocalResearchProvider ─▶ official sitemaps ┐
+                                      └▶ local SearXNG ────┴▶ addresses (never facts)
+  └ enrichment ─▶ robots.txt ─▶ safeFetch ─▶ needsRendering? ─▶ isolated Chromium (via safeFetch)
+                   ─▶ extractDocument ─▶ identityVerdict ─▶ related spec/support pages (1 level)
+                   ─▶ assistExtraction ─▶ Ollama ─▶ groundCandidates ─▶ evidence ─▶ claim / proposal
+  └ content ─▶ OllamaIntelligenceProvider(groundedPromptInput) ─▶ sanitizeGenerated
+                   ─▶ withholdUnsupportedFigures ─▶ offered for review (D-122)
+```
+
 `lib/providers/search-console/` is the same shape again (D-096): one interface
 for what is configured and one page of performance rows, a default that reports
 `NOT_CONFIGURED`, and `GoogleSearchConsoleProvider` as the only file that reads

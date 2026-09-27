@@ -316,6 +316,22 @@ export async function safeFetch(rawUrl: string, options: SafeFetchOptions = {}):
   }
 }
 
+/**
+ * The destination checks alone — scheme, credentials, port, host name, and
+ * every resolved address public — without retrieving anything. For callers
+ * that must refuse an address before handing it to something else (D-124:
+ * the browser renderer starts only from an address this accepts).
+ */
+export async function vetDestination(rawUrl: string, options: Pick<SafeFetchOptions, "resolver" | "addressAllowed" | "allowedPorts"> = {}): Promise<{ ok: true } | { ok: false; code: SafeFetchRefusal; reason: string }> {
+  const checked = await checkDestination(rawUrl, {
+    resolver: options.resolver ?? defaultResolver,
+    addressAllowed: options.addressAllowed ?? isPublicAddress,
+    allowedPorts: options.allowedPorts ?? [80, 443],
+  });
+  if ("ok" in checked) return checked.ok ? { ok: true } : { ok: false, code: checked.code, reason: checked.reason };
+  return { ok: true };
+}
+
 /** Decodes a fetched body as text, trusting only charsets TextDecoder knows. */
 export function decodeBody(body: Buffer, charset: string | null): string {
   try {

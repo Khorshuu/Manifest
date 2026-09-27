@@ -9,8 +9,12 @@ import { z } from "zod";
  * spent until someone opts in on the server.
  */
 const schema = z.object({
-  /** "rules" costs nothing; "anthropic" asks Claude and needs ANTHROPIC_API_KEY. */
-  SEO_PULSE_AI_PROVIDER: z.enum(["rules", "anthropic"]).default("rules"),
+  /**
+   * "rules" costs nothing; "ollama" asks a model running on this computer
+   * (D-124, lib/providers/local/config.ts) and costs nothing either;
+   * "anthropic" asks Claude and needs ANTHROPIC_API_KEY.
+   */
+  SEO_PULSE_AI_PROVIDER: z.enum(["rules", "ollama", "anthropic"]).default("rules"),
   SEO_PULSE_AI_MODEL: z.string().min(1).default("claude-opus-5"),
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   /** External keyword and search-results data. "none" means unavailable. */

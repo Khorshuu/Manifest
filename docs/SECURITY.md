@@ -389,3 +389,32 @@ the Brand Source Registry blocks its domain (D-114).
   (`lib/env.ts`, `lib/seo-pulse/config.ts`), sent only to Anthropic by the
   official SDK, and never shown: the admin screens report only "Configured" or
   "Not configured".
+
+## Local research and AI (D-124)
+
+- **Local services are loopback only.** `OLLAMA_BASE_URL` and
+  `SEARXNG_BASE_URL` must name `127.0.0.1`, `localhost` or `::1` unless
+  `OLLAMA_ALLOW_REMOTE` or `SEARXNG_ALLOW_REMOTE` is set explicitly. Addresses
+  with credentials are refused. Redirects from these services are not followed,
+  and their answers are size- and time-capped.
+- **No cloud fallback.** With `ollama` selected, a stopped or failing Ollama
+  means no AI: extraction reports UNAVAILABLE, and SeoPulse uses the local rules
+  generator. Anthropic is never called in its place, even when a key is set.
+  DataForSEO is not called while SeoPulse runs locally.
+- **Nothing is logged whole.** Provider errors and events carry states and
+  counts, never document text or model answers.
+- **The browser renderer cannot bypass SSRF protection.** It starts only from an
+  address `vetDestination` accepts. Chromium runs with no name resolution and a
+  dead proxy for all traffic, so it has no network of its own. Every request is
+  intercepted: the document comes from the copy already fetched, and scripts,
+  styles, XHR and fetch go through robots.txt and `safeFetch`. Everything else
+  is refused, including navigation away, frames, WebSockets, beacons and
+  non-GET requests. There are no cookies, credentials, logins or stored state.
+  A CAPTCHA or bot check is reported, never solved. Contexts and the browser are
+  closed after every page. `tests/local-browser-render.test.ts` runs a real
+  Chromium against a page that tries to reach an internal server by eight routes;
+  the server sees no connection.
+- **Sitemaps and search results are addresses.** Sitemaps are read only from
+  approved official domains, after robots.txt allows them, within fixed limits.
+  A search snippet is kept only as the provider's note and never becomes
+  evidence.

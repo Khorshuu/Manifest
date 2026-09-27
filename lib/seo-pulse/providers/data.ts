@@ -220,6 +220,9 @@ let override: SeoDataProvider | null | undefined;
 export function getSeoDataProvider(): SeoDataProvider | null {
   if (override !== undefined) return override;
   const env = getSeoPulseConfig();
+  // Local content AI means the product's data stays on this computer (D-124):
+  // its keyword candidates are not sent to a hosted data service either.
+  if (env.SEO_PULSE_AI_PROVIDER === "ollama") return null;
   if (
     env.SEO_PULSE_DATA_PROVIDER === "dataforseo" &&
     env.DATAFORSEO_LOGIN &&
@@ -243,6 +246,14 @@ export function describeDataProvider(): {
   note: string;
 } {
   const env = getSeoPulseConfig();
+  if (env.SEO_PULSE_DATA_PROVIDER === "dataforseo" && env.SEO_PULSE_AI_PROVIDER === "ollama") {
+    return {
+      configured: false,
+      paid: false,
+      label: "DataForSEO (off while SeoPulse runs locally)",
+      note: "SEO_PULSE_AI_PROVIDER is ollama, so product data is not sent to external keyword services. Volume, difficulty, CPC and competitor results show as unavailable.",
+    };
+  }
   if (env.SEO_PULSE_DATA_PROVIDER === "dataforseo") {
     const ready = Boolean(env.DATAFORSEO_LOGIN && env.DATAFORSEO_PASSWORD);
     return {

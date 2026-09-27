@@ -4079,3 +4079,63 @@ in to do that." whenever no server was running. It now skips like its siblings.
 
 `[!]` **UNVERIFIED — external integration unavailable.** The Anthropic
 extraction provider (no `ANTHROPIC_API_KEY`).
+
+## Free local research and SeoPulse AI (D-124)
+
+Phase A of the owner's original requirement: product research and SeoPulse with
+no paid service, crawling and AI on the owner's PC. Details in DECISIONS.md
+D-124; owner setup in LOCAL_AI_SETUP.md.
+
+`[x]` **Local providers behind the existing boundaries.** `PRODUCT_RESEARCH_PROVIDER=local`
+(official-domain sitemaps and an optional local SearXNG),
+`PRODUCT_EXTRACTION_PROVIDER=ollama`, `SEO_PULSE_AI_PROVIDER=ollama`. No key;
+loopback addresses only unless explicitly allowed; no cloud fallback;
+DataForSEO off while SeoPulse runs locally. Anthropic and Brave remain as
+options. No migration.
+
+`[x]` **Trust unchanged.** Ollama's extraction answers still pass
+`groundCandidates()`; SeoPulse's local answers still pass `sanitizeGenerated`,
+are shown established facts only, have unsupported figures withheld, and are
+offered for review (D-122). Staff-owned and locked fields untouched.
+
+`[x]` **Crawler.** Static `safeFetch` first. Optional Playwright rendering only
+for an empty JavaScript shell, with no network of its own (every request through
+`safeFetch`). Related specification and support pages of a matched product, one
+level, identity-checked.
+
+`[x]` **Setup panel.** Four items with live, cached health: local web discovery,
+local intelligent extraction, SeoPulse content AI, crawler. Streamed, states
+only.
+
+`[x]` **Verified.** Typecheck clean. Lint clean. Vitest (`--maxWorkers=4`, real
+PostgreSQL running): 127 files, 1,782 passed, 8 skipped. Production build
+passed. Playwright (production build, 2 workers; intelligence, product edit,
+product preparation, SeoPulse regeneration, admin boundary): 64 passed, 1
+skipped, 1 failed — `intelligence.spec.ts:159` on mobile, which passed 2/2 when
+re-run alone (it opens the jobs page and a product's intelligence page; neither
+changed here).
+
+`[x]` **Live checks on this PC (preorder_utf8, production build, local providers
+selected, no paid key, Ollama and SearXNG not installed).**
+
+- Setup panel at 1280 px and 375 px: "SearXNG not running … official-domain and
+  sitemap discovery only"; "Ollama not running" for extraction and content;
+  "Static fetch ready · browser renderer ready". No horizontal overflow.
+- A research run for Revlon Colorsilk Black read revlon.com's robots.txt and
+  sitemaps live and offered 3 candidates. The canonical product page matched;
+  "ColorSilk Digitones" (unknown) and "ColorSilk After Color Hair Mask"
+  (mismatch) were refused by the identity check and proposed nothing. The run
+  recorded that SearXNG and Ollama were not running and that three prose
+  sections were not read into facts.
+
+`[!]` **Phase B — UNVERIFIED, local services not installed.** Neither Ollama nor
+SearXNG is installed on this PC. Their providers are tested against fakes of
+their HTTP APIs only. Live acceptance across several different products waits
+until the owner installs them (LOCAL_AI_SETUP.md, section 8). No catalogue-wide
+preparation was added or run.
+
+`[!]` **Known limitations.** Sitemap ranking by name is permissive (siblings of a
+product line are offered) and relies on the identity check, which refused them
+live. Browser rendering refuses non-GET requests, so a page that loads its
+product through a POST (some GraphQL shops) still renders empty. Sitemap and
+search caches are in memory and reset on restart.

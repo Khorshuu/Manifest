@@ -62,9 +62,12 @@ const schema = z.object({
    * and a fully supported setting (A-6). `brave` adds discovery of candidate
    * addresses through the Brave Search API and needs BRAVE_SEARCH_API_KEY;
    * without the key the provider reports UNAVAILABLE and the pipeline carries
-   * on with the registry, staff URLs and provided documents.
+   * on with the registry, staff URLs and provided documents. `local` (D-124)
+   * needs no key: it reads the sitemaps of the brand's approved official
+   * domains and, when SEARXNG_BASE_URL points at a SearXNG instance on this
+   * computer, searches through it (lib/providers/local/config.ts).
    */
-  PRODUCT_RESEARCH_PROVIDER: z.enum(["none", "brave"]).default("none"),
+  PRODUCT_RESEARCH_PROVIDER: z.enum(["none", "brave", "local"]).default("none"),
   /** Only read when PRODUCT_RESEARCH_PROVIDER=brave. Never committed. */
   BRAVE_SEARCH_API_KEY: z.string().min(8).optional(),
   /**
@@ -73,9 +76,11 @@ const schema = z.object({
    * the deterministic readers run exactly as before. `anthropic` asks Claude
    * to point at what the page says — every answer is checked against the
    * page's own text before it can become even a proposal — and needs
-   * ANTHROPIC_API_KEY. It never browses and never decides a fact.
+   * ANTHROPIC_API_KEY. `ollama` (D-124) does the same with a model running on
+   * this computer through Ollama, with no key and no cloud fallback. Neither
+   * browses, and neither decides a fact.
    */
-  PRODUCT_EXTRACTION_PROVIDER: z.enum(["none", "anthropic"]).default("none"),
+  PRODUCT_EXTRACTION_PROVIDER: z.enum(["none", "anthropic", "ollama"]).default("none"),
   PRODUCT_EXTRACTION_MODEL: z.string().min(1).default("claude-opus-5"),
   /** Shared with SEO Pulse's content generator. Never committed. */
   ANTHROPIC_API_KEY: z.string().min(1).optional(),

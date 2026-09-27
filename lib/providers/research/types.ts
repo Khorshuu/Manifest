@@ -35,7 +35,11 @@ export type ResearchCandidate = {
 };
 
 export type ResearchResult =
-  | { status: "OK"; candidates: ResearchCandidate[] }
+  /**
+   * `notes`: what the provider could not do on the way, in words a person
+   * can act on ("local web search is not running"), recorded with the run.
+   */
+  | { status: "OK"; candidates: ResearchCandidate[]; notes?: string[] }
   /** No provider is set up. Expected, and not an error. */
   | { status: "NOT_CONFIGURED"; message: string }
   /** Configured but unusable right now: quota, outage, missing credential. */

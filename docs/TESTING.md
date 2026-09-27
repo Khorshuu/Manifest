@@ -630,3 +630,35 @@ The Glorious regression is the existing `manufacturer-shop-page` and
 `real-source-*` suites, unchanged except two assertions that encoded the old
 sufficiency rule (identity counted as facts; two facts plus identity were
 enough). Real acceptance on `preorder_utf8` is recorded in PROGRESS.md.
+
+## Local research and AI (D-124)
+
+No permanent test reaches a real website, Ollama or SearXNG. Ollama and SearXNG
+are replaced by fakes on loopback ports (`tests/helpers/fake-ollama.ts`), pages
+by fixtures, and `safeFetch` by a fixture map where a database test reads pages.
+
+- `tests/local-ollama.test.ts` — the loopback rule, model detection, structured
+  requests with no key, one bounded retry then FAILED, grounding of a local
+  model's answer (made-up fact, unsupported number, another version rejected),
+  provider selection with no paid key and no cloud fallback, DataForSEO off
+  while local, SeoPulse's grounded view, `sanitizeGenerated`, and withheld
+  figures.
+- `tests/local-research.test.ts` — sitemap and index parsing, gzip, robots
+  declarations, bounded traversal, the per-domain cache, identity ranking (GTIN,
+  model, brand + name + version; unrelated and vague ignored), SearXNG JSON,
+  JSON disabled, unavailable, official domains first, snippets as notes only.
+- `tests/local-health.test.ts` — Ollama, SearXNG and Playwright health states,
+  the health cache, the setup panel with every service stopped, and which
+  related links are followed.
+- `tests/local-browser-render.test.ts` — a real headless Chromium (skipped when
+  it is not installed) renders a JavaScript-only fixture on `127.0.0.2`. The
+  page tries to reach an internal server; the server must see no connection.
+  Also: navigation away is refused, an internal start address is refused, the
+  browser is closed, and the launch flags alone block loopback. Removing the
+  flags lets Chromium connect to the loopback server (checked by hand).
+- `tests/local-pipeline.test.ts` — against a real database: a beauty page
+  (Revlon fixture) read by the fake local model and grounded; a technical page
+  whose specification page is followed; a skincare product found in an
+  official sitemap and by local search; a JavaScript-rendered serum; Prepare
+  with SeoPulse on the local model, with staff and locked fields kept; Ollama
+  down leading to a rules-labelled run; and no paid key anywhere.

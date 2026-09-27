@@ -1,10 +1,11 @@
 import { getEnv } from "@/lib/env";
 import { BraveResearchProvider } from "./brave";
+import { LocalResearchProvider } from "./local";
 import type { ProductResearchProvider } from "./types";
 import { UnconfiguredResearchProvider } from "./unconfigured";
 
 export * from "./types";
-export { BraveResearchProvider, UnconfiguredResearchProvider };
+export { BraveResearchProvider, LocalResearchProvider, UnconfiguredResearchProvider };
 
 let instance: ProductResearchProvider | undefined;
 
@@ -19,6 +20,10 @@ let instance: ProductResearchProvider | undefined;
  * `brave` adds automatic discovery through one credentialed JSON API. It is
  * optional, it discovers addresses only, and everything it offers is still
  * retrieved, checked and reviewed the same way a staff-supplied address is.
+ *
+ * `local` (D-124) needs no key and no paid service: the sitemaps of the
+ * brand's approved official domains, and a SearXNG instance on this computer
+ * when one is configured.
  */
 export function getProductResearchProvider(): ProductResearchProvider {
   if (instance) return instance;
@@ -26,6 +31,9 @@ export function getProductResearchProvider(): ProductResearchProvider {
   switch (env.PRODUCT_RESEARCH_PROVIDER) {
     case "brave":
       instance = new BraveResearchProvider(env.BRAVE_SEARCH_API_KEY);
+      break;
+    case "local":
+      instance = LocalResearchProvider.fromConfig();
       break;
     case "none":
       instance = new UnconfiguredResearchProvider();
