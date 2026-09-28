@@ -3862,3 +3862,71 @@ excludes unaccepted candidates.
 fills empty or SeoPulse-owned fields. `.env.example` states: rules = local, no
 AI, no charge; ollama = local AI, no API charge; anthropic = optional paid
 hosted AI.
+
+## D-126 — What live acceptance with a real Ollama and SearXNG changed (Phase B)
+
+D-124 and D-125 were tested against fakes of Ollama and SearXNG. Phase B ran
+them for real on the owner's PC: Ollama 0.34.4 with `qwen2.5:7b`, and SearXNG
+from source, both on loopback. Four problems appeared that the fakes could
+not show. Each one is fixed at the local provider, and hosted and rules
+behaviour are unchanged.
+
+**1. Slow answers were cut off at 300 seconds.** Unstreamed, Ollama sends no
+response headers until the whole answer is written. Node's `fetch` stops
+waiting for headers after 300 s (`UND_ERR_HEADERS_TIMEOUT`), whatever
+`OLLAMA_TIMEOUT_MS` says. It then reported "the service is not running". On a
+4 GB GPU a SeoPulse answer takes 5–7 minutes, so every run fell back to
+rules. `OllamaClient.chat` now asks for a streamed answer, so headers arrive
+at once. `readChatStream` joins the pieces and uses the counts and stop
+reason from the last line. An error line, an unreadable line, or a stream
+that never says it is done is a failure, and nothing of it is used. The
+answer is still parsed and checked as one piece (`chatJson`). Verified live:
+a 327 s answer that failed before is now received.
+
+*Still open:* a request that waits in Ollama's queue behind another one also
+gets no headers until its turn. With two generations at once, a wait over
+300 s still fails the same way. It falls back to rules, labelled as rules,
+but the message says "not running". A complete fix needs a fetch dispatcher
+with a longer header timeout, or a `node:http` request. That is broader than
+this phase, so it is recorded in PROGRESS.md as SHOULD FIX.
+
+**2. The site's whole synonym table reached the model.** The research sent
+to the model included `siteSearch.existingSynonyms`: every synonym row in the
+shop. `qwen2.5:7b` returned those rows ("sweets", "sunblock", "frying pan") as
+misspellings of a gaming mouse. Under D-125, preparation wrote them into the
+listing's search terms. The rules generator had always filtered this table to
+rows about the product. That filter is now `relevantSiteSynonyms`, and
+`groundedResearch` gives the local model only those rows.
+
+**3. SeoPulse's own earlier search terms were shown back to the model.**
+`groundedPromptInput` already excluded SeoPulse's own description and key
+features (D-120). It did not exclude its own focus keyword, tags and search
+keywords, which it showed as the listing's current search wording. The model
+copied the bad terms from item 2 into the next run, so a wrong term would
+never leave. `pulseWritten` now also records the focus keyword, tags and
+search keywords (from `contentOwnership`), and the model sees only staff's
+terms. After the fix, a live regeneration replaced the list.
+
+**4. The site name in titles.** The storefront adds " · Manifest" to every
+title (`app/layout.tsx`). The model added it too, in every run, although the
+prompt says not to. The page title would then read "… · Manifest · Manifest".
+`withoutSiteName` removes a trailing " · / | / - Manifest" from the local
+model's titles.
+
+**Model choice.** `qwen2.5:7b` on this machine gave valid structured answers
+with `done_reason: stop` in every run. In the runs checked against their
+facts, it wrote no figure the facts did not contain; in one run a figure was
+written, and `withholdUnsupportedFigures` withheld the description. It runs at
+about 3.8 tokens/s under the JSON schema. `qwen2.5:3b` is faster but, at
+temperature 0 with this schema, repeated one keyword until the 6,000-token cap,
+so the answer was refused as malformed. That failure was handled correctly: it
+was not written, and the run used rules. `OLLAMA_TIMEOUT_MS=600000` is set
+locally. One attempt fits well inside the 15 minutes after which the job
+runner treats a job as stalled. A malformed first answer is asked for once
+more, and two attempts can take up to 20 minutes. That exceeds the stall
+window, so it is recorded as SHOULD FIX in PROGRESS.md and noted in
+LOCAL_AI_SETUP.md.
+
+**Not changed.** Identity rules, the Brand Source Registry, grounding,
+sanitising, ownership, H1 and slug, the hosted provider, Manual Fill and the
+rules generator's output.

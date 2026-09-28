@@ -82,6 +82,23 @@ function spacingVariants(word: string): string[] {
   return variants;
 }
 
+/**
+ * The site's synonym rows that are about this product: a row counts when one
+ * of its terms is made only of words from the product's name, brand or
+ * product type. The rest of the table is about other products ("sunblock",
+ * "frying pan") and is not search wording for this one.
+ */
+export function relevantSiteSynonyms(input: SeoPulseInput, research: SeoResearchData) {
+  const brand = input.brand?.trim() || null;
+  const productType = (input.categoryPath.at(-1) ?? "").toLowerCase();
+  const vocabulary = new Set(keywordKey(`${input.title} ${brand ?? ""} ${productType}`).split(" "));
+  return (research.siteSearch?.existingSynonyms ?? []).filter((entry) =>
+    [entry.term, ...entry.synonyms].some((term) =>
+      keywordKey(term).split(" ").every((word) => vocabulary.has(word)),
+    ),
+  );
+}
+
 export function generateByRules(
   input: SeoPulseInput,
   research: SeoResearchData,
@@ -229,12 +246,7 @@ export function generateByRules(
 
   // ------------------------------------------------------- internal search
 
-  const vocabulary = new Set(keywordKey(`${input.title} ${brand ?? ""} ${productType}`).split(" "));
-  const siteSynonyms = (research.siteSearch?.existingSynonyms ?? []).filter((entry) =>
-    [entry.term, ...entry.synonyms].some((term) =>
-      keywordKey(term).split(" ").every((word) => vocabulary.has(word)),
-    ),
-  );
+  const siteSynonyms = relevantSiteSynonyms(input, research);
   const synonyms = cleanTerms(
     [
       ...siteSynonyms.flatMap((entry) => [entry.term, ...entry.synonyms]),

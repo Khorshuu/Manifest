@@ -4171,3 +4171,129 @@ which passed 4/4 re-run alone (2 repeats, both viewports).
 
 `[!]` **Still UNVERIFIED — local services not installed.** The local provider
 is tested against a fake Ollama only.
+
+## Phase B — live acceptance with a real Ollama and SearXNG (D-126)
+
+Run on the owner's PC: i9-11900K (8 cores), 32 GB RAM, GTX 1050 Ti 4 GB,
+Windows 10. The acceptance database was `preorder_utf8`. Scratch harnesses are
+in `.scratch-acceptance/` (`phaseb.ts`, `pb-*.ts`) and are not committed.
+
+`[x]` **Ollama 0.34.4** (winget), listening on `127.0.0.1:11434` only.
+Model: **`qwen2.5:7b`** (Q4_K_M). About 2.4 GB of it fits in graphics memory
+and the rest runs on the CPU. `qwen2.5:3b` was rejected: at temperature 0
+with the SeoPulse schema it repeated one keyword until the 6,000-token cap
+(879 s, `done_reason: length`). Local settings in `.env.local` (not
+committed): the three providers set to local/ollama, `OLLAMA_MODEL=qwen2.5:7b`,
+`OLLAMA_TIMEOUT_MS=600000`, `SEARXNG_BASE_URL`, `LOCAL_BROWSER_RENDERER=playwright`.
+
+`[x]` **SearXNG** (source, commit `12f8b65` of 2026-09-25, Python 3.12 venv,
+outside the repository). Bound to `127.0.0.1:8080`, JSON on, random secret.
+A `pwd` shim was needed on Windows. A live query returned 37 results in
+1.7 s. DuckDuckGo answered with a CAPTCHA; Brave and Google CSE answered.
+
+`[x]` **Real pipeline reached READY with real Ollama content in the listing**:
+Glorious Model D 2 Wireless (several runs) and Soundcore Liberty 4 NC. Each
+run records `generator.kind: ai`, `model: qwen2.5:7b` and
+`localGrounded: true`. Description, key features, SEO title, meta
+description, focus keyword, tags and search terms were written into the
+listing, not only into the run.
+
+`[x]` **Gates held live.**
+- AMBIGUOUS: a second A1289 listing stopped at `IDENTITY_AMBIGUOUS`.
+- UNRESOLVED: "Power Bank" with no model number was BLOCKED.
+- Conflicts: two Amazon colour pages for Glorious produced 16 conflicts and
+  the run stopped.
+- Waiting claims and open labels stopped the run.
+- Too little established knowledge (JBL, every claim rejected) stopped at
+  `INSUFFICIENT_KNOWLEDGE`, and no generation ran.
+- Race: a claim was reopened while the model was generating (18:31). The run
+  stopped at `CONTENT_NOT_APPLIED`, naming what was undecided, and all 7
+  fields were byte-identical.
+- Ownership: a staff-edited description and a locked meta description stayed
+  byte-identical through two more runs. SeoPulse-owned fields were refreshed,
+  and old search terms and key features were replaced, not accumulated.
+
+`[x]` **Grounding.** Across the runs checked, no figure outside the
+established facts reached a listing. In one run the model's description
+stated one, and `withholdUnsupportedFigures` withheld the description,
+recording the reason in the improvements. The only unsupported numbers left
+in stored answers (50, 120, 155) are in `reason` text quoting the prompt's
+length limits, which is never written to a listing. Live extraction on JBL:
+"10 read from the page, 2 confirmed against its text, 7 discarded".
+
+`[x]` **Failure handling.**
+- Ollama stopped: the content step fell back to rules in about 1 s. The run
+  records `kind: rules`, `localGrounded: false`, "Ollama: the service is not
+  running … The rules generator was used instead". No hang, no crash.
+- SearXNG stopped: sitemaps alone found revlon.com's page, with a note.
+- No approved domain and SearXNG stopped: BLOCKED at
+  `AUTOMATIC_SOURCE_DISCOVERY_UNAVAILABLE`, giving both reasons.
+- SearXNG on, no approved domain (JBL): research worked through SearXNG.
+- A real answer cut off at 60 tokens was recognised (`done_reason: length`)
+  and asked for again. A 5 s client timeout was reported as a timeout and
+  thrown, and nothing partial was kept.
+
+`[x]` **Fixed here (D-126).**
+1. Streamed Ollama answers. Before this, anything over 300 s failed as "not
+   running". A 327 s answer that failed before was then received.
+2. The site's synonym table filtered to the product. Before this, "sweets,
+   sunblock, frying pan…" were written into a mouse's search terms.
+3. SeoPulse's own earlier search terms are no longer shown to the model.
+   Before this, the bad terms were copied back on every later run.
+4. " · Manifest" removed from local titles. Every run added it, and the page
+   title read "… · Manifest · Manifest".
+
+`[x]` **Timings (real).**
+- Discovery (identity + sources): 6–41 s.
+- Research: 14–28 s, or 452 s when Ollama extraction waited behind a
+  generation.
+- Ollama SeoPulse answer: 300–398 s (9 runs), about 3.8 tokens/s under the
+  schema, 1,050–1,470 output tokens.
+- Sanitising and writing to the listing: under 1 s.
+- Whole preparation: about 6–7 minutes without review stops.
+- CPU 50–94 % and GPU 40–99 % during generation. Graphics memory about
+  3.8 of 4 GB. 12–20 GB RAM stayed free. No freeze.
+
+`[!]` **Two generations at once.** Ollama runs one request at a time here
+(`NUM_PARALLEL=1`). A queued request gets no headers until its turn, and
+Node's fetch gives up after 300 s. In the test, A finished in 398 s and B
+failed at 306 s as "not running". Through SeoPulse that falls back to rules,
+labelled as rules. SHOULD FIX.
+
+`[!]` **Findings not fixed here.**
+- SHOULD FIX: the identity check refused several correct official pages,
+  failing closed:
+  - Sony's Help Guide, which prints the regulatory model `YY2954`;
+  - anker.com, whose SKU `A1289011` is compared with model `A1289`;
+  - revlon.com, because shade "150" is not in the page's names;
+  - gloriousgaming.com, because the listing's word "gaming" is not in the
+    page's name.
+
+  Most products need staff to attach or paste the official page. Not loosened
+  here.
+- SHOULD FIX: the local model writes qualitative claims the facts do not
+  support ("lightweight and portable", "clear sound", "ideal for competitive
+  gaming"). These are auto-applied under D-125. Only figures are checked
+  mechanically.
+- SHOULD FIX: meta descriptions are cut mid-sentence at 170 characters
+  (4 of 6 runs), e.g. "…Perfect for gamers and".
+- SHOULD FIX: two long attempts (a malformed first answer) can take 20 min,
+  longer than the 15-minute stalled-job window.
+- SHOULD FIX (from code, not run): with `ollama`, "Run SEO Pulse" from the
+  panel runs the model inside the web request (`usesExternalProviders()` is
+  false), so that request can take 5–7 minutes.
+- Acceptance caveat: the harness accepted research values without human
+  judgement, and some were doubtful (Soundcore "213 g", "8 ohm").
+
+`[x]` **Regression after the fixes.**
+- Typecheck clean. Lint clean.
+- Vitest (`--maxWorkers=4`, real PostgreSQL): 127 files, 1,794 passed, 8
+  skipped. That is 1,789 before, plus the 5 new Phase B tests.
+- Production build passed.
+- Playwright (production build, 2 workers; product preparation, SeoPulse
+  regeneration, intelligence, product edit, admin boundary): 64 passed,
+  1 skipped, 1 failed. The failure is the same `intelligence.spec.ts:159` on
+  mobile as in D-124 and D-125 ("Product intelligence" not visible within
+  10 s). Re-run alone it passed 4 of 4 (2 repeats, both viewports).
+- Playwright ran with the providers set as in the D-125 baseline (`rules`,
+  `none`) so it does not depend on live web search or a 6-minute model.

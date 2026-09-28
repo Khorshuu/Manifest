@@ -157,7 +157,7 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
      */
     groundedKnowledge(product.pkbProductId),
     // Which content is SEO Pulse's own unedited wording (D-120).
-    contentOwnership(db, productId, ["descriptionHtml", "bulletFeatures"] as const),
+    contentOwnership(db, productId, ["descriptionHtml", "bulletFeatures", "seoFocusKeyword", "tags", "searchKeywords"] as const),
   ]);
 
   const byId = new Map(allCategories.map((row) => [row.id, row]));
@@ -209,6 +209,9 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
     pulseWritten: {
       description: owners.get("descriptionHtml") === "seo_pulse",
       bulletFeatures: owners.get("bulletFeatures") === "seo_pulse",
+      seoFocusKeyword: owners.get("seoFocusKeyword") === "seo_pulse",
+      tags: owners.get("tags") === "seo_pulse",
+      searchKeywords: owners.get("searchKeywords") === "seo_pulse",
     },
     specifications,
     measurements: Array.isArray(product.measurements)

@@ -49,6 +49,13 @@ settings. If they are set, the local providers do not use them.
    Any model you have installed works; the name above is an example, not a
    requirement. A 7–8B model needs about 8 GB of free memory. A larger model
    reads more accurately but more slowly.
+
+   Tested in Phase B (i9-11900K, 32 GB RAM, GTX 1050 Ti 4 GB): `qwen2.5:7b`
+   works. It answers in valid JSON and uses only the facts it is given. It is
+   slow on this hardware: one SeoPulse answer takes about 5–7 minutes,
+   because only part of the model fits in 4 GB of graphics memory. Smaller
+   models are not a shortcut. `qwen2.5:3b` repeated the same keyword until it
+   ran out of room, and its answer was refused as malformed.
 3. Put the model's name in `.env.local`: `OLLAMA_MODEL=qwen2.5:7b`.
 4. Optional: use different models for reading pages and for writing content
    with `OLLAMA_EXTRACTION_MODEL` and `OLLAMA_SEO_MODEL`.
@@ -57,7 +64,7 @@ Other Ollama settings, all optional:
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `OLLAMA_TIMEOUT_MS` | `240000` | How long one answer may take. |
+| `OLLAMA_TIMEOUT_MS` | `240000` | How long one answer may take. On a GPU with 4 GB or less, set `600000`: a SeoPulse answer can take 5–7 minutes. A background job counts as stalled after 15 minutes. A malformed answer is asked for a second time, so a run with two long attempts can pass that limit. |
 | `OLLAMA_NUM_CTX` | `16384` | The model's context window. Larger reads more of a long page and needs more memory. |
 | `OLLAMA_ALLOW_REMOTE` | off | Allow an Ollama on another computer. Leave it off unless you mean it: product pages are then sent to that computer. |
 
@@ -69,11 +76,34 @@ Manifest only talks to `127.0.0.1`, `localhost` or `::1` unless
 Without SearXNG, Manifest finds pages in the sitemaps of the brand's approved
 official domains only. SearXNG adds web-wide search, still with no key.
 
-1. Run SearXNG on this PC. The simplest way is Docker Desktop:
+1. Run SearXNG on this PC. The simplest way is Docker Desktop. Bind it to
+   this computer only (`127.0.0.1:`), so other devices on the network cannot
+   use it:
 
    ```
-   docker run -d --name searxng -p 8080:8080 searxng/searxng
+   docker run -d --name searxng -p 127.0.0.1:8080:8080 searxng/searxng
    ```
+
+   Without Docker, SearXNG also runs from its source with Python 3.12. This
+   is how Phase B ran it. Keep the checkout and its `settings.yml` outside
+   this repository:
+
+   ```
+   git clone --depth 1 https://github.com/searxng/searxng.git
+   cd searxng
+   python -m venv .venv
+   .venv\Scripts\python -m pip install -r requirements.txt
+   set SEARXNG_SETTINGS_PATH=C:\path\to\settings.yml
+   .venv\Scripts\python -m searx.webapp
+   ```
+
+   Make these settings in that `settings.yml`: `use_default_settings: true`;
+   under `server:`, `bind_address: "127.0.0.1"`, `port: 8080` and a random
+   `secret_key`; and the JSON format from step 2. On Windows, SearXNG
+   imports the Unix-only module `pwd`. It uses that module only in an error
+   message about Valkey, which is not used here. A small `pwd.py` in the
+   virtual environment's `site-packages` that defines `getpwuid` satisfies
+   the import.
 
 2. Turn on JSON output. In SearXNG's `settings.yml`, under `search:`, make sure
    `formats` includes `json`:
@@ -153,5 +183,14 @@ check that:
    the listing's description, key features, SEO title, meta description, tags
    and search terms.
 
-Until this is done, local Ollama and SearXNG operation is **unverified**: the
-code is tested against fakes of both services, not against the real ones.
+Phase B did this on the owner's PC with `qwen2.5:7b` and SearXNG from
+source (PROGRESS.md, D-126). Real runs reached READY with the local model's
+content in the listing. What it found:
+
+- Run one preparation at a time on a small GPU. Ollama answers one request
+  at a time, and a request that waits more than 5 minutes behind another
+  fails and falls back to the rules generator.
+- Official pages are often refused by the identity check (a regulatory model
+  code, a SKU with a suffix, a shade not in the page's name). The run then
+  asks for the page: give the product's exact page or paste its
+  specification.

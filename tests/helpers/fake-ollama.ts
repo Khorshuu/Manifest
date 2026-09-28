@@ -52,14 +52,19 @@ export async function startFakeOllama(options: { models?: string[]; chat?: FakeO
         }
         const reply = fake.chat(body, chats++);
         if (reply.raw !== undefined) return json(reply.status ?? 200, reply.raw);
-        return json(reply.status ?? 200, {
-          model: body.model,
-          message: { role: "assistant", content: reply.content ?? "" },
-          done: true,
-          done_reason: reply.doneReason ?? "stop",
-          prompt_eval_count: 1200,
-          eval_count: 300,
-        });
+        const final = { model: body.model, done: true, done_reason: reply.doneReason ?? "stop", prompt_eval_count: 1200, eval_count: 300 };
+        if (!body.stream) {
+          return json(reply.status ?? 200, { ...final, message: { role: "assistant", content: reply.content ?? "" } });
+        }
+        // Streamed as Ollama streams: the text in pieces, one JSON object per line, counts on the last.
+        const content = reply.content ?? "";
+        const half = Math.ceil(content.length / 2);
+        const lines = [content.slice(0, half), content.slice(half)]
+          .filter((piece) => piece !== "")
+          .map((piece) => JSON.stringify({ model: body.model, message: { role: "assistant", content: piece }, done: false }));
+        lines.push(JSON.stringify({ ...final, message: { role: "assistant", content: "" } }));
+        response.writeHead(reply.status ?? 200, { "content-type": "application/x-ndjson" });
+        return response.end(`${lines.join("\n")}\n`);
       }
       json(404, { error: "not found" });
     });

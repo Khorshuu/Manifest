@@ -1,6 +1,6 @@
 import { getLocalServicesConfig, ollamaModelFor } from "@/lib/providers/local/config";
 import { chatJson, OllamaClient } from "@/lib/providers/local/ollama";
-import { generateByRules } from "../rules";
+import { generateByRules, relevantSiteSynonyms } from "../rules";
 import { measurementRows, specificationRows } from "../facts";
 import { sanitizeDescriptionHtml, sanitizeGenerated } from "../sanitize";
 import type { GeneratedRecommendations, SeoPulseInput, SeoResearchData } from "../types";
@@ -74,7 +74,47 @@ export function groundedPromptInput(input: SeoPulseInput) {
     familySchema: knowledge.family?.attributes.map((attribute) => attribute.label) ?? [],
     images: input.images.map((image) => ({ imageId: image.id, currentAltText: image.altText, kind: image.kind })),
     // How the listing is found today: search wording, not product facts.
-    currentSearchTerms: { focusKeyword: input.seoFocusKeyword, tags: input.tags, searchKeywords: input.searchKeywords },
+    // Staff's own terms only: SeoPulse's earlier terms are not evidence either (Phase B).
+    currentSearchTerms: {
+      focusKeyword: input.pulseWritten?.seoFocusKeyword ? null : input.seoFocusKeyword,
+      tags: input.pulseWritten?.tags ? [] : input.tags,
+      searchKeywords: input.pulseWritten?.searchKeywords ? [] : input.searchKeywords,
+    },
+  };
+}
+
+/**
+ * The research as a local model may see it. The site's synonym table covers
+ * every product in the shop; shown whole, a local model copied rows about
+ * other products ("sunblock", "frying pan") into a gaming mouse's search
+ * terms in live acceptance (Phase B), and preparation writes local wording
+ * unseen (D-125). Only the rows about this product are shown, the same ones
+ * the rules generator uses.
+ */
+export function groundedResearch(input: SeoPulseInput, research: SeoResearchData): SeoResearchData {
+  if (!research.siteSearch) return research;
+  return { ...research, siteSearch: { ...research.siteSearch, existingSynonyms: relevantSiteSynonyms(input, research) } };
+}
+
+/** " · Manifest", " | Manifest", " - Manifest" at the end of a title. */
+const SITE_NAME_SUFFIX = /\s*[·|\-–—:]\s*manifest\s*$/i;
+
+/**
+ * The site appends " · Manifest" to every page title itself. A local model
+ * told so still ended every title with it in live acceptance (Phase B), and
+ * preparation writes local titles unseen (D-125), so the page would read
+ * "… · Manifest · Manifest". The suffix is removed, unless it is the whole
+ * title.
+ */
+export function withoutSiteName(generated: GeneratedRecommendations): GeneratedRecommendations {
+  const strip = (title: string) => title.replace(SITE_NAME_SUFFIX, "").trim() || title;
+  return {
+    ...generated,
+    seoTitle: {
+      ...generated.seoTitle,
+      recommended: strip(generated.seoTitle.recommended),
+      alternatives: generated.seoTitle.alternatives.map(strip).filter(Boolean),
+    },
   };
 }
 
@@ -203,7 +243,7 @@ export class OllamaIntelligenceProvider implements SeoIntelligenceProvider {
               JSON.stringify(groundedPromptInput(input)),
               "",
               "Research collected:",
-              JSON.stringify(research),
+              JSON.stringify(groundedResearch(input, research)),
             ].join("\n"),
           },
         ],
@@ -219,7 +259,11 @@ export class OllamaIntelligenceProvider implements SeoIntelligenceProvider {
     );
     if (!answer.ok) throw new Error(answer.message);
     let rules: GeneratedRecommendations | null = null;
-    const { generated } = withholdUnsupportedFigures(answer.value, input, () => (rules ??= sanitizeGenerated(generateByRules(input, research), input)));
+    const { generated } = withholdUnsupportedFigures(
+      withoutSiteName(answer.value),
+      input,
+      () => (rules ??= sanitizeGenerated(generateByRules(input, research), input)),
+    );
     return {
       generated,
       model: answer.model,

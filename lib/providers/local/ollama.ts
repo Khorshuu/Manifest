@@ -21,7 +21,10 @@ export type OllamaChatResult =
   | { ok: true; content: string; model: string; inputTokens: number | null; outputTokens: number | null; truncated: boolean }
   | { ok: false; kind: "refused_address" | "unreachable" | "timeout" | "model_missing" | "error"; message: string };
 
-/** The whole answer is JSON text; a product analysis is a few tens of kilobytes at most. */
+/**
+ * The whole streamed answer: about 150 bytes of framing per token, so the
+ * 6,000-token cap on a SeoPulse answer is under 1 MB.
+ */
 const MAX_CHAT_BYTES = 2 * 1024 * 1024;
 const MAX_TAGS_BYTES = 512 * 1024;
 
@@ -76,7 +79,14 @@ export class OllamaClient {
       body: {
         model: request.model,
         messages: request.messages,
-        stream: false,
+        /*
+         * Streamed, so the response headers arrive at once. Unstreamed, Ollama
+         * sends nothing until the whole answer is written, and Node's fetch
+         * gives up waiting for headers after 300 s whatever OLLAMA_TIMEOUT_MS
+         * says — which a structured answer on ordinary hardware can exceed.
+         * The answer is still read to the end and checked as one piece.
+         */
+        stream: true,
         format: request.schema,
         // Reading and writing from given facts, not creativity.
         options: { temperature: 0, num_ctx: this.numCtx, num_predict: request.maxOutputTokens },
@@ -94,23 +104,52 @@ export class OllamaClient {
     }
     if (result.status !== 200) return { ok: false, kind: "error", message: `Ollama answered ${result.status}.` };
 
-    let parsed: { message?: { content?: unknown }; model?: unknown; prompt_eval_count?: unknown; eval_count?: unknown; done_reason?: unknown };
+    return readChatStream(result.text, request.model);
+  }
+}
+
+type ChatChunk = {
+  message?: { content?: unknown };
+  model?: unknown;
+  done?: unknown;
+  done_reason?: unknown;
+  prompt_eval_count?: unknown;
+  eval_count?: unknown;
+  error?: unknown;
+};
+
+/**
+ * Ollama's streamed chat answer: one JSON object per line, the text in
+ * pieces, the counts and the reason it stopped on the last line. An answer
+ * that reports an error, has an unreadable line or never says it is done is
+ * a failure — nothing of it is used.
+ */
+export function readChatStream(text: string, model: string): OllamaChatResult {
+  let content = "";
+  let last: ChatChunk | null = null;
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let chunk: ChatChunk;
     try {
-      parsed = JSON.parse(result.text);
+      chunk = JSON.parse(line);
     } catch {
       return { ok: false, kind: "error", message: "Ollama's answer could not be read." };
     }
-    const content = parsed.message?.content;
-    if (typeof content !== "string") return { ok: false, kind: "error", message: "Ollama returned no answer." };
-    return {
-      ok: true,
-      content,
-      model: typeof parsed.model === "string" ? parsed.model : request.model,
-      inputTokens: typeof parsed.prompt_eval_count === "number" ? parsed.prompt_eval_count : null,
-      outputTokens: typeof parsed.eval_count === "number" ? parsed.eval_count : null,
-      truncated: parsed.done_reason === "length",
-    };
+    if (chunk.error !== undefined) return { ok: false, kind: "error", message: "Ollama stopped with an error while answering." };
+    const piece = chunk.message?.content;
+    if (piece !== undefined && typeof piece !== "string") return { ok: false, kind: "error", message: "Ollama's answer could not be read." };
+    content += piece ?? "";
+    last = chunk;
   }
+  if (!last || last.done !== true) return { ok: false, kind: "error", message: "Ollama's answer ended before it was complete." };
+  return {
+    ok: true,
+    content,
+    model: typeof last.model === "string" ? last.model : model,
+    inputTokens: typeof last.prompt_eval_count === "number" ? last.prompt_eval_count : null,
+    outputTokens: typeof last.eval_count === "number" ? last.eval_count : null,
+    truncated: last.done_reason === "length",
+  };
 }
 
 /** Whether a configured model name is among the installed ones ("llama3.1" is "llama3.1:latest"). */

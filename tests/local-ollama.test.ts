@@ -15,7 +15,7 @@ import { groundCandidates } from "@/lib/pkb/grounding";
 import { EMPTY_GROUNDED, type GroundedKnowledge } from "@/lib/pkb/publish";
 import { OllamaExtractionProvider } from "@/lib/providers/extraction/ollama";
 import { localServiceUrl } from "@/lib/providers/local/config";
-import { chatJson, modelInstalled, OllamaClient } from "@/lib/providers/local/ollama";
+import { chatJson, modelInstalled, OllamaClient, readChatStream } from "@/lib/providers/local/ollama";
 import { groundedPromptInput, OllamaIntelligenceProvider, withholdUnsupportedFigures } from "@/lib/seo-pulse/providers/ollama";
 import type { SeoPulseInput } from "@/lib/seo-pulse/types";
 import { closedPort, startFakeOllama, type FakeOllama } from "./helpers/fake-ollama";
@@ -91,7 +91,31 @@ describe("the Ollama client", () => {
     const sent = ollama.requests.find((request) => request.path === "/api/chat")!;
     expect(sent.headers.authorization).toBeUndefined();
     expect(sent.headers["x-api-key"]).toBeUndefined();
-    expect(sent.body).toMatchObject({ stream: false, format: { type: "object" }, options: { temperature: 0, num_predict: 99 } });
+    expect(sent.body).toMatchObject({ stream: true, format: { type: "object" }, options: { temperature: 0, num_predict: 99 } });
+  });
+
+  it("assembles a streamed answer, so a slow answer is not cut off waiting for headers (Phase B)", async () => {
+    ollama.chat = () => ({ content: '{"candidates": [], "note": "streamed in pieces"}' });
+    const answer = await client().chat({ model: "qwen2.5:7b", messages: [{ role: "user", content: "x" }], schema: {}, maxOutputTokens: 10 });
+    expect(answer).toEqual({
+      ok: true,
+      content: '{"candidates": [], "note": "streamed in pieces"}',
+      model: "qwen2.5:7b",
+      inputTokens: 1200,
+      outputTokens: 300,
+      truncated: false,
+    });
+  });
+
+  it("uses nothing from a stream that errors, cannot be read or never finishes", () => {
+    const piece = (content: string) => JSON.stringify({ message: { content }, done: false });
+    const done = JSON.stringify({ message: { content: "" }, done: true, done_reason: "stop" });
+    expect(readChatStream([piece('{"a"'), piece(":1}"), done].join("\n"), "m")).toMatchObject({ ok: true, content: '{"a":1}' });
+    expect(readChatStream([piece('{"a"'), JSON.stringify({ error: "out of memory" })].join("\n"), "m")).toMatchObject({ ok: false, kind: "error" });
+    expect(readChatStream([piece('{"a"'), "{not json"].join("\n"), "m")).toMatchObject({ ok: false, kind: "error" });
+    expect(readChatStream(piece('{"a":1}'), "m")).toMatchObject({ ok: false, kind: "error" });
+    expect(readChatStream("", "m")).toMatchObject({ ok: false, kind: "error" });
+    expect(readChatStream([piece('{"a"'), JSON.stringify({ done: true, done_reason: "length" })].join("\n"), "m")).toMatchObject({ ok: true, truncated: true });
   });
 
   it("asks once more for a malformed answer, then fails — never a third time", async () => {
@@ -357,6 +381,51 @@ describe("local SeoPulse content", () => {
     const { generated: cleaned, withheld } = withholdUnsupportedFigures(generated as never, input, () => generated as never);
     expect(cleaned.description.suggestedHtml).toBeNull();
     expect(withheld).toContain("description");
+  });
+
+  it("does not show the model SeoPulse's own earlier search terms, only staff's (Phase B)", () => {
+    // A wrong term SeoPulse wrote once was copied back by the model on every later run.
+    const input = pulseInput({ seoFocusKeyword: "sunblock", tags: ["frying pan"], searchKeywords: ["sweets", "rucksack"] });
+    const own = groundedPromptInput({ ...input, pulseWritten: { description: true, bulletFeatures: true, seoFocusKeyword: true, tags: true, searchKeywords: true } });
+    expect(own.currentSearchTerms).toEqual({ focusKeyword: null, tags: [], searchKeywords: [] });
+    const staff = groundedPromptInput({ ...input, pulseWritten: { description: true, bulletFeatures: true, seoFocusKeyword: false, tags: false, searchKeywords: false } });
+    expect(staff.currentSearchTerms).toEqual({ focusKeyword: "sunblock", tags: ["frying pan"], searchKeywords: ["sweets", "rucksack"] });
+  });
+
+  it("shows the model only the site's synonym rows about this product (Phase B)", async () => {
+    // qwen2.5:7b copied the whole shop's synonym table into a mouse's search terms.
+    ollama.chat = () => ({ content: JSON.stringify(answer()) });
+    const provider = new OllamaIntelligenceProvider(client(), "qwen2.5:7b");
+    const siteSearch = {
+      source: "This site's own search log",
+      windowDays: 90,
+      researchedAt: "2026-09-28T00:00:00.000Z",
+      matchingQueries: [],
+      queriesLeadingHere: [],
+      correctedTypos: [],
+      existingSynonyms: [
+        { term: "headphones", synonyms: ["headset"] },
+        { term: "sunblock", synonyms: ["sunscreen"] },
+        { term: "frying pan", synonyms: ["skillet"] },
+      ],
+    };
+    await provider.analyzeProduct(pulseInput(), { siteSearch, keywordMetrics: [], serp: [] } as never);
+    const sent = ollama.requests.find((request) => request.path === "/api/chat")!.body!.messages[1].content;
+    expect(sent).toContain("headset");
+    expect(sent).not.toContain("sunblock");
+    expect(sent).not.toContain("frying pan");
+  });
+
+  it("removes the site name the storefront appends itself from the SEO title (Phase B)", async () => {
+    ollama.chat = () => ({
+      content: JSON.stringify(
+        answer({ seoTitle: { recommended: "Harbor Acoustics HP-900 Headphones · Manifest", alternatives: ["HP-900 Headphones | Manifest"], reason: "names it" } }),
+      ),
+    });
+    const provider = new OllamaIntelligenceProvider(client(), "qwen2.5:7b");
+    const { generated } = await provider.analyzeProduct(pulseInput(), { siteSearch: null, keywordMetrics: [], serp: [] } as never);
+    expect(generated.seoTitle.recommended).toBe("Harbor Acoustics HP-900 Headphones");
+    expect(generated.seoTitle.alternatives).toEqual(["HP-900 Headphones"]);
   });
 
   it("throws on a malformed answer so SeoPulse uses its rules instead — never a hosted model", async () => {

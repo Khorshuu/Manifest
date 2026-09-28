@@ -78,8 +78,17 @@ export type SeoPulseInput = {
    * nobody has changed since (D-120). Its own earlier wording is not evidence
    * about the product: it is neither a staff-written feature to build on nor a
    * fact that makes the product researched. Absent means "not SEO Pulse's".
+   * The search wording is recorded the same way, so a local model is not
+   * shown SeoPulse's own earlier terms as the listing's search wording
+   * (Phase B): a wrong term would otherwise be copied into every later run.
    */
-  pulseWritten?: { description: boolean; bulletFeatures: boolean };
+  pulseWritten?: {
+    description: boolean;
+    bulletFeatures: boolean;
+    seoFocusKeyword?: boolean;
+    tags?: boolean;
+    searchKeywords?: boolean;
+  };
   specifications: { label: string; value: string }[];
   /** Measurement rows the listing already carries. Never generated. */
   measurements: { label: string; value: string }[];

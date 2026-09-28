@@ -642,7 +642,17 @@ by fixtures, and `safeFetch` by a fixture map where a database test reads pages.
   model's answer (made-up fact, unsupported number, another version rejected),
   provider selection with no paid key and no cloud fallback, DataForSEO off
   while local, SeoPulse's grounded view, `sanitizeGenerated`, and withheld
-  figures.
+  figures. Phase B (D-126) added:
+  - streamed answers, and a broken, erroring or unfinished stream used as
+    nothing;
+  - only the product's own site synonyms shown to the model;
+  - SeoPulse's own earlier search terms hidden from the model;
+  - " · Manifest" removed from titles.
+
+  The fake Ollama (`tests/helpers/fake-ollama.ts`) streams NDJSON when asked
+  to, as the real one does. Live acceptance against a real Ollama and SearXNG
+  is recorded in PROGRESS.md, "Phase B"; it is not part of the automated
+  suite.
 - `tests/local-research.test.ts` — sitemap and index parsing, gzip, robots
   declarations, bounded traversal, the per-domain cache, identity ranking (GTIN,
   model, brand + name + version; unrelated and vague ignored), SearXNG JSON,
