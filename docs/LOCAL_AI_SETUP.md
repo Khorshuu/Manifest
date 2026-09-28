@@ -135,8 +135,9 @@ Nothing is ever sent to a paid or cloud service as a fallback.
   number, in the page's own text. Otherwise it is discarded.
 - Values still become claims that a person accepts, under the verification
   policies.
-- Content written by the local model is offered for review. Staff-written and
-  locked fields are never replaced.
+- Content written by the local model is filled into fields that are empty or
+  still SeoPulse's own, once the product's facts are settled (D-125).
+  Staff-written and locked fields are never replaced.
 
 ## 8. Live acceptance (Phase B)
 
@@ -148,7 +149,9 @@ check that:
 1. the setup panel shows the services as ready;
 2. the run finds the official page (or uses the attached one);
 3. facts read from prose appear as proposals or claims with the page's excerpt;
-4. SeoPulse's draft uses only verified facts, and is offered for review.
+4. SeoPulse's content uses only verified facts, and a READY run leaves it in
+   the listing's description, key features, SEO title, meta description, tags
+   and search terms.
 
 Until this is done, local Ollama and SearXNG operation is **unverified**: the
 code is tested against fakes of both services, not against the real ones.

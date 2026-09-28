@@ -98,7 +98,7 @@ export async function researchSetup(): Promise<ResearchSetupItem[]> {
       "content",
       contentLabel,
       await checkOllama(ollamaModelFor(local, "seo"), local),
-      "Writes descriptions, key features and SEO wording from verified knowledge only; its prose is offered for review before it is used.",
+      "Writes descriptions, key features and SEO wording from verified knowledge only, and preparation fills them into fields that are empty or still SeoPulse's own. Staff-written and locked fields are never changed.",
       "Until then content is written by the rules generator, and runs say so.",
     );
   } else {

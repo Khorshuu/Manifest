@@ -863,6 +863,25 @@ async function stepListing(context: Context): Promise<Outcome> {
     };
   }
 
+  /*
+   * Local grounded wording is written unseen only while nothing about the
+   * product waits for a person (D-125). The verification step checked that;
+   * if something arrived since, the run stops here rather than calling a
+   * listing ready that holds none of the prepared content.
+   */
+  if (result.undecided.length > 0) {
+    return {
+      kind: "review",
+      notes: [
+        {
+          code: PREPARATION_CODES.CONTENT_NOT_APPLIED,
+          message: `The prepared content was not added to the listing: ${result.undecided.join(" ")}`,
+          remedy: "Open Product Intelligence and make those decisions, then continue. The prepared wording is also offered field by field in the editor.",
+        },
+      ],
+    };
+  }
+
   const fields = { applied: result.applied, refreshed: result.refreshed, kept: result.kept, review: result.review };
   const parts = [
     result.applied.length ? `Added ${result.applied.join(", ")}.` : "",

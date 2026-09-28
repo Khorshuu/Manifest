@@ -4139,3 +4139,35 @@ product line are offered) and relies on the identity check, which refused them
 live. Browser rendering refuses non-GET requests, so a page that loads its
 product through a POST (some GraphQL shops) still renders empty. Sitemap and
 search caches are in memory and reset on restart.
+
+## Local SeoPulse content written by preparation (D-125)
+
+Correction to D-124: with `SEO_PULSE_AI_PROVIDER=ollama`, a preparation run
+reached READY with the description empty, because every AI generator's wording
+was left for routine review. Details in DECISIONS.md D-125.
+
+`[x]` **Auto-apply rule.** A run records `generator.localGrounded` (true only
+for the Ollama provider, false after a fallback to rules; absent on older runs).
+`applyPreparedContent` writes that wording like the rules generator's, into
+fields that are empty or still SeoPulse's own, when knowledge is sufficient and
+nothing waits for a person (settled identity, no CONFLICT or SUGGESTED claim, no
+open attribute proposal, re-checked at write time). Otherwise nothing is written
+and the run stops NEEDS_REVIEW (`CONTENT_NOT_APPLIED`) saying why.
+
+`[x]` **Unchanged.** Hosted AI (Anthropic) stays review-first; rules as before;
+Fill unchanged; staff-owned and locked fields untouched; facts still only via
+grounding and verification. No migration.
+
+`[x]` **Docs.** `.env.example` now says rules = local, no AI, no charge;
+ollama = local AI, no API charge; anthropic = optional paid hosted AI. Setup
+panel text, BUSINESS_LOGIC.md and LOCAL_AI_SETUP.md updated.
+
+`[x]` **Verified.** Typecheck clean. Lint clean. Vitest (`--maxWorkers=4`, real
+PostgreSQL running): 127 files, 1,789 passed, 8 skipped. Production build
+passed. Playwright (production build, 2 workers; product preparation, SeoPulse
+regeneration, intelligence, product edit, admin boundary): 64 passed, 1
+skipped, 1 failed — the same `intelligence.spec.ts:159` on mobile as in D-124,
+which passed 4/4 re-run alone (2 repeats, both viewports).
+
+`[!]` **Still UNVERIFIED — local services not installed.** The local provider
+is tested against a fake Ollama only.

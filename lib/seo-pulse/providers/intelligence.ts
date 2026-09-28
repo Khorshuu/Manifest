@@ -31,6 +31,14 @@ export interface SeoIntelligenceProvider {
   readonly id: string;
   readonly label: string;
   readonly kind: "ai" | "rules";
+  /**
+   * True only for a generator that runs on this computer, is shown nothing but
+   * established knowledge (`groundedPromptInput`) and has its figures checked
+   * against it (`withholdUnsupportedFigures`). Preparation may write its
+   * wording into fields nobody else owns without a person reading it first
+   * (D-125). A hosted model is never marked so.
+   */
+  readonly localGrounded?: boolean;
   analyzeProduct(input: SeoPulseInput, research: SeoResearchData): Promise<IntelligenceResult>;
 }
 

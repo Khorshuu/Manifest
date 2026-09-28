@@ -16,9 +16,11 @@ import type { AddressInfo } from "node:net";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  pkbAttributeProposals,
   pkbClaims,
   pkbEnrichmentRuns,
   pkbEvidence,
+  pkbProducts,
   pkbSourceDocuments,
   productPreparationRuns,
   products,
@@ -38,10 +40,11 @@ import { LocalResearchProvider, setProductResearchProviderForTesting } from "@/l
 import { clearLocalSearchCache } from "@/lib/providers/research/local";
 import { clearSitemapCache, type Fetcher } from "@/lib/providers/research/sitemap";
 import { processSearchQueue } from "@/lib/search/maintenance";
-import { setFieldLock } from "@/lib/seo/fields";
+import { contentOwnership, setFieldLock } from "@/lib/seo/fields";
 import { OllamaIntelligenceProvider } from "@/lib/seo-pulse/providers/ollama";
 import { seoPulseRecommendations } from "@/lib/seo-pulse/service";
-import { setIntelligenceProviderForTesting } from "@/lib/seo-pulse/providers/intelligence";
+import { AnthropicIntelligenceProvider, RulesIntelligenceProvider, setIntelligenceProviderForTesting } from "@/lib/seo-pulse/providers/intelligence";
+import { sanitizeGenerated } from "@/lib/seo-pulse/sanitize";
 import { closedPort, startFakeOllama, type FakeOllama } from "./helpers/fake-ollama";
 import { createTestDatabase } from "./helpers/database";
 
@@ -128,7 +131,7 @@ const REVLON_ANSWER = {
 };
 
 const keyword = (value: string) => ({ keyword: value, intent: "product", relevance: "high", reason: "names the product" });
-const SEO_ANSWER = {
+const SEO_ANSWER_DEFAULT = {
   primaryKeyword: keyword("harbor acoustics hp-900 headphones"),
   secondaryKeywords: [keyword("hp-900 bluetooth headphones")],
   longTailKeywords: [],
@@ -150,6 +153,12 @@ const SEO_ANSWER = {
   categoryNotes: [],
 };
 
+/** What the local model answers SeoPulse with; a test may change it. */
+let seoAnswer: typeof SEO_ANSWER_DEFAULT = structuredClone(SEO_ANSWER_DEFAULT);
+/** Replaces the answer with raw text, for a model that answers badly. */
+let seoRaw: string | null = null;
+const seoReply = () => ({ content: seoRaw ?? JSON.stringify(seoAnswer) });
+
 beforeAll(async () => {
   process.env.SESSION_SECRET ??= "s".repeat(32);
   process.env.DATABASE_URL ??= "postgres://postgres:postgres@127.0.0.1:5432/unused";
@@ -164,7 +173,7 @@ beforeAll(async () => {
     chat: (request) =>
       JSON.stringify(request.format).includes('"candidates"')
         ? { content: JSON.stringify(REVLON_ANSWER) }
-        : { content: JSON.stringify(SEO_ANSWER) },
+        : seoReply(),
   });
   searx = http.createServer((request, response) => {
     response.writeHead(200, { "content-type": "application/json" });
@@ -217,6 +226,8 @@ beforeEach(async () => {
   await harness.reset();
   fetched.length = 0;
   ollama.requests.length = 0;
+  seoAnswer = structuredClone(SEO_ANSWER_DEFAULT);
+  seoRaw = null;
   clearSitemapCache();
   clearLocalSearchCache();
   const [row] = await harness.db.insert(users).values({ email: "staff@example.com", passwordHash: "x", role: "staff_admin" }).returning({ id: users.id });
@@ -229,6 +240,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   setPageRendererForTesting(undefined);
   setProductExtractionProviderForTesting(undefined);
   setProductResearchProviderForTesting(undefined);
@@ -402,30 +414,46 @@ async function drive(runId: string) {
 const requestKey = () => `00000000-0000-4000-9000-${String(++seq).padStart(12, "0")}`;
 
 describe("Prepare with SeoPulse on the local engine", () => {
-  it("prepares content with a local model, invented figures withheld, and offers its prose for review", async () => {
+  it("writes the local model's grounded content into the listing, invented figures withheld, and reaches READY", async () => {
     setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
     const product = await knownListing();
     const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
     expect(run.stage).toBe("READY");
 
     const [seo] = await harness.db.select().from(seoResearchRuns).where(eq(seoResearchRuns.id, run.seoRunId!));
-    const analysis = seo.analysis as { generator: { kind: string; provider: string }; keyFeatures: string[]; description: { suggestedHtml: string | null } };
-    expect(analysis.generator).toMatchObject({ kind: "ai", provider: "Local AI (Ollama — qwen2.5:7b)" });
-    expect(analysis.description.suggestedHtml).toContain("LOCAL-MODEL");
+    const analysis = seo.analysis as { generator: { kind: string; provider: string; localGrounded?: boolean }; keyFeatures: string[]; description: { suggestedHtml: string | null } };
+    expect(analysis.generator).toMatchObject({ kind: "ai", provider: "Local AI (Ollama — qwen2.5:7b)", localGrounded: true });
     expect(analysis.keyFeatures).toEqual(["40 mm drivers", "Bluetooth 5.4 connectivity", "Active noise cancelling"]);
-    // AI prose is offered for review, as for any AI provider (D-122); nothing claims it was written.
-    const step = run.steps.find((entry) => entry.key === "listing")!;
-    expect(step.fields?.review).toEqual(expect.arrayContaining(["Description", "Key features"]));
+
+    // READY means the listing itself holds the content, not that recommendations exist (D-125).
     const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
-    expect(after.descriptionHtml ?? "").toBe("");
+    expect(after.descriptionHtml).toContain("LOCAL-MODEL: The Harbor Acoustics HP-900 headphones pair 40 mm drivers");
+    expect(after.bulletFeatures).toEqual(["40 mm drivers", "Bluetooth 5.4 connectivity", "Active noise cancelling"]);
+    expect(after.seoMetaTitle).toBe("Harbor Acoustics HP-900 Headphones");
+    expect(after.seoMetaDescription).toBe(SEO_ANSWER_DEFAULT.metaDescription.recommended);
+    expect(after.seoFocusKeyword).toMatch(/^harbor acoustics hp.900 headphones$/);
+    expect(after.tags).toEqual(["headphones", "noise cancelling"]);
+    expect(after.searchKeywords).toEqual(["hp900 headphones", "harbor acoustics hp 900"]);
+    // The invented "30-hour battery" was withheld and never reached the listing.
+    expect(JSON.stringify(after)).not.toContain("30-hour");
+
+    const step = run.steps.find((entry) => entry.key === "listing")!;
+    expect(step.fields?.applied).toEqual(
+      expect.arrayContaining(["Description", "Key features", "SEO title", "Meta description", "Focus keyword", "Tags", "Search terms"]),
+    );
+    expect(step.fields?.review).toEqual([]);
+    // Nothing is left waiting in the editor for these fields.
     const recommendations = await seoPulseRecommendations(staff, product.id);
-    expect(recommendations?.fields.map((entry) => entry.field)).toEqual(expect.arrayContaining(["descriptionHtml", "bulletFeatures"]));
+    expect(recommendations?.fields.map((entry) => entry.field)).not.toEqual(expect.arrayContaining(["descriptionHtml"]));
+    // Each write is recorded as SeoPulse's, so a later preparation may refresh it.
+    const owners = await contentOwnership(harness.db, product.id, ["descriptionHtml", "bulletFeatures", "seoMetaTitle", "tags"] as const);
+    expect([...owners.values()]).toEqual(["seo_pulse", "seo_pulse", "seo_pulse", "seo_pulse"]);
     // The model was shown established knowledge, not the listing's free text.
     const sent = ollama.requests.filter((request) => request.path === "/api/chat").at(-1)!.body!;
     expect(sent.messages[1].content).toContain("Bluetooth 5.4");
   });
 
-  it("keeps a staff-written description and a locked meta description", async () => {
+  it("keeps a staff-written description and a locked meta description, and fills the rest", async () => {
     setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
     const product = await knownListing({ descriptionHtml: "<p>Our own words about the HP-900.</p>" } as never);
     await updateProduct(staff, product.id, { seoMetaDescription: "Staff meta: Harbor Acoustics HP-900 headphones, checked with the supplier." });
@@ -435,6 +463,111 @@ describe("Prepare with SeoPulse on the local engine", () => {
     const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
     expect(after.descriptionHtml).toBe("<p>Our own words about the HP-900.</p>");
     expect(after.seoMetaDescription).toBe("Staff meta: Harbor Acoustics HP-900 headphones, checked with the supplier.");
+    expect(after.bulletFeatures).toEqual(["40 mm drivers", "Bluetooth 5.4 connectivity", "Active noise cancelling"]);
+    expect(after.seoMetaTitle).toBe("Harbor Acoustics HP-900 Headphones");
+    const step = run.steps.find((entry) => entry.key === "listing")!;
+    expect(step.fields?.kept).toContain("Description");
+    expect(step.fields?.applied).not.toContain("Meta description");
+  });
+
+  it("refreshes its own earlier wording and lists, and leaves wording staff edited since", async () => {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+    const product = await knownListing();
+    const first = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(first.stage).toBe("READY");
+
+    // Staff rewrite the description SeoPulse wrote; the history now says it is theirs.
+    await updateProduct(staff, product.id, { descriptionHtml: "<p>Edited by staff after SeoPulse.</p>" });
+    seoAnswer.description.suggestedHtml = "<p>LOCAL-MODEL again: The Harbor Acoustics HP-900 headphones.</p>";
+    seoAnswer.seoTitle.recommended = "Harbor Acoustics HP-900 Wireless Headphones";
+    seoAnswer.keyFeatures = ["40 mm drivers", "Active noise cancelling"];
+    seoAnswer.tags = ["wireless headphones"];
+    seoAnswer.searchAliases = ["harbor hp900"];
+
+    const second = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(second.stage).toBe("READY");
+    expect(second.seoRunId).not.toBe(first.seoRunId);
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.descriptionHtml).toBe("<p>Edited by staff after SeoPulse.</p>");
+    expect(after.seoMetaTitle).toBe("Harbor Acoustics HP-900 Wireless Headphones");
+    expect(after.bulletFeatures).toEqual(["40 mm drivers", "Active noise cancelling"]);
+    // SeoPulse's own lists are replaced by the current ones (D-123), stale terms gone.
+    expect(after.tags).toEqual(["wireless headphones"]);
+    expect(after.searchKeywords).toContain("harbor hp900");
+    expect(after.searchKeywords).not.toContain("hp900 headphones");
+    const step = second.steps.find((entry) => entry.key === "listing")!;
+    expect(step.fields?.kept).toContain("Description");
+    expect(step.fields?.refreshed).toEqual(expect.arrayContaining(["SEO title", "Key features", "Tags", "Search terms"]));
+  });
+
+  it("writes nothing from a malformed answer, and labels the run as rule-based", async () => {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+    seoRaw = '{"primaryKeyword":{"keyword":"MALFORMED-MODEL-OUTPUT","intent":"product"},"description":{"suggestedHtml":"<p>MALFORMED-MODEL-OUTPUT';
+    const product = await knownListing();
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    const [seo] = await harness.db.select().from(seoResearchRuns).where(eq(seoResearchRuns.id, run.seoRunId!));
+    const analysis = seo.analysis as { generator: { kind: string; localGrounded?: boolean } };
+    expect(analysis.generator).toMatchObject({ kind: "rules", localGrounded: false });
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(JSON.stringify(after)).not.toContain("MALFORMED-MODEL-OUTPUT");
+    expect(JSON.stringify(seo.analysis)).not.toContain("MALFORMED-MODEL-OUTPUT");
+  });
+
+  it("writes no content when too little is established, whatever the model would say", async () => {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+    const product = await listing({ title: "HP-900 Headphones", brand: "Harbor Acoustics", identity: { modelNumber: "HP-900", officialUrl: OFFICIAL } } as never);
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("NEEDS_REVIEW");
+    expect(run.review.map((note) => note.code)).toContain("INSUFFICIENT_KNOWLEDGE");
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.descriptionHtml ?? "").toBe("");
+    expect(after.bulletFeatures ?? []).toEqual([]);
+    expect(after.seoMetaDescription ?? "").toBe("");
+    expect(JSON.stringify(after)).not.toContain("LOCAL-MODEL");
+    // The model was not asked to write anything.
+    expect(ollama.requests.filter((request) => request.path === "/api/chat")).toHaveLength(0);
+  });
+
+  it("stops for labels no attribute names yet, and writes no content", async () => {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+    const product = await listing({ title: "Aurel Hydra Serum 30 ml", brand: "Aurel", identity: { officialUrl: AUREL } } as never);
+    await research(product.pkbProductId!);
+    const open = await harness.db
+      .select()
+      .from(pkbAttributeProposals)
+      .where(and(eq(pkbAttributeProposals.pkbProductId, product.pkbProductId!), eq(pkbAttributeProposals.status, "open")));
+    expect(open.length).toBeGreaterThan(0);
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("NEEDS_REVIEW");
+    expect(run.review.map((note) => note.code)).toContain("LABELS_WAITING");
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.descriptionHtml ?? "").toBe("");
+    expect(after.bulletFeatures ?? []).toEqual([]);
+  });
+
+  it("does not write local wording when the identity is questioned while it is being generated", async () => {
+    /** Ollama, and meanwhile someone's decision reopens which product this is. */
+    class Questioned extends OllamaIntelligenceProvider {
+      async analyzeProduct(...args: Parameters<OllamaIntelligenceProvider["analyzeProduct"]>) {
+        const answer = await super.analyzeProduct(...args);
+        const [row] = await harness.db.select({ pkbProductId: products.pkbProductId }).from(products).where(eq(products.id, args[0].productId));
+        await harness.db.update(pkbProducts).set({ resolutionState: "AMBIGUOUS" }).where(eq(pkbProducts.id, row.pkbProductId!));
+        return answer;
+      }
+    }
+    setIntelligenceProviderForTesting(new Questioned(localOllama(), "qwen2.5:7b"));
+    const product = await knownListing();
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("NEEDS_REVIEW");
+    expect(run.review).toContainEqual(
+      expect.objectContaining({ code: "CONTENT_NOT_APPLIED", message: expect.stringMatching(/has not been settled/) }),
+    );
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.descriptionHtml ?? "").toBe("");
+    expect(after.bulletFeatures ?? []).toEqual([]);
+    // Offered field by field instead.
+    const recommendations = await seoPulseRecommendations(staff, product.id);
+    expect(recommendations?.fields.map((entry) => entry.field)).toEqual(expect.arrayContaining(["descriptionHtml", "bulletFeatures"]));
   });
 
   it("uses the rules generator and does not claim AI copy when Ollama is not running", async () => {
@@ -453,6 +586,47 @@ describe("Prepare with SeoPulse on the local engine", () => {
   });
 });
 
+describe("the other generators, unchanged by D-125", () => {
+  it("leaves a hosted model's prose for review, as before", async () => {
+    const hosted = new AnthropicIntelligenceProvider("test-key-not-used", "claude-sonnet-5");
+    vi.spyOn(hosted, "analyzeProduct").mockImplementation(async (input) => ({
+      generated: sanitizeGenerated(structuredClone(SEO_ANSWER_DEFAULT), input),
+      model: "claude-sonnet-5",
+      inputTokens: 1,
+      outputTokens: 1,
+      estimatedCostUsd: 0,
+    }));
+    setIntelligenceProviderForTesting(hosted);
+    const product = await knownListing();
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("READY");
+    const [seo] = await harness.db.select().from(seoResearchRuns).where(eq(seoResearchRuns.id, run.seoRunId!));
+    expect((seo.analysis as { generator: object }).generator).toMatchObject({ kind: "ai", localGrounded: false });
+    const step = run.steps.find((entry) => entry.key === "listing")!;
+    expect(step.fields?.review).toEqual(expect.arrayContaining(["Description", "Key features", "SEO title", "Meta description"]));
+    expect(step.fields?.applied).toEqual([]);
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.descriptionHtml ?? "").toBe("");
+    expect(after.bulletFeatures ?? []).toEqual([]);
+    expect(after.tags ?? []).toEqual([]);
+  });
+
+  it("writes the rules generator's wording, as before", async () => {
+    setIntelligenceProviderForTesting(new RulesIntelligenceProvider());
+    const product = await knownListing();
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("READY");
+    const [seo] = await harness.db.select().from(seoResearchRuns).where(eq(seoResearchRuns.id, run.seoRunId!));
+    expect((seo.analysis as { generator: object }).generator).toMatchObject({ kind: "rules", localGrounded: false });
+    const step = run.steps.find((entry) => entry.key === "listing")!;
+    expect(step.fields?.review).toEqual([]);
+    expect(step.fields?.applied).toEqual(expect.arrayContaining(["SEO title", "Focus keyword"]));
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.seoMetaTitle ?? "").not.toBe("");
+    expect(ollama.requests.filter((request) => request.path === "/api/chat")).toHaveLength(0);
+  });
+});
+
 describe("with no paid key anywhere", () => {
   it("prepares a product from local discovery to READY", async () => {
     expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
@@ -462,5 +636,9 @@ describe("with no paid key anywhere", () => {
     const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
     expect(run.stage).toBe("READY");
     expect(await harness.db.select().from(pkbEnrichmentRuns).where(and(eq(pkbEnrichmentRuns.pkbProductId, product.pkbProductId!)))).toHaveLength(1);
+    // The listing a READY run leaves behind holds the prepared content itself.
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.descriptionHtml).toContain("LOCAL-MODEL");
+    expect(after.bulletFeatures).toHaveLength(3);
   });
 });

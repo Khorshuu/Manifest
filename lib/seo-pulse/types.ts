@@ -280,6 +280,12 @@ export type SeoAnalysis = GeneratedRecommendations & {
     kind: "ai" | "rules";
     provider: string;
     model: string | null;
+    /**
+     * True when the wording came from the local, grounded generator (D-125).
+     * The run's own record, never inferred from the provider's label. Absent
+     * on runs made before D-125, which count as not grounded.
+     */
+    localGrounded?: boolean;
     /** The label the interface and the export show beside every recommendation. */
     label: string;
   };

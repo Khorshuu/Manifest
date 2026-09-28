@@ -3702,8 +3702,9 @@ description that states a figure none of those facts contains is withheld.
 List entries are dropped; the title, meta description and H1 fall back to the
 rules wording; the description's improvements say what was withheld. Words
 cannot be checked mechanically the way numbers can, so they are left to the
-prompt's rules and to review. As for any AI provider, preparation offers AI
-prose for review instead of writing it (D-122). Staff-owned and locked fields
+prompt's rules and to review. Preparation writes this local wording into
+fields that are empty or SeoPulse's own once nothing about the product waits for
+a person (D-125, which replaces the review-first rule D-124 first inherited). Staff-owned and locked fields
 are never touched.
 
 **Free discovery** (`lib/providers/research/local.ts`) has two strategies.
@@ -3808,3 +3809,56 @@ verified; see PROGRESS.md. Phase B, live acceptance against a real Ollama and
 SearXNG on the owner's PC, is **UNVERIFIED — local services not installed**.
 Neither Ollama nor SearXNG is installed on this machine. Playwright's Chromium
 is, and the renderer was run for real against a local fixture.
+
+## D-125 — Local grounded SeoPulse content is written by preparation, not left for review
+
+**The problem.** D-124 inherited D-122's rule that wording from any AI generator
+(`generator.kind === "ai"`) is offered for review and never written by
+preparation. With `SEO_PULSE_AI_PROVIDER=ollama` that made the owner's one-click
+workflow stop short: a run reached READY while the description, key features
+and SEO wording stayed empty, waiting for routine approval. The rule was meant
+for a hosted model shown the whole product record; the local provider is held
+to far tighter inputs.
+
+**The rule.** `applyPreparedContent` writes a run's wording when **all** of
+these hold:
+
+1. the run's analysis records `generator.kind === "ai"` **and**
+   `generator.localGrounded === true`. The flag is set in `executeResearch` from
+   the provider (`SeoIntelligenceProvider.localGrounded`, true only on
+   `OllamaIntelligenceProvider`) and cleared when the provider failed and the
+   rules generator was used. It is the run's own record, never inferred from a
+   label. Runs made before D-125 lack it and stay review-first;
+2. the answer passed `sanitizeGenerated` and `withholdUnsupportedFigures`
+   (both inside the provider; a malformed answer throws, so the run is labelled
+   rules, not AI);
+3. `knowledgeSufficiency` is sufficient (unchanged);
+4. `undecidedKnowledge` finds nothing waiting for a person at the moment of
+   writing: the identity is VERIFIED or HIGH_CONFIDENCE, no claim is CONFLICT
+   or SUGGESTED, and no attribute proposal is open. Preparation's own
+   verification step already stops for these; asking again here covers a
+   decision that arrives while content is generated;
+5. per field, the owner (`contentOwnership`, from the change history) is
+   **empty** (filled) or **seo_pulse** (refreshed). **staff** is kept exactly
+   and reported; **locked** is left alone. Owners are re-read under the
+   listing lock before writing, as before.
+
+Fields: description, key features, SEO title, meta description, focus keyword,
+and the tags and search-terms lists (replaced when SeoPulse's own, D-123). H1
+and slug are not written by preparation for any generator; that is unchanged.
+
+When condition 4 fails, nothing is written, the fields are listed for review,
+and the listing step stops the run as NEEDS_REVIEW (`CONTENT_NOT_APPLIED`)
+naming what is undecided, so READY is never reached with the listing empty.
+
+**Unchanged.** Hosted AI (Anthropic): review-first, lists untouched. Rules:
+written as before. Manual Fill (`fillWithSeoPulse`) keeps review-first for any
+AI; this decision is about preparation only. Facts still enter only through
+retrieval, extraction, `groundCandidates()`, evidence, claims and
+verification; the local model is still shown only `groundedPromptInput`, which
+excludes unaccepted candidates.
+
+**Setup text.** The SeoPulse content AI item for Ollama now says preparation
+fills empty or SeoPulse-owned fields. `.env.example` states: rules = local, no
+AI, no charge; ollama = local AI, no API charge; anthropic = optional paid
+hosted AI.

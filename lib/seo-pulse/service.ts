@@ -3,6 +3,9 @@ import { and, count, desc, eq, gt, isNotNull, isNull, like, or, sql } from "driz
 import { db } from "@/db";
 import {
   categories,
+  pkbAttributeProposals,
+  pkbClaims,
+  pkbProducts,
   productImages,
   products,
   productVariants,
@@ -19,6 +22,7 @@ import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import { enqueueJob } from "@/lib/jobs/runner";
 import type { Executor } from "@/lib/pkb/common";
+import { canEnrich } from "@/lib/pkb/resolution";
 import { groundedKnowledge } from "@/lib/pkb/publish";
 import { beginListingChange } from "@/lib/pkb/sync";
 import type { SessionUser } from "@/lib/auth/session";
@@ -441,6 +445,7 @@ export async function executeResearch(input: SeoPulseInput) {
   let result: IntelligenceResult;
   let kind: "ai" | "rules" = intelligence.kind;
   let providerLabel = intelligence.label;
+  let localGrounded = intelligence.kind === "ai" && intelligence.localGrounded === true;
   try {
     result = await intelligence.analyzeProduct(input, research);
     usage.push(
@@ -472,6 +477,7 @@ export async function executeResearch(input: SeoPulseInput) {
     result = await fallback.analyzeProduct(input, research);
     kind = "rules";
     providerLabel = fallback.label;
+    localGrounded = false;
   }
 
   const generated = result.generated;
@@ -495,7 +501,7 @@ export async function executeResearch(input: SeoPulseInput) {
 
   const analysis: SeoAnalysis = {
     ...generated,
-    generator: { kind, provider: providerLabel, model: result.model, label },
+    generator: { kind, provider: providerLabel, model: result.model, label, localGrounded },
     keywordGroups: keywordGroups(generated),
     slugConflict,
     imageFilenames: imageFilenames(input, generated.slug.recommended),
@@ -1674,11 +1680,50 @@ export type PreparedContentResult = {
    * from a generator whose prose is read before it is used (finding F2).
    */
   review: string[];
+  /**
+   * Why local grounded wording that would otherwise have been written was
+   * left for review instead (D-125): a decision about the product's identity,
+   * its facts or its family's attributes that a person has not made yet.
+   */
+  undecided: string[];
   /** True when newer research exists; nothing was written from this run. */
   superseded: boolean;
   /** True when too little is established to write customer content. */
   needsKnowledge: boolean;
 };
+
+/**
+ * What a person still has to decide about a product before generated wording
+ * may be written unseen (D-125): the same questions preparation stops for
+ * (identity, conflicting and unaccepted claims, unmapped labels), asked again
+ * at the moment of writing, because the knowledge can change between steps.
+ * Empty when nothing is waiting.
+ */
+async function undecidedKnowledge(pkbProductId: string | null): Promise<string[]> {
+  if (!pkbProductId) return ["The product has no knowledge record yet."];
+  const [identity] = await db
+    .select({ state: pkbProducts.resolutionState })
+    .from(pkbProducts)
+    .where(eq(pkbProducts.id, pkbProductId));
+  const [claims] = await db
+    .select({
+      conflicts: sql<number>`count(*) filter (where ${pkbClaims.status} = 'CONFLICT')::int`,
+      waiting: sql<number>`count(*) filter (where ${pkbClaims.status} = 'SUGGESTED')::int`,
+    })
+    .from(pkbClaims)
+    .where(eq(pkbClaims.pkbProductId, pkbProductId));
+  const [labels] = await db
+    .select({ open: sql<number>`count(*)::int` })
+    .from(pkbAttributeProposals)
+    .where(and(eq(pkbAttributeProposals.pkbProductId, pkbProductId), eq(pkbAttributeProposals.status, "open")));
+
+  const undecided: string[] = [];
+  if (!identity?.state || !canEnrich(identity.state)) undecided.push("Which product this is has not been settled.");
+  if (Number(claims?.conflicts ?? 0) > 0) undecided.push("Sources disagree about some of the product's values.");
+  if (Number(claims?.waiting ?? 0) > 0) undecided.push("Some researched values are waiting to be accepted or rejected.");
+  if (Number(labels?.open ?? 0) > 0) undecided.push("Some labels found in the sources are not mapped to an attribute yet.");
+  return undecided;
+}
 
 /**
  * Writes a preparation run's wording into the listing where that is safe
@@ -1699,10 +1744,22 @@ export type PreparedContentResult = {
  * Tags and search terms are lists: they are added to only when they are empty
  * or SeoPulse's own, and an addition never drops an entry.
  *
- * Customer content is written only from sufficient knowledge (D-115), and
- * prose from an AI generator is left as a recommendation for a person to read
- * rather than written into the listing unseen (finding F2), exactly as Fill
- * treats it. The values come from the stored run, never from a caller.
+ * Customer content is written only from sufficient knowledge (D-115). Which
+ * generator wrote the wording decides the rest (D-125):
+ *
+ *  - **rules** — written: every value is derived from recorded facts.
+ *  - **local grounded AI** (`generator.localGrounded`, Ollama) — written as
+ *    well, because the model was shown established knowledge only, its answer
+ *    passed `sanitizeGenerated`, and figures the facts do not contain were
+ *    withheld before the run was stored. Only while nothing about the product
+ *    waits for a person: a settled identity, no conflicting or unaccepted
+ *    claim, no unmapped label. Otherwise it is left for review, and
+ *    `undecided` says why.
+ *  - **any other AI** (a hosted model, or a run from before D-125) — left as a
+ *    recommendation for a person to read rather than written into the listing
+ *    unseen (finding F2), exactly as Fill treats it.
+ *
+ * The values come from the stored run, never from a caller.
  */
 export async function applyPreparedContent(
   actor: SessionUser | null,
@@ -1715,6 +1772,7 @@ export async function applyPreparedContent(
     refreshed: [],
     kept: [],
     review: [],
+    undecided: [],
     superseded: false,
     needsKnowledge: false,
   };
@@ -1745,7 +1803,11 @@ export async function applyPreparedContent(
   const overwrite: ApplyField[] = [];
   /** The owner each written field had when it was chosen, re-checked under the lock. */
   const expected = new Map<RecommendedField | (typeof listFields)[number], ContentOwner>();
-  const reviewFirst = analysis.generator.kind === "ai";
+  if (analysis.generator.kind === "ai" && analysis.generator.localGrounded === true) {
+    result.undecided = await undecidedKnowledge(product.pkbProductId);
+  }
+  const reviewFirst =
+    analysis.generator.kind === "ai" && (analysis.generator.localGrounded !== true || result.undecided.length > 0);
 
   for (const field of RECOMMENDED_FIELDS) {
     const next = proposed[field];

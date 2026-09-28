@@ -170,6 +170,8 @@ export function withholdUnsupportedFigures(
 export class OllamaIntelligenceProvider implements SeoIntelligenceProvider {
   readonly id = "ollama";
   readonly kind = "ai" as const;
+  /** On this computer, shown established knowledge only, figures checked (D-125). */
+  readonly localGrounded = true;
   readonly label: string;
 
   constructor(
