@@ -4297,3 +4297,102 @@ labelled as rules. SHOULD FIX.
   10 s). Re-run alone it passed 4 of 4 (2 repeats, both viewports).
 - Playwright ran with the providers set as in the D-125 baseline (`rules`,
   `none`) so it does not depend on live web search or a 6-minute model.
+
+## Local AI runtime, queue, concurrency and final-write hardening (D-127)
+
+Runtime only. Data quality and content wording (D-128) are not started.
+
+`[x]` **Local generation runs in the background.** `requiresBackgroundExecution()`
+replaces `usesExternalProviders()` as the switch. The Ollama provider declares
+`usesLocalAi`, so a SeoPulse click queues `seo.research_product` and returns.
+The rules generator stays inline. Hosted providers are queued, as before.
+
+`[x]` **Slow is told from dead by the job.** A running SeoPulse run is
+`queued`, `generating`, `stalled`, `inline` or `abandoned` (`seoRunPhase`).
+The 3-minute age cut-off is gone. An abandoned run is closed as failed and no
+longer blocks a new one.
+
+`[x]` **Per-kind job recovery.** `JobPolicy` per kind (`lib/jobs/policies.ts`).
+With a local model, `seo.research_product` and `pkb.enrich_product` are stale
+only after `localAiRuntime().jobMs` without progress (50 min at
+`OLLAMA_TIMEOUT_MS=600000`), with a heartbeat every minute up to a maximum
+runtime. Every other kind, and every kind without a local model, keeps 15
+minutes.
+
+`[x]` **One local generation at a time.** The local-AI slot
+(`LOCAL_AI_CONCURRENCY`, default 1): an in-process set plus a session advisory
+lock on a reserved connection, released in `finally`. `chatJson` holds it for
+both attempts. Local-AI jobs are never claimed in ordinary batches; the
+scheduler route runs one per call after its response (`runLocalAiJob` in
+`after()`), and only when a slot is free.
+
+`[x]` **Preparation waits for the same run.** `seoRunId` is stored at once and
+every wake-up reads that run. No second generation per attempt. Live waits
+are not cut off by `MAX_TICKS`; a dead job stops the run with
+`CONTENT_FAILED`. Preparation joins a panel run already generating from the
+same input.
+
+`[x]` **Failure codes.** `OLLAMA_UNAVAILABLE`, `OLLAMA_MODEL_NOT_FOUND`,
+`OLLAMA_GENERATION_TIMEOUT`, `OLLAMA_QUEUE_WAIT_TIMEOUT`,
+`OLLAMA_MALFORMED_RESPONSE`, `OLLAMA_INCOMPLETE_STREAM`,
+`OLLAMA_PROVIDER_ERROR`. Kept on the usage row (`errorCode`), on
+`generator.fallbackFrom` for a rules fallback, and on extraction results.
+
+`[x]` **Final write boundary.** `applyPreparedContent`'s guard, inside the
+apply transaction after the listing lock, re-reads owners and, for local
+grounded wording, the knowledge record and `undecidedKnowledge` under
+`lockProductKnowledge`. Claim, label and identity writers take the same lock.
+A failed check writes nothing and keeps the run. A field someone saved at
+that moment makes preparation decide again instead of stopping.
+
+`[x]` **No migration.**
+
+`[x]` **Verification.**
+- Typecheck clean. Lint clean.
+- Vitest (`--maxWorkers=4`, real PostgreSQL): 129 files, 1,831 passed,
+  8 skipped. That is 1,794 before, plus 37 new D-127 tests.
+- First full run: 23 failures. 21 were a real bug in this change:
+  `runSeoPulse` read every job policy, and the extraction policy needs the
+  full environment, which unit tests without one do not have. Fixed by
+  giving SeoPulse its own `seoResearchPolicy()`. The other two:
+  `seo-apply-concurrency` failed from the same cause, and
+  `search-analytics.test.ts` "keeps no more than the limit" (`search 22`
+  vs `search 23`, unrelated) passed 3 of 3 when re-run alone. The second
+  full run passed with no failures.
+- Production build passed.
+- Playwright (production build on port 3200, 2 workers, providers `rules` /
+  `none` as in the D-125 baseline): product preparation, SeoPulse
+  regeneration, intelligence, product edit, admin boundary and cron. 81
+  passed, 1 skipped, 0 failed.
+
+`[x]` **Live check (one product, real `qwen2.5:7b`, Soundcore Liberty 4 NC,
+`preorder_utf8`, running dev server with its scheduler).**
+- Preparation: identity, sources and research ran, then the run stopped at
+  `CLAIMS_WAITING` (5 values waiting). No generation was asked for and no
+  field changed. The gate held; values were not accepted to get further.
+- SeoPulse on the same product, started as the panel starts it: the call
+  returned in 172 ms with the run `running` and its job `queued`. A second
+  click was refused ("already researching"). The scheduler's local-AI lane
+  claimed the job at 10 s. The heartbeat moved `locked_at` every 60 s
+  (70, 130, 191, 251 s), so the run stayed live past the old 3-minute limit.
+  It completed at 281 s: `kind: ai`, `localGrounded: true`, one attempt,
+  1,474 output tokens, job `succeeded`.
+- Not shown live: preparation waiting on a queued or running generation and
+  resuming from it, and the final-boundary refusal. Both are covered by the
+  automated tests above.
+- The generated description still says "clear and immersive sound". Wording
+  like this is D-128's work, not this change.
+
+`[!]` **Limitations.**
+- The slot's cross-process lock is session-scoped, so it needs a direct
+  database connection. Local AI uses the local database; behind a transaction
+  pooler it would not serialise across processes.
+- A process that hangs while its connection stays open keeps its slot until
+  its own Ollama timeout ends the call.
+- A queued local job waits for the next scheduler call after the slot frees
+  (15 s locally), not immediately.
+- `pkb.enrich_product` with Ollama extraction still runs in ordinary batches.
+  Its model calls wait for the slot, which can hold up jobs claimed in the
+  same batch.
+- Preparation ticks keep counting during live waits. A later ordinary wait
+  after a very long generation can still meet `MAX_TICKS`.

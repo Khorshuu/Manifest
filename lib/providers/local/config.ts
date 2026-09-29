@@ -36,6 +36,19 @@ const schema = z.object({
   OLLAMA_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(900_000).default(240_000),
   /** Context window asked of the model. Ollama's own default is too small for a product page. */
   OLLAMA_NUM_CTX: z.coerce.number().int().min(2_048).max(262_144).default(16_384),
+  /**
+   * How many heavy local-model calls may run at once on this machine (D-127).
+   * One by default: two 7B generations at once on ordinary hardware compete
+   * for the same graphics memory and both slow down or fail. Stronger
+   * hardware may raise it; it is bounded so a typo cannot start a stampede.
+   */
+  LOCAL_AI_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
+  /**
+   * How long a local-model call waits for a free slot before giving up with
+   * OLLAMA_QUEUE_WAIT_TIMEOUT. Unset: long enough for one other call to
+   * finish both of its attempts (`localAiRuntime`).
+   */
+  LOCAL_AI_QUEUE_WAIT_MS: z.coerce.number().int().min(1_000).max(7_200_000).optional(),
   SEARXNG_BASE_URL: z.string().min(1).optional(),
   SEARXNG_ALLOW_REMOTE: flag,
   /** `none` (default): static fetch only. `playwright`: render a JavaScript-only page when the static copy is an empty shell. */
@@ -55,6 +68,31 @@ export function getLocalServicesConfig(): LocalServicesConfig {
     throw new Error(`Invalid local services configuration: ${issues}`);
   }
   return parsed.data;
+}
+
+/** Attempts `chatJson` makes at most: the answer, and one request to correct it. */
+export const LOCAL_AI_ATTEMPTS = 2;
+/** Room for reading the answer, validating it and writing the run, beyond the model's own time. */
+const LOCAL_AI_MARGIN_MS = 5 * 60_000;
+
+/**
+ * How long local-model work may legitimately take (D-127), derived from the
+ * configured timeout rather than from any one machine:
+ *
+ *  - `callMs` — one `chatJson` call at its worst: every attempt running to
+ *    OLLAMA_TIMEOUT_MS, plus a margin.
+ *  - `queueWaitMs` — how long a call waits for a free slot: by default one
+ *    other call's worst case, so the second of two queued calls still runs.
+ *  - `jobMs` — a background job that makes one such call, including the wait.
+ *
+ * Stale-run and stale-job detection use these, so a real ten-minute
+ * generation is never mistaken for an abandoned one, and a genuinely dead one
+ * still becomes recoverable once this much time has passed without progress.
+ */
+export function localAiRuntime(config: LocalServicesConfig = getLocalServicesConfig()) {
+  const callMs = config.OLLAMA_TIMEOUT_MS * LOCAL_AI_ATTEMPTS + LOCAL_AI_MARGIN_MS;
+  const queueWaitMs = config.LOCAL_AI_QUEUE_WAIT_MS ?? callMs;
+  return { callMs, queueWaitMs, jobMs: callMs + queueWaitMs, concurrency: config.LOCAL_AI_CONCURRENCY };
 }
 
 export function ollamaModelFor(config: LocalServicesConfig, use: "extraction" | "seo"): string | null {

@@ -70,6 +70,20 @@ export async function lockListingKnowledge(executor: Executor, productId: string
   await executor.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`pkb:listing:${productId}`}, 0))`);
 }
 
+/**
+ * Serializes changes that could put a product's knowledge back in front of a
+ * person (D-127): a new claim, a new conflict, a new unmapped label, an
+ * identity re-assessed. Automatic content takes it before its final check, so
+ * the check and the write it allows see the same knowledge.
+ *
+ * Lock order: after any listing lock the transaction takes, never before —
+ * a staff save holds the listing lock and may re-assess the identity, and
+ * the prepared-content apply holds the listing lock when it checks.
+ */
+export async function lockProductKnowledge(executor: Executor, pkbProductId: string): Promise<void> {
+  await executor.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`pkb:knowledge:${pkbProductId}`}, 0))`);
+}
+
 /** Serializes the legacy family mirror (category specifications → families). */
 export async function lockFamilyMirror(executor: Executor): Promise<void> {
   await executor.execute(sql`select pg_advisory_xact_lock(hashtextextended('pkb:families', 0))`);

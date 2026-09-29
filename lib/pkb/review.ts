@@ -12,7 +12,7 @@ import {
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
-import { PkbError, PkbLockedError, staffChange, type Executor } from "./common";
+import { lockProductKnowledge, PkbError, PkbLockedError, staffChange, type Executor } from "./common";
 import { beginProductChange, finishProductChange, writeDecidedFact } from "./facts";
 import { normalizeIdentifier, type IdentifierInputType } from "./identifiers";
 import { refreshResolution } from "./resolution";
@@ -107,6 +107,8 @@ export type NewClaim = {
  * fact or an identifier. Internal: callers check permission.
  */
 export async function createClaim(tx: Executor, input: NewClaim): Promise<ClaimRow> {
+  // A new claim is something a person must decide (D-127).
+  await lockProductKnowledge(tx, input.pkbProductId);
   let columns: Partial<typeof pkbClaims.$inferInsert>;
   let slot: Pick<ClaimRow, "pkbProductId" | "pkbVariantId" | "targetKind" | "definitionId" | "identifierType" | "ordinal">;
   let disagreesWithAccepted = false;

@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { toErrorResponse } from "@/lib/api-error";
 import { isAuthorisedScheduler } from "@/lib/cron-auth";
-import { JOB_HANDLERS, RECURRING_JOBS } from "@/lib/jobs/registry";
-import { runDueJobs, scheduleRecurringJobs } from "@/lib/jobs/runner";
+import { JOB_HANDLERS, jobPolicies, RECURRING_JOBS } from "@/lib/jobs/registry";
+import { runDueJobs, runLocalAiJob, scheduleRecurringJobs } from "@/lib/jobs/runner";
 import { JOB_TRIGGER, recordSchedulerRun, resolveRecurringJobs } from "@/lib/jobs/schedule";
 import { logEvent } from "@/lib/observability/log";
 
@@ -16,6 +16,11 @@ import { logEvent } from "@/lib/observability/log";
  * Intervals come from the registry, overridden per environment by
  * JOB_SCHEDULE (lib/jobs/schedule.ts, D-059). Each run records a heartbeat so
  * a scheduler that stops calling is visible rather than silent.
+ *
+ * A local-AI job (D-127) takes minutes, so it is not run inside this request:
+ * after the response, one due local-AI job runs holding the local-AI slot. A
+ * scheduler tick that arrives meanwhile finds the slot taken and leaves the
+ * next one queued. Only a local set-up has such jobs; a hosted one has none.
  */
 
 export const maxDuration = 60;
@@ -31,7 +36,16 @@ async function run() {
       await logEvent("error", "jobs.schedule_invalid", { problems: schedule.problems });
     }
     const scheduled = await scheduleRecurringJobs(schedule.jobs);
-    const report = await runDueJobs(JOB_HANDLERS, { budgetMs: 45_000 });
+    const policies = jobPolicies();
+    const report = await runDueJobs(JOB_HANDLERS, { budgetMs: 45_000, policies, localAiLane: false });
+    after(async () => {
+      try {
+        const lane = await runLocalAiJob(JOB_HANDLERS, { policies });
+        if (lane.ran.length > 0) await logEvent("info", "jobs.local_ai", { ran: lane.ran });
+      } catch (error) {
+        await logEvent("error", "jobs.local_ai_failed", { error });
+      }
+    });
     const summary = {
       scheduled,
       recovered: report.recovered,

@@ -16,13 +16,17 @@ export type ChatRequest = {
   options?: Record<string, unknown>;
 };
 
-export type ChatReply = { status?: number; content?: string; doneReason?: string; raw?: string };
+/** `delayMs` holds the answer back, like a model thinking (D-127: timeouts and the local-AI slot). */
+export type ChatReply = { status?: number; content?: string; doneReason?: string; raw?: string; delayMs?: number };
 
 export type FakeOllama = {
   url: string;
   requests: { path: string; headers: http.IncomingHttpHeaders; body: ChatRequest | null }[];
   models: string[];
   chat: (request: ChatRequest, index: number) => ChatReply;
+  /** Chat requests being answered now, and the most there have been at once. */
+  active: number;
+  maxActive: number;
   close(): Promise<void>;
 };
 
@@ -32,6 +36,8 @@ export async function startFakeOllama(options: { models?: string[]; chat?: FakeO
     requests: [],
     models: options.models ?? ["qwen2.5:7b"],
     chat: options.chat ?? (() => ({ content: '{"candidates":[]}' })),
+    active: 0,
+    maxActive: 0,
     close: async () => undefined,
   };
   let chats = 0;
@@ -51,27 +57,40 @@ export async function startFakeOllama(options: { models?: string[]; chat?: FakeO
           return json(404, { error: `model '${body.model}' not found, try pulling it first` });
         }
         const reply = fake.chat(body, chats++);
-        if (reply.raw !== undefined) return json(reply.status ?? 200, reply.raw);
-        const final = { model: body.model, done: true, done_reason: reply.doneReason ?? "stop", prompt_eval_count: 1200, eval_count: 300 };
-        if (!body.stream) {
-          return json(reply.status ?? 200, { ...final, message: { role: "assistant", content: reply.content ?? "" } });
-        }
-        // Streamed as Ollama streams: the text in pieces, one JSON object per line, counts on the last.
-        const content = reply.content ?? "";
-        const half = Math.ceil(content.length / 2);
-        const lines = [content.slice(0, half), content.slice(half)]
-          .filter((piece) => piece !== "")
-          .map((piece) => JSON.stringify({ model: body.model, message: { role: "assistant", content: piece }, done: false }));
-        lines.push(JSON.stringify({ ...final, message: { role: "assistant", content: "" } }));
-        response.writeHead(reply.status ?? 200, { "content-type": "application/x-ndjson" });
-        return response.end(`${lines.join("\n")}\n`);
+        const answer = () => {
+          fake.active -= 1;
+          if (response.destroyed) return;
+          if (reply.raw !== undefined) return json(reply.status ?? 200, reply.raw);
+          const final = { model: body.model, done: true, done_reason: reply.doneReason ?? "stop", prompt_eval_count: 1200, eval_count: 300 };
+          if (!body.stream) {
+            return json(reply.status ?? 200, { ...final, message: { role: "assistant", content: reply.content ?? "" } });
+          }
+          // Streamed as Ollama streams: the text in pieces, one JSON object per line, counts on the last.
+          const content = reply.content ?? "";
+          const half = Math.ceil(content.length / 2);
+          const lines = [content.slice(0, half), content.slice(half)]
+            .filter((piece) => piece !== "")
+            .map((piece) => JSON.stringify({ model: body.model, message: { role: "assistant", content: piece }, done: false }));
+          lines.push(JSON.stringify({ ...final, message: { role: "assistant", content: "" } }));
+          response.writeHead(reply.status ?? 200, { "content-type": "application/x-ndjson" });
+          response.end(`${lines.join("\n")}\n`);
+        };
+        fake.active += 1;
+        fake.maxActive = Math.max(fake.maxActive, fake.active);
+        if (reply.delayMs) setTimeout(answer, reply.delayMs);
+        else answer();
+        return;
       }
       json(404, { error: "not found" });
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   fake.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  fake.close = () => new Promise<void>((resolve) => server.close(() => resolve()));
+  fake.close = () =>
+    new Promise<void>((resolve) => {
+      server.closeAllConnections?.();
+      server.close(() => resolve());
+    });
   return fake;
 }
 

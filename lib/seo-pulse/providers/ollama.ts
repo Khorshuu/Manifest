@@ -1,5 +1,5 @@
 import { getLocalServicesConfig, ollamaModelFor } from "@/lib/providers/local/config";
-import { chatJson, OllamaClient } from "@/lib/providers/local/ollama";
+import { chatJson, LocalAiError, OllamaClient } from "@/lib/providers/local/ollama";
 import { generateByRules, relevantSiteSynonyms } from "../rules";
 import { measurementRows, specificationRows } from "../facts";
 import { sanitizeDescriptionHtml, sanitizeGenerated } from "../sanitize";
@@ -212,6 +212,12 @@ export class OllamaIntelligenceProvider implements SeoIntelligenceProvider {
   readonly kind = "ai" as const;
   /** On this computer, shown established knowledge only, figures checked (D-125). */
   readonly localGrounded = true;
+  /**
+   * A local model takes minutes, not seconds, so a run never happens inside
+   * the request that asked for it (D-127): it is queued and a worker runs it,
+   * holding the local-AI slot.
+   */
+  readonly usesLocalAi = true;
   readonly label: string;
 
   constructor(
@@ -257,7 +263,7 @@ export class OllamaIntelligenceProvider implements SeoIntelligenceProvider {
         }
       },
     );
-    if (!answer.ok) throw new Error(answer.message);
+    if (!answer.ok) throw new LocalAiError(answer.kind, answer.message);
     let rules: GeneratedRecommendations | null = null;
     const { generated } = withholdUnsupportedFigures(
       withoutSiteName(answer.value),

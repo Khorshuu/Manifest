@@ -64,7 +64,9 @@ Other Ollama settings, all optional:
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `OLLAMA_TIMEOUT_MS` | `240000` | How long one answer may take. On a GPU with 4 GB or less, set `600000`: a SeoPulse answer can take 5–7 minutes. A background job counts as stalled after 15 minutes. A malformed answer is asked for a second time, so a run with two long attempts can pass that limit. |
+| `OLLAMA_TIMEOUT_MS` | `240000` | How long one answer may take. On a GPU with 4 GB or less, set `600000`: a SeoPulse answer can take 5–7 minutes. A malformed answer is asked for a second time. The background job's stall window follows this setting (both attempts, the queue wait and 5 minutes), so a slow answer is not started a second time. |
+| `LOCAL_AI_CONCURRENCY` | `1` | How many local-model calls run at once (1–4). Keep 1 on a single ordinary GPU: two at once slow each other down and one may fail. Other calls wait their turn. |
+| `LOCAL_AI_QUEUE_WAIT_MS` | one call's worst case | How long a call waits for its turn before it gives up with `OLLAMA_QUEUE_WAIT_TIMEOUT`. |
 | `OLLAMA_NUM_CTX` | `16384` | The model's context window. Larger reads more of a long page and needs more memory. |
 | `OLLAMA_ALLOW_REMOTE` | off | Allow an Ollama on another computer. Leave it off unless you mean it: product pages are then sent to that computer. |
 

@@ -16,6 +16,7 @@ import type { AddressInfo } from "node:net";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  jobs,
   pkbAttributeProposals,
   pkbClaims,
   pkbEnrichmentRuns,
@@ -40,9 +41,15 @@ import { LocalResearchProvider, setProductResearchProviderForTesting } from "@/l
 import { clearLocalSearchCache } from "@/lib/providers/research/local";
 import { clearSitemapCache, type Fetcher } from "@/lib/providers/research/sitemap";
 import { processSearchQueue } from "@/lib/search/maintenance";
+import { JOB_HANDLERS, jobPolicies } from "@/lib/jobs/registry";
+import { runLocalAiJob } from "@/lib/jobs/runner";
 import { contentOwnership, setFieldLock } from "@/lib/seo/fields";
 import { OllamaIntelligenceProvider } from "@/lib/seo-pulse/providers/ollama";
-import { seoPulseRecommendations } from "@/lib/seo-pulse/service";
+import { seoPulseRecommendations, setBeforeFinalContentCheckForTesting } from "@/lib/seo-pulse/service";
+import { recordEvidence, recordSource } from "@/lib/pkb/evidence";
+import { proposeAttribute } from "@/lib/pkb/discovery";
+import { createClaim } from "@/lib/pkb/review";
+import { loadDefinitions } from "@/lib/pkb/vocabulary";
 import { AnthropicIntelligenceProvider, RulesIntelligenceProvider, setIntelligenceProviderForTesting } from "@/lib/seo-pulse/providers/intelligence";
 import { sanitizeGenerated } from "@/lib/seo-pulse/sanitize";
 import { closedPort, startFakeOllama, type FakeOllama } from "./helpers/fake-ollama";
@@ -241,6 +248,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  setBeforeFinalContentCheckForTesting(undefined);
   setPageRendererForTesting(undefined);
   setProductExtractionProviderForTesting(undefined);
   setProductResearchProviderForTesting(undefined);
@@ -405,6 +413,8 @@ async function drive(runId: string) {
     if (!run || run.finishedAt || run.stage === "NEEDS_REVIEW") break;
     await harness.db.update(pkbEnrichmentRuns).set({ status: "completed", finishedAt: new Date() }).where(eq(pkbEnrichmentRuns.status, "queued"));
     await processSearchQueue();
+    // A local model's SeoPulse run is a background job (D-127): the local-AI lane runs it.
+    await runLocalAiJob(JOB_HANDLERS, { policies: jobPolicies() });
     await advancePreparation(runId);
   }
   const [run] = await harness.db.select().from(productPreparationRuns).where(eq(productPreparationRuns.id, runId));
@@ -640,5 +650,207 @@ describe("with no paid key anywhere", () => {
     const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
     expect(after.descriptionHtml).toContain("LOCAL-MODEL");
     expect(after.bulletFeatures).toHaveLength(3);
+  });
+});
+
+// ------------------------------------ D-127: waiting for a background generation
+
+describe("preparation while the local model works in the background (D-127)", () => {
+  /** Advances without running the local-AI lane, until content generation has been asked for. */
+  async function untilContentQueued(runId: string) {
+    for (let round = 0; round < 20; round += 1) {
+      const [run] = await harness.db.select().from(productPreparationRuns).where(eq(productPreparationRuns.id, runId));
+      if (run.finishedAt || run.stage === "NEEDS_REVIEW" || run.seoRunId) return run;
+      await harness.db.update(pkbEnrichmentRuns).set({ status: "completed", finishedAt: new Date() }).where(eq(pkbEnrichmentRuns.status, "queued"));
+      await processSearchQueue();
+      await advancePreparation(runId);
+    }
+    throw new Error("preparation never asked for content");
+  }
+  const chats = () => ollama.requests.filter((request) => request.path === "/api/chat").length;
+  const seoJobs = () => harness.db.select().from(jobs).where(eq(jobs.kind, "seo.research_product"));
+
+  it("asks for one generation, waits while it is queued and while it runs, and resumes from that same run", async () => {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+    const product = await knownListing();
+    const started = await startPreparation(staff, product.id, { requestKey: requestKey() });
+    const asked = await untilContentQueued(started.id);
+    expect(asked.stage).toBe("PREPARING_CONTENT");
+    const seoRunId = asked.seoRunId!;
+    expect(chats()).toBe(0);
+
+    // Queued: every wake-up looks at the same run and starts nothing new.
+    for (let tick = 0; tick < 3; tick += 1) await advancePreparation(started.id);
+    let [run] = await harness.db.select().from(productPreparationRuns).where(eq(productPreparationRuns.id, started.id));
+    expect(run).toMatchObject({ stage: "PREPARING_CONTENT", seoRunId });
+    expect(await harness.db.select().from(seoResearchRuns).where(eq(seoResearchRuns.productId, product.id))).toHaveLength(1);
+    expect(await seoJobs()).toEqual([expect.objectContaining({ status: "queued" })]);
+
+    // Generating on another worker: still waiting, still one run, still no second request to the model.
+    await harness.db.update(jobs).set({ status: "running", lockedAt: new Date(), lockedBy: "another-worker" }).where(eq(jobs.kind, "seo.research_product"));
+    await advancePreparation(started.id);
+    [run] = await harness.db.select().from(productPreparationRuns).where(eq(productPreparationRuns.id, started.id));
+    expect(run).toMatchObject({ stage: "PREPARING_CONTENT", seoRunId });
+    expect(await harness.db.select().from(seoResearchRuns).where(eq(seoResearchRuns.productId, product.id))).toHaveLength(1);
+    expect(chats()).toBe(0);
+
+    // That worker vanished; recovery puts the job back and the lane finishes it.
+    await harness.db.update(jobs).set({ status: "queued", lockedAt: null, lockedBy: null }).where(eq(jobs.kind, "seo.research_product"));
+    await runLocalAiJob(JOB_HANDLERS, { policies: jobPolicies() });
+    expect(chats()).toBe(1);
+
+    const finished = await drive(started.id);
+    expect(finished).toMatchObject({ stage: "READY", seoRunId });
+    expect(await harness.db.select().from(seoResearchRuns).where(eq(seoResearchRuns.productId, product.id))).toHaveLength(1);
+    expect(chats()).toBe(1);
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.descriptionHtml).toContain("LOCAL-MODEL");
+  });
+
+  it("keeps waiting on a live generation past the ordinary wake-up limit", async () => {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+    const product = await knownListing();
+    const started = await startPreparation(staff, product.id, { requestKey: requestKey() });
+    await untilContentQueued(started.id);
+    await harness.db.update(jobs).set({ status: "running", lockedAt: new Date(), lockedBy: "another-worker" }).where(eq(jobs.kind, "seo.research_product"));
+    await harness.db.update(productPreparationRuns).set({ ticks: 200 }).where(eq(productPreparationRuns.id, started.id));
+    await advancePreparation(started.id);
+    const [run] = await harness.db.select().from(productPreparationRuns).where(eq(productPreparationRuns.id, started.id));
+    expect(run.stage).toBe("PREPARING_CONTENT");
+    expect(run.finishedAt).toBeNull();
+  });
+
+  it("stops, rather than waiting for ever, when the generation's job is dead", async () => {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+    const product = await knownListing();
+    const started = await startPreparation(staff, product.id, { requestKey: requestKey() });
+    await untilContentQueued(started.id);
+    await harness.db.update(jobs).set({ status: "dead" }).where(eq(jobs.kind, "seo.research_product"));
+    await advancePreparation(started.id);
+    const [run] = await harness.db.select().from(productPreparationRuns).where(eq(productPreparationRuns.id, started.id));
+    expect(run.stage).toBe("FAILED");
+    expect(run.failure).toMatchObject({ code: "CONTENT_FAILED", message: expect.stringMatching(/stopped before it finished/) });
+  });
+});
+
+// ---------------------------------------------- D-127: the final write boundary
+
+describe("the final check before local wording is written (D-127)", () => {
+  /** Commits `change` after every earlier check has passed, once. */
+  function meanwhile(change: () => Promise<void>) {
+    setBeforeFinalContentCheckForTesting(async () => {
+      setBeforeFinalContentCheckForTesting(undefined);
+      await change();
+    });
+  }
+  const pkbIdOf = async (productId: string) =>
+    (await harness.db.select({ id: products.pkbProductId }).from(products).where(eq(products.id, productId)))[0].id!;
+  async function evidenceFor(pkbProductId: string) {
+    const sourceId = await recordSource(staff, {
+      sourceType: "manufacturer_documentation",
+      acquisitionMethod: "staff_url",
+      origin: "OFFICIAL_MANUFACTURER",
+      url: "https://docs.harbor-acoustics.test/hp-900",
+    });
+    return recordEvidence(staff, {
+      sourceId,
+      pkbProductId,
+      extractionMethod: "html_table",
+      excerpt: "Manufacturer: Harbor",
+      extractedLabel: "Manufacturer",
+      extractedValue: "Harbor",
+    });
+  }
+  async function expectNothingWritten(productId: string, review: { code: string; message: string }[], pattern: RegExp) {
+    expect(review).toContainEqual(expect.objectContaining({ code: "CONTENT_NOT_APPLIED", message: expect.stringMatching(pattern) }));
+    const [after] = await harness.db.select().from(products).where(eq(products.id, productId));
+    expect(after.descriptionHtml ?? "").toBe("");
+    expect(after.bulletFeatures ?? []).toEqual([]);
+    expect(after.seoMetaTitle ?? "").toBe("");
+  }
+
+  beforeEach(() => {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+  });
+
+  it("writes nothing when the identity is reopened at the last moment, and keeps the run", async () => {
+    const product = await knownListing();
+    meanwhile(async () => {
+      await harness.db.update(pkbProducts).set({ resolutionState: "AMBIGUOUS" }).where(eq(pkbProducts.id, await pkbIdOf(product.id)));
+    });
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("NEEDS_REVIEW");
+    await expectNothingWritten(product.id, run.review, /has not been settled/);
+    const [seo] = await harness.db.select().from(seoResearchRuns).where(eq(seoResearchRuns.id, run.seoRunId!));
+    expect(seo.status).toBe("completed");
+    expect(seo.appliedAt).toBeNull();
+  });
+
+  it("writes nothing when a researched value arrives for a decision at the last moment", async () => {
+    const product = await knownListing();
+    meanwhile(async () => {
+      const pkbProductId = await pkbIdOf(product.id);
+      const evidenceId = await evidenceFor(pkbProductId);
+      const [definition] = (await loadDefinitions(harness.db)).filter((row) => row.key === "manufacturer");
+      await harness.db.transaction((tx) =>
+        createClaim(tx, { pkbProductId, pkbVariantId: null, evidenceId, proposedBy: staff.id, proposedByRun: null, target: "fact", definition, raw: "Harbor" }),
+      );
+    });
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("NEEDS_REVIEW");
+    await expectNothingWritten(product.id, run.review, /waiting to be accepted or rejected/);
+  });
+
+  it("writes nothing when an unmapped label arrives at the last moment", async () => {
+    const product = await knownListing();
+    meanwhile(async () => {
+      const pkbProductId = await pkbIdOf(product.id);
+      const evidenceId = await evidenceFor(pkbProductId);
+      await harness.db.transaction((tx) => proposeAttribute(tx, { pkbProductId, label: "Ear cup fabric", exampleValue: "Velour", evidenceId }));
+    });
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("NEEDS_REVIEW");
+    await expectNothingWritten(product.id, run.review, /not mapped to an attribute/);
+  });
+
+  it("leaves a description a person saved at the last moment byte for byte, and fills the rest", async () => {
+    const product = await knownListing();
+    const staffWords = "<p>Written by staff while the model was working: exactly this.</p>";
+    meanwhile(async () => {
+      await updateProduct(staff, product.id, { descriptionHtml: staffWords });
+    });
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("READY");
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.descriptionHtml).toBe(staffWords);
+    expect(after.bulletFeatures).toEqual(["40 mm drivers", "Bluetooth 5.4 connectivity", "Active noise cancelling"]);
+    expect(run.steps.find((entry) => entry.key === "listing")!.fields?.kept).toContain("Description");
+  });
+
+  it("leaves a field locked at the last moment byte for byte", async () => {
+    const product = await knownListing();
+    const locked = "Staff meta description, locked while the model was working.";
+    meanwhile(async () => {
+      await updateProduct(staff, product.id, { seoMetaDescription: locked });
+      await setFieldLock(staff, product.id, "seoMetaDescription", true, "Checked.");
+    });
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("READY");
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.seoMetaDescription).toBe(locked);
+    expect(run.steps.find((entry) => entry.key === "listing")!.fields?.applied).not.toContain("Meta description");
+  });
+
+  it("still writes local grounded wording when nothing changed", async () => {
+    const product = await knownListing();
+    let checked = false;
+    meanwhile(async () => {
+      checked = true;
+    });
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(checked).toBe(true);
+    expect(run.stage).toBe("READY");
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.descriptionHtml).toContain("LOCAL-MODEL");
   });
 });

@@ -16,7 +16,7 @@ import {
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
-import { PkbError, staffChange, type Executor } from "./common";
+import { lockProductKnowledge, PkbError, staffChange, type Executor } from "./common";
 import { normalizeUrl } from "./normalize";
 import {
   ensureBrand,
@@ -211,6 +211,8 @@ export async function proposeFactClaim(actor: SessionUser | null, input: Propose
   return db.transaction(async (tx) => {
     const [product] = await tx.select({ id: pkbProducts.id }).from(pkbProducts).where(eq(pkbProducts.id, input.pkbProductId));
     if (!product) throw new PkbError("That product is not in the knowledge base.", 404);
+    // A new claim is something a person must decide (D-127).
+    await lockProductKnowledge(tx, product.id);
     if (input.pkbVariantId) {
       const [variant] = await tx
         .select({ id: pkbVariants.id })

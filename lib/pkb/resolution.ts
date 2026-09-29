@@ -11,7 +11,7 @@ import {
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
-import { PkbError, queryRows, type Executor } from "./common";
+import { lockProductKnowledge, PkbError, queryRows, type Executor } from "./common";
 import { isStrongModelKey, variantDescriptor } from "./identity-labels";
 import { modelKey } from "./identifiers";
 import { brandKey, labelKey } from "./normalize";
@@ -307,6 +307,8 @@ export async function assessResolution(executor: Executor, pkbProductId: string)
 
 /** Re-assesses and stores the state, recording a history row when it changes. */
 export async function refreshResolution(executor: Executor, pkbProductId: string): Promise<ResolutionAssessment> {
+  // The identity may stop being settled (D-127).
+  await lockProductKnowledge(executor, pkbProductId);
   const assessment = await assessResolution(executor, pkbProductId);
   const [product] = await executor.select().from(pkbProducts).where(eq(pkbProducts.id, pkbProductId));
   const stored = { signature: assessment.signature, reasons: assessment.reasons };

@@ -80,7 +80,9 @@ export async function assistExtraction(
       sections.length > 0
         ? ` ${sections.length} section${sections.length === 1 ? "" : "s"} of prose on this page (${sections.slice(0, 4).join(", ")}${sections.length > 4 ? ", …" : ""}) ${sections.length === 1 ? "was" : "were"} not read into facts.`
         : "";
-    return { ...unchanged, state: { provider: label, status: result.status, message: `${result.message}${unread}` } };
+    // A local-model failure keeps its code (D-127), so "not running" and "busy" read differently.
+    const code = result.status !== "NOT_CONFIGURED" && result.code ? ` [${result.code}]` : "";
+    return { ...unchanged, state: { provider: label, status: result.status, message: `${result.message}${code}${unread}` } };
   }
 
   const report = groundCandidates(result.candidates, {

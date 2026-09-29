@@ -22,7 +22,8 @@ import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import { logEvent } from "@/lib/observability/log";
 import { enqueueUniquePending } from "@/lib/jobs/runner";
 import { knowledgeSufficiency } from "@/lib/seo-pulse/facts";
-import { applyPreparedContent, loadPulseInput, runSeoPulse, SeoPulseError } from "@/lib/seo-pulse/service";
+import { localAiRuntime } from "@/lib/providers/local/config";
+import { applyPreparedContent, loadPulseInput, runSeoPulse, SeoPulseError, seoRunProgress } from "@/lib/seo-pulse/service";
 import { searchReadiness, seoReadiness } from "@/lib/seo/readiness";
 import { actorOf, wakePreparation } from "./service";
 import {
@@ -72,10 +73,27 @@ import {
 /** Wake-ups before a waiting run gives up, and the gap between them. */
 const MAX_TICKS = 90;
 const WAIT_SECONDS = 8;
+/**
+ * The gap while content is generated (D-127). A local generation takes
+ * minutes; checking every eight seconds would only spend wake-ups.
+ */
+const CONTENT_WAIT_SECONDS = 20;
 
 type Outcome =
   | { kind: "done"; detail: string; state?: PreparationStepRecord["state"]; fields?: PreparationStepRecord["fields"] }
-  | { kind: "wait"; detail: string }
+  | {
+      kind: "wait";
+      detail: string;
+      delaySeconds?: number;
+      /**
+       * Waiting on background work that is demonstrably still in progress —
+       * its job is queued or a worker is on it (D-127). Such a wait is bounded
+       * by that job's own stale and retry limits, not by MAX_TICKS: a local
+       * generation may legitimately outlast every wake-up an ordinary wait
+       * is allowed.
+       */
+      live?: boolean;
+    }
   | { kind: "review"; notes: PreparationNote[] }
   | { kind: "blocked"; failure: PreparationNote }
   | { kind: "failed"; failure: PreparationNote };
@@ -172,7 +190,7 @@ export async function advancePreparation(runId: string): Promise<{ stage: string
     }
 
     if (outcome.kind === "wait") {
-      if (run.ticks >= MAX_TICKS) {
+      if (run.ticks >= MAX_TICKS && !outcome.live) {
         await finish(run.id, "FAILED", {
           failure: {
             code: PREPARATION_CODES.TOO_LONG,
@@ -187,7 +205,7 @@ export async function advancePreparation(runId: string): Promise<{ stage: string
         .update(productPreparationRuns)
         .set({ ticks, updatedAt: new Date() })
         .where(eq(productPreparationRuns.id, run.id));
-      await wakePreparation(run.id, { ticks, delaySeconds: WAIT_SECONDS });
+      await wakePreparation(run.id, { ticks, delaySeconds: outcome.delaySeconds ?? WAIT_SECONDS });
       return { stage: STEP_STAGE[step] };
     }
 
@@ -736,22 +754,21 @@ async function stepContent(context: Context): Promise<Outcome> {
     };
   }
 
+  /*
+   * One SeoPulse run per attempt at this step (D-127). Once started, its id is
+   * stored on the preparation run, and every later wake-up looks at that same
+   * run: waiting while it is queued or generating, going on when it has
+   * completed, stopping when it failed or nothing will ever finish it. A
+   * wake-up never starts a second generation for the same attempt.
+   */
   if (context.run.seoRunId) {
+    const waiting = await contentWait(context.run.seoRunId);
+    if (waiting) return waiting;
     const [existing] = await db.select().from(seoResearchRuns).where(eq(seoResearchRuns.id, context.run.seoRunId));
-    if (existing?.status === "running") return { kind: "wait", detail: "The content is being generated." };
     if (existing?.status === "completed") {
       return { kind: "done", detail: "The description, key features and search wording were prepared." };
     }
-    if (existing?.status === "failed") {
-      return {
-        kind: "failed",
-        failure: {
-          code: PREPARATION_CODES.CONTENT_FAILED,
-          message: "The content generator did not finish.",
-          remedy: "Try again. The product's knowledge is untouched either way.",
-        },
-      };
-    }
+    if (existing?.status === "failed") return contentFailed(existing.error);
   }
 
   try {
@@ -762,27 +779,25 @@ async function stepContent(context: Context): Promise<Outcome> {
      * retried after the generator failed, has had its research link cleared
      * and must be able to generate again (D-122); within one attempt the tick
      * does not move before the link is stored.
+     *
+     * `joinRunning`: when a staff member's own SeoPulse run is already
+     * generating for this product, from the same input, preparation waits for
+     * that one instead of stopping or asking the local model for a second.
      */
     const { run } = await runSeoPulse(context.actor, context.productId, {
       requestKey: `preparation:${context.run.id}:${context.run.ticks}`,
       fresh: false,
+      joinRunning: true,
     });
     await db
       .update(productPreparationRuns)
       .set({ seoRunId: run.id, updatedAt: new Date() })
       .where(eq(productPreparationRuns.id, context.run.id));
     context.run = { ...context.run, seoRunId: run.id };
-    if (run.status === "running") return { kind: "wait", detail: "The content is being generated." };
-    if (run.status === "failed") {
-      return {
-        kind: "failed",
-        failure: {
-          code: PREPARATION_CODES.CONTENT_FAILED,
-          message: "The content generator did not finish.",
-          remedy: "Try again. The product's knowledge is untouched either way.",
-        },
-      };
+    if (run.status === "running") {
+      return (await contentWait(run.id)) ?? contentFailed(null);
     }
+    if (run.status === "failed") return contentFailed(run.error);
     return { kind: "done", detail: "The description, key features and search wording were prepared." };
   } catch (error) {
     // A generation provider that is busy or unavailable is not a failure of
@@ -802,6 +817,47 @@ async function stepContent(context: Context): Promise<Outcome> {
     }
     throw error;
   }
+}
+
+/**
+ * The wait while a SeoPulse run is still in progress, or null once it is not
+ * (D-127). Queued behind other local-AI work and generating are told apart,
+ * so the screen says which.
+ */
+async function contentWait(seoRunId: string): Promise<Outcome | null> {
+  const [run] = await db
+    .select({ createdAt: seoResearchRuns.createdAt })
+    .from(seoResearchRuns)
+    .where(eq(seoResearchRuns.id, seoRunId));
+  const progress = await seoRunProgress(seoRunId);
+  if (progress === "queued") {
+    // A queued job is live, but only for so long: a queue that never moves
+    // (the local AI held by something that never lets go) must still end.
+    const age = run ? Date.now() - run.createdAt.getTime() : 0;
+    return {
+      kind: "wait",
+      detail: "The content is queued; the local AI is finishing other work first.",
+      delaySeconds: CONTENT_WAIT_SECONDS,
+      live: age < localAiRuntime().jobMs * 4,
+    };
+  }
+  if (progress === "generating" || progress === "stalled" || progress === "inline") {
+    return { kind: "wait", detail: "The content is being generated.", delaySeconds: CONTENT_WAIT_SECONDS, live: true };
+  }
+  return null;
+}
+
+function contentFailed(error: string | null): Outcome {
+  return {
+    kind: "failed",
+    failure: {
+      code: PREPARATION_CODES.CONTENT_FAILED,
+      message: error && /stopped before it finished/.test(error)
+        ? "The content generator stopped before it finished."
+        : "The content generator did not finish.",
+      remedy: "Try again. The product's knowledge is untouched either way.",
+    },
+  };
 }
 
 /**
@@ -827,9 +883,11 @@ async function stepListing(context: Context): Promise<Outcome> {
   try {
     result = await applyPreparedContent(context.actor, context.productId, runId);
   } catch (error) {
-    if (error instanceof SeoPulseError && error.status === 409 && error.details?.changed) {
-      // Somebody saved the listing while this step was deciding. Deciding
-      // again against what they saved is the whole point of the re-check.
+    if (error instanceof SeoPulseError && error.status === 409 && (error.details?.changed || error.details?.conflicts)) {
+      // Somebody saved the listing while this step was deciding — a field it
+      // meant to fill now holds their writing, or changed owner. Deciding
+      // again against what they saved is the whole point of the re-check;
+      // their writing is kept either way.
       return { kind: "wait", detail: "The listing changed; checking it again." };
     }
     if (error instanceof SeoPulseError) {

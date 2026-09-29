@@ -17,7 +17,7 @@ import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { createCategoryAttributeIn } from "@/lib/catalog/category-attributes";
-import { PkbError, queryRows, type Executor } from "./common";
+import { lockProductKnowledge, PkbError, queryRows, type Executor } from "./common";
 import { addAttributeToFamily } from "./families";
 import { recordLabelMapping } from "./mappings";
 import { keyFromLabel, labelKey, type AttributeDataType } from "./normalize";
@@ -114,6 +114,8 @@ export async function proposeAttribute(
   if (!normalized) throw new PkbError("A proposal needs the label as written.");
   const value = input.exampleValue.trim();
   if (!value) throw new PkbError("A proposal needs the value as written.");
+  // A new unmapped label is something a person must decide (D-127).
+  await lockProductKnowledge(tx, input.pkbProductId);
 
   const [open] = await tx
     .select({ id: pkbAttributeProposals.id })

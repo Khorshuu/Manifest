@@ -39,6 +39,12 @@ export interface SeoIntelligenceProvider {
    * (D-125). A hosted model is never marked so.
    */
   readonly localGrounded?: boolean;
+  /**
+   * True for a model running on this computer (D-127). Such a generation
+   * takes minutes on ordinary hardware, so it always runs as a background job
+   * holding the local-AI slot, never inside the request that asked for it.
+   */
+  readonly usesLocalAi?: boolean;
   analyzeProduct(input: SeoPulseInput, research: SeoResearchData): Promise<IntelligenceResult>;
 }
 

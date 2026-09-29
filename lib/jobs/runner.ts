@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, lt, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { pruneInBatches } from "@/lib/prune";
 import { logEvent } from "@/lib/observability/log";
@@ -8,6 +8,7 @@ import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { NotFoundError } from "@/lib/errors";
 import { describeDatabaseError, isPermanentDatabaseError } from "@/lib/db-errors";
+import { runHoldingLocalAiSlot, tryAcquireLocalAiSlot } from "@/lib/providers/local/slot";
 
 /**
  * The job runner (DECISIONS.md D-053).
@@ -170,12 +171,59 @@ type ClaimedJob = {
   maxAttempts: number;
 };
 
-export async function claimJobs(options: { workerId: string; limit: number; now?: Date }): Promise<ClaimedJob[]> {
+/**
+ * How the runner treats one kind of job (D-127). Kinds without a policy keep
+ * the defaults every job had before: presumed abandoned after
+ * DEFAULT_STALE_MINUTES running, no heartbeat, claimed in ordinary batches.
+ */
+export type JobPolicy = {
+  /** Minutes a running job may go without progress before it is presumed abandoned. */
+  staleAfterMinutes: number;
+  /**
+   * While the handler runs, `locked_at` is refreshed every `everyMs`, so a
+   * legitimately long job keeps showing progress — for at most
+   * `maxRuntimeMs`, after which it is left to go stale like any other, so no
+   * job can stay running for ever.
+   */
+  heartbeat?: { everyMs: number; maxRuntimeMs: number };
+  /**
+   * Heavy local-model work: never claimed in an ordinary batch, where it
+   * would hold up the jobs claimed with it for minutes. Claimed one at a time
+   * by the local-AI lane, and only while a local-AI slot is free.
+   */
+  localAi?: boolean;
+};
+
+export type JobPolicies = Record<string, JobPolicy>;
+
+export const DEFAULT_STALE_MINUTES = 15;
+
+function localAiKinds(policies: JobPolicies): string[] {
+  return Object.entries(policies)
+    .filter(([, policy]) => policy.localAi)
+    .map(([kind]) => kind);
+}
+
+export async function claimJobs(options: {
+  workerId: string;
+  limit: number;
+  now?: Date;
+  /** Only these kinds. */
+  onlyKinds?: string[];
+  /** Never these kinds. */
+  excludeKinds?: string[];
+}): Promise<ClaimedJob[]> {
   const now = options.now ?? new Date();
+  if (options.onlyKinds !== undefined && options.onlyKinds.length === 0) return [];
+  const kindFilter: SQL | undefined = options.onlyKinds
+    ? inArray(jobs.kind, options.onlyKinds)
+    : options.excludeKinds?.length
+      ? notInArray(jobs.kind, options.excludeKinds)
+      : undefined;
   const due = db
     .select({ id: jobs.id })
     .from(jobs)
-    .where(and(eq(jobs.status, "queued"), sql`${jobs.runAt} <= ${now.toISOString()}::timestamptz`))
+    .where(and(eq(jobs.status, "queued"), sql`${jobs.runAt} <= ${now.toISOString()}::timestamptz`, kindFilter))
     .orderBy(asc(jobs.runAt), asc(jobs.createdAt))
     .limit(options.limit)
     .for("update", { skipLocked: true });
@@ -199,10 +247,30 @@ export async function claimJobs(options: { workerId: string; limit: number; now?
     }) as Promise<ClaimedJob[]>;
 }
 
-/** Returns jobs whose worker vanished to the queue, or to dead if out of attempts. */
-export async function recoverStaleJobs(options: { olderThanMinutes?: number; now?: Date } = {}): Promise<number> {
+/**
+ * Returns jobs whose worker vanished to the queue, or to dead if out of
+ * attempts.
+ *
+ * "Vanished" is judged per kind (D-127): a kind with a policy is stale after
+ * its own `staleAfterMinutes` without progress, every other kind after
+ * `olderThanMinutes` (DEFAULT_STALE_MINUTES). A local generation that
+ * legitimately runs ten minutes is not handed to a second worker at fifteen,
+ * and a notification job that has been stuck for fifteen still is.
+ */
+export async function recoverStaleJobs(
+  options: { olderThanMinutes?: number; now?: Date; policies?: JobPolicies } = {},
+): Promise<number> {
   const now = options.now ?? new Date();
-  const cutoff = new Date(now.getTime() - (options.olderThanMinutes ?? 15) * 60_000);
+  const cutoffFor = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
+  const policies = options.policies ?? {};
+  const special = Object.keys(policies);
+  const stale = or(
+    ...special.map((kind) => and(eq(jobs.kind, kind), lt(jobs.lockedAt, cutoffFor(policies[kind].staleAfterMinutes)))),
+    and(
+      special.length ? notInArray(jobs.kind, special) : undefined,
+      lt(jobs.lockedAt, cutoffFor(options.olderThanMinutes ?? DEFAULT_STALE_MINUTES)),
+    ),
+  );
   const recovered = await db
     .update(jobs)
     .set({
@@ -213,7 +281,7 @@ export async function recoverStaleJobs(options: { olderThanMinutes?: number; now
       runAt: now,
       updatedAt: now,
     })
-    .where(and(eq(jobs.status, "running"), lt(jobs.lockedAt, cutoff)))
+    .where(and(eq(jobs.status, "running"), stale))
     .returning({ id: jobs.id });
   return recovered.length;
 }
@@ -227,17 +295,124 @@ export type RunReport = {
   ran: { id: string; kind: string; outcome: "succeeded" | "retried" | "dead" }[];
 };
 
+/**
+ * Keeps a running job's `locked_at` current while its handler works, for a
+ * kind whose policy asks for it. Returns the function that stops it.
+ */
+function startHeartbeat(job: ClaimedJob, workerId: string, policy: JobPolicy | undefined, clock: () => Date): () => void {
+  if (!policy?.heartbeat) return () => {};
+  const { everyMs, maxRuntimeMs } = policy.heartbeat;
+  const began = Date.now();
+  const timer = setInterval(() => {
+    if (Date.now() - began > maxRuntimeMs) {
+      clearInterval(timer);
+      return;
+    }
+    void db
+      .update(jobs)
+      .set({ lockedAt: clock(), updatedAt: clock() })
+      .where(and(eq(jobs.id, job.id), eq(jobs.lockedBy, workerId), eq(jobs.status, "running")))
+      .catch(() => undefined);
+  }, everyMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
+/** Runs one claimed job and records its outcome in the row and the report. */
+async function runClaimedJob(
+  job: ClaimedJob,
+  handlers: JobHandlers,
+  report: RunReport,
+  context: { workerId: string; clock: () => Date; policy: JobPolicy | undefined },
+): Promise<void> {
+  const { workerId, clock } = context;
+  const handler = handlers[job.kind];
+  const started = performance.now();
+  const stopHeartbeat = startHeartbeat(job, workerId, context.policy, clock);
+  try {
+    try {
+      if (!handler) throw new UnknownJobKindError(job.kind);
+      const result = await handler(job.payload ?? {}, { jobId: job.id, attempt: job.attempts });
+      await db
+        .update(jobs)
+        .set({
+          status: "succeeded",
+          result: (result ?? null) as object | null,
+          lastError: null,
+          lockedAt: null,
+          finishedAt: clock(),
+          updatedAt: clock(),
+        })
+        .where(and(eq(jobs.id, job.id), eq(jobs.lockedBy, workerId)));
+      report.succeeded += 1;
+      report.ran.push({ id: job.id, kind: job.kind, outcome: "succeeded" });
+      void logEvent("info", "job.succeeded", {
+        jobId: job.id,
+        kind: job.kind,
+        attempt: job.attempts,
+        durationMs: Math.round(performance.now() - started),
+      });
+    } catch (error) {
+      // A value the database cannot store fails the same way every time;
+      // retrying only repeats whatever the handler did before it (D-119).
+      const permanent = isPermanentDatabaseError(error);
+      const exhausted = !handler || permanent || job.attempts >= job.maxAttempts;
+      await db
+        .update(jobs)
+        .set({
+          status: exhausted ? "dead" : "queued",
+          lastError: describeDatabaseError(error, 2000),
+          lockedAt: null,
+          lockedBy: null,
+          runAt: new Date(clock().getTime() + backoffSeconds(job.attempts) * 1000),
+          finishedAt: exhausted ? clock() : null,
+          updatedAt: clock(),
+        })
+        .where(and(eq(jobs.id, job.id), eq(jobs.lockedBy, workerId)));
+      if (exhausted) report.dead += 1;
+      else report.retried += 1;
+      report.ran.push({ id: job.id, kind: job.kind, outcome: exhausted ? "dead" : "retried" });
+      void logEvent(exhausted ? "error" : "warn", exhausted ? "job.dead" : "job.retrying", {
+        jobId: job.id,
+        kind: job.kind,
+        attempt: job.attempts,
+        maxAttempts: job.maxAttempts,
+        permanent,
+        durationMs: Math.round(performance.now() - started),
+        error,
+      });
+    }
+  } finally {
+    stopHeartbeat();
+  }
+}
+
 export async function runDueJobs(
   handlers: JobHandlers,
-  options: { workerId?: string; limit?: number; budgetMs?: number; now?: () => Date } = {},
+  options: {
+    workerId?: string;
+    limit?: number;
+    budgetMs?: number;
+    now?: () => Date;
+    /** Per-kind behaviour (D-127). Without it every kind is treated alike, as before. */
+    policies?: JobPolicies;
+    /**
+     * Whether this call also runs one local-AI job at the end (the default).
+     * The scheduler's route passes false and runs `runLocalAiJob` after its
+     * response instead, so its own request is never held open for minutes.
+     */
+    localAiLane?: boolean;
+  } = {},
 ): Promise<RunReport> {
   const workerId = options.workerId ?? randomUUID();
   const clock = options.now ?? (() => new Date());
   const started = Date.now();
   const budget = options.budgetMs ?? 45_000;
+  const policies = options.policies ?? {};
+  const heavy = localAiKinds(policies);
   const report: RunReport = {
     workerId,
-    recovered: await recoverStaleJobs({ now: clock() }),
+    recovered: await recoverStaleJobs({ now: clock(), policies }),
     succeeded: 0,
     retried: 0,
     dead: 0,
@@ -245,67 +420,60 @@ export async function runDueJobs(
   };
 
   while (Date.now() - started < budget) {
-    const claimed = await claimJobs({ workerId, limit: options.limit ?? 10, now: clock() });
+    const claimed = await claimJobs({ workerId, limit: options.limit ?? 10, now: clock(), excludeKinds: heavy });
     if (claimed.length === 0) break;
-
     for (const job of claimed) {
-      const handler = handlers[job.kind];
-      const started = performance.now();
-      try {
-        if (!handler) throw new UnknownJobKindError(job.kind);
-        const result = await handler(job.payload ?? {}, { jobId: job.id, attempt: job.attempts });
-        await db
-          .update(jobs)
-          .set({
-            status: "succeeded",
-            result: (result ?? null) as object | null,
-            lastError: null,
-            lockedAt: null,
-            finishedAt: clock(),
-            updatedAt: clock(),
-          })
-          .where(and(eq(jobs.id, job.id), eq(jobs.lockedBy, workerId)));
-        report.succeeded += 1;
-        report.ran.push({ id: job.id, kind: job.kind, outcome: "succeeded" });
-        void logEvent("info", "job.succeeded", {
-          jobId: job.id,
-          kind: job.kind,
-          attempt: job.attempts,
-          durationMs: Math.round(performance.now() - started),
-        });
-      } catch (error) {
-        // A value the database cannot store fails the same way every time;
-        // retrying only repeats whatever the handler did before it (D-119).
-        const permanent = isPermanentDatabaseError(error);
-        const exhausted = !handler || permanent || job.attempts >= job.maxAttempts;
-        await db
-          .update(jobs)
-          .set({
-            status: exhausted ? "dead" : "queued",
-            lastError: describeDatabaseError(error, 2000),
-            lockedAt: null,
-            lockedBy: null,
-            runAt: new Date(clock().getTime() + backoffSeconds(job.attempts) * 1000),
-            finishedAt: exhausted ? clock() : null,
-            updatedAt: clock(),
-          })
-          .where(and(eq(jobs.id, job.id), eq(jobs.lockedBy, workerId)));
-        if (exhausted) report.dead += 1;
-        else report.retried += 1;
-        report.ran.push({ id: job.id, kind: job.kind, outcome: exhausted ? "dead" : "retried" });
-        void logEvent(exhausted ? "error" : "warn", exhausted ? "job.dead" : "job.retrying", {
-          jobId: job.id,
-          kind: job.kind,
-          attempt: job.attempts,
-          maxAttempts: job.maxAttempts,
-          permanent,
-          durationMs: Math.round(performance.now() - started),
-          error,
-        });
-      }
+      await runClaimedJob(job, handlers, report, { workerId, clock, policy: policies[job.kind] });
     }
   }
 
+  if (heavy.length > 0 && options.localAiLane !== false) {
+    await runLocalAiJob(handlers, { workerId, now: clock, policies, report });
+  }
+
+  return report;
+}
+
+/**
+ * The local-AI lane (D-127): runs at most one due local-AI job, holding a
+ * local-AI slot for the whole of it.
+ *
+ * The slot is taken before the job is claimed. When every slot is busy —
+ * another worker, in this process or another, is generating — nothing is
+ * claimed and the job stays queued for a later call, rather than a worker
+ * sitting on a claimed job waiting for the model. The model calls inside the
+ * handler find the slot already held and do not queue again. The slot is
+ * released however the job ends.
+ */
+export async function runLocalAiJob(
+  handlers: JobHandlers,
+  options: { workerId?: string; now?: () => Date; policies: JobPolicies; report?: RunReport },
+): Promise<RunReport> {
+  const workerId = options.workerId ?? randomUUID();
+  const clock = options.now ?? (() => new Date());
+  const report: RunReport = options.report ?? { workerId, recovered: 0, succeeded: 0, retried: 0, dead: 0, ran: [] };
+  const heavy = localAiKinds(options.policies);
+  if (heavy.length === 0) return report;
+
+  // Nothing due: no connection is reserved for a slot.
+  const [due] = await db
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(and(eq(jobs.status, "queued"), inArray(jobs.kind, heavy), sql`${jobs.runAt} <= ${clock().toISOString()}::timestamptz`))
+    .limit(1);
+  if (!due) return report;
+
+  const slot = await tryAcquireLocalAiSlot();
+  if (!slot) return report;
+  try {
+    const [job] = await claimJobs({ workerId, limit: 1, now: clock(), onlyKinds: heavy });
+    if (!job) return report;
+    await runHoldingLocalAiSlot(slot, () =>
+      runClaimedJob(job, handlers, report, { workerId, clock, policy: options.policies[job.kind] }),
+    );
+  } finally {
+    await slot.release();
+  }
   return report;
 }
 

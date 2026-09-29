@@ -1,5 +1,5 @@
 import { getLocalServicesConfig, ollamaModelFor } from "@/lib/providers/local/config";
-import { chatJson, OllamaClient } from "@/lib/providers/local/ollama";
+import { chatJson, localAiFailureCode, OllamaClient } from "@/lib/providers/local/ollama";
 import { documentBlock, MAX_TEXT, readCandidates, requestContext, RESPONSE_SCHEMA, SYSTEM_PROMPT } from "./prompt";
 import type { DocumentExtractionRequest, DocumentExtractionResult, ProductDocumentExtractionProvider } from "./types";
 
@@ -67,8 +67,15 @@ export class OllamaExtractionProvider implements ProductDocumentExtractionProvid
       acceptAnswer,
     );
     if (!answer.ok) {
-      const unavailable = answer.kind === "unreachable" || answer.kind === "timeout" || answer.kind === "model_missing" || answer.kind === "refused_address";
-      return { status: unavailable ? "UNAVAILABLE" : "FAILED", message: answer.message };
+      // Ollama not answering, too slow, busy past the queue wait, or without
+      // the model: the page may be read later. A broken answer is a failure.
+      const unavailable =
+        answer.kind === "unreachable" ||
+        answer.kind === "timeout" ||
+        answer.kind === "model_missing" ||
+        answer.kind === "refused_address" ||
+        answer.kind === "queue_timeout";
+      return { status: unavailable ? "UNAVAILABLE" : "FAILED", message: answer.message, code: localAiFailureCode(answer.kind) };
     }
     return {
       status: "OK",

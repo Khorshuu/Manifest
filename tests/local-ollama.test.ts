@@ -19,17 +19,22 @@ import { chatJson, modelInstalled, OllamaClient, readChatStream } from "@/lib/pr
 import { groundedPromptInput, OllamaIntelligenceProvider, withholdUnsupportedFigures } from "@/lib/seo-pulse/providers/ollama";
 import type { SeoPulseInput } from "@/lib/seo-pulse/types";
 import { closedPort, startFakeOllama, type FakeOllama } from "./helpers/fake-ollama";
+import { createTestDatabase } from "./helpers/database";
 
 const REVLON_URL = "https://www.revlon.com/products/colorsilk-beautiful-color-permanent-hair-dye?variant=44106192224451";
 const revlon = extractDocument(readFileSync("tests/fixtures/revlon-colorsilk.html", "utf8"), "text/html", { url: REVLON_URL });
 
 let ollama: FakeOllama;
+// Every model call takes the local-AI slot, which lives in the database (D-127).
+let harness: Awaited<ReturnType<typeof createTestDatabase>>;
 
 beforeAll(async () => {
+  harness = await createTestDatabase();
   ollama = await startFakeOllama({ models: ["qwen2.5:7b", "llama3.1:latest"] });
 });
 afterAll(async () => {
   await ollama.close();
+  await harness.close();
 });
 afterEach(() => {
   ollama.requests.length = 0;
@@ -112,9 +117,10 @@ describe("the Ollama client", () => {
     const done = JSON.stringify({ message: { content: "" }, done: true, done_reason: "stop" });
     expect(readChatStream([piece('{"a"'), piece(":1}"), done].join("\n"), "m")).toMatchObject({ ok: true, content: '{"a":1}' });
     expect(readChatStream([piece('{"a"'), JSON.stringify({ error: "out of memory" })].join("\n"), "m")).toMatchObject({ ok: false, kind: "error" });
-    expect(readChatStream([piece('{"a"'), "{not json"].join("\n"), "m")).toMatchObject({ ok: false, kind: "error" });
-    expect(readChatStream(piece('{"a":1}'), "m")).toMatchObject({ ok: false, kind: "error" });
-    expect(readChatStream("", "m")).toMatchObject({ ok: false, kind: "error" });
+    // D-127: an unreadable line is a malformed answer; a stream that never says it is done is incomplete.
+    expect(readChatStream([piece('{"a"'), "{not json"].join("\n"), "m")).toMatchObject({ ok: false, kind: "malformed" });
+    expect(readChatStream(piece('{"a":1}'), "m")).toMatchObject({ ok: false, kind: "incomplete" });
+    expect(readChatStream("", "m")).toMatchObject({ ok: false, kind: "incomplete" });
     expect(readChatStream([piece('{"a"'), JSON.stringify({ done: true, done_reason: "length" })].join("\n"), "m")).toMatchObject({ ok: true, truncated: true });
   });
 
@@ -187,7 +193,7 @@ describe("local product extraction", () => {
   it("fails with nothing kept when the answer is malformed twice", async () => {
     ollama.chat = () => ({ content: "not json" });
     const result = await new OllamaExtractionProvider(client(), "qwen2.5:7b", 16_384).extract(extractionRequest);
-    expect(result).toEqual({ status: "FAILED", message: expect.stringMatching(/not valid structured JSON/) });
+    expect(result).toEqual({ status: "FAILED", message: expect.stringMatching(/not valid structured JSON/), code: "OLLAMA_MALFORMED_RESPONSE" });
   });
 
   it("is unavailable, not a cloud call, when Ollama is down or no model is chosen", async () => {

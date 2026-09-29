@@ -671,4 +671,35 @@ by fixtures, and `safeFetch` by a fixture map where a database test reads pages.
   whose specification page is followed; a skincare product found in an
   official sitemap and by local search; a JavaScript-rendered serum; Prepare
   with SeoPulse on the local model, with staff and locked fields kept; Ollama
-  down leading to a rules-labelled run; and no paid key anywhere.
+  down leading to a rules-labelled run; and no paid key anywhere. D-127
+  added: preparation keeps one `seoRunId` and waits while it is queued and
+  while it is generating, then resumes from that run (no second generation);
+  a live wait outlasts `MAX_TICKS`; a dead job stops the run. The final
+  write boundary is tested by committing a change after every earlier check
+  (`setBeforeFinalContentCheckForTesting`): a reopened identity, a new claim
+  and a new unmapped label each write nothing; a description saved and a
+  field locked at that moment stay byte for byte; unchanged knowledge still
+  writes.
+
+## Local AI runtime (D-127)
+
+Fake Ollama answers can be delayed (`delayMs`), and the fake counts how many
+chat requests it serves at once. No test waits the minutes a real generation
+takes: thresholds are tested with fake clocks.
+
+- `tests/local-ai-runtime.test.ts` — Ollama runs in the background and the
+  rules generator inline; a hosted model stays in the background; a queued run
+  sends nothing to the model; a live run refuses a second and can be joined; a
+  dead job's run is closed. `seoRunPhase` at 3 and 10 minutes, stalled and
+  abandoned, and the inline window. `localAiRuntime` from
+  `OLLAMA_TIMEOUT_MS`. Per-kind recovery (local kind kept at 20 minutes and
+  recovered after its window, default kinds unchanged, no policies without a
+  local model) and the heartbeat. The slot: never two model calls at once,
+  released after an exception and a timeout, `OLLAMA_QUEUE_WAIT_TIMEOUT`, one
+  local-AI job per lane with the next left queued, and never in an ordinary
+  batch. Failure codes for unavailable, missing model, timeout and malformed,
+  and a rules fallback recorded with `fallbackFrom`.
+- `tests/local-ai-concurrency.test.ts` (real PostgreSQL) — the slot is
+  refused while another connection holds it, freed when that connection
+  dies, and allows exactly `LOCAL_AI_CONCURRENCY` holders. The final check
+  waits for a knowledge change holding the knowledge lock and then sees it.

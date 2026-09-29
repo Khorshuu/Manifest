@@ -80,9 +80,12 @@ export type DocumentExtractionResult =
     }
   /** No provider is set up. Expected, and not an error. */
   | { status: "NOT_CONFIGURED"; message: string }
-  /** Configured but unusable right now: missing key, quota, outage. */
-  | { status: "UNAVAILABLE"; message: string }
-  | { status: "FAILED"; message: string };
+  /**
+   * Configured but unusable right now: missing key, quota, outage. `code`
+   * names a local-model failure precisely (D-127), when there is one.
+   */
+  | { status: "UNAVAILABLE"; message: string; code?: string }
+  | { status: "FAILED"; message: string; code?: string };
 
 export type ProductDocumentExtractionProvider = {
   readonly key: string;

@@ -21,7 +21,8 @@ import {
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import { enqueueJob } from "@/lib/jobs/runner";
-import type { Executor } from "@/lib/pkb/common";
+import { seoResearchPolicy } from "@/lib/jobs/policies";
+import { lockProductKnowledge, type Executor } from "@/lib/pkb/common";
 import { canEnrich } from "@/lib/pkb/resolution";
 import { groundedKnowledge } from "@/lib/pkb/publish";
 import { beginListingChange } from "@/lib/pkb/sync";
@@ -47,6 +48,14 @@ import {
   schemaReadiness,
 } from "./facts";
 import { getSeoDataProvider, unavailableUsage } from "./providers/data";
+import {
+  isLive,
+  loadSeoRunPhase,
+  requiresBackgroundExecution,
+  SEO_RESEARCH_JOB,
+  seoResearchJobKey,
+  usesExternalProviders,
+} from "./runtime";
 import {
   getIntelligenceProvider,
   RulesIntelligenceProvider,
@@ -94,8 +103,6 @@ export class SeoPulseError extends Error {
 }
 
 const DAY_MS = 86_400_000;
-/** A run still "running" after this long is treated as abandoned. */
-const RUNNING_TIMEOUT_MS = 3 * 60_000;
 /** A matching run this recent is offered for reuse instead of a new one. */
 const REUSE_WITHIN_MS = STALE_AFTER_DAYS * DAY_MS;
 const SITE_SEARCH_WINDOW_DAYS = 90;
@@ -362,6 +369,12 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 300) : "Unknown error.";
 }
 
+/** A provider error's code (LocalAiError: OLLAMA_…), when it carries one. */
+function errorCode(error: unknown): string | null {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{2,60}$/.test(code) ? code : null;
+}
+
 /**
  * One full research-and-analysis pass. Each provider is isolated: one that
  * fails is recorded as failed and the rest carry on. Only the analysis step
@@ -449,6 +462,7 @@ export async function executeResearch(input: SeoPulseInput) {
   let kind: "ai" | "rules" = intelligence.kind;
   let providerLabel = intelligence.label;
   let localGrounded = intelligence.kind === "ai" && intelligence.localGrounded === true;
+  let fallbackFrom: SeoAnalysis["generator"]["fallbackFrom"];
   try {
     result = await intelligence.analyzeProduct(input, research);
     usage.push(
@@ -466,6 +480,9 @@ export async function executeResearch(input: SeoPulseInput) {
     );
   } catch (error) {
     if (intelligence.kind === "rules") throw error;
+    // A local-model failure says precisely what went wrong (D-127); the rules
+    // wording that replaces it is recorded as rules, with where it came from.
+    const code = errorCode(error);
     usage.push(
       usageRow({
         id: intelligence.id,
@@ -474,8 +491,10 @@ export async function executeResearch(input: SeoPulseInput) {
         status: "failed",
         message: `AI provider unavailable: ${errorText(error)} The rules generator was used instead.`,
         requests: 1,
+        errorCode: code,
       }),
     );
+    fallbackFrom = { provider: intelligence.label, code, message: errorText(error) };
     const fallback = new RulesIntelligenceProvider();
     result = await fallback.analyzeProduct(input, research);
     kind = "rules";
@@ -504,7 +523,7 @@ export async function executeResearch(input: SeoPulseInput) {
 
   const analysis: SeoAnalysis = {
     ...generated,
-    generator: { kind, provider: providerLabel, model: result.model, label, localGrounded },
+    generator: { kind, provider: providerLabel, model: result.model, label, localGrounded, ...(fallbackFrom ? { fallbackFrom } : {}) },
     keywordGroups: keywordGroups(generated),
     slugConflict,
     imageFilenames: imageFilenames(input, generated.slug.recommended),
@@ -657,7 +676,17 @@ async function insertRunningRow(
 export async function runSeoPulse(
   actor: SessionUser | null,
   productId: string,
-  options: { requestKey: string; fresh: boolean },
+  options: {
+    requestKey: string;
+    fresh: boolean;
+    /**
+     * Return a run already in progress for this product, for the same input,
+     * instead of refusing (D-127). Preparation asks for this: when a staff
+     * member's SeoPulse click is already generating, it waits for that run
+     * rather than stopping or starting a second generation.
+     */
+    joinRunning?: boolean;
+  },
 ): Promise<{ run: RunDetail; reused: boolean }> {
   const staff = requirePermission(actor, "catalog.manage");
 
@@ -691,17 +720,26 @@ export async function runSeoPulse(
     if (recent) return { run: toDetail(recent), reused: true };
   }
 
-  const [{ running }] = await db
-    .select({ running: count() })
+  /*
+   * A run in progress is judged by what is actually happening to it, not by
+   * its age (D-127): a local generation queued behind another, or ten minutes
+   * into its own answer, is still in progress; one whose job is dead, or an
+   * inline run no request is finishing, never will be and is closed as such.
+   */
+  const running = await db
+    .select(runColumns)
     .from(seoResearchRuns)
-    .where(
-      and(
-        eq(seoResearchRuns.productId, productId),
-        eq(seoResearchRuns.status, "running"),
-        gt(seoResearchRuns.createdAt, new Date(Date.now() - RUNNING_TIMEOUT_MS)),
-      ),
-    );
-  if (Number(running) > 0) {
+    .leftJoin(users, eq(users.id, seoResearchRuns.initiatedBy))
+    .where(and(eq(seoResearchRuns.productId, productId), eq(seoResearchRuns.status, "running")))
+    .orderBy(desc(seoResearchRuns.createdAt));
+  const policy = seoResearchPolicy();
+  for (const row of running) {
+    const phase = await loadSeoRunPhase(row.run, policy);
+    if (!isLive(phase)) {
+      await closeAbandonedRun(row.run.id);
+      continue;
+    }
+    if (options.joinRunning && row.run.inputHash === inputHash) return { run: toDetail(row), reused: true };
     throw new SeoPulseError("SEO Pulse is already researching this product. Wait for it to finish.", 409);
   }
 
@@ -726,16 +764,19 @@ export async function runSeoPulse(
   /*
    * Research that calls an external service does not run inside the admin's
    * request: a slow or rate-limited provider would hold the request open and
-   * time it out (finding F4). The run row exists and says `running`; the job
-   * finishes it, and the screen shows the result when it polls. With no
-   * external provider configured the rules generator is fast and local, so it
-   * still runs here and the answer is immediate.
+   * time it out (finding F4). Neither does a local model, which takes minutes
+   * and runs one generation at a time (D-127). The run row exists and says
+   * `running`; the job finishes it, and the screen shows the result when it
+   * polls. Only the rules generator is fast enough to run here.
    */
-  if (usesExternalProviders()) {
+  if (requiresBackgroundExecution()) {
     await enqueueJob({
-      kind: "seo.research_product",
+      kind: SEO_RESEARCH_JOB,
       payload: { runId: row.id },
-      dedupeKey: `seo.research:${row.id}`,
+      dedupeKey: seoResearchJobKey(row.id),
+      // A retry repeats minutes of generation; a failed answer already fell
+      // back to the rules generator, so a retry is only ever for a crash.
+      maxAttempts: 3,
     });
     await recordAudit({
       actorUserId: staff.id,
@@ -785,11 +826,28 @@ export async function runSeoPulse(
   return { run: toDetail(saved as RunRow), reused: false };
 }
 
-/** Whether a run would call out to a paid or remote service. */
-export function usesExternalProviders(): boolean {
-  const config = getSeoPulseConfig();
-  const ai = config.SEO_PULSE_AI_PROVIDER === "anthropic" && Boolean(config.ANTHROPIC_API_KEY);
-  return ai || getSeoDataProvider() !== null;
+export { requiresBackgroundExecution, usesExternalProviders };
+
+/** Closes a run nothing will finish, so it stops counting as in progress. */
+async function closeAbandonedRun(runId: string): Promise<void> {
+  await db
+    .update(seoResearchRuns)
+    .set({ status: "failed", error: "The background work preparing this run stopped before it finished.", completedAt: new Date() })
+    .where(and(eq(seoResearchRuns.id, runId), eq(seoResearchRuns.status, "running")));
+}
+
+/**
+ * Where a run in progress stands, for preparation (D-127): still coming
+ * (`queued`, `generating`, `stalled` — recovery will hand it on), or
+ * `abandoned`, in which case it is closed as failed here.
+ */
+export async function seoRunProgress(runId: string): Promise<"queued" | "generating" | "stalled" | "inline" | "abandoned" | "finished" | "missing"> {
+  const [run] = await db.select().from(seoResearchRuns).where(eq(seoResearchRuns.id, runId));
+  if (!run) return "missing";
+  if (run.status !== "running") return "finished";
+  const phase = await loadSeoRunPhase(run, seoResearchPolicy());
+  if (!isLive(phase)) await closeAbandonedRun(runId);
+  return phase;
 }
 
 /**
@@ -1702,20 +1760,20 @@ export type PreparedContentResult = {
  * at the moment of writing, because the knowledge can change between steps.
  * Empty when nothing is waiting.
  */
-async function undecidedKnowledge(pkbProductId: string | null): Promise<string[]> {
+export async function undecidedKnowledge(pkbProductId: string | null, executor: Executor = db): Promise<string[]> {
   if (!pkbProductId) return ["The product has no knowledge record yet."];
-  const [identity] = await db
+  const [identity] = await executor
     .select({ state: pkbProducts.resolutionState })
     .from(pkbProducts)
     .where(eq(pkbProducts.id, pkbProductId));
-  const [claims] = await db
+  const [claims] = await executor
     .select({
       conflicts: sql<number>`count(*) filter (where ${pkbClaims.status} = 'CONFLICT')::int`,
       waiting: sql<number>`count(*) filter (where ${pkbClaims.status} = 'SUGGESTED')::int`,
     })
     .from(pkbClaims)
     .where(eq(pkbClaims.pkbProductId, pkbProductId));
-  const [labels] = await db
+  const [labels] = await executor
     .select({ open: sql<number>`count(*)::int` })
     .from(pkbAttributeProposals)
     .where(and(eq(pkbAttributeProposals.pkbProductId, pkbProductId), eq(pkbAttributeProposals.status, "open")));
@@ -1726,6 +1784,17 @@ async function undecidedKnowledge(pkbProductId: string | null): Promise<string[]
   if (Number(claims?.waiting ?? 0) > 0) undecided.push("Some researched values are waiting to be accepted or rejected.");
   if (Number(labels?.open ?? 0) > 0) undecided.push("Some labels found in the sources are not mapped to an attribute yet.");
   return undecided;
+}
+
+let beforeFinalContentCheck: (() => Promise<void>) | undefined;
+
+/**
+ * Test helper: work to commit after every earlier check in
+ * `applyPreparedContent` has passed and before its final one — what a person
+ * saving, deciding or re-assessing at that moment looks like (D-127).
+ */
+export function setBeforeFinalContentCheckForTesting(work: (() => Promise<void>) | undefined): void {
+  beforeFinalContentCheck = work;
 }
 
 /**
@@ -1877,9 +1946,20 @@ export async function applyPreparedContent(
 
   if (expected.size === 0) return result;
 
+  const grounded = analysis.generator.kind === "ai" && analysis.generator.localGrounded === true;
+
   /*
-   * Under the listing lock, the owners are read again: a person who saved a
-   * field a moment ago owns it now, and this write must not land on it.
+   * The final write boundary (D-127). Under the listing lock, before anything
+   * is written, everything the decision to write rests on is read again — a
+   * local generation takes minutes, and any of it may have changed since:
+   *
+   *  - the owners: a person who saved a field a moment ago owns it now, and a
+   *    field locked meanwhile is locked; this write must land on neither;
+   *  - for local grounded wording, the knowledge it was written from: still
+   *    the same knowledge record, and still nothing waiting for a person.
+   *    That is read under the product's knowledge lock, which every change
+   *    that could put something in front of a person takes too, so no such
+   *    change can commit between this check and the write.
    */
   const guard = async (executor: Executor) => {
     const now = await contentOwnership(executor, productId, [...expected.keys()]);
@@ -1888,13 +1968,48 @@ export async function applyPreparedContent(
         throw new SeoPulseError("The listing changed while SeoPulse was preparing it.", 409, { changed: [field] });
       }
     }
+    if (!grounded) return;
+    const [current] = await executor
+      .select({ pkbProductId: products.pkbProductId, archivedAt: products.archivedAt })
+      .from(products)
+      .where(eq(products.id, productId));
+    if (!current || current.archivedAt) {
+      throw new SeoPulseError("The product was archived while SeoPulse was preparing it.", 409, {
+        undecided: ["The product was archived while its content was being prepared."],
+      });
+    }
+    if (current.pkbProductId !== product.pkbProductId) {
+      throw new SeoPulseError("The product's knowledge record changed while SeoPulse was preparing it.", 409, {
+        undecided: ["Which product this is changed while its content was being prepared."],
+      });
+    }
+    if (current.pkbProductId) await lockProductKnowledge(executor, current.pkbProductId);
+    const undecided = await undecidedKnowledge(current.pkbProductId, executor);
+    if (undecided.length > 0) {
+      throw new SeoPulseError("Something about the product needs a decision now.", 409, { undecided });
+    }
   };
 
-  await applySeoPulse(
-    staff,
-    productId,
-    { runId, fields, overwrite },
-    { reason: "Prepared with SeoPulse", guard },
-  );
+  try {
+    await beforeFinalContentCheck?.();
+    await applySeoPulse(
+      staff,
+      productId,
+      { runId, fields, overwrite },
+      { reason: "Prepared with SeoPulse", guard },
+    );
+  } catch (error) {
+    const undecided = error instanceof SeoPulseError ? error.details?.undecided : undefined;
+    if (!Array.isArray(undecided)) throw error;
+    // Nothing was written: the generated wording stays on its run, offered
+    // field by field, and the reason is reported like the check before it.
+    return {
+      ...result,
+      applied: [],
+      refreshed: [],
+      review: [...result.review, ...result.applied, ...result.refreshed],
+      undecided: undecided.map(String),
+    };
+  }
   return result;
 }

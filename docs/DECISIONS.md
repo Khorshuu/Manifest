@@ -3930,3 +3930,142 @@ LOCAL_AI_SETUP.md.
 **Not changed.** Identity rules, the Brand Source Registry, grounding,
 sanitising, ownership, H1 and slug, the hosted provider, Manual Fill and the
 rules generator's output.
+
+## D-127 — Local AI runs in the background, one generation at a time, and is checked again before it writes
+
+Phase B (D-126) showed that the local pipeline works on ordinary hardware,
+and that its runtime was built for fast providers. A `qwen2.5:7b` SeoPulse
+answer takes 300–400 s there. This decision is about runtime only: where local
+AI runs, how long it may take, how many run at once, and what is re-checked
+before its wording is written. Data quality and content wording are left to
+later work.
+
+**1. A local model is background work.** `runSeoPulse` queued a run only when
+`usesExternalProviders()` was true. Ollama is not external, so a click in the
+SeoPulse panel held the web request open for 5–7 minutes. The decision is now
+`requiresBackgroundExecution()` (`lib/seo-pulse/runtime.ts`): true for a
+provider that declares `usesLocalAi` (the Ollama provider) and, as before,
+for a hosted AI or keyword-data provider. Ollama is not labelled external to
+pass the old test. The rules generator still runs inline. A queued local run
+gets `maxAttempts: 3`: an answer that fails already falls back to rules
+inside the job, so a retry is only for a worker that crashed.
+
+**2. A run in progress is judged by its job, not by its age.**
+`RUNNING_TIMEOUT_MS` (3 minutes) was shorter than a real generation, so a
+second click could start a second one. `seoRunPhase` now reads the run's job:
+`queued`, `generating` (a worker has it and shows progress), `stalled` (no
+progress for the job's own stale window, so recovery will hand it on),
+`inline` (no job, started less than 3 minutes ago) or `abandoned` (job dead
+or gone). Only `abandoned` is not live. An abandoned run is closed as failed
+("stopped before it finished"), so it no longer blocks a new run. A live run
+refuses a second one, unless the caller asks to join it (`joinRunning`, used
+by preparation) and its input is the same.
+
+**3. Job recovery is per kind.** `recoverStaleJobs` returned every job
+running for over 15 minutes to the queue. With `OLLAMA_TIMEOUT_MS=600000` and
+two attempts, a real generation can take 20 minutes, and a second worker
+would have started it again. Kinds may now have a `JobPolicy`
+(`lib/jobs/policies.ts`), built from the providers in use:
+
+- Only local-model work differs, and only while a local model is in use.
+  Hosted and rules-only set-ups return no policies and keep the old limits.
+- The window comes from configuration (`localAiRuntime`): one call is both
+  attempts at `OLLAMA_TIMEOUT_MS` plus 5 minutes. The queue wait defaults to
+  one such call, and a job is the two added together. With 600 s that is
+  50 minutes; with the 240 s default it is 26.
+- A local-AI job refreshes `locked_at` every minute while it works
+  (heartbeat), so the window counts from the last sign of progress. The
+  heartbeat stops at a maximum runtime, so no job can stay running for ever.
+- `pkb.enrich_product` with Ollama extraction gets the same window and a
+  heartbeat, bounded at four calls' worth. It stays in ordinary batches:
+  fetching pages is not what needs serialising.
+
+**4. One local generation at a time.** Two generations at once on a 4 GB GPU
+both slowed down, and one failed. The local-AI slot
+(`lib/providers/local/slot.ts`) allows at most `LOCAL_AI_CONCURRENCY`
+(default 1, at most 4) heavy model calls at once:
+
+- In the process, a set of taken slot numbers, checked and taken
+  synchronously.
+- Across processes, a session-scoped advisory lock per slot, held on one
+  reserved connection for the whole call. A process that dies drops its
+  connection, and the database releases the lock.
+- `chatJson` runs both of its attempts holding one slot and releases it in
+  `finally`: after success, provider failure, timeout, malformed answer or
+  exception. A call that waits longer than the queue wait gets
+  `OLLAMA_QUEUE_WAIT_TIMEOUT`.
+- The job runner never claims a local-AI job in an ordinary batch, where it
+  would hold up the jobs claimed with it. `runLocalAiJob` takes a free slot
+  first, then claims one local-AI job and runs it holding that slot. If no
+  slot is free, nothing is claimed and the job stays queued for a later call.
+  The model call inside finds the slot held and does not queue behind itself.
+- The scheduler route runs the local-AI lane with `after()`, once its
+  response is sent, so its own request is not held open for minutes.
+
+A session lock needs a direct connection. Through a transaction pooler it
+would not be pinned to anything. Local AI runs against the local database,
+which is direct, and the migration lock relies on the same thing. Serial
+generation also removes the D-126 problem where a request queued inside
+Ollama got no headers for 300 s: requests no longer queue there.
+
+**5. Preparation waits for the same run.** The content step stores
+`seoRunId` as soon as it asks for a run. Every later wake-up reads that run's
+phase and waits (queued or generating), goes on (completed) or stops
+(failed or abandoned). A wake-up never starts a second generation for the
+same attempt. A wait on a job that is still live is not limited by
+`MAX_TICKS`: it is bounded by the job's own stale and retry limits, and a
+queue that never moves stops after four jobs' worth of time. Content waits
+are 20 s apart instead of 8. When a staff member's panel run is already
+generating from the same input, preparation joins it.
+
+**6. Local-model failures are named.** `OllamaFailureKind` is now
+`unreachable | refused_address | timeout | model_missing | malformed |
+incomplete | error | queue_timeout`. `localAiFailureCode` maps these to
+`OLLAMA_UNAVAILABLE`, `OLLAMA_MODEL_NOT_FOUND`, `OLLAMA_GENERATION_TIMEOUT`,
+`OLLAMA_QUEUE_WAIT_TIMEOUT`, `OLLAMA_MALFORMED_RESPONSE`,
+`OLLAMA_INCOMPLETE_STREAM` and `OLLAMA_PROVIDER_ERROR`.
+
+- An unreadable stream line is now `malformed`, and a stream that never says
+  it is done is `incomplete`; both were `error` before.
+- SeoPulse's provider throws `LocalAiError` with the code. The failed usage
+  row keeps it (`errorCode`), and the analysis records
+  `generator.fallbackFrom` with the provider, code and message. The run is
+  still recorded as rules with `localGrounded: false`.
+- Extraction results keep it as `code`, and the research run's provider state
+  shows it in brackets.
+- No model answer is stored in any of these.
+
+**7. The final write boundary.** D-125 asked "is anything undecided?" before
+generating. The answer can change during a 6-minute generation. The
+`applyPreparedContent` guard now runs inside the apply transaction, after the
+listing lock and before any write, and checks everything the write depends
+on:
+
+- ownership, as before: a field saved or locked meanwhile is not written;
+- for local grounded wording, that the product is not archived and still has
+  the same knowledge record;
+- `undecidedKnowledge` (now executor-aware, the one implementation) read
+  under the product's knowledge lock.
+
+`lockProductKnowledge` is a transaction advisory lock per knowledge product.
+Every change that could put something in front of a person takes it:
+`createClaim`, `proposeFactClaim`, `proposeAttribute` and `refreshResolution`.
+No such change can commit between the check and the write. Decisions that
+only close questions (accept, reject) do not need it.
+
+- Lock order: the listing lock first, then the knowledge lock. A staff save
+  already holds the listing lock when it re-assesses identity, and the apply
+  holds it when it checks.
+- If the check fails, nothing is written. The run is kept and not marked
+  applied. Preparation stops at `CONTENT_NOT_APPLIED` and names what is
+  undecided.
+- A listing conflict at the boundary (a person saved a field SeoPulse meant
+  to fill) is now treated like an ownership change: preparation decides
+  again against what they saved, keeps their words and fills the rest.
+  Before, it stopped for review.
+
+**Not changed.** Identity matching, grounding, sanitising, the figures check,
+D-125 ownership and auto-apply rules, D-126 streaming, the hosted provider,
+the rules generator, and every job kind's limits when no local model is in
+use. No migration: the slot uses advisory locks, and phases are read from the
+existing `jobs` rows.

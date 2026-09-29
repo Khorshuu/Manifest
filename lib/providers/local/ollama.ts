@@ -1,4 +1,5 @@
-import { getLocalServicesConfig, localRequest, localServiceUrl, type LocalServicesConfig } from "./config";
+import { getLocalServicesConfig, LOCAL_AI_ATTEMPTS, localRequest, localServiceUrl, type LocalServicesConfig } from "./config";
+import { LocalAiQueueTimeoutError, withLocalAiSlot } from "./slot";
 
 /**
  * A minimal client for Ollama's local HTTP API (D-124).
@@ -17,9 +18,69 @@ import { getLocalServicesConfig, localRequest, localServiceUrl, type LocalServic
 
 export type OllamaChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
+/**
+ * Why a call to the local model failed (D-127). `error` is Ollama itself
+ * reporting a failure (a non-200 answer, or an error line in the stream);
+ * `malformed` is an answer that could not be read, or never matched the
+ * schema; `incomplete` is a stream that ended without saying it was done.
+ */
+export type OllamaFailureKind =
+  | "refused_address"
+  | "unreachable"
+  | "timeout"
+  | "model_missing"
+  | "error"
+  | "malformed"
+  | "incomplete"
+  | "queue_timeout";
+
 export type OllamaChatResult =
   | { ok: true; content: string; model: string; inputTokens: number | null; outputTokens: number | null; truncated: boolean }
-  | { ok: false; kind: "refused_address" | "unreachable" | "timeout" | "model_missing" | "error"; message: string };
+  | { ok: false; kind: Exclude<OllamaFailureKind, "queue_timeout">; message: string };
+
+/** The code a failure is recorded under, for status screens, retries and preparation. */
+export type LocalAiFailureCode =
+  | "OLLAMA_UNAVAILABLE"
+  | "OLLAMA_MODEL_NOT_FOUND"
+  | "OLLAMA_GENERATION_TIMEOUT"
+  | "OLLAMA_QUEUE_WAIT_TIMEOUT"
+  | "OLLAMA_MALFORMED_RESPONSE"
+  | "OLLAMA_INCOMPLETE_STREAM"
+  | "OLLAMA_PROVIDER_ERROR";
+
+export function localAiFailureCode(kind: OllamaFailureKind): LocalAiFailureCode {
+  switch (kind) {
+    case "refused_address":
+    case "unreachable":
+      return "OLLAMA_UNAVAILABLE";
+    case "model_missing":
+      return "OLLAMA_MODEL_NOT_FOUND";
+    case "timeout":
+      return "OLLAMA_GENERATION_TIMEOUT";
+    case "queue_timeout":
+      return "OLLAMA_QUEUE_WAIT_TIMEOUT";
+    case "malformed":
+      return "OLLAMA_MALFORMED_RESPONSE";
+    case "incomplete":
+      return "OLLAMA_INCOMPLETE_STREAM";
+    case "error":
+      return "OLLAMA_PROVIDER_ERROR";
+  }
+}
+
+/**
+ * A local-model failure, thrown by providers that throw (SeoPulse). The code
+ * is kept on the run; the message is short and never carries the model's
+ * answer.
+ */
+export class LocalAiError extends Error {
+  readonly code: LocalAiFailureCode;
+  constructor(kind: OllamaFailureKind, message: string) {
+    super(message);
+    this.name = "LocalAiError";
+    this.code = localAiFailureCode(kind);
+  }
+}
 
 /**
  * The whole streamed answer: about 150 bytes of framing per token, so the
@@ -133,15 +194,15 @@ export function readChatStream(text: string, model: string): OllamaChatResult {
     try {
       chunk = JSON.parse(line);
     } catch {
-      return { ok: false, kind: "error", message: "Ollama's answer could not be read." };
+      return { ok: false, kind: "malformed", message: "Ollama's answer could not be read." };
     }
     if (chunk.error !== undefined) return { ok: false, kind: "error", message: "Ollama stopped with an error while answering." };
     const piece = chunk.message?.content;
-    if (piece !== undefined && typeof piece !== "string") return { ok: false, kind: "error", message: "Ollama's answer could not be read." };
+    if (piece !== undefined && typeof piece !== "string") return { ok: false, kind: "malformed", message: "Ollama's answer could not be read." };
     content += piece ?? "";
     last = chunk;
   }
-  if (!last || last.done !== true) return { ok: false, kind: "error", message: "Ollama's answer ended before it was complete." };
+  if (!last || last.done !== true) return { ok: false, kind: "incomplete", message: "Ollama's answer ended before it was complete." };
   return {
     ok: true,
     content,
@@ -162,23 +223,41 @@ export function modelInstalled(configured: string, installed: string[]): boolean
   });
 }
 
+export type ChatJsonResult<T> =
+  | { ok: true; value: T; model: string; inputTokens: number | null; outputTokens: number | null; attempts: number }
+  | { ok: false; kind: OllamaFailureKind; message: string };
+
 /**
  * Parses a structured answer and checks it with `accept`. On failure, asks
  * once more — telling the model what was wrong — and gives up after that.
  * Never loops, never repairs, never keeps part of a broken answer.
+ *
+ * Both attempts run holding one local-AI slot (D-127), so no other heavy
+ * local-model call starts between them, and the slot is released however
+ * the call ends. Waiting too long for the slot is `queue_timeout`.
  */
 export async function chatJson<T>(
   client: OllamaClient,
   request: { model: string; messages: OllamaChatMessage[]; schema: unknown; maxOutputTokens: number },
   accept: (raw: unknown) => T | null,
-): Promise<
-  | { ok: true; value: T; model: string; inputTokens: number | null; outputTokens: number | null; attempts: number }
-  | { ok: false; kind: "refused_address" | "unreachable" | "timeout" | "model_missing" | "error" | "malformed"; message: string }
-> {
+): Promise<ChatJsonResult<T>> {
+  try {
+    return await withLocalAiSlot(() => chatJsonHoldingSlot(client, request, accept));
+  } catch (error) {
+    if (error instanceof LocalAiQueueTimeoutError) return { ok: false, kind: "queue_timeout", message: error.message };
+    throw error;
+  }
+}
+
+async function chatJsonHoldingSlot<T>(
+  client: OllamaClient,
+  request: { model: string; messages: OllamaChatMessage[]; schema: unknown; maxOutputTokens: number },
+  accept: (raw: unknown) => T | null,
+): Promise<ChatJsonResult<T>> {
   let messages = request.messages;
   let inputTokens = 0;
   let outputTokens = 0;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= LOCAL_AI_ATTEMPTS; attempt++) {
     const answer = await client.chat({ ...request, messages });
     if (!answer.ok) return answer;
     inputTokens += answer.inputTokens ?? 0;
@@ -200,7 +279,7 @@ export async function chatJson<T>(
       }
       problem = parsedOk ? "Your answer did not match the required JSON schema." : "Your answer was not valid JSON.";
     }
-    if (attempt === 2) break;
+    if (attempt === LOCAL_AI_ATTEMPTS) break;
     messages = [
       ...request.messages,
       { role: "assistant", content: answer.content.slice(0, 4_000) },

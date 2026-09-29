@@ -21,6 +21,8 @@ import { completeQueuedResearch } from "@/lib/seo-pulse/service";
 import { processSearchQueue } from "@/lib/search/maintenance";
 import { pruneFinishedJobs, type JobHandlers, type RecurringJob } from "./runner";
 
+export { jobPolicies } from "./policies";
+
 /**
  * Every kind of background job, and how often the recurring ones run.
  *
@@ -116,3 +118,4 @@ export const RECURRING_JOBS: RecurringJob[] = [
   { kind: "maintenance.prune", everyMinutes: 60 },
   { kind: "media.sweep_unreferenced", everyMinutes: 60 },
 ];
+

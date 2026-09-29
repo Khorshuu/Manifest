@@ -131,6 +131,8 @@ export type ProviderUsage = {
   estimatedCostUsd: number | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  /** A failed provider's precise reason, when it has one (D-127: OLLAMA_UNAVAILABLE …). */
+  errorCode?: string | null;
   at: string;
 };
 
@@ -297,6 +299,12 @@ export type SeoAnalysis = GeneratedRecommendations & {
     localGrounded?: boolean;
     /** The label the interface and the export show beside every recommendation. */
     label: string;
+    /**
+     * Set when an AI generator failed and the rules generator wrote this
+     * instead (D-127): which generator failed and why. A rules fallback is
+     * never recorded as AI wording.
+     */
+    fallbackFrom?: { provider: string; code: string | null; message: string };
   };
   keywordGroups: Record<KeywordIntent, string[]>;
   slugConflict: boolean;
