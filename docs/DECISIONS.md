@@ -4355,3 +4355,24 @@ seoRunId reuse and the final write boundary; D-128 units, the candidate gate,
 warranty policy, SKUs, bulk review, At a Glance, Key Points, the language
 gate itself, claim-strength filtering and ownership. The prompt is unchanged.
 No migration.
+
+### D-129A — generic predicates left by praise removal
+
+The isolated live run (PNY, `qwen2.5:7b`, 463 s, `kind: ai`,
+`localGrounded: true`) kept "this graphics card delivers performance for 4K
+gaming …" and "a triple-fan cooling system to ensure performance and
+stability": the clause-level check let a clause through because it held a
+figure or other words. `withoutGenericPredicates` now runs on every sentence
+praise was taken out of, before the clause check. It looks for a generic verb
+of the "delivers / provides / ensures / offers" kind whose object is only
+generic nouns ("performance", "quality", "stability", "experience"), and
+removes that predicate with what depended on it: a following "for / in /
+during / to …" phrase up to the end of the clause, and the "to", "and",
+"which" or comma that joined it. When a subject came before the verb, the
+whole clause goes. Nothing is put in its place — no "built for", "ideal for"
+or "supports". A sentence left empty, under four words, or only an
+introductory phrase ("With a boost clock of 2685 MHz.") is dropped. A real
+object is never touched: "delivers 28 Gbps memory speed", "provides 100W
+output", "supports 4K at 120Hz", "offers four USB-C ports", and a measured
+"performance of 800 lumens" stay. Only sentences the praise gate changed are
+inspected.

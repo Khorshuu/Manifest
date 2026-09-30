@@ -242,6 +242,110 @@ function thinClause(text: string, context: Pick<Context, "substance">): boolean 
   return all.some((word) => GENERIC_VERB.test(word)) && content.length <= 1 && !content.some((word) => context.substance.has(word));
 }
 
+/*
+ * A generic predicate left behind by praise removal (D-129A). "delivers
+ * exceptional performance" loses "exceptional" and becomes "delivers
+ * performance": a generic verb whose object is only generic nouns. The clause
+ * around it may carry a figure or a real fact ("… memory and delivers
+ * performance for 4K gaming"), which kept the whole clause before; now the
+ * predicate itself is found and taken out, with what depended on it, and the
+ * rest of the sentence stays. Nothing is put in its place.
+ */
+const PREDICATE_VERB =
+  /^(?:deliver|provide|offer|give|bring|ensure|enable|guarantee|boast|promise|maximi[sz]e|improve|enhance|boost|elevate)(?:s|es|ed|d)?$/;
+/** Nouns that say nothing on their own, as the object of such a verb. */
+const EMPTY_OBJECT = (word: string) => GENERIC_NOUN.test(word) || /^(?:stability|efficiency|productivity|possibilities)$/.test(word);
+const DETERMINER = new Set(["a", "an", "the", "its", "their", "your", "our", "this", "that", "more"]);
+/** Words after which the rest of the clause only said what the predicate was for. */
+const COMPLEMENT_START = new Set(["for", "in", "during", "across", "when", "while", "with", "at", "on", "under", "to", "from", "throughout"]);
+const INTRO_ONLY = /^\W*(?:with|for|thanks to|featuring|from|at|in|by|through|using)\b/i;
+
+function predicateVerb(word: string): boolean {
+  // "delivering", "providing", "ensuring": the -ing form of a verb ending in e drops it.
+  return PREDICATE_VERB.test(word) || (/ing$/.test(word) && (PREDICATE_VERB.test(word.slice(0, -3)) || PREDICATE_VERB.test(`${word.slice(0, -3)}e`)));
+}
+
+type Token = { text: string; lower: string; start: number; end: number };
+
+/** The span of the first generic predicate in the tokens, with what depends on it; null when there is none. */
+function genericPredicateSpan(tokens: Token[]): { from: number; to: number } | null {
+  for (let verb = 0; verb < tokens.length; verb++) {
+    if (!predicateVerb(tokens[verb].lower)) continue;
+    // The object: optional determiners, then only generic nouns joined by "and" or commas.
+    const skipDeterminers = (index: number) => {
+      while (index < tokens.length && DETERMINER.has(tokens[index].lower)) index++;
+      return index;
+    };
+    let at = skipDeterminers(verb + 1);
+    let last = -1;
+    while (at < tokens.length && EMPTY_OBJECT(tokens[at].lower)) {
+      last = at;
+      const joiner = tokens[at + 1]?.lower;
+      at = joiner === "and" || joiner === "," ? skipDeterminers(at + 2) : at + 1;
+    }
+    if (last === -1) continue;
+    // "performance of 2685 MHz" is a measured quantity, not an empty claim.
+    const after = tokens[last + 1];
+    if (after?.lower === "of" && /\p{N}/u.test(tokens[last + 2]?.text ?? "")) continue;
+    // What the predicate was for goes with it, to the end of the clause.
+    let to = last;
+    if (after && COMPLEMENT_START.has(after.lower)) {
+      to = last + 1;
+      while (to + 1 < tokens.length && tokens[to + 1].lower !== "," && tokens[to + 1].lower !== ";") to++;
+    }
+    // Where it starts depends on what comes before the verb.
+    const before = tokens[verb - 1]?.lower;
+    let from: number;
+    if (before === "to") {
+      from = verb - 1;
+      if (tokens[from - 1] && /^(?:help|helps|helping|order)$/.test(tokens[from - 1].lower)) from -= tokens[from - 2]?.lower === "in" ? 2 : 1;
+    } else if (before === "and" || before === "or" || before === "which" || before === "that") {
+      from = verb - 1;
+    } else if (before === "," || before === ";") {
+      from = verb - 1;
+    } else {
+      // A subject before it: the whole clause goes ("…, this card delivers performance for …").
+      from = verb;
+      while (from > 0 && tokens[from - 1].lower !== "," && tokens[from - 1].lower !== ";") from--;
+    }
+    if (from > 0 && tokens[from - 1].lower === ",") from--;
+    return { from, to };
+  }
+  return null;
+}
+
+/**
+ * A sentence praise was taken out of, without the generic predicates that
+ * praise leaves behind: "The card uses 12GB GDDR7 memory and delivers
+ * performance." → "The card uses 12GB GDDR7 memory."; "… cooling system to
+ * ensure performance and stability." → "… cooling system.". Null when what is
+ * left is not a sentence — empty, too short, or only an introductory phrase
+ * ("With a boost clock of 2685 MHz.") — so the sentence is dropped.
+ */
+export function withoutGenericPredicates(sentence: string): string | null {
+  let text = sentence;
+  for (let guard = 0; guard < 4; guard++) {
+    const tokens: Token[] = [...text.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’.-]*[\p{L}\p{N}]|[\p{L}\p{N}]|[,;]/gu)].map((match) => ({
+      text: match[0],
+      lower: match[0].toLowerCase(),
+      start: match.index!,
+      end: match.index! + match[0].length,
+    }));
+    const span = genericPredicateSpan(tokens);
+    if (!span) break;
+    const end = /([.!?])["”)]?\s*$/.exec(text)?.[1] ?? ".";
+    let out = (text.slice(0, tokens[span.from].start) + text.slice(tokens[span.to].end)).replace(/\s+([,;.!?])/g, "$1").replace(/\s{2,}/g, " ").trim();
+    out = out.replace(/^[\s,;]+/, "").replace(/[\s,;]+(?=[.!?]?$)/, "");
+    if (!/[.!?]["”)]?$/.test(out)) out = out.replace(/[.!?]*$/, "") + end;
+    if (out && /^\p{Ll}/u.test(out) && /^\p{Lu}/u.test(text.trim())) out = out.charAt(0).toUpperCase() + out.slice(1);
+    text = out;
+  }
+  const words = plain(text).split(/\s+/).filter(Boolean);
+  if (words.length < 4 || thinSentence(plain(text))) return null;
+  if (INTRO_ONLY.test(plain(text)) && !/[,;]/.test(plain(text))) return null;
+  return text;
+}
+
 const CLAUSE_BREAK = /(,\s+|;\s+|\s+(?:and|while|but|whereas)\s+)/i;
 
 /**
@@ -328,7 +432,8 @@ function gateDescription(html: string, context: Context, repaired: string[]): st
       }
       dropped.push(problem);
       const mended = withoutPraise(sentence, context);
-      const mendedKept = mended ? withoutThinClauses(sentence, mended, context) : null;
+      const residueFree = mended ? withoutGenericPredicates(mended) : null;
+      const mendedKept = residueFree ? withoutThinClauses(sentence, residueFree, context) : null;
       if (mended && !mendedKept) dropped.push("a sentence with nothing to say once the praise was taken out");
       return mendedKept ? [mendedKept] : [];
     });

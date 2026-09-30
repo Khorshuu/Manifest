@@ -801,3 +801,10 @@ untracked): real SearXNG discovery and one bounded research run per product
 through the normal pipeline with a recording document reader, and one real
 SeoPulse generation with `qwen2.5:7b` (PROGRESS.md, D-129).
 
+D-129A adds to `tests/seo-content-polish.test.ts`: "delivers performance" not
+left behind; the factual clause kept beside it; a cooling system kept without
+"to ensure performance and stability"; a figure elsewhere in the clause does
+not exempt the predicate; real objects ("28 Gbps memory speed", "100W
+output", "4K at 120Hz", "four USB-C ports", "a performance of 800 lumens")
+untouched; no replacement relationship written; a sentence left meaningless
+dropped.

@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { EMPTY_GROUNDED, type GroundedKnowledge } from "@/lib/pkb/publish";
 import { contentPlan, factMetaSentence, openingSentence, sentenceFacts } from "@/lib/seo-pulse/content-plan";
-import { applyQualityGate, sentenceProblem, thinSentence } from "@/lib/seo-pulse/quality";
+import { applyQualityGate, sentenceProblem, thinSentence, withoutGenericPredicates } from "@/lib/seo-pulse/quality";
 import { generateByRules } from "@/lib/seo-pulse/rules";
 import { sanitizeGenerated } from "@/lib/seo-pulse/sanitize";
 import { sentences } from "@/lib/seo-pulse/text";
@@ -452,5 +452,74 @@ describe("English-only research, as real search results showed it (D-129)", () =
     expect(urlLanguagePreference("https://www.maker.test/ca-fr/gaming-mice/model-v3")).toBe(-1);
     expect(urlLanguagePreference("https://www.maker.test/pt-br/produto/model-v3")).toBe(-1);
     expect(urlLanguagePreference("https://www.shop.test/produkt/model-v3")).toBe(0);
+  });
+});
+
+// ------------------------- 6. generic predicates left by praise removal (D-129A)
+
+describe("generic predicates praise removal leaves behind (D-129A)", () => {
+  const opening = `<p>The ${TITLE} has 12GB GDDR7 memory.</p>`;
+  const gatedText = (paragraph: string) => gate(graphics(), describeHtml(`${opening}<p>${paragraph}</p>`)).generated.description.suggestedHtml ?? "";
+
+  it("does not leave \"delivers performance\" once the praise is out", () => {
+    const text = gatedText("It delivers exceptional performance. It connects over PCIe 5.0.");
+    expect(text).not.toMatch(/delivers performance|delivers/);
+    expect(text).toContain("It connects over PCIe 5.0.");
+  });
+
+  it("keeps the factual clause next to it", () => {
+    expect(gatedText("The card uses 12GB GDDR7 memory and delivers exceptional performance.")).toContain("<p>The card uses 12GB GDDR7 memory.</p>");
+  });
+
+  it("keeps the cooling, not the purpose it was praised for", () => {
+    const text = gatedText("It has 6,144 shader cores and a triple-fan cooling system to ensure optimal performance and stability.");
+    expect(text).toContain("It has 6,144 shader cores and a triple-fan cooling system.");
+    expect(text).not.toMatch(/ensure|performance|stability/);
+  });
+
+  it("is not exempted by a figure elsewhere in the clause", () => {
+    expect(gatedText("The card uses 12GB GDDR7 memory and delivers exceptional performance for 4K gaming.")).toContain("<p>The card uses 12GB GDDR7 memory.</p>");
+    // The live sentence: only an introductory phrase would be left, so it goes.
+    const text = gatedText(
+      "With a boost clock of 2685 MHz, this graphics card delivers exceptional performance for 4K gaming and demanding applications. It connects over PCIe 5.0.",
+    );
+    expect(text).not.toMatch(/delivers|4K gaming|With a boost clock/);
+    expect(text).toContain("It connects over PCIe 5.0.");
+  });
+
+  it("leaves a verb with a real object alone", () => {
+    for (const sentence of [
+      "The memory delivers 28 Gbps memory speed.",
+      "The charger provides 100W output over USB-C.",
+      "It supports 4K at 120Hz over HDMI 2.1.",
+      "It offers four USB-C ports.",
+      "It includes three fans and uses 12GB GDDR7 memory.",
+      "The lamp provides a performance of 800 lumens.",
+    ]) {
+      expect(withoutGenericPredicates(sentence)).toBe(sentence);
+    }
+    // Through the gate, praise out and the real object kept.
+    expect(gatedText("It delivers an impressive 28 Gbps memory speed.")).toContain("It delivers a 28 Gbps memory speed.");
+  });
+
+  it("puts nothing in the predicate's place", () => {
+    const inputs = [
+      "The card uses 12GB GDDR7 memory and delivers exceptional performance for 4K gaming.",
+      "It offers four USB-C ports, providing premium quality for everyday use.",
+      "It has 6,144 shader cores and a triple-fan cooling system to ensure optimal performance and stability.",
+    ];
+    for (const paragraph of inputs) {
+      const text = gatedText(paragraph);
+      expect(text).not.toMatch(/built for|ideal for|designed for|suitable for|supports|is made for/i);
+    }
+    expect(withoutGenericPredicates("It offers four USB-C ports, providing quality for everyday use.")).toBe("It offers four USB-C ports.");
+  });
+
+  it("drops a sentence left meaningless", () => {
+    expect(withoutGenericPredicates("It delivers performance.")).toBeNull();
+    expect(withoutGenericPredicates("This card delivers performance and quality for gamers.")).toBeNull();
+    expect(withoutGenericPredicates("With a boost clock of 2685 MHz, this graphics card delivers performance for 4K gaming.")).toBeNull();
+    const gated = gate(graphics(), describeHtml(`${opening}<p>This card delivers exceptional performance and quality for gamers.</p>`));
+    expect(gated.generated.description.suggestedHtml).toBe(opening);
   });
 });
