@@ -807,4 +807,8 @@ left behind; the factual clause kept beside it; a cooling system kept without
 not exempt the predicate; real objects ("28 Gbps memory speed", "100W
 output", "4K at 120Hz", "four USB-C ports", "a performance of 800 lumens")
 untouched; no replacement relationship written; a sentence left meaningless
-dropped.
+dropped. The same for sentences with no praise at all ("delivers performance
+for 4K gaming", "a cooler that ensures stability", "It provides quality."),
+real objects and sentences without such a predicate kept byte for byte, "ensures
+stability" kept when a fact states it, and an opening removed this way given
+the plain opening.

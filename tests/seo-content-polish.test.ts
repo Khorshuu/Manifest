@@ -523,3 +523,35 @@ describe("generic predicates praise removal leaves behind (D-129A)", () => {
     expect(gated.generated.description.suggestedHtml).toBe(opening);
   });
 });
+
+describe("generic predicates in any generated sentence, praised or not (D-129A)", () => {
+  const opening = `<p>The ${TITLE} has 12GB GDDR7 memory.</p>`;
+  const gatedText = (paragraph: string, base = graphics()) =>
+    gate(base, describeHtml(`${opening}<p>${paragraph}</p>`)).generated.description.suggestedHtml ?? "";
+
+  it("removes one the model wrote without any praise", () => {
+    expect(gatedText("The card uses 12GB GDDR7 memory and delivers performance for 4K gaming.")).toContain("<p>The card uses 12GB GDDR7 memory.</p>");
+    expect(gatedText("It has a triple-fan cooler that ensures stability.")).toContain("<p>It has a triple-fan cooler.</p>");
+    const text = gatedText("It provides quality. It connects over PCIe 5.0.");
+    expect(text).not.toMatch(/provides quality/);
+    expect(text).toContain("It connects over PCIe 5.0.");
+  });
+
+  it("keeps real objects in unpraised sentences, and a sentence with no such predicate byte for byte", () => {
+    const kept = "The memory delivers 28 Gbps memory speed. The card provides 100W output to its fans. It offers four USB-C ports. It supports 4K at 120Hz. The lamp provides a performance of 800 lumens.";
+    expect(gatedText(kept)).toContain(`<p>${kept}</p>`);
+    expect(withoutGenericPredicates("It is compact.")).toBe("It is compact.");
+  });
+
+  it("keeps \"ensures stability\" when an established fact says so", () => {
+    const braced = graphics({ knowledge: knowledge([...CARD_FACTS, { label: "Support bracket", value: "Anti-sag bracket for stability" }], { family: CARD_FAMILY }) });
+    expect(gatedText("The included bracket ensures stability.", braced)).toContain("The included bracket ensures stability.");
+    expect(gatedText("The included bracket ensures stability.")).not.toContain("ensures stability");
+  });
+
+  it("gives an opening removed this way the plain opening instead", () => {
+    const text = gate(graphics(), describeHtml(`<p>The ${TITLE} delivers performance for 4K gaming. It connects over PCIe 5.0.</p>`)).generated.description.suggestedHtml ?? "";
+    expect(text.startsWith(`<p>${TITLE} has `)).toBe(true);
+    expect(text).not.toMatch(/delivers performance/);
+  });
+});

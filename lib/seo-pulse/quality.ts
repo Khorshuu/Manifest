@@ -71,6 +71,8 @@ type Context = {
   brand: string;
   /** Words of the established facts and of the product's brand and model: what a clause needs one of to say something. */
   substance: Set<string>;
+  /** Words of the established facts' values: an object made of them states a fact ("ensures stability" when a fact says so). */
+  factValueWords: Set<string>;
 };
 
 function contextFor(input: SeoPulseInput): Context {
@@ -95,7 +97,8 @@ function contextFor(input: SeoPulseInput): Context {
       .split(" ")
       .filter((word) => word.length >= 3),
   );
-  return { plan, factText, names, manualWarranty: Boolean(input.warranty?.hasWarranty), brand, substance };
+  const factValueWords = new Set(labelKey(plan.facts.map((row) => row.value).join(" ")).split(" ").filter((word) => word.length >= 3));
+  return { plan, factText, names, manualWarranty: Boolean(input.warranty?.hasWarranty), brand, substance, factValueWords };
 }
 
 /** The first evaluative word in the text that the established facts do not use themselves, or null. */
@@ -268,7 +271,7 @@ function predicateVerb(word: string): boolean {
 type Token = { text: string; lower: string; start: number; end: number };
 
 /** The span of the first generic predicate in the tokens, with what depends on it; null when there is none. */
-function genericPredicateSpan(tokens: Token[]): { from: number; to: number } | null {
+function genericPredicateSpan(tokens: Token[], established: Set<string>): { from: number; to: number } | null {
   for (let verb = 0; verb < tokens.length; verb++) {
     if (!predicateVerb(tokens[verb].lower)) continue;
     // The object: optional determiners, then only generic nouns joined by "and" or commas.
@@ -284,6 +287,8 @@ function genericPredicateSpan(tokens: Token[]): { from: number; to: number } | n
       at = joiner === "and" || joiner === "," ? skipDeterminers(at + 2) : at + 1;
     }
     if (last === -1) continue;
+    // An object the established facts themselves state is a fact, not an empty claim.
+    if (tokens.slice(verb + 1, last + 1).some((token) => established.has(token.lower))) continue;
     // "performance of 2685 MHz" is a measured quantity, not an empty claim.
     const after = tokens[last + 1];
     if (after?.lower === "of" && /\p{N}/u.test(tokens[last + 2]?.text ?? "")) continue;
@@ -322,8 +327,9 @@ function genericPredicateSpan(tokens: Token[]): { from: number; to: number } | n
  * left is not a sentence — empty, too short, or only an introductory phrase
  * ("With a boost clock of 2685 MHz.") — so the sentence is dropped.
  */
-export function withoutGenericPredicates(sentence: string): string | null {
+export function withoutGenericPredicates(sentence: string, established: Set<string> = new Set()): string | null {
   let text = sentence;
+  let removed = false;
   for (let guard = 0; guard < 4; guard++) {
     const tokens: Token[] = [...text.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’.-]*[\p{L}\p{N}]|[\p{L}\p{N}]|[,;]/gu)].map((match) => ({
       text: match[0],
@@ -331,8 +337,9 @@ export function withoutGenericPredicates(sentence: string): string | null {
       start: match.index!,
       end: match.index! + match[0].length,
     }));
-    const span = genericPredicateSpan(tokens);
+    const span = genericPredicateSpan(tokens, established);
     if (!span) break;
+    removed = true;
     const end = /([.!?])["”)]?\s*$/.exec(text)?.[1] ?? ".";
     let out = (text.slice(0, tokens[span.from].start) + text.slice(tokens[span.to].end)).replace(/\s+([,;.!?])/g, "$1").replace(/\s{2,}/g, " ").trim();
     out = out.replace(/^[\s,;]+/, "").replace(/[\s,;]+(?=[.!?]?$)/, "");
@@ -340,6 +347,8 @@ export function withoutGenericPredicates(sentence: string): string | null {
     if (out && /^\p{Ll}/u.test(out) && /^\p{Lu}/u.test(text.trim())) out = out.charAt(0).toUpperCase() + out.slice(1);
     text = out;
   }
+  // A sentence with no such predicate is returned exactly as it was.
+  if (!removed) return sentence;
   const words = plain(text).split(/\s+/).filter(Boolean);
   if (words.length < 4 || thinSentence(plain(text))) return null;
   if (INTRO_ONLY.test(plain(text)) && !/[,;]/.test(plain(text))) return null;
@@ -428,11 +437,14 @@ function gateDescription(html: string, context: Context, repaired: string[]): st
           dropped.push("a sentence with nothing to say");
           return [];
         }
-        return [sentence];
+        // A generic predicate the model wrote without any praise ("delivers performance for …") goes too (D-129A).
+        const cleaned = withoutGenericPredicates(sentence, context.factValueWords);
+        if (cleaned !== sentence) dropped.push("a generic phrase with nothing to say");
+        return cleaned ? [cleaned] : [];
       }
       dropped.push(problem);
       const mended = withoutPraise(sentence, context);
-      const residueFree = mended ? withoutGenericPredicates(mended) : null;
+      const residueFree = mended ? withoutGenericPredicates(mended, context.factValueWords) : null;
       const mendedKept = residueFree ? withoutThinClauses(sentence, residueFree, context) : null;
       if (mended && !mendedKept) dropped.push("a sentence with nothing to say once the praise was taken out");
       return mendedKept ? [mendedKept] : [];
