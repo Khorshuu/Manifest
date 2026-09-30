@@ -758,3 +758,46 @@ produced): "Experience the power of …" openers, "high-performance" and
 degree words ("a more immersive"), prepositions ("Perfect for …"), "most …"
 and too-short results; any "Label: value" key point rewritten, including a
 label the facts do not use.
+
+## SeoPulse content polish and live English-only checks (D-129)
+
+Invented products from unrelated families (a graphics card, hiking boots, a
+perfume, a dining table, olive oil, earbuds, a floor lamp). The title-fit
+source is checked to name none of them.
+
+- `tests/seo-content-polish.test.ts` (pure) — SEO titles: a long name fits
+  the 49-character aim (60 at most), whole words only, "12 GB" kept together,
+  no dangling "for"/"with", the product type kept whole ("Graphics Card", not
+  "Graphics"), brand, model codes and variant values kept, praise, repeats and
+  asides removed first, the site's name removed once whatever the separator,
+  two variants (size 10/11, 12GB/16GB) kept apart, a short name unchanged, and
+  the same function used by the rules title, `sanitizeGenerated` and the
+  quality gate. Opening: a safe opening unchanged, a praised one repaired, an
+  unrepairable one replaced by "<name> has <fact> and <fact>.", the product
+  named in the first sentence, no praise, warranty or unestablished figure in
+  the opening, "This is the <name>." when no fact reads well, and the full name
+  not repeated afterwards. Thin sentences: a factual clause kept when its
+  neighbour loses its praise, empty sentences dropped (with or without praise
+  to begin with), short plain sentences and unusual factual wording kept. Rules
+  meta: one sentence, not a list, the highest-ranked facts, fewer when fewer
+  fit, no company label, measurement, count or raw data key (found live),
+  "for <use>" only when stated, plural verb for a plural name, a clean
+  ending within 50–160 characters, no praise, sales call or warranty, used in
+  English when a model's (filler and German) meta is refused, and withheld
+  when no fact reads well. Live-found: `/gb-en/` and `/sg-en/` rank as English,
+  `/pl-pl/`, `/ca-fr/` and `/pt-br/` do not.
+- `tests/local-pipeline.test.ts` (database, fake Ollama) — through Prepare with
+  SeoPulse: an unrepairable opening and an empty praised clause become a named
+  opening and the factual clause, and a refused meta becomes the one-sentence
+  rules meta; a staff-owned and a locked meta description are each left byte
+  for byte when the model's meta is refused.
+
+Changed: `tests/source-grounded-extraction.test.ts` expected the old rules
+meta ("… inside out." — the manufacturer's statements run together); it now
+expects the one-sentence form.
+
+Live, not automated (scratch scripts and logs in `.scratch-acceptance/d129-*`,
+untracked): real SearXNG discovery and one bounded research run per product
+through the normal pipeline with a recording document reader, and one real
+SeoPulse generation with `qwen2.5:7b` (PROGRESS.md, D-129).
+

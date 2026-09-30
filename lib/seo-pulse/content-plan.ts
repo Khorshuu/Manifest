@@ -171,6 +171,114 @@ export function keyPointFromFact(label: string, rawValue: string): string | null
   return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
+/**
+ * One established fact as words inside a sentence (D-129): the Key Point
+ * wording, with the fact's own case kept ("12GB GDDR7 memory", "wireless
+ * charging"), not capitalised as a line of its own.
+ */
+export function inlineFact(label: string, rawValue: string): string | null {
+  const point = keyPointFromFact(label, rawValue);
+  if (!point) return null;
+  const value = collapseRepeatedUnits(rawValue.trim());
+  const yes = /^(yes|included|supported|available|true)$/i.test(value);
+  const source = yes ? inSentence(label.trim()) : value;
+  const first = source.split(/\s+/)[0] ?? "";
+  // "Wireless charging: Yes" reads "wireless charging"; a value's own capital ("Blackwell") stays.
+  const lower = yes ? /^\p{Lu}\p{Ll}+$/u.test(first) : /^\p{Ll}/u.test(source);
+  return lower ? point.charAt(0).toLowerCase() + point.slice(1) : point;
+}
+
+/** A label naming who makes a part, not a property of the product. */
+const COMPANY_LABEL = /\b(?:manufacturer|maker|brand|vendor|supplier|made by)$/i;
+
+/** Weights and counts: measurements, like dimensions. */
+const MEASURE_LABEL = /\b(weight|mass|count|quantity|pieces|pack size)\b/i;
+
+/** "a", "a and b", "a, b and c". */
+function spokenList(items: string[]): string {
+  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+/**
+ * Whether a product name reads as plural ("… Earbuds", "… Headphones"), so a
+ * sentence about it takes "have", not "has". From the name's last word only.
+ */
+function pluralName(name: string): boolean {
+  const last = name.match(/\p{L}+(?=[^\p{L}]*$)/u)?.[0] ?? "";
+  return last.length > 3 && /s$/i.test(last) && !/(?:ss|us|is)$/i.test(last);
+}
+
+/**
+ * The few facts a sentence about the product can carry (D-129): the plan's
+ * own ranking, figures and codes first because they read most plainly inside
+ * a sentence, and never a fact the name already says, a list, or a long value.
+ */
+export function sentenceFacts(plan: Pick<ContentPlan, "facts" | "exactName">, max: number): string[] {
+  const nameWords = new Set(labelKey(plan.exactName).split(" "));
+  const candidates: { text: string; index: number; figure: number }[] = [];
+  plan.facts.forEach((row, index) => {
+    if (row.value.length > 40 || /[,;:.](?:\s|$)/.test(row.value) || INSTRUCTIONS.test(row.label)) return;
+    // "Chipset manufacturer: NVIDIA" names a company, not something the product has (found live, D-129).
+    if (COMPANY_LABEL.test(row.label.trim())) return;
+    // Sizes, weights and counts are for scanning (At a Glance), not what a product has; a raw key ("milliamp_hours") is not English.
+    if (DIMENSION.test(row.label) || MEASURE_LABEL.test(row.label) || /\p{L}_\p{L}/u.test(row.value)) return;
+    if (labelKey(row.value).split(" ").every((word) => nameWords.has(word))) return;
+    const text = inlineFact(row.label, row.value);
+    if (!text || text.split(/\s+/).length > 6) return;
+    candidates.push({ text, index, figure: /\p{N}|\p{Lu}{2,}/u.test(row.value) ? 0 : 1 });
+  });
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of candidates.sort((a, b) => a.figure - b.figure || a.index - b.index)) {
+    const key = labelKey(entry.text);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(entry.text);
+  }
+  return out.slice(0, max);
+}
+
+/**
+ * A short, plain opening that names the product (D-129), used when the
+ * generated opening could not be kept and nothing near the start of the
+ * description still says which product it is: "<name> has <fact> and
+ * <fact>.", or only "This is the <name>." when no fact reads well in a
+ * sentence. Deterministic; nothing is added that the facts do not say.
+ */
+export function openingSentence(plan: Pick<ContentPlan, "facts" | "exactName">): string {
+  const name = plan.exactName.trim();
+  if (!name) return "";
+  const facts = sentenceFacts(plan, 2);
+  return facts.length ? `${name} ${pluralName(name) ? "have" : "has"} ${spokenList(facts)}.` : `This is the ${name}.`;
+}
+
+/**
+ * A meta description as one sentence from established facts (D-129): "<name>
+ * features <fact>, <fact> and <fact>." — at most three, fewer when that is all
+ * that fits in `max` — and "for <use>" only when the listing states a use.
+ * Empty when no fact reads well in a sentence: no snippet is better than
+ * filler.
+ */
+export function factMetaSentence(
+  plan: Pick<ContentPlan, "facts" | "exactName">,
+  options: { name?: string; use?: string | null; extra?: string[]; max?: number } = {},
+): string {
+  const name = (options.name ?? plan.exactName).trim();
+  const max = options.max ?? 155;
+  const established = sentenceFacts(plan, 3);
+  const facts = established.length ? established : (options.extra ?? []).slice(0, 3);
+  if (!name || facts.length === 0) return "";
+  const verb = pluralName(name) ? "feature" : "features";
+  const use = options.use?.trim();
+  for (let count = facts.length; count >= 1; count -= 1) {
+    for (const withUse of use ? [true, false] : [false]) {
+      const sentence = `${name} ${verb} ${spokenList(facts.slice(0, count))}${withUse ? ` for ${use}` : ""}.`;
+      if (sentence.length <= max) return sentence;
+    }
+  }
+  return "";
+}
+
 /** "Memory: 12GB GDDR7" — a line that is only a label and its value. */
 export function labelValueLine(line: string): FactRow | null {
   const match = /^\s*([^:：]{1,40})[:：]\s*(.+?)\s*$/.exec(line);

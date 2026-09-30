@@ -5,7 +5,11 @@ import type {
   SeoResearchData,
 } from "./types";
 import { knowledgeSufficiency, measurementRows, specificationRows } from "./facts";
-import { keyPointFromFact } from "./content-plan";
+import { factMetaSentence, keyPointFromFact, prioritizedFacts } from "./content-plan";
+import { EVALUATIVE_PATTERN } from "./claim-words";
+import { textLanguage } from "@/lib/pkb/language";
+import { mentionsWarranty } from "@/lib/pkb/warranty-policy";
+import { fitSeoTitle, SITE_TITLE_SUFFIX, titleIdentity } from "./title-fit";
 import { isIdentityLabel, isIdentityLine, isStrongModelKey, variantDescriptor } from "@/lib/pkb/identity-labels";
 import { isGenericAlt } from "@/lib/seo/readiness";
 import {
@@ -30,7 +34,7 @@ import {
  */
 
 /** The site's name is appended by the layout: " · Manifest". */
-const TITLE_SUFFIX_LENGTH = " · Manifest".length;
+const TITLE_SUFFIX_LENGTH = SITE_TITLE_SUFFIX.length;
 const TITLE_BODY_MAX = 60 - TITLE_SUFFIX_LENGTH;
 
 /** What the product is: the name up to its first comma, bracket or dash. */
@@ -338,7 +342,8 @@ export function generateByRules(
   // --------------------------------------------------------------- titles
 
   const displayName = brand && !containsWords(model, brand) ? `${brand} ${model}` : core;
-  const fitted = clampText(displayName, TITLE_BODY_MAX);
+  // Least useful words out first, never a cut word or phrase (D-129).
+  const fitted = fitSeoTitle(displayName, titleIdentity(input), { target: TITLE_BODY_MAX });
 
   // ---------------------------------------------------------- description
 
@@ -430,22 +435,23 @@ export function generateByRules(
    * The meta description, from established facts only, and none without them
    * (D-123): a snippet made of the shop's delivery terms describes the shop.
    */
-  // Whole statements only, as many as fit: a snippet cut mid-sentence says
-  // something the manufacturer did not.
-  const snippetLead = firstFact ? `${displayName} – ${firstFact}` : displayName;
-  const snippetFacts = features
-    .map((line) => line.replace(/[.\s]+$/, ""))
-    // The fact the lead already states is not listed again, however it is phrased.
-    .filter((line) => !firstFact || !line.includes(firstFact));
-  let meta = "";
-  if (sufficient && snippetFacts.length > 0) {
-    const taken: string[] = [];
-    for (const line of snippetFacts) {
-      if (`${snippetLead}: ${[...taken, line].join("; ")}.`.length > 155) break;
-      taken.push(line);
-    }
-    meta = taken.length > 0 ? `${snippetLead}: ${taken.join("; ")}.` : clampText(`${snippetLead}: ${snippetFacts[0]}`, 155);
-  }
+  /*
+   * One sentence, not a list (D-129): "<name> features 12GB GDDR7 memory,
+   * 2685 MHz boost clock and PCIe 5.0 interface." — the content plan's
+   * highest-ranked facts that read well inside a sentence, at most three, and
+   * "for <use>" only when the listing states one. Staff's own short feature
+   * lines stand in when no fact does. Nothing that reads well → no snippet.
+   */
+  const staffLines = staffFeatures
+    .map((line) => line.trim().replace(/[.\s]+$/, ""))
+    .filter((line) => line.length <= 40 && !/[,;:]/.test(line) && line.split(/\s+/).length <= 6 && !mentionsWarranty(line) && textLanguage(line, [input.title]).nonLatin <= 0.3)
+    .map((line) => (/^\p{Lu}\p{Ll}+\b/u.test(line) ? line.charAt(0).toLowerCase() + line.slice(1) : line));
+  const meta = sufficient
+    ? factMetaSentence(
+        { facts: prioritizedFacts(input), exactName: displayName },
+        { use: use && !mentionsWarranty(use) && !use.match(EVALUATIVE_PATTERN) ? use.toLowerCase() : null, extra: staffLines, max: 155 },
+      )
+    : "";
 
   const escape = (value: string) =>
     value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

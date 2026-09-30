@@ -6,6 +6,7 @@ import {
   type SeoPulseInput,
 } from "./types";
 import { clampText, cleanTerms, dedupeBy, fitMetaDescription, keywordKey, normalizeKeyword, suggestSlug } from "./text";
+import { fitSeoTitle, titleIdentity } from "./title-fit";
 
 /**
  * Turns whatever a generator returned into something safe to store.
@@ -112,10 +113,11 @@ export function sanitizeGenerated(
     ).slice(0, 10),
     searchPhrases: cleanTerms(arr(source.searchPhrases).map(str), 10),
     brandVariations: cleanTerms(arr(source.brandVariations).map(str), 8),
+    // Fitted by meaning, not cut at a character count (D-129): "… 12GB GDDR7 Graphics" was a 70-character cut.
     seoTitle: {
-      recommended: clampText(str(title.recommended), 70),
+      recommended: fitSeoTitle(str(title.recommended), titleIdentity(input)),
       alternatives: dedupeBy(
-        arr(title.alternatives).map((value) => clampText(str(value), 70)).filter(Boolean),
+        arr(title.alternatives).map((value) => fitSeoTitle(str(value), titleIdentity(input))).filter(Boolean),
         (value) => value.toLowerCase(),
       ).slice(0, 3),
       reason: clampText(str(title.reason), 300) || "Suggested by SEO Pulse analysis.",

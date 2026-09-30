@@ -3,9 +3,11 @@ import { textLanguage } from "@/lib/pkb/language";
 import { stripDecoration } from "@/lib/pkb/candidate-quality";
 import { collapseRepeatedUnits } from "@/lib/pkb/unit-text";
 import { mentionsWarranty } from "@/lib/pkb/warranty-policy";
-import { contentPlan, keyPointFromFact, labelValueLine, type ContentPlan } from "./content-plan";
+import { EVALUATIVE_PATTERN } from "./claim-words";
+import { contentPlan, keyPointFromFact, labelValueLine, openingSentence, type ContentPlan } from "./content-plan";
 import { sanitizeDescriptionHtml } from "./sanitize";
-import { fitMetaDescription, sentences } from "./text";
+import { escapeHtml, fitMetaDescription, sentences } from "./text";
+import { fitSeoTitle, titleIdentity } from "./title-fit";
 
 export { fitMetaDescription };
 import type { GeneratedRecommendations, SeoPulseInput } from "./types";
@@ -59,28 +61,6 @@ const SALES_FILLER = [
   /^\W*(?:experience|discover|unlock|feel)\s+(?:the|a|an|true|real|what|how|all|every|new|next)\b/i,
 ];
 
-/**
- * Words that judge rather than state. Each is allowed only where the product's
- * established facts use it themselves: "lightweight" is fine for a product
- * whose facts say "Lightweight design", and withheld for one that only has a
- * weight.
- */
-const EVALUATIVE = [
-  "amazing", "exceptional", "outstanding", "incredible", "incredibly", "remarkable", "remarkably", "revolutionary",
-  "unmatched", "unparalleled", "unbeatable", "unrivaled", "unrivalled", "superior", "superb", "stunning", "impressive",
-  "exquisite", "flawless", "perfect", "perfectly", "ultimate", "premium", "luxurious", "luxury", "world-class",
-  "best-in-class", "best", "finest", "top-notch", "cutting-edge", "state-of-the-art", "game-changing", "powerful",
-  "lightweight", "portable", "comfortable", "comfort", "precise", "precision", "accurate", "accuracy", "responsive",
-  "versatile", "convenient", "durable", "long-lasting", "robust", "sturdy", "reliable", "effortless",
-  "effortlessly", "seamless", "seamlessly", "immersive", "crystal-clear", "crisp", "rich", "vibrant", "smooth",
-  "ultra-smooth", "blazing", "lightning-fast", "fast", "faster", "fastest", "quiet", "sleek", "stylish", "elegant",
-  "beautiful", "gorgeous", "innovative", "advanced", "enhanced", "optimal", "ideal", "exclusive", "unique",
-  "clear sound", "high-quality", "high quality", "top quality", "professional-grade", "pro-level",
-  "high-performance", "high-end", "top-tier", "next-level", "next-gen", "flagship",
-];
-// "smooth" also catches "smoothly": the adverb makes the same claim.
-const EVALUATIVE_PATTERN = new RegExp(`\\b(?:(?:${EVALUATIVE.map((word) => word.replace(/[-\s]/g, "[-\\s]?")).join("|")})(?:ly)?|ultra-\\w+|super-\\w+|most \\w+|least \\w+)\\b`, "gi");
-
 type Context = {
   plan: ContentPlan;
   /** Everything established, lower-cased, that an evaluative word may be found in. */
@@ -88,6 +68,9 @@ type Context = {
   /** Names that are not evidence of a language: brand, model, title words. */
   names: string[];
   manualWarranty: boolean;
+  brand: string;
+  /** Words of the established facts and of the product's brand and model: what a clause needs one of to say something. */
+  substance: Set<string>;
 };
 
 function contextFor(input: SeoPulseInput): Context {
@@ -106,7 +89,13 @@ function contextFor(input: SeoPulseInput): Context {
     .join(" \n ")
     .toLowerCase();
   const names = [input.title, input.brand ?? "", input.knowledge?.brand ?? "", input.knowledge?.modelName ?? "", ...plan.shortNames].filter(Boolean);
-  return { plan, factText, names, manualWarranty: Boolean(input.warranty?.hasWarranty) };
+  const brand = (input.knowledge?.brand ?? input.brand ?? "").trim();
+  const substance = new Set(
+    labelKey([...plan.facts.flatMap((row) => [row.label, row.value]), brand, input.knowledge?.modelName ?? "", input.details?.modelName ?? ""].join(" "))
+      .split(" ")
+      .filter((word) => word.length >= 3),
+  );
+  return { plan, factText, names, manualWarranty: Boolean(input.warranty?.hasWarranty), brand, substance };
 }
 
 /** The first evaluative word in the text that the established facts do not use themselves, or null. */
@@ -206,6 +195,114 @@ export function wellFormed(html: string): boolean {
   return stack.length === 0;
 }
 
+/*
+ * Sentences with nothing to say (D-129). Taking praise out can leave "it
+ * delivers performance": grammatical, true, and empty. A sentence is thin
+ * when, apart from grammar, it is made only of a generic subject ("it",
+ * "users"), a generic verb ("delivers", "offers", "designed") and a generic
+ * noun ("performance", "quality", "experience"), and has no figure. These are
+ * word classes, not a list of phrases: any other word — "cooler", "rosewater",
+ * "Bluetooth" — is something said, and the sentence stays.
+ */
+const FUNCTION_WORDS = new Set([
+  "a", "an", "the", "and", "or", "for", "of", "to", "with", "in", "on", "at", "by", "from", "as", "into", "is", "are",
+  "was", "be", "been", "being", "has", "have", "had", "can", "will", "also", "all", "any", "each", "every", "very",
+  "more", "so", "just", "while", "our", "s",
+]);
+const GENERIC_SUBJECT = new Set([
+  "it", "its", "this", "that", "these", "those", "they", "them", "their", "you", "your", "user", "users", "people",
+  "everyone", "anyone", "one", "product", "item", "device", "unit", "option", "choice", "solution",
+]);
+const GENERIC_VERB =
+  /^(?:deliver|provide|offer|give|bring|ensure|enable|allow|let|help|make|made|create|feature|boast|promise|serve|design|built|build|craft|engineer|suit|use|work|ideal|suitable|great|good)(?:s|es|ed|d|ing)?$/;
+const GENERIC_NOUN =
+  /^(?:performance|quality|functionality|function|functions|experience|experiences|result|results|value|usage|need|needs|power|reliability|satisfaction|convenience|capability|capabilities|feature|features|benefit|benefits|everyday|daily|life|lifestyle|style|purpose|purposes|task|tasks|application|applications|use|uses)$/;
+
+function contentWords(text: string): string[] {
+  return labelKey(text)
+    .split(" ")
+    .filter((word) => word && !FUNCTION_WORDS.has(word) && !GENERIC_SUBJECT.has(word) && !GENERIC_VERB.test(word) && !GENERIC_NOUN.test(word));
+}
+
+/** A sentence that says nothing: no figure, and nothing but generic words. */
+export function thinSentence(text: string): boolean {
+  return !/\p{N}/u.test(text) && contentWords(text).length === 0;
+}
+
+/**
+ * A clause praise was taken out of, judged more strictly: a generic verb with
+ * at most one other word and no established fact ("delivers graphics", once
+ * "high-performance" went) said only the praise, so it goes too.
+ */
+function thinClause(text: string, context: Pick<Context, "substance">): boolean {
+  if (thinSentence(text)) return true;
+  if (/\p{N}/u.test(text)) return false;
+  const all = labelKey(text).split(" ");
+  const content = contentWords(text);
+  return all.some((word) => GENERIC_VERB.test(word)) && content.length <= 1 && !content.some((word) => context.substance.has(word));
+}
+
+const CLAUSE_BREAK = /(,\s+|;\s+|\s+(?:and|while|but|whereas)\s+)/i;
+
+/**
+ * A sentence after `withoutPraise`, with any clause the praise was taken out
+ * of dropped when that left it empty: "The card uses 12GB GDDR7 memory and
+ * delivers high-performance graphics." → "The card uses 12GB GDDR7 memory."
+ * The factual clause stays. Null when the first clause is the empty one.
+ */
+function withoutThinClauses(original: string, mended: string, context: Pick<Context, "substance">): string | null {
+  const before = original.split(CLAUSE_BREAK);
+  const after = mended.split(CLAUSE_BREAK);
+  if (before.length !== after.length || after.length === 1) return thinClause(plain(mended), context) ? null : mended;
+  let out = "";
+  for (let index = 0; index < after.length; index += 2) {
+    const changed = plain(before[index]) !== plain(after[index]);
+    if (changed && thinClause(plain(after[index]), context)) {
+      if (index === 0) return null;
+      continue;
+    }
+    out += index === 0 ? after[0] : after[index - 1] + after[index];
+  }
+  const end = /([.!?])["”)]?\s*$/.exec(mended)?.[1] ?? ".";
+  out = out.replace(/[\s,;]+$/, "");
+  if (!/[.!?]["”)]?$/.test(out)) out += end;
+  return plain(out).split(/\s+/).length >= 4 ? out : null;
+}
+
+/**
+ * Whether a sentence says which product this is: the exact name, a short name
+ * from the plan, or the brand with a word only this product's name has.
+ */
+function namesProduct(text: string, context: Context): boolean {
+  const said = ` ${labelKey(text)} `;
+  const names = [context.plan.exactName, ...context.plan.shortNames].map(labelKey).filter((name) => name.length >= 3);
+  if (names.some((name) => said.includes(` ${name} `))) return true;
+  const nameWords = labelKey(context.plan.exactName).split(" ").filter(Boolean);
+  const brandWords = labelKey(context.brand).split(" ").filter(Boolean);
+  const titleWords = nameWords.filter((word) => !brandWords.includes(word));
+  const distinctive = [titleWords[0], ...titleWords.filter((word) => /\p{N}/u.test(word))].filter(Boolean);
+  // A brand the name does not carry ("Soundcore …" sold by its parent brand) is not required.
+  const brandInName = brandWords.length > 0 && brandWords.every((word) => nameWords.includes(word));
+  const brandSaid = !brandInName || brandWords.every((word) => said.includes(` ${word} `));
+  return brandSaid && distinctive.some((word) => said.includes(` ${word} `));
+}
+
+/** Empty lists, and headings with nothing under them. */
+function withoutEmptyStructure(html: string): string {
+  let clean = html;
+  for (let pass = 0; pass < 3; pass++) {
+    clean = clean
+      .replace(/<(ul|ol)>\s*<\/\1>/g, "")
+      .replace(/<(h2|h3)>[\s\S]*?<\/\1>\s*(?=<h[23]>|$)/g, "")
+      .trim();
+  }
+  return clean;
+}
+
+function wordCount(html: string): number {
+  return plain(html).split(/\s+/).filter(Boolean).length;
+}
+
 /**
  * The description, checked sentence by sentence. Null when nothing worth
  * publishing is left, or the markup cannot be trusted.
@@ -215,16 +312,51 @@ function gateDescription(html: string, context: Context, repaired: string[]): st
   if (!wellFormed(clean)) return null;
 
   const dropped: string[] = [];
+  const report = () => {
+    if (dropped.length) repaired.push(...[...new Set(dropped)].map((reason) => `description: ${reason}`));
+  };
   clean = clean.replace(/<(p|li)>([\s\S]*?)<\/\1>/g, (_whole, tag: string, inner: string) => {
     const kept = sentences(inner).flatMap((sentence) => {
       const problem = sentenceProblem(plain(sentence), context);
-      if (!problem) return [sentence];
+      if (!problem) {
+        // Nothing wrong with it, and nothing in it (D-129).
+        if (thinSentence(plain(sentence))) {
+          dropped.push("a sentence with nothing to say");
+          return [];
+        }
+        return [sentence];
+      }
       dropped.push(problem);
       const mended = withoutPraise(sentence, context);
-      return mended ? [mended] : [];
+      const mendedKept = mended ? withoutThinClauses(sentence, mended, context) : null;
+      if (mended && !mendedKept) dropped.push("a sentence with nothing to say once the praise was taken out");
+      return mendedKept ? [mendedKept] : [];
     });
     return kept.length ? `<${tag}>${kept.join(" ")}</${tag}>` : "";
   });
+  clean = withoutEmptyStructure(clean);
+  // At least one real sentence of the generator's own; a short description of a simple product is fine.
+  if (wordCount(clean) < 5) {
+    report();
+    return null;
+  }
+
+  /*
+   * The description names the product in its first sentence (D-129). When
+   * the opening was dropped — or never named the product — and the sentence
+   * now first ("It connects over …") does not say which product this is, a
+   * plain opening built from the name and established facts goes first. No
+   * second model call, and nothing the facts do not say.
+   */
+  const first = [...clean.matchAll(/<(p|li)>([\s\S]*?)<\/\1>/g)].flatMap((match) => sentences(match[2]))[0] ?? "";
+  if (!namesProduct(plain(first), context)) {
+    const candidates = [openingSentence(context.plan), context.plan.exactName.trim() ? `This is the ${context.plan.exactName.trim()}.` : ""];
+    const intro = candidates.find((candidate) => candidate && !sentenceProblem(candidate, context));
+    if (intro) {
+      clean = clean.startsWith("<p>") ? clean.replace(/^<p>/, `<p>${escapeHtml(intro)} `) : `<p>${escapeHtml(intro)}</p>${clean}`;
+      repaired.push("description: a plain opening naming the product");
+    }
+  }
 
   // The exact name once; later uses become a shorter name from the product's own identity.
   const exact = context.plan.exactName;
@@ -254,17 +386,9 @@ function gateDescription(html: string, context: Context, repaired: string[]): st
     return kept.length ? `<${tag}>${kept.join(" ")}</${tag}>` : "";
   });
 
-  // Empty lists, and headings with nothing under them.
-  for (let pass = 0; pass < 3; pass++) {
-    clean = clean
-      .replace(/<(ul|ol)>\s*<\/\1>/g, "")
-      .replace(/<(h2|h3)>[\s\S]*?<\/\1>\s*(?=<h[23]>|$)/g, "")
-      .trim();
-  }
-  if (dropped.length) repaired.push(...[...new Set(dropped)].map((reason) => `description: ${reason}`));
-  const words = plain(clean).split(/\s+/).filter(Boolean).length;
-  // At least one real sentence; a short description of a simple product is fine.
-  return words >= 5 && wellFormed(clean) ? clean : null;
+  clean = withoutEmptyStructure(clean);
+  report();
+  return wordCount(clean) >= 5 && wellFormed(clean) ? clean : null;
 }
 
 /** Terms: English, no warranty, no unsupported praise ("high end"), no doubled units; the product's own names always pass. */
@@ -326,7 +450,7 @@ export function applyQualityGate(
   out.keyFeatures = points.slice(0, 8);
 
   // Title.
-  const title = collapseRepeatedUnits(out.seoTitle.recommended);
+  const title = fitSeoTitle(collapseRepeatedUnits(out.seoTitle.recommended), titleIdentity(input));
   const repeatedWord = Object.values(
     labelKey(title)
       .split(" ")

@@ -4247,3 +4247,111 @@ seoRunId reuse, streaming and error codes; the final write boundary,
 ownership, locks, D-125 auto-apply rules, the localGrounded, rules and hosted
 distinctions; identity matching; grounding; verification policies. No
 migration.
+
+## D-129 — SeoPulse content polish, and English-only research checked against real search results
+
+D-128 left five things recorded as limitations. This change fixes the four
+about wording and checks the fifth live. Every rule is deterministic, runs
+after SeoPulse's one model call, and names no brand, product or category. No
+second model call, no prompt change, no migration.
+
+**1. SEO titles are shortened by meaning** (`lib/seo-pulse/title-fit.ts`,
+`fitSeoTitle`). A long name used to be cut at 70 characters (a model's
+title, in `sanitizeGenerated`) or at 49 (the rules title, `clampText`), which
+could end on half a phrase: "… 12GB GDDR7 Graphics". The name is now read as
+units — a word, a number with its unit ("12GB", "50 ml"), a bare number with
+the word before it ("RTX 5070"), "Pack of 2", a bracketed aside, a phrase
+after a comma, bar or dash — and whole units are taken out, least useful
+first: repeats, praise (the D-128 evaluative list, now in `claim-words.ts`)
+and "New"; asides; a descriptive phrase after "for"/"with"; descriptive words
+the facts already state; other descriptive words; descriptive words inside the
+recorded model name; technical codes the model name does not contain;
+quantities. Never taken out: the first word, the brand's first occurrence,
+coded words of the model name ("EPIC-X", "WH-1000XM5"), words the product's
+family or any level of its category names, a variant's value (colour, size,
+"Size 10", "Shade 150") and a short last phrase after a dash ("- 150 Buff").
+With no recorded model, the first word after the brand and every code in the
+name are kept too. When neither the family nor the category names a word of
+the title, the product-type noun is taken to be the last one or two
+descriptive words of the name ("Graphics Card", "Eau de Parfum").
+
+Length follows the rules already in the repository: aim for 49 characters so
+the page title with " · Manifest" stays within 60 (the rules generator's
+target), and allow up to 60 (the readiness policy, `lib/seo/readiness.ts`)
+rather than lose part of the protected identity. Only a name whose protected
+identity alone is longer than 60 is cut, at a unit boundary; a single word
+longer than 60 is kept whole rather than broken. A trailing " · Manifest",
+" | Manifest" or "- Manifest" is removed however many times it appears. A
+name that fits is returned unchanged. The same function is used by the rules
+title, by `sanitizeGenerated` for a model's title and alternatives, and by
+the quality gate.
+
+**2. A description names its product in its first sentence**
+(`gateDescription`, `openingSentence` in `content-plan.ts`). When the opening
+is dropped — praise that cannot be taken out, sales filler — or never named
+the product, and the sentence now first does not say which product this is
+(the exact name, a short name from the plan, or the brand with the name's
+first distinctive word or a word with a figure), a plain opening goes first:
+"<exact name> has <fact> and <fact>." with at most two established facts
+from the plan that read well inside a sentence (figures and codes first, never
+a fact the name already says, a list, an instruction, a value over 40
+characters, a label naming a company — "Chipset manufacturer" — a size,
+weight or count, or a raw data key such as "milliamp_hours"; the last three
+found on real listings), "have" for a name whose last word is plural; or only "This is the
+<exact name>." when no fact reads well. It is checked by the same sentence
+rules and never added to a description that has fewer than five words of its
+own — that is still withheld. The exact-name-once rule runs after it, so later
+uses become the short name.
+
+**3. Sentences with nothing to say** (`thinSentence`, `withoutThinClauses`).
+A sentence with no figure made only of grammar, a generic subject ("it",
+"users"), a generic verb ("delivers", "offers", "designed") and a generic noun
+("performance", "quality", "experience") is dropped — word classes, not a
+phrase list; any other word ("cooler", "rosewater", "Bluetooth") is something
+said. When praise is taken out of one clause of a sentence, that clause alone
+is judged more strictly (a generic verb with at most one other word and no
+established fact, brand or model word: "delivers graphics") and dropped, while
+the rest stays: "The card uses 12GB GDDR7 memory and delivers high-performance
+graphics." → "The card uses 12GB GDDR7 memory." If the first clause is the
+empty one, the sentence goes.
+
+**4. The rules meta description is one sentence** (`factMetaSentence`).
+Before: "<name> – <fact>: <fact>; <fact>." Now: "<name> features <fact>,
+<fact> and <fact>." — the same facts as the opening, at most three, fewer when
+that is all that fits in 155 characters, "for <use>" only when the listing
+states an intended use (and it is not praise), "feature" for a plural name.
+Staff's own short English feature lines stand in only when no fact reads well.
+Nothing reads well → no meta description (withheld, as before). This is the
+meta the quality gate falls back to when a model's is refused; D-125
+ownership and locks are unchanged, so a staff-written or locked meta is never
+replaced.
+
+**5. English-only research, live.** A bounded run with the real SearXNG
+(`PRODUCT_RESEARCH_PROVIDER=local`, `language=en`) for a real product with an
+international manufacturer, through the normal pipeline (safeFetch, robots,
+the 12-candidate bound, the renderer rules), with the document-reading model
+replaced by a recorder so no generation ran. Real results asked for in
+English still included Polish, Lithuanian, Portuguese, Spanish and Russian
+shop pages. The ones that answered were refused before anything was read — a
+Russian page as NON_ENGLISH_SOURCE, two Polish pages (thin, script-rendered)
+and a Lithuanian page (mixed) as LANGUAGE_UNCERTAIN — never shown to the
+recorder, and left no evidence, claim or proposal. English pages were read.
+Details in PROGRESS.md.
+
+Found live and fixed: a manufacturer's official English page at
+`/gb-en/…` (country first) was ranked as another language by
+`urlLanguagePreference`, and `/sg-en/…` was not recognised as a locale at
+all. A locale whose second part is "en" now counts as English. This is only a
+ranking hint; the page's own text still decides.
+
+Not validated live: following a refused page's English hreflang version. No
+refused page in these runs declared one; a manufacturer's declared non-English
+versions answered 403 or 404 to Manifest's fetcher, and those answers were
+respected rather than worked around. The path stays covered by the D-128
+automated test.
+
+**Not changed.** D-127 background execution, local-AI slot, stale policy,
+seoRunId reuse and the final write boundary; D-128 units, the candidate gate,
+warranty policy, SKUs, bulk review, At a Glance, Key Points, the language
+gate itself, claim-strength filtering and ownership. The prompt is unchanged.
+No migration.

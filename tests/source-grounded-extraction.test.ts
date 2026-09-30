@@ -518,8 +518,8 @@ describe("SEO wording from what is known, and nothing when too little is", () =>
     expect(generated.keyFeatures.some((line) => /step 1|inside the box/i.test(line))).toBe(false);
     expect(generated.metaDescription.recommended).toContain("Black (010)");
     expect(generated.metaDescription.recommended).not.toMatch(/landed price|Bangladesh/);
-    // Whole statements only, ending where a statement ends.
-    expect(generated.metaDescription.recommended).toMatch(/inside out\.$/);
+    // One plain sentence from the facts that read well in one, not the statements as a list (D-129).
+    expect(generated.metaDescription.recommended).toBe("Revlon Colorsilk Hair Color features Black (010) colour.");
     expect(generated.description.suggestedHtml).toContain("100% gray coverage");
     expect(generated.description.suggestedHtml).not.toContain("comes with finished");
   });

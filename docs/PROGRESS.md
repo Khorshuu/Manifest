@@ -4484,3 +4484,97 @@ ended on "and"; Soundcore said "clear sound".
   Blackwell architecture; NVIDIA chipset manufacturer.").
 - Research reading (language gate, candidate gate) was covered by automated
   tests with fake fetch, not re-run live against SearXNG in this session.
+
+## SeoPulse content polish and live English-only validation (D-129)
+
+Details and rules in DECISIONS.md D-129. Built on D-128; nothing in D-127 or
+D-128 redesigned. No migration, no prompt change, still one model call.
+
+`[x]` **SEO titles shortened by meaning** (`lib/seo-pulse/title-fit.ts`),
+used by the rules title, `sanitizeGenerated` (was a 70-character cut) and the
+quality gate.
+
+`[x]` **A description names its product in its first sentence**: a plain
+opening from the name and established facts when the generated one was
+dropped or anonymous.
+
+`[x]` **Sentences with nothing to say** dropped; a clause emptied by praise
+removal dropped, its factual neighbour kept.
+
+`[x]` **Rules meta description as one sentence** ("<name> features <fact>,
+<fact> and <fact>."), withheld when no fact reads well in a sentence.
+
+`[x]` **Live English-only research** against real SearXNG (below), with one
+ranking fix found live (`/gb-en/`, `/sg-en/` locales).
+
+`[x]` **No migration.**
+
+`[x]` **Verification.**
+- Typecheck clean. Lint clean.
+- Vitest (`--maxWorkers=3`, real PostgreSQL): 132 files, 1,919 passed,
+  8 skipped (1,889 before; 27 new pure tests in
+  `tests/seo-content-polish.test.ts`, 3 new database tests in
+  `tests/local-pipeline.test.ts`). One D-123 assertion changed on purpose:
+  the rules meta is no longer the manufacturer's statements run together.
+- Production build passed.
+- Playwright (production build on port 3200, 2 workers, providers `rules` /
+  `none`): product preparation, SeoPulse regeneration, SEO, product detail —
+  55 passed, 1 skipped, 0 failed. No UI code changed, so the full matrix was
+  not re-run.
+
+`[x]` **Live English-only acceptance** (`preorder_utf8`, SearXNG from source
+on loopback, `PRODUCT_RESEARCH_PROVIDER=local`, normal safeFetch / robots /
+12-candidate bound / Playwright renderer; the document-reading model replaced
+by a recorder, so no generation ran).
+- Razer DeathAdder V3. Query `Razer RZ0104640100R3M1` with `language=en`;
+  12 results inspected. Still returned: Polish (ceneo.pl, taniomania.pl),
+  Lithuanian (skytech.lt), Portuguese (terabyteshop.com.br), Spanish-language
+  (pcservice.com.uy) and, in the run, Russian (catalog.onliner.by) shop pages.
+  Decisions: onliner.by NON_ENGLISH_SOURCE ("non-Latin script (ru)");
+  ceneo.pl and taniomania.pl LANGUAGE_UNCERTAIN (no declared language, too
+  little text even after rendering); skytech.lt LANGUAGE_UNCERTAIN (mixed).
+  Four more were refused before language was reached (403, unreadable
+  robots.txt), respected. English read: pcpark.sa/en (identity match, 6
+  evidence rows), razer.com/gb-en (identity unknown), amazon.com, hktvmall /en
+  (mismatch). The recorder saw one document, pcpark.sa/en. From the four
+  language-refused documents: 0 shown to the model, 0 evidence, 0 claims,
+  0 proposals.
+- Sony WH-1000XM5: the official English page and every sony.com address
+  answered 403; no language decision was needed. JBL Flip 6: the official
+  ca.jbl.com/en_CA page declares 36 hreflang versions; pl.jbl.com answered
+  404 and de/fr/es.jbl.com 403 to Manifest's fetcher (at most three probes),
+  so no non-English official page could be read to test refusal and the
+  English-version path. Not worked around.
+- Found and fixed: the official `razer.com/gb-en/…` page was ranked as a
+  foreign page (`urlLanguagePreference` −1). Country-first English locales now
+  rank as English.
+- Scratch changes cleaned up: the JBL run attached pl.jbl.com to the product
+  as a staff page; that attachment was removed. Four `pkb.enrich_product`
+  jobs for the already-completed runs remain queued and do nothing when run.
+
+`[!]` **Live SeoPulse generation: not achieved.** The one allowed run (PNY
+RTX 5070, `qwen2.5:7b`) hit `OLLAMA_GENERATION_TIMEOUT` at 600 s because the
+full Vitest suite ran at the same time, and fell back to the rules generator
+(`fallbackFrom` recorded). It was not re-run. What it did show, with real
+data: the title "PNY GeForce RTX 5070 ARGB EPIC-X RGB OC 12GB Graphics Card"
+(58 characters, was cut to "… 12GB GDDR7 Graphics"), no warranty, units
+once. The rules meta on real listings (no model call,
+`.scratch-acceptance/d129-rules.ts`) first read "… features 2685 MHz boost
+clock and NVIDIA chipset manufacturer" and "66g ±3g Variance weight, … 1
+Count unit count"; fixed (company labels, measurements and raw data keys are
+not sentence facts). Now: PNY "… features 2685 MHz boost clock, 2325 MHz core
+clock and 6144 CUDA cores."; Glorious "… features BAMF 2.0 26K sensor, Matte
+finish and Ergonomic shape."; Anker 737 withheld (no fact reads well).
+
+`[!]` **Limitations.**
+- Without a family or a category naming the product type, the type is
+  guessed as the last one or two descriptive words of the name; a name that
+  ends in descriptors ("… Olive Oil Cold Pressed Glass Bottle") can lose the
+  real type when shortened. Most live categories are broad ("Electronics").
+- A fact's own capital is kept inside a sentence ("Matte finish"); a proper
+  noun and a capitalised common word cannot be told apart.
+- "has"/"have" and "features"/"feature" follow the name's last word; a name
+  ending in "Lens" or "Series" gets the wrong one.
+- A title protected identity longer than 49 characters is allowed up to 60, so
+  the page title with " · Manifest" can exceed 60 for very long model names.
+- The English-version (hreflang) path was not exercised live.

@@ -257,7 +257,7 @@ export function urlLocale(raw: string): string | null {
   }
   for (const segment of url.pathname.split("/").slice(1, 3)) {
     const match = /^([a-z]{2})(?:[-_]([a-z]{2}))?$/i.exec(segment);
-    if (match && KNOWN_LANGUAGES.has(match[1].toLowerCase())) return segment.toLowerCase().replace("_", "-");
+    if (match && (KNOWN_LANGUAGES.has(match[1].toLowerCase()) || match[2]?.toLowerCase() === "en")) return segment.toLowerCase().replace("_", "-");
   }
   const sub = /^([a-z]{2})\./i.exec(url.hostname)?.[1]?.toLowerCase();
   if (sub && sub !== "www" && KNOWN_LANGUAGES.has(sub)) return sub;
@@ -277,8 +277,8 @@ export function urlLanguagePreference(raw: string): number {
   const locale = urlLocale(raw);
   if (!locale) return 0;
   const [first, second] = locale.split("-");
-  if (first === "en" || (ENGLISH_REGIONS.has(first) && !second)) return 1;
-  if (second && ENGLISH_REGIONS.has(second) && first === "en") return 1;
+  // "en-gb", and the country-first "gb-en" or "sg-en" some manufacturers use (D-129, found live).
+  if (first === "en" || second === "en" || (ENGLISH_REGIONS.has(first) && !second)) return 1;
   return -1;
 }
 

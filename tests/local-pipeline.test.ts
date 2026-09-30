@@ -1015,3 +1015,39 @@ describe("what SeoPulse writes into the listing after its quality gate (D-128)",
     expect(JSON.stringify(view.establishedFacts)).not.toMatch(/warrant/i);
   });
 });
+
+describe("SeoPulse content polish written through preparation (D-129)", () => {
+  it("writes a named opening and the one-sentence rules meta when the model's are refused", async () => {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+    // An opening that cannot be repaired, a clause left empty by the praise, and a filler meta.
+    seoAnswer.description.suggestedHtml =
+      "<p>Experience the power of the HP-900 Headphones. It pairs 40 mm drivers with Bluetooth 5.4 and delivers exceptional performance.</p>";
+    seoAnswer.metaDescription.recommended = "Discover the ultimate listening experience today. Don't miss out!";
+
+    const product = await knownListing();
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("READY");
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.descriptionHtml).toMatch(/^<p>HP-900 Headphones (?:has|have) /);
+    expect(after.descriptionHtml).toContain("It pairs 40 mm drivers with Bluetooth 5.4.");
+    expect(after.descriptionHtml).not.toMatch(/Experience|exceptional|performance/);
+    expect(after.seoMetaDescription).toMatch(/^Harbor Acoustics HP-900 Headphones feature .+\.$/);
+    expect(after.seoMetaDescription).not.toMatch(/;|Discover|Don't|warrant/i);
+  });
+
+  for (const lock of [false, true]) {
+    it(`leaves a ${lock ? "locked" : "staff-owned"} meta description byte for byte when the model's meta is refused`, async () => {
+      setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+      seoAnswer.metaDescription.recommended = "Discover the ultimate listening experience today. Don't miss out!";
+      const product = await knownListing();
+      const meta = "Staff meta: Harbor Acoustics HP-900 headphones, as described by our buyer.";
+      await updateProduct(staff, product.id, { seoMetaDescription: meta });
+      if (lock) await setFieldLock(staff, product.id, "seoMetaDescription", true, "Checked with the supplier.");
+      const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+      expect(run.stage).toBe("READY");
+      const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+      expect(after.seoMetaDescription).toBe(meta);
+      expect(run.steps.find((entry) => entry.key === "listing")!.fields?.applied).not.toContain("Meta description");
+    });
+  }
+});
