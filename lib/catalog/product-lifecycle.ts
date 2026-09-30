@@ -27,6 +27,7 @@ import { releaseListingKnowledge } from "@/lib/pkb/maintenance";
 import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import { uniqueSlug } from "@/lib/slug";
 import { slugTaken } from "./products";
+import { SKU_MAX_LENGTH, uniqueSku } from "./sku-generator";
 
 /**
  * Unpublish, duplicate and delete — the lifecycle actions the product list and
@@ -203,9 +204,8 @@ export async function duplicateProduct(actor: SessionUser | null, productId: str
     );
 
     for (const variant of variants) {
-      const base = `${variant.sku}-COPY`.slice(0, 60);
-      let sku = base;
-      for (let attempt = 2; taken.has(sku); attempt++) sku = `${base}-${attempt}`;
+      // Within 64 characters however long the original (D-128).
+      const sku = uniqueSku(`${variant.sku.slice(0, SKU_MAX_LENGTH - 5)}-COPY`, taken);
       taken.add(sku);
 
       const variantValues: Partial<typeof variant> = { ...variant };

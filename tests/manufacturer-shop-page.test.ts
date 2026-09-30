@@ -503,7 +503,8 @@ describe("a researched product's description", () => {
   const html = generateByRules(researched, emptyResearch).description.suggestedHtml ?? "";
 
   it("begins with something about the product", () => {
-    expect(html).toMatch(/^<p>[^<]*— (Weight: 69g|Max Sensitivity|Sensor)/);
+    // Key points read as a shopper reads them, not "Label: value" (D-128).
+    expect(html).toMatch(/^<p>[^<]*— (69g weight|19,000 DPI max sensitivity|[^<]*sensor)/);
   });
 
   it("never says the product is part of a category range", () => {
@@ -592,8 +593,8 @@ describe("the Glorious Model O Classic Wireless, regenerated (D-120)", () => {
   });
 
   it("opens on what the product does, not its size or its warranty", () => {
-    expect(html).toMatch(/^<p>Glorious Model O Classic Wireless Mouse — Max Sensitivity \(DPI\): 19,000 DPI\./);
-    expect(generated.keyFeatures[0]).toBe("Max Sensitivity (DPI): 19,000 DPI");
+    expect(html).toMatch(/^<p>Glorious Model O Classic Wireless Mouse — 19,000 DPI max sensitivity \(DPI\)\./);
+    expect(generated.keyFeatures[0]).toBe("19,000 DPI max sensitivity (DPI)");
     expect(generated.keyFeatures.some((line) => /warranty|part number|mpn/i.test(line))).toBe(false);
   });
 

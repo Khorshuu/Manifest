@@ -25,6 +25,8 @@ export type IntelligenceResult = {
   inputTokens: number | null;
   outputTokens: number | null;
   estimatedCostUsd: number | null;
+  /** What a provider's own run of the quality gate repaired and withheld (D-128). */
+  quality?: { repaired: string[]; withheld: string[] };
 };
 
 export interface SeoIntelligenceProvider {

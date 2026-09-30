@@ -30,6 +30,8 @@ import { checkRobots } from "./net/robots";
 import { getPageRenderer, needsRendering } from "./net/render";
 import { decodeBody, safeFetch } from "./net/safe-fetch";
 import { relatedPageLinks, type RelatedLink } from "./related-pages";
+import { candidateRejection } from "./candidate-quality";
+import { detectLanguage, englishAlternates, htmlLanguage, structuredDataLanguage } from "./language";
 import { cleanText, labelKey, listItems, normalizeUrl } from "./normalize";
 import {
   canEnrich,
@@ -65,6 +67,8 @@ import { loadDefinitions } from "./vocabulary";
 const MAX_CANDIDATES = 12;
 /** Related pages of the same product read in one run, across all its matched pages (D-124). */
 const MAX_RELATED_PER_RUN = 4;
+/** English versions of non-English pages followed per run (D-128): a few, never a crawl. */
+const MAX_LANGUAGE_ALTERNATES_PER_RUN = 3;
 const MAX_PAIRS_PER_DOCUMENT = 120;
 
 export type EnrichmentRequest = {
@@ -215,6 +219,20 @@ export async function provideDocument(
   const known = await loadIdentity(db, pkbProductId);
   if (!known) throw new PkbError("That product is not in the knowledge base.", 404);
   const deterministic = extractDocument(content, input.contentType ?? "text/plain", { url: input.url ?? undefined });
+  /*
+   * English only (D-128), before any reading. A document a person chose is
+   * refused only when it is clearly in another language: a short English
+   * specification a staff member pastes has too few words to prove its
+   * language, and they have read it.
+   */
+  const language = detectLanguage({
+    text: deterministic.text,
+    declared: [/html/i.test(input.contentType ?? "") ? htmlLanguage(content) : null],
+    ignore: [known.name, ...known.modelKeys, ...known.brands.map((brand) => brand.name)],
+  });
+  if (language.verdict === "non_english") {
+    throw new PkbError(`NON_ENGLISH_SOURCE: ${language.reason} Manifest reads product facts from English documents only; provide the English version.`, 422);
+  }
   const assisted = await assistExtraction(known, deterministic, {
     url: input.url ?? null,
     title: cleanText(input.title) || null,
@@ -397,6 +415,8 @@ type ReadOutcome = EnrichmentOutcome & {
   rendering?: PkbProviderState | null;
   /** Related pages of the same product this page links to (D-124). */
   related?: RelatedLink[];
+  /** English versions a non-English page names in its hreflang links (D-128). */
+  englishAlternates?: string[];
 };
 
 type Candidate = {
@@ -409,6 +429,8 @@ type Candidate = {
   title: string | null;
   /** The product page that linked to this one, for a related page (D-124). Never followed further. */
   relatedTo?: string;
+  /** The non-English page this is the English version of (D-128). Its own alternates are not followed. */
+  alternateOf?: string;
 };
 
 /**
@@ -473,6 +495,7 @@ export async function runEnrichment(runId: string): Promise<RunReport> {
     const queue: Candidate[] = found.candidates.slice(0, MAX_CANDIDATES);
     const queued = new Set(queue.map((candidate) => candidate.url.toLowerCase()));
     let relatedQueued = 0;
+    let alternatesQueued = 0;
     for (let index = 0; index < queue.length; index++) {
       const candidate = queue[index];
       const outcome = await readCandidate(run, identity, candidate, robotsCache);
@@ -484,6 +507,17 @@ export async function runEnrichment(runId: string): Promise<RunReport> {
       // What the second reading did on each page it was needed for (D-123).
       if (outcome.extraction) report.providers.push(outcome.extraction);
       if (outcome.rendering) report.providers.push(outcome.rendering);
+      // A page in another language is not read; the English version it names
+      // is, once, in its place (D-128).
+      if (!candidate.alternateOf) {
+        for (const url of outcome.englishAlternates ?? []) {
+          if (alternatesQueued >= MAX_LANGUAGE_ALTERNATES_PER_RUN || queued.has(url.toLowerCase())) continue;
+          queued.add(url.toLowerCase());
+          alternatesQueued += 1;
+          queue.push({ ...candidate, url, title: null, alternateOf: candidate.url });
+          break;
+        }
+      }
       if (index >= MAX_CANDIDATES || candidate.relatedTo) continue;
       for (const link of outcome.related ?? []) {
         if (relatedQueued >= MAX_RELATED_PER_RUN || queued.has(link.url.toLowerCase())) continue;
@@ -813,6 +847,24 @@ async function readCandidate(
       }
     }
   }
+  /*
+   * English only (D-128), before anything on the page is read into facts —
+   * and before the optional AI reading, so a model is never shown a page in
+   * another language, let alone asked to translate one. An official page is
+   * no exception. The refusal is recorded; the English version the page
+   * names, if any, is read instead.
+   */
+  const language = detectLanguage({
+    text: extraction.text,
+    declared: [html ? htmlLanguage(content) : null, fetched.contentLanguage, structuredDataLanguage(extraction.structuredData)],
+    ignore: [identity.name, ...identity.modelKeys, ...identity.brands.map((brand) => brand.name)],
+  });
+  if (language.verdict !== "english") {
+    const code = language.verdict === "uncertain" ? "LANGUAGE_UNCERTAIN" : "NON_ENGLISH_SOURCE";
+    await recordRefusal(run, candidate, domain, `${code}: ${language.reason}`, { robotsAllowed: true, httpStatus: fetched.status });
+    return { ...empty, retrieved: false, rendering, englishAlternates: html ? englishAlternates(content, fetched.url) : [] };
+  }
+
   const sha256 = createHash("sha256").update(body).digest("hex");
   const verdict = identityVerdict(identity, extraction, {
     brandVouched: match !== null && !match.blocked && match.brandSpecific,
@@ -1327,6 +1379,13 @@ async function proposeFromExtraction(
   const nextOrdinal = new Map<string, number>();
   const listed = new Set<string>();
   for (const pair of input.extraction.pairs.slice(0, MAX_PAIRS_PER_DOCUMENT)) {
+    /*
+     * Page furniture, decoration, promotional copy and any warranty statement
+     * never become candidate knowledge (D-128). The page's own text is kept
+     * on the document as it was read; only what is proposed is filtered, so
+     * the AI-assisted reading is held to the same rule as the structured one.
+     */
+    if (candidateRejection(pair.label, pair.value)) continue;
     const placed = resolveLabel(definitions, mappings, pair.label, "source_document", family);
     if (placed.kind === "ignored") continue;
 

@@ -1,3 +1,4 @@
+import { collapseRepeatedUnits } from "@/lib/pkb/unit-text";
 import { createHash } from "node:crypto";
 import { slugify } from "@/lib/slug";
 
@@ -151,3 +152,43 @@ export function containsWords(haystack: string, needle: string): boolean {
   const wanted = keywordKey(needle).split(" ").filter(Boolean);
   return wanted.length > 0 && wanted.every((word) => words.has(word));
 }
+
+/** Sentences of a block of text, keeping their punctuation. */
+export function sentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+(?=["“(]?[\p{Lu}\p{N}])/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/**
+ * A meta description that ends naturally within `max` characters: whole
+ * sentences if they fit, else up to a clause boundary, else whole words —
+ * never a cut word, never a trailing comma or a dangling "and".
+ */
+export function fitMetaDescription(raw: string, max = 160): string {
+  const text = collapseRepeatedUnits(raw.replace(/\s+/g, " ").trim());
+  const finish = (value: string) => {
+    let out = value.trim().replace(/[\s,;:–—-]+$/, "");
+    for (let guard = 0; guard < 4; guard++) {
+      const stripped = out.replace(/\s+(?:and|or|with|for|the|a|an|of|to|in|on|by|from|as|at|plus|&)$/i, "");
+      if (stripped === out) break;
+      out = stripped.replace(/[\s,;:–—-]+$/, "");
+    }
+    return out && !/[.!?]$/.test(out) ? `${out}.` : out;
+  };
+  if (text.length <= max) return finish(text);
+  let whole = "";
+  for (const sentence of sentences(text)) {
+    const next = whole ? `${whole} ${sentence}` : sentence;
+    if (next.length > max) break;
+    whole = next;
+  }
+  if (whole.length >= 70) return finish(whole);
+  const window = text.slice(0, max);
+  const clause = Math.max(window.lastIndexOf(", "), window.lastIndexOf("; "), window.lastIndexOf(" – "), window.lastIndexOf(" — "));
+  if (clause >= 70) return finish(window.slice(0, clause));
+  const space = text.slice(0, max).lastIndexOf(" ");
+  return finish(text.slice(0, space > 40 ? space : max - 1));
+}
+

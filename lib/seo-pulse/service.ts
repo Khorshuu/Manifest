@@ -62,7 +62,8 @@ import {
   type IntelligenceResult,
 } from "./providers/intelligence";
 import { coreName, generateByRules } from "./rules";
-import { sanitizeDescriptionHtml } from "./sanitize";
+import { sanitizeDescriptionHtml, sanitizeGenerated } from "./sanitize";
+import { applyQualityGate } from "./quality";
 import { contentOwnership, type ContentOwner } from "@/lib/seo/fields";
 import { searchReadiness, seoReadiness } from "@/lib/seo/readiness";
 import { hashValue, isSuperset, keywordKey, normalizeKeyword, stripHtml } from "./text";
@@ -502,7 +503,15 @@ export async function executeResearch(input: SeoPulseInput) {
     localGrounded = false;
   }
 
-  const generated = result.generated;
+  /*
+   * Every generator's answer — the local model's, a hosted one's, the rules
+   * generator's — passes the same deterministic quality gate before it is
+   * stored (D-128). A field it cannot repair is withheld, or replaced by the
+   * rules generator's where one is required.
+   */
+  let rules: ReturnType<typeof generateByRules> | null = null;
+  const gate = applyQualityGate(result.generated, input, () => (rules ??= sanitizeGenerated(generateByRules(input, research), input)));
+  const generated = gate.generated;
   if (generated.description.suggestedHtml) {
     generated.description.suggestedHtml =
       sanitizeDescriptionHtml(generated.description.suggestedHtml) || null;
@@ -534,6 +543,10 @@ export async function executeResearch(input: SeoPulseInput) {
     schemaReadiness: schemaReadiness(input),
     competitorObservations: competitorObservations(serp),
     readiness: { seo: seoReadiness(input), search: searchReadiness(input) },
+    quality: {
+      repaired: [...new Set([...(result.quality?.repaired ?? []), ...gate.repaired])],
+      withheld: [...new Set([...(result.quality?.withheld ?? []), ...gate.withheld])],
+    },
   };
 
   return { research, analysis, usage };

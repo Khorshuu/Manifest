@@ -1,6 +1,7 @@
 import type { StockState } from "@/lib/catalog/price";
 import type { PublishableKnowledge } from "@/lib/pkb/publish";
 import { identifiersFor } from "@/lib/pkb/publish";
+import { valueWithUnit } from "@/lib/pkb/unit-text";
 import { absoluteUrl } from "./index";
 
 /**
@@ -112,7 +113,7 @@ function knowledgeProperties(knowledge: PublishableKnowledge): {
   const additional: Record<string, unknown>[] = [];
   for (const property of knowledge.properties) {
     if (property.pkbVariantId !== null) continue;
-    const value = property.unit ? `${property.value} ${property.unit}` : property.value;
+    const value = valueWithUnit(property.value, property.unit);
     if (property.property.startsWith("additionalProperty")) {
       additional.push({ "@type": "PropertyValue", name: property.label, value });
       continue;
@@ -183,7 +184,7 @@ export function productSchema(input: ProductSchemaInput): Record<string, unknown
       }
       const properties = input.knowledge.properties.filter((row) => row.pkbVariantId === offer.pkbVariantId);
       for (const property of properties) {
-        const value = property.unit ? `${property.value} ${property.unit}` : property.value;
+        const value = valueWithUnit(property.value, property.unit);
         if (variant[property.property] === undefined && !property.property.startsWith("additionalProperty")) {
           variant[property.property] = value;
         }

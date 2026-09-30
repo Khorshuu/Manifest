@@ -703,3 +703,58 @@ takes: thresholds are tested with fake clocks.
   refused while another connection holds it, freed when that connection
   dies, and allows exactly `LOCAL_AI_CONCURRENCY` holders. The final check
   waits for a knowledge change holding the knowledge lock and then sees it.
+
+## Product data and SeoPulse quality (D-128)
+
+Synthetic products from unrelated families (a graphics card, a perfume, a
+lamp, a shoe-like row) — no rule under test names a brand.
+
+- `tests/data-quality.test.ts` (pure) — units written once, added once, and
+  technical symbols, dimensions, ranges and compound values untouched;
+  calls to action, navigation, promotional modules and decoration refused
+  while real rows, numeric or not, and unfamiliar plausible rows pass; the
+  warranty policy and its reach (facts, At a Glance, Key Points, generated
+  text) with the manual warranty allowed; At a Glance as short label → value
+  in family order and Key Points as readable lines that never repeat it; a
+  simple family gets no technical sections; bulk selection (visible and
+  actionable only, hidden selections never acted on, groups of 100, first
+  refusal stops the rest, the message); SKU length, model and variant use,
+  stability, collisions, Unicode; language verdicts for English, German,
+  French, Spanish, Chinese, Japanese, Arabic, Bengali, mislabelled pages,
+  mixed footers, thin pages, hreflang, locale ranking and product names; the
+  quality gate (exact title once, evaluative claims, filler, a word the facts
+  use, third restatement, doubled units, foreign sentences, withheld
+  description with other fields kept, empty sections, meta boundaries,
+  stuffed title, concise simple product, search terms).
+- `tests/verification-and-sku.test.ts` (database) — bulk accept and reject
+  through `acceptClaims`/`rejectClaims` with per-claim decisions and the
+  audit row listing every claim; a group with a stale claim refused whole;
+  customers refused; no verified acceptance without a policy; more than 100
+  refused. Generated SKUs for a long title, with a model number and variants
+  (MPN left in its own field), for a duplicate identity (-2), after renaming
+  option values (generated SKU follows, staff SKU byte for byte), and for a
+  duplicated product (within 64).
+- `tests/local-pipeline.test.ts` (database, fake fetch and Ollama) — an
+  English official page read without its furniture, decoration or warranty,
+  its text kept for provenance, the manual warranty untouched; a German
+  official page refused as NON_ENGLISH_SOURCE, never shown to the model, and
+  its English hreflang version read instead; a thin page refused as
+  LANGUAGE_UNCERTAIN; a German pasted document refused; a messy local answer
+  written into the listing clean through preparation (one model call,
+  localGrounded kept, title withheld, meta ends naturally); the model shown a
+  bounded plan and only the manual warranty.
+- `e2e/claim-review.spec.ts` — select one, select all shown, clear, an empty
+  filter, accept one, reject the rest, on phone and desktop; no sideways
+  scrolling at 360 px.
+
+Existing assertions that encoded "Label: value" key points were updated to the
+new phrasing ("1000 Hz polling rate").
+
+Added after live runs with `qwen2.5:7b` (each case is a shape the real model
+produced): "Experience the power of …" openers, "high-performance" and
+"High-End …" titles, praise as tags, a brand containing an evaluative word,
+"smoothly"; `withoutPraise` taking an attributive adjective out and fixing
+"a"/"an", and refusing predicative praise, pairs ("compact yet powerful"),
+degree words ("a more immersive"), prepositions ("Perfect for …"), "most …"
+and too-short results; any "Label: value" key point rewritten, including a
+label the facts do not use.

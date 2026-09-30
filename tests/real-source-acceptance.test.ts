@@ -235,7 +235,7 @@ describe("what the rules generator writes once a product is researched", () => {
       }),
       emptyResearch,
     );
-    expect(generated.keyFeatures).toContain("Communication system: Bluetooth Specification version 5.3");
+    expect(generated.keyFeatures).toContain("Bluetooth Specification version 5.3 communication system");
     expect(generated.description.suggestedHtml).toContain("Bluetooth Specification version 5.3");
   });
 

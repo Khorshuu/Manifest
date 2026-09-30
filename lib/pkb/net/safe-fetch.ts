@@ -45,6 +45,8 @@ export type SafeFetchResult =
       charset: string | null;
       body: Buffer;
       redirects: string[];
+      /** The Content-Language header, when the site sent one (D-128). */
+      contentLanguage?: string | null;
     }
   | { ok: false; code: SafeFetchRefusal; reason: string; status?: number; url: string };
 
@@ -129,7 +131,7 @@ function mediaType(header: string | undefined): { type: string; charset: string 
 
 type Exchange =
   | { kind: "redirect"; location: string; status: number }
-  | { kind: "response"; status: number; contentType: string; charset: string | null; body: Buffer }
+  | { kind: "response"; status: number; contentType: string; charset: string | null; body: Buffer; contentLanguage: string | null }
   | { kind: "refused"; result: SafeFetchResult };
 
 function exchange(
@@ -231,7 +233,8 @@ function exchange(
           }
           chunks.push(chunk);
         });
-        stream.on("end", () => settle({ kind: "response", status, contentType: type, charset, body: Buffer.concat(chunks) }));
+        const contentLanguage = typeof response.headers["content-language"] === "string" ? response.headers["content-language"] : null;
+        stream.on("end", () => settle({ kind: "response", status, contentType: type, charset, body: Buffer.concat(chunks), contentLanguage }));
         stream.on("error", (error: NodeJS.ErrnoException) => {
           // zlib stopping at `maxOutputLength` is a document that was too
           // large, not a network fault, and saying so is what tells an
@@ -295,6 +298,7 @@ export async function safeFetch(rawUrl: string, options: SafeFetchOptions = {}):
           charset: result.charset,
           body: result.body,
           redirects,
+          contentLanguage: result.contentLanguage,
         };
       }
 

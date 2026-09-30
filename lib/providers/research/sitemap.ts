@@ -1,3 +1,4 @@
+import { urlLanguagePreference } from "@/lib/pkb/language";
 import { gunzipSync } from "node:zlib";
 import { Parser } from "htmlparser2";
 import { isStrongModelKey } from "@/lib/pkb/identity-labels";
@@ -386,6 +387,14 @@ export function rankProductUrls(urls: string[], query: ResearchQuery, limit: num
       reasons.push("its version");
     }
     if (productSegment) score += 5;
+    // Several locales of one page often share a sitemap; the English one is
+    // preferred and another language's comes last (D-128). A hint only: the
+    // page's language is checked when it is read.
+    const language = urlLanguagePreference(url.toString());
+    if (language !== 0) {
+      score += language * 8;
+      if (language > 0) reasons.push("English locale");
+    }
     ranked.push({ url: url.toString(), score, reason: reasons.join(", ") });
   }
   return ranked.sort((a, b) => b.score - a.score || a.url.length - b.url.length).slice(0, limit);

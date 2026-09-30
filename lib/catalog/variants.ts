@@ -19,18 +19,45 @@ import { recordAudit } from "@/lib/audit";
 import { staffChange } from "@/lib/pkb/common";
 import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import { lockSkuAllocation } from "./sku";
+import { skuBase, uniqueSku, type SkuIdentity } from "./sku-generator";
 import { isUnconfiguredPreorder } from "./price";
 import { PUBLIC_STATUSES } from "./products";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import {
-  buildSku,
   combinationKey,
   diffCombinations,
   generateCombinations,
   type AttributeAxis,
   type Combination,
 } from "./combinations";
+
+/** What a generated SKU is built from (D-128): brand, model or part number, title. */
+const SKU_IDENTITY_COLUMNS = {
+  slug: products.slug,
+  title: products.title,
+  brand: products.brand,
+  details: products.details,
+  identifierType: products.identifierType,
+  identifierValue: products.identifierValue,
+};
+
+function skuIdentity(product: {
+  title: string;
+  brand: string | null;
+  details: unknown;
+  identifierType: string | null;
+  identifierValue: string | null;
+}): SkuIdentity {
+  const details = (product.details ?? {}) as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
+  const mpn = product.identifierType === "mpn" ? text(product.identifierValue) : null;
+  return {
+    brand: product.brand,
+    model: text(details.modelNumber) ?? text(details.manufacturerPartNumber) ?? mpn,
+    title: product.title,
+  };
+}
 
 export type VariantRow = {
   id: string;
@@ -226,7 +253,7 @@ export async function generateVariants(
   }
 
   const [product] = await db
-    .select({ slug: products.slug })
+    .select(SKU_IDENTITY_COLUMNS)
     .from(products)
     .where(eq(products.id, productId));
 
@@ -244,7 +271,7 @@ export async function generateVariants(
     );
 
     for (const combination of diff.toCreate) {
-      const sku = nextFreeSku(product.slug, combination, takenSkus);
+      const sku = uniqueSku(skuBase(skuIdentity(product), combination.options.map((option) => option.value)), takenSkus);
       takenSkus.add(sku);
 
       const [variant] = await tx
@@ -316,7 +343,7 @@ async function createSingleVariant(
   }
 
   const [product] = await db
-    .select({ slug: products.slug })
+    .select(SKU_IDENTITY_COLUMNS)
     .from(products)
     .where(eq(products.id, productId));
 
@@ -331,11 +358,8 @@ async function createSingleVariant(
       ),
     );
 
-    const base = product.slug.toUpperCase().replace(/[^A-Z0-9]+/g, "-");
-    let sku = base;
-    for (let attempt = 1; takenSkus.has(sku); attempt++) {
-      sku = `${base}-${attempt + 1}`;
-    }
+    // The primary variant: the product's short code (D-128).
+    const sku = uniqueSku(skuBase(skuIdentity(product)), takenSkus);
 
     await tx.insert(productVariants).values({
       productId,
@@ -363,21 +387,6 @@ async function createSingleVariant(
 }
 
 /** Picks the first SKU not already spoken for, against an in-memory set. */
-function nextFreeSku(
-  productSlug: string,
-  combination: Combination,
-  taken: Set<string>,
-): string {
-  const base = buildSku(productSlug, combination);
-
-  for (let attempt = 0; attempt < 1000; attempt++) {
-    const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-
-  throw new Error(`Could not find an unused SKU based on "${base}".`);
-}
-
 export async function listVariants(
   actor: SessionUser | null,
   productId: string,
@@ -716,7 +725,7 @@ export async function addVariant(
   const staff = requirePermission(actor, "catalog.manage");
 
   const [product] = await db
-    .select({ slug: products.slug })
+    .select(SKU_IDENTITY_COLUMNS)
     .from(products)
     .where(eq(products.id, productId));
   if (!product) throw new VariantPricingError("That product no longer exists.");
@@ -793,14 +802,7 @@ export async function addVariant(
     const taken = new Set(
       (await tx.select({ sku: productVariants.sku }).from(productVariants)).map((row) => row.sku),
     );
-    const base = [product.slug, ...options.map((option) => option.value)]
-      .join("-")
-      .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 56);
-    let sku = base;
-    for (let attempt = 2; taken.has(sku); attempt++) sku = `${base}-${attempt}`;
+    const sku = uniqueSku(skuBase(skuIdentity(product), options.map((option) => option.value)), taken);
 
     const [variant] = await tx
       .insert(productVariants)
@@ -982,4 +984,65 @@ export async function countVariants(productId: string): Promise<number> {
     .from(productVariants)
     .where(eq(productVariants.productId, productId));
   return row.value;
+}
+
+/**
+ * After an option value is renamed ("Blk" → "Black"), gives the listing's
+ * variants that carry it the SKU the generator would now choose — but only
+ * those whose SKU is still exactly what the generator chose before (its base,
+ * or its base with a collision suffix). A SKU staff typed or changed never
+ * matches that and is left byte for byte (D-128). Order lines keep their own
+ * SKU snapshot, so nothing already sold is rewritten.
+ *
+ * Runs inside the caller's transaction, after the listing lock, and takes the
+ * SKU lock itself.
+ */
+export async function refreshGeneratedSkus(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  productId: string,
+  rename: { attributeValueId: string; from: string; to: string },
+): Promise<number> {
+  const [product] = await tx.select(SKU_IDENTITY_COLUMNS).from(products).where(eq(products.id, productId));
+  if (!product) return 0;
+  const affected = await tx
+    .select({ variantId: variantOptionValues.variantId })
+    .from(variantOptionValues)
+    .innerJoin(productVariants, eq(productVariants.id, variantOptionValues.variantId))
+    .where(and(eq(productVariants.productId, productId), eq(variantOptionValues.attributeValueId, rename.attributeValueId)));
+  if (affected.length === 0) return 0;
+
+  await lockSkuAllocation(tx);
+  const order = (
+    await tx
+      .select({ attributeId: productAttributes.attributeId })
+      .from(productAttributes)
+      .where(eq(productAttributes.productId, productId))
+      .orderBy(asc(productAttributes.sortOrder))
+  ).map((row) => row.attributeId);
+  const taken = new Set((await tx.select({ sku: productVariants.sku }).from(productVariants)).map((row) => row.sku));
+  const identity = skuIdentity(product);
+  let changed = 0;
+
+  for (const { variantId } of affected) {
+    const [variant] = await tx.select({ sku: productVariants.sku }).from(productVariants).where(eq(productVariants.id, variantId));
+    const options = await tx
+      .select({ attributeId: variantOptionValues.attributeId, valueId: variantOptionValues.attributeValueId, value: attributeValues.value })
+      .from(variantOptionValues)
+      .innerJoin(attributeValues, eq(attributeValues.id, variantOptionValues.attributeValueId))
+      .where(eq(variantOptionValues.variantId, variantId));
+    options.sort((a, b) => order.indexOf(a.attributeId) - order.indexOf(b.attributeId));
+    const before = options.map((option) => (option.valueId === rename.attributeValueId ? rename.from : option.value));
+    const after = options.map((option) => (option.valueId === rename.attributeValueId ? rename.to : option.value));
+    const oldBase = skuBase(identity, before);
+    const suffix = variant.sku.startsWith(`${oldBase}-`) ? variant.sku.slice(oldBase.length + 1) : null;
+    const generated = variant.sku === oldBase || (suffix !== null && /^\d+$/.test(suffix));
+    if (!generated) continue;
+    taken.delete(variant.sku);
+    const next = uniqueSku(skuBase(identity, after), taken);
+    taken.add(next);
+    if (next === variant.sku) continue;
+    await tx.update(productVariants).set({ sku: next, updatedAt: new Date() }).where(eq(productVariants.id, variantId));
+    changed += 1;
+  }
+  return changed;
 }

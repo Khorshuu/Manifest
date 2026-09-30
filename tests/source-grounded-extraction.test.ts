@@ -512,7 +512,7 @@ describe("SEO wording from what is known, and nothing when too little is", () =>
       }),
       research,
     );
-    expect(generated.keyFeatures).toContain("Colour: Black (010)");
+    expect(generated.keyFeatures).toContain("Black (010) colour");
     expect(generated.keyFeatures).toContain("New + improved with bond Repair Complex + Vegan Keratin Fillers to help repair hair from the inside out.");
     // Instructions are specifications, not features.
     expect(generated.keyFeatures.some((line) => /step 1|inside the box/i.test(line))).toBe(false);

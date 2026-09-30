@@ -5,6 +5,7 @@ import type {
   SeoResearchData,
 } from "./types";
 import { knowledgeSufficiency, measurementRows, specificationRows } from "./facts";
+import { keyPointFromFact } from "./content-plan";
 import { isIdentityLabel, isIdentityLine, isStrongModelKey, variantDescriptor } from "@/lib/pkb/identity-labels";
 import { isGenericAlt } from "@/lib/seo/readiness";
 import {
@@ -382,9 +383,16 @@ export function generateByRules(
     const parts = value.split(/;\s+/).map((part) => part.trim()).filter(Boolean);
     return parts.length >= 2 && parts.every((part) => part.length >= 25 && /\s/.test(part)) ? parts : null;
   };
-  const groundedFeatures = [...specs, ...measures]
-    .filter((row) => !isIdentityLabel(row.label) && !NOT_A_FEATURE.test(row.label))
-    .flatMap((row) => statements(row.value)?.slice(0, 4) ?? [`${row.label}: ${row.value}`])
+  const featureRows = [...specs, ...measures].filter((row) => !isIdentityLabel(row.label) && !NOT_A_FEATURE.test(row.label));
+  /*
+   * A key point is a line a shopper reads — "12GB GDDR7 memory" — not the
+   * "Memory: 12GB GDDR7" line At a Glance and the specification table already
+   * show (D-128). Still one recorded fact each, reworded by a fixed rule and
+   * never extended.
+   */
+  const groundedFeatures = featureRows
+    .flatMap((row) => statements(row.value)?.slice(0, 4) ?? [keyPointFromFact(row.label, row.value) ?? ""])
+    .filter(Boolean)
     .map((line) => clampText(line, 180))
     .slice(0, 6);
   // Staff-written features are the source when there are any; a line among
@@ -406,9 +414,9 @@ export function generateByRules(
    */
   // A short labelled fact the name does not already say ("Black (010)" adds
   // nothing to "… - Black" but its code).
-  const firstFact = groundedFeatures
-    .filter((line) => /^[^:]{1,40}:\s/.test(line))
-    .map((line) => line.replace(/^[^:]{1,40}:\s*/, ""))
+  const firstFact = featureRows
+    .filter((row) => !statements(row.value))
+    .map((row) => row.value.trim())
     .find((value) => value.length <= 28 && !keywordKey(value).split(" ").some((word) => word && containsWords(displayName, word)));
   const candidates = [
     firstFact && sufficient ? `${fitted} – ${firstFact}` : "",
@@ -427,7 +435,8 @@ export function generateByRules(
   const snippetLead = firstFact ? `${displayName} – ${firstFact}` : displayName;
   const snippetFacts = features
     .map((line) => line.replace(/[.\s]+$/, ""))
-    .filter((line) => !firstFact || !line.endsWith(firstFact));
+    // The fact the lead already states is not listed again, however it is phrased.
+    .filter((line) => !firstFact || !line.includes(firstFact));
   let meta = "";
   if (sufficient && snippetFacts.length > 0) {
     const taken: string[] = [];

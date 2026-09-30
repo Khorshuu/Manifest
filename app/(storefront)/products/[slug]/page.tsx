@@ -13,13 +13,10 @@ import {
 import { remainingCapacity } from "@/lib/catalog/variants";
 import {
   discountPercent,
-  formatAttributeValue,
-  getAttributeDefinitionsByIds,
   stockState,
 } from "@/lib/catalog";
 import type {
   ProductCompliance,
-  ProductDetails,
   ProductWarranty,
 } from "@/db/schema";
 import {
@@ -28,12 +25,13 @@ import {
   Highlights,
   LifestyleBand,
   Warranty,
-  type SpecRow,
 } from "./detail-sections";
 import { formatArrivalWindow, formatDate } from "@/lib/format";
 import { breadcrumbJsonLd, jsonLdScript } from "@/lib/seo";
 import { productSchema, type SeoOffer } from "@/lib/seo/structured-data";
 import { publishableKnowledge } from "@/lib/pkb/publish";
+import { familyGlancePriority, listingFactRows } from "@/lib/catalog/listing-facts";
+import { atAGlance } from "@/lib/seo-pulse/content-plan";
 import { knowledgeLinks } from "@/lib/seo/links";
 import { resolveSlugRedirect } from "@/lib/seo/redirects";
 import { sanitizeRichText } from "@/lib/html/rich-text";
@@ -170,6 +168,7 @@ export default async function ProductPage({
   ]);
   // Staff only: whether what this preview shows was researched (D-119).
   const research = preview ? await productResearchStatus(user, product.id) : null;
+  const glance = preview ? await glanceOf(product) : await cachedGlance(slug);
 
   /*
    * A product recommended above is not shown again immediately below it. The
@@ -529,16 +528,17 @@ export default async function ProductPage({
           />
           <RecentlyViewedTracker productId={product.id} />
 
-          {/* The three or four claims that decide a purchase, beside the buy
-              button rather than below the fold. The full list, if it is
-              longer, is still under Key features further down. */}
-          {bullets.length > 0 ? (
+          {/* The few facts that decide a purchase, beside the buy button:
+              short label and value, for scanning (D-128). The key features —
+              the same facts explained for a shopper — are further down, so
+              the two never repeat each other. */}
+          {glance.length > 0 ? (
             <div className="rounded-card border border-blue-300 bg-blue-50/60 p-3.5">
               <h2 className="text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-ink/70">
                 At a glance
               </h2>
               <div className="mt-2 text-meta">
-                <Highlights items={bullets.slice(0, 4)} />
+                <Highlights items={glance.map((row) => `${row.label}: ${row.value}`)} />
               </div>
             </div>
           ) : null}
@@ -655,6 +655,29 @@ async function CachedDetailSections({ slug }: { slug: string }) {
   return <DetailSections product={content.product} />;
 }
 
+/**
+ * At a Glance (D-128): a few short label → value facts from the listing's own
+ * established facts, the family's most important first. Cached like the
+ * sections below; a staff preview reads it fresh.
+ */
+async function glanceOf(product: PublicProduct) {
+  const [facts, priority] = await Promise.all([
+    listingFactRows(product),
+    familyGlancePriority(product.pkbProductId ?? null),
+  ]);
+  return atAGlance([...facts.specifications, ...facts.measurements], { priority });
+}
+
+async function cachedGlance(slug: string) {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(CACHE_TAGS.productPages, CACHE_TAGS.listing);
+  const content = await cachedProductContent(slug);
+  if (!content) return [];
+  cacheTag(CACHE_TAGS.product(content.product.id));
+  return glanceOf(content.product);
+}
+
 /** The sections themselves; a staff preview renders them uncached. */
 async function DetailSections({ product }: { product: PublicProduct }) {
   const bullets = Array.isArray(product.bulletFeatures)
@@ -666,105 +689,9 @@ async function DetailSections({ product }: { product: PublicProduct }) {
 
   const warranty = (product.warranty as ProductWarranty | null) ?? null;
   const compliance = (product.compliance as ProductCompliance | null) ?? null;
-  const details = (product.details as ProductDetails | null) ?? null;
 
-  /*
-   * The specifications table, assembled from four sources in the order a
-   * shopper reads them: the facts every listing has, then what the category
-   * asks of its products, then the advanced block, then anything typed by
-   * hand. Every row here has a value — a blank is dropped rather than shown
-   * as a dash, which is what keeps the table honest on a thin listing.
-   */
-  const storedAttributes =
-    (product.attributeValues as Record<string, string | string[]> | null) ?? {};
-  const attributeDefinitions = await getAttributeDefinitionsByIds(
-    Object.keys(storedAttributes),
-  );
-
-  /*
-   * Two lists, not one. Anything measurable goes to the Measurements tab and
-   * the rest to Specification, so neither tab repeats the other (D-043).
-   */
-  const DETAIL_LABELS: [keyof ProductDetails, string][] = [
-    ["manufacturer", "Manufacturer"],
-    ["modelName", "Model"],
-    ["modelNumber", "Model number"],
-    ["manufacturerPartNumber", "Part number"],
-    ["material", "Material"],
-    ["color", "Colour"],
-    ["compatibility", "Compatibility"],
-    ["specialFeatures", "Special features"],
-    ["intendedUse", "Intended use"],
-    ["careInstructions", "Care instructions"],
-    ["releaseDate", "Released"],
-  ];
-
-  const MEASUREMENT_LABELS: [keyof ProductDetails, string][] = [
-    ["size", "Size"],
-    ["dimensions", "Product dimensions"],
-    ["itemWeight", "Item weight"],
-    ["packageDimensions", "Package dimensions"],
-    ["packageWeight", "Package weight"],
-    ["unitCount", "Unit count"],
-    ["unitType", "Unit type"],
-  ];
-
-  const specs: SpecRow[] = [
-    ...(product.brand ? [{ label: "Brand", value: product.brand }] : []),
-    ...attributeDefinitions
-      .map((definition) => {
-        const value = storedAttributes[definition.id];
-        return value === undefined
-          ? null
-          : {
-              label: definition.name,
-              value: formatAttributeValue(definition, value),
-            };
-      })
-      .filter((row): row is SpecRow => row !== null),
-    ...(details
-      ? DETAIL_LABELS.map(([key, label]) => {
-          const value = details[key];
-          return value ? { label, value: String(value) } : null;
-        }).filter((row): row is SpecRow => row !== null)
-      : []),
-    ...(Array.isArray(product.specTable)
-      ? (product.specTable as SpecRow[]).filter(
-          (row) => row.label?.trim() && row.value?.trim(),
-        )
-      : []),
-    ...(compliance?.countryOfOrigin
-      ? [{ label: "Country of origin", value: compliance.countryOfOrigin }]
-      : []),
-    ...(product.identifierValue && product.identifierType
-      ? [
-          {
-            label: product.identifierType.toUpperCase(),
-            value: product.identifierValue,
-          },
-        ]
-      : []),
-  ];
-
-  /*
-   * Measurements come only from what staff recorded — the measurement rows on
-   * the listing and the measurable fields of the advanced block. Nothing is
-   * derived or estimated, so the tab is absent on a listing that has none
-   * rather than showing a table of guesses.
-   */
-  const measurements: SpecRow[] = [
-    ...(Array.isArray(product.measurements)
-      ? (product.measurements as SpecRow[]).filter(
-          (row) => row.label?.trim() && row.value?.trim(),
-        )
-      : []),
-    ...(details
-      ? MEASUREMENT_LABELS.map(([key, label]) => {
-          const value = details[key];
-          return value ? { label, value: String(value) } : null;
-        }).filter((row): row is SpecRow => row !== null)
-      : []),
-  ];
+  // One assembly for the table, the measurements and At a Glance (D-128).
+  const { specifications: specs, measurements } = await listingFactRows(product);
 
   return (
     <>

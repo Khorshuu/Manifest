@@ -148,7 +148,7 @@ describe("a description staff edited after SEO Pulse wrote it", () => {
     const offered = recommendations?.fields.find((entry) => entry.field === "descriptionHtml");
     expect(offered?.owner).toBe("staff");
     expect(offered?.current).toBe(edited);
-    expect(offered?.proposed).toContain("Polling rate");
+    expect(offered?.proposed).toContain("polling rate");
 
     // Regenerate, which is for SEO Pulse's own wording, refuses.
     const refused = await regenerateWithSeoPulse(staff, id, { runId: recommendations!.runId, fields: ["descriptionHtml"], replaceStaff: false }).catch(
@@ -205,7 +205,7 @@ describe("a description SEO Pulse wrote and nobody touched", () => {
     expect(after.descriptionHtml).not.toBe(first);
     // The new features come from the new facts, not from the old features.
     expect(after.bulletFeatures).not.toEqual(firstFeatures);
-    expect(after.bulletFeatures).toContain("Polling rate: 1000 Hz");
+    expect(after.bulletFeatures).toContain("1000 Hz polling rate");
     // What is in the box is its own list, never one item of it as a feature.
     expect((after.bulletFeatures as string[]).some((line) => /in the box/i.test(line))).toBe(false);
     expect(after.descriptionHtml).toContain("<h2>In the box</h2><ul><li>1× USB receiver</li><li>1× USB-A to USB-C cable</li>");

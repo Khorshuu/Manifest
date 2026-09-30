@@ -10,6 +10,7 @@ import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { staffChange, type Executor } from "@/lib/pkb/common";
+import { valueWithUnit } from "@/lib/pkb/unit-text";
 import { syncLegacyFamilies } from "@/lib/pkb/families";
 import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import type { CategoryAttributeInputPayload } from "@/lib/validation/catalog";
@@ -533,5 +534,5 @@ export function formatAttributeValue(
           year: "numeric",
         });
   }
-  return definition.unit ? `${value} ${definition.unit}` : value;
+  return valueWithUnit(value, definition.unit);
 }

@@ -30,7 +30,7 @@ import {
 } from "@/db/schema";
 import type { SessionUser } from "@/lib/auth/session";
 import { createCategory, createProduct, updateProduct } from "@/lib/catalog";
-import { requestEnrichment, runEnrichment } from "@/lib/pkb/enrichment";
+import { provideDocument, requestEnrichment, runEnrichment } from "@/lib/pkb/enrichment";
 import type { PageRenderer } from "@/lib/pkb/net/render";
 import { setPageRendererForTesting } from "@/lib/pkb/net/render";
 import { decideRegistryEntry, suggestRegistryEntry, trustedBrandIds } from "@/lib/pkb/trust";
@@ -852,5 +852,166 @@ describe("the final check before local wording is written (D-127)", () => {
     expect(run.stage).toBe("READY");
     const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
     expect(after.descriptionHtml).toContain("LOCAL-MODEL");
+  });
+});
+
+// ------------------------------------------------ D-128: data quality, stored
+
+const TESSERA_EN = "https://www.tessera.test/en-us/vx-70";
+const TESSERA_DE = "https://www.tessera.test/de/vx-70";
+const TESSERA_THIN = "https://www.tessera.test/p/vx-70";
+const TESSERA_JSONLD = `<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Tessera Vx-70 Graphics Card","brand":{"@type":"Brand","name":"Tessera"},"mpn":"VX-70","model":"VX-70"}</script>`;
+
+PAGES[TESSERA_EN] = `<!doctype html><html lang="en"><head><title>Tessera Vx-70 Graphics Card</title>${TESSERA_JSONLD}</head>
+<body><h1>Tessera Vx-70 Graphics Card</h1>
+<p>The Tessera Vx-70 is a graphics card for gaming and creative work. It has three fans and connects to your computer through PCIe 5.0.</p>
+<table>
+<tr><th>Architecture</th><td>Aurora</td></tr>
+<tr><th>Boost Clock</th><td>2685 MHz</td></tr>
+<tr><th>Impedance tolerance</th><td>±1% @ 25 °C</td></tr>
+<tr><th>Warranty</th><td>3-year limited warranty</td></tr>
+<tr><th>Learn More</th><td>Read details</td></tr>
+<tr><th>✓</th><td>★★★★★</td></tr>
+<tr><th>Get Educated</th><td>Make informed decisions with expert advice. Learn More</td></tr>
+</table>
+<footer>Deutsch Français Español Impressum</footer></body></html>`;
+
+PAGES[TESSERA_DE] = `<!doctype html><html lang="de"><head><title>Tessera Vx-70 Grafikkarte</title>${TESSERA_JSONLD}
+<link rel="alternate" hreflang="de" href="${TESSERA_DE}"><link rel="alternate" hreflang="en-US" href="${TESSERA_EN}"></head>
+<body><h1>Tessera Vx-70 Grafikkarte</h1>
+<p>Die Tessera Vx-70 ist eine Grafikkarte für Spiele und kreative Arbeit. Sie hat drei Lüfter und wird über PCIe 5.0 mit dem Computer verbunden. Die Karte ist nicht für den Einsatz im Freien gedacht.</p>
+<table><tr><th>Architektur</th><td>Aurora</td></tr><tr><th>Speicher</th><td>12 GB GDDR7</td></tr><tr><th>Garantie</th><td>3 Jahre</td></tr></table></body></html>`;
+
+PAGES[TESSERA_THIN] = `<!doctype html><html><head><title>Vx-70</title>${TESSERA_JSONLD}</head><body><table><tr><th>Architektur</th><td>Aurora</td></tr><tr><th>Takt</th><td>2685 MHz</td></tr></table></body></html>`;
+
+describe("what research may turn into knowledge (D-128)", () => {
+  async function tessera(officialUrl: string) {
+    const product = await listing({
+      title: "Tessera Vx-70 Graphics Card",
+      brand: "Tessera",
+      identity: { modelNumber: "VX-70", officialUrl },
+    } as never);
+    // Manifest's own warranty, entered by staff.
+    await updateProduct(staff, product.id, { warranty: { hasWarranty: true, durationMonths: 24 } } as never);
+    return product;
+  }
+  const proposalsOf = (pkbProductId: string) =>
+    harness.db.select().from(pkbAttributeProposals).where(eq(pkbAttributeProposals.pkbProductId, pkbProductId));
+  const documentsOf = (pkbProductId: string) =>
+    harness.db.select().from(pkbSourceDocuments).where(eq(pkbSourceDocuments.pkbProductId, pkbProductId));
+  const chatText = () => JSON.stringify(ollama.requests.filter((request) => request.path === "/api/chat").map((request) => request.body));
+
+  it("keeps page furniture, decoration and the source's warranty out, keeps the real rows, and leaves the page's text for provenance", async () => {
+    const product = await tessera(TESSERA_EN);
+    await research(product.pkbProductId!);
+    const pkbProductId = product.pkbProductId!;
+
+    const labels = [
+      ...(await proposalsOf(pkbProductId)).map((row) => `${row.label}: ${row.exampleValue}`),
+      ...(await evidenceOf(pkbProductId)).map((row) => `${row.extractedLabel}: ${row.extractedValue}`),
+    ].join("\n");
+    expect(labels).toContain("Architecture: Aurora");
+    expect(labels).toContain("Boost Clock: 2685 MHz");
+    expect(labels).toContain("±1% @ 25 °C");
+    expect(labels).not.toMatch(/Learn More|Get Educated|✓|★|warrant/i);
+    expect(JSON.stringify(await claimsOf(pkbProductId))).not.toMatch(/warrant/i);
+
+    // The page itself is kept as it was read, warranty sentence included.
+    const [document] = (await documentsOf(pkbProductId)).filter((row) => row.status === "retrieved");
+    expect(document.textContent).toContain("3-year limited warranty");
+
+    // Manifest's own warranty is untouched, and it is the only one SeoPulse may use.
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+    expect(after.warranty).toMatchObject({ hasWarranty: true, durationMonths: 24 });
+  });
+
+  it("refuses an official page in another language, never shows it to the model, and reads the English version it names", async () => {
+    const product = await tessera(TESSERA_DE);
+    const report = await research(product.pkbProductId!);
+    const pkbProductId = product.pkbProductId!;
+
+    const documents = await documentsOf(pkbProductId);
+    expect(documents).toContainEqual(expect.objectContaining({ status: "refused", refusalReason: expect.stringMatching(/^NON_ENGLISH_SOURCE/) }));
+    expect(fetched).toContain(TESSERA_EN);
+    expect(documents.filter((row) => row.status === "retrieved")).toHaveLength(1);
+    expect(report.documentsRefused).toBeGreaterThanOrEqual(1);
+
+    const stored = JSON.stringify([await proposalsOf(pkbProductId), await evidenceOf(pkbProductId), await claimsOf(pkbProductId)]);
+    expect(stored).not.toMatch(/Architektur|Speicher|Garantie|Grafikkarte/);
+    expect(stored).toContain("Aurora");
+    // No model was asked to read, let alone translate, the German page.
+    expect(chatText()).not.toMatch(/Grafikkarte|Lüfter/);
+  });
+
+  it("fails closed on a page whose language cannot be told", async () => {
+    const product = await tessera(TESSERA_THIN);
+    await research(product.pkbProductId!);
+    const documents = await documentsOf(product.pkbProductId!);
+    expect(documents).toContainEqual(expect.objectContaining({ status: "refused", refusalReason: expect.stringMatching(/^LANGUAGE_UNCERTAIN/) }));
+    expect(await proposalsOf(product.pkbProductId!)).toHaveLength(0);
+    expect(await claimsOf(product.pkbProductId!)).toHaveLength(0);
+  });
+
+  it("refuses a document staff paste in another language", async () => {
+    const product = await tessera(TESSERA_EN);
+    await expect(
+      provideDocument(staff, product.pkbProductId!, {
+        title: "Datenblatt",
+        content: "Die Tessera Vx-70 ist eine Grafikkarte für Spiele und kreative Arbeit. Sie hat drei Lüfter und wird über PCIe 5.0 mit dem Computer verbunden.\nArchitektur: Aurora\nSpeicher: 12 GB",
+      }),
+    ).rejects.toMatchObject({ status: 422, message: expect.stringMatching(/NON_ENGLISH_SOURCE/) });
+  });
+});
+
+describe("what SeoPulse writes into the listing after its quality gate (D-128)", () => {
+  it("writes clean English content from a messy local answer, and withholds what cannot be repaired", async () => {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+    seoAnswer.description.suggestedHtml =
+      "<p>The HP-900 Headphones pair 40 mm drivers with Bluetooth 5.4. The HP-900 Headphones deliver clear and immersive sound. Get yours today! Die Kopfhörer sind sehr bequem und haben eine lange Akkulaufzeit.</p>" +
+      "<p>The HP-900 Headphones add active noise cancelling. Backed by a 3-year warranty.</p><h2>Why you will love it</h2>";
+    seoAnswer.keyFeatures = ["Driver: 40 mm", "Bluetooth 5.4 connectivity", "Exceptional comfort", "3-year warranty"];
+    seoAnswer.seoTitle.recommended = "HP-900 Headphones Headphones Best Headphones";
+    seoAnswer.metaDescription.recommended =
+      "Harbor Acoustics HP-900 headphones with 40 mm drivers, Bluetooth 5.4 and active noise cancelling, made for long listening sessions at home, at work and on the move, and";
+    seoAnswer.tags = ["headphones", "耳机", "warranty"];
+
+    const product = await knownListing();
+    const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    expect(run.stage).toBe("READY");
+    const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
+
+    const description = after.descriptionHtml ?? "";
+    expect(description).toContain("40 mm drivers with Bluetooth 5.4");
+    expect(description).toContain("active noise cancelling");
+    expect(description).not.toMatch(/immersive|clear and|Get yours|Kopfhörer|warranty|Why you will love it/i);
+    expect(description.split("HP-900 Headphones").length - 1).toBeLessThanOrEqual(1);
+
+    expect(after.bulletFeatures).toEqual(["40 mm driver", "Bluetooth 5.4 connectivity"]);
+    expect(after.seoMetaTitle).not.toMatch(/Best|Headphones Headphones/);
+    expect(after.seoMetaDescription).toMatch(/[.!?]$/);
+    expect(after.seoMetaDescription).not.toMatch(/,\s*and\.?$|,\.$/);
+    expect(after.tags).toEqual(["headphones"]);
+
+    const [seo] = await harness.db.select().from(seoResearchRuns).where(eq(seoResearchRuns.id, run.seoRunId!));
+    const analysis = seo.analysis as { generator: { kind: string; localGrounded: boolean }; quality: { withheld: string[]; repaired: string[] } };
+    // Still one model call, still local grounded AI.
+    expect(ollama.requests.filter((request) => request.path === "/api/chat" && !JSON.stringify(request.body?.format).includes('"candidates"'))).toHaveLength(1);
+    expect(analysis.generator).toMatchObject({ kind: "ai", localGrounded: true });
+    expect(analysis.quality.withheld).toContain("SEO title");
+    expect(analysis.quality.repaired.join(" ")).toMatch(/unsupported claim|sales filler|not English/);
+  });
+
+  it("shows the model a bounded plan and the manual warranty, never a researched one", async () => {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(localOllama(), "qwen2.5:7b"));
+    const product = await knownListing();
+    await updateProduct(staff, product.id, { warranty: { hasWarranty: true, durationMonths: 12 } } as never);
+    await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
+    const sent = ollama.requests.filter((request) => request.path === "/api/chat").at(-1)!.body!;
+    const view = JSON.parse(sent.messages[1].content.split("\n")[1]);
+    expect(view.manualWarranty).toBe("12-month warranty");
+    expect(view.contentPlan.priorityFacts.length).toBeGreaterThan(0);
+    expect(view.contentPlan.priorityFacts.length).toBeLessThanOrEqual(12);
+    expect(view.contentPlan.exactName).toBe(product.title);
+    expect(JSON.stringify(view.establishedFacts)).not.toMatch(/warrant/i);
   });
 });

@@ -5,7 +5,7 @@ import {
   type KeywordRecommendation,
   type SeoPulseInput,
 } from "./types";
-import { clampText, cleanTerms, dedupeBy, keywordKey, normalizeKeyword, suggestSlug } from "./text";
+import { clampText, cleanTerms, dedupeBy, fitMetaDescription, keywordKey, normalizeKeyword, suggestSlug } from "./text";
 
 /**
  * Turns whatever a generator returned into something safe to store.
@@ -121,7 +121,8 @@ export function sanitizeGenerated(
       reason: clampText(str(title.reason), 300) || "Suggested by SEO Pulse analysis.",
     },
     metaDescription: {
-      recommended: clampText(str(meta.recommended), 170),
+      // Ended at a natural boundary, never cut mid-sentence (D-128).
+      recommended: fitMetaDescription(str(meta.recommended), 160),
       reason: clampText(str(meta.reason), 300) || "Suggested by SEO Pulse analysis.",
     },
     h1: {

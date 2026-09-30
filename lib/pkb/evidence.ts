@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  pkbAttributeDefinitions,
   pkbClaims,
   pkbEvidence,
   pkbFacts,
@@ -17,6 +18,7 @@ import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { lockProductKnowledge, PkbError, staffChange, type Executor } from "./common";
+import { valueWithUnit } from "./unit-text";
 import { normalizeUrl } from "./normalize";
 import {
   ensureBrand,
@@ -228,7 +230,8 @@ export async function proposeFactClaim(actor: SessionUser | null, input: Propose
     if (!definition) throw new PkbError("That attribute does not exist.", 404);
     if (!input.notApplicable && !input.raw?.trim()) throw new PkbError("A claim needs a value.");
 
-    const written = input.unit ? `${input.raw} ${input.unit}` : input.raw ?? "";
+    // "2685 MHz" read with unit "MHz" is one unit, not two (D-128).
+    const written = valueWithUnit(input.raw, input.unit);
     const value: FactValue = input.notApplicable ? notApplicableValue() : readValue(definition, written);
     if (value.valueStatus === "normalized" && value.typed.brandName) {
       value.brandId = await ensureBrand(tx, value.typed.brandName, staffChange(staff.id));
@@ -313,10 +316,14 @@ export async function listClaims(executor: Executor, pkbProductId: string) {
       domain: pkbSources.domain,
       extractionMethod: pkbEvidence.extractionMethod,
       excerpt: pkbEvidence.excerpt,
+      /** What the value is of, as a person reads it (D-128): the attribute, or the identifier type. */
+      attributeLabel: sql<string | null>`coalesce(${pkbAttributeDefinitions.label}, upper(${pkbClaims.identifierType}))`,
+      sourceUrl: pkbSources.url,
     })
     .from(pkbClaims)
     .innerJoin(pkbEvidence, eq(pkbEvidence.id, pkbClaims.evidenceId))
     .innerJoin(pkbSources, eq(pkbSources.id, pkbEvidence.sourceId))
+    .leftJoin(pkbAttributeDefinitions, eq(pkbAttributeDefinitions.id, pkbClaims.definitionId))
     .where(eq(pkbClaims.pkbProductId, pkbProductId))
     .orderBy(sql`${pkbClaims.createdAt} desc`);
 }

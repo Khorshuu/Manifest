@@ -13,6 +13,7 @@ import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { lockProductKnowledge, PkbError, PkbLockedError, staffChange, type Executor } from "./common";
+import { valueWithUnit } from "./unit-text";
 import { beginProductChange, finishProductChange, writeDecidedFact } from "./facts";
 import { normalizeIdentifier, type IdentifierInputType } from "./identifiers";
 import { refreshResolution } from "./resolution";
@@ -117,7 +118,8 @@ export async function createClaim(tx: Executor, input: NewClaim): Promise<ClaimR
 
   if (input.target === "fact") {
     const ordinal = input.ordinal ?? 0;
-    const written = input.unit ? `${input.raw} ${input.unit}` : input.raw ?? "";
+    // "2685 MHz" read with unit "MHz" is one unit, not two (D-128).
+    const written = valueWithUnit(input.raw, input.unit);
     const value = input.notApplicable ? notApplicableValue() : readValue(input.definition, written);
     if (value.valueStatus === "normalized" && value.typed.brandName) {
       value.brandId = await ensureBrand(tx, value.typed.brandName, input.proposedBy ? staffChange(input.proposedBy) : { kind: "legacy" });

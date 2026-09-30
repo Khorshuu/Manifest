@@ -86,7 +86,7 @@ function DescriptionCopy({ html }: { html: string }) {
  */
 export type InfoTabsProps = {
   descriptionHtml: string | null;
-  /** Shown under the description — the same lines as "At a glance" above. */
+  /** Shown under the description: facts explained for a shopper, not the label-and-value lines of "At a glance" (D-128). */
   keyFeatures: string[];
   specifications: SpecRow[];
   measurements: SpecRow[];

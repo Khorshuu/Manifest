@@ -5,6 +5,16 @@ import { useState } from "react";
 import { Button } from "@/components/button";
 import type { ProductIntelligence, VocabularyView } from "@/lib/pkb/intelligence";
 import { PROPOSAL_GROUP_LABELS, proposalGroup, type ProposalGroup } from "@/lib/pkb/proposal-groups";
+import {
+  actionTargets,
+  allVisibleSelected,
+  decideInBatches,
+  decisionMessage,
+  selectAllVisible,
+  visibleClaims,
+  type ClaimFilter,
+} from "@/lib/pkb/claim-selection";
+import { valueWithUnit } from "@/lib/pkb/unit-text";
 import { inputClass } from "../editor-parts";
 
 const PROPOSAL_GROUP_ORDER: ProposalGroup[] = ["facts", "version", "composition", "use", "safety", "box", "passages"];
@@ -34,6 +44,7 @@ export function IntelligencePanels({
   const [note, setNote] = useState("");
   const [url, setUrl] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<ClaimFilter>("all");
 
   const base = `/api/admin/knowledge/products/${intelligence.pkbProductId}`;
   const open = intelligence.claims.filter((row) => row.claim.status === "SUGGESTED" || row.claim.status === "CONFLICT");
@@ -87,12 +98,59 @@ export function IntelligencePanels({
     .filter((definition) => definition.status === "approved")
     .sort((a, b) => a.label.localeCompare(b.label));
 
-  const chosen = [...selected];
-  const chosenClaims = open.filter((row) => selected.has(row.claim.id));
-  const allChosenQualify = chosenClaims.length > 0 && chosenClaims.every((row) => row.verification?.eligible);
+  // Bulk review (D-128): what is shown under the filter, and what of it is selected.
+  const shown = visibleClaims(
+    open.map((row) => ({ id: row.claim.id, status: row.claim.status, row })),
+    filter,
+  );
+  const targets = actionTargets(selected, shown);
+  const targetRows = shown.filter((entry) => targets.includes(entry.id)).map((entry) => entry.row);
+  const allChosenQualify = targetRows.length > 0 && targetRows.every((row) => row.verification?.eligible);
+  const everyShownSelected = allVisibleSelected(selected, shown);
+  const counts: Record<ClaimFilter, number> = {
+    all: open.length,
+    proposed: open.filter((row) => row.claim.status === "SUGGESTED").length,
+    conflict: open.filter((row) => row.claim.status === "CONFLICT").length,
+  };
+
+  /**
+   * Accept, accept as verified, or reject what is selected and shown, through
+   * the same endpoint as one claim, so every permission check, verification
+   * policy, audit record and history entry applies. Sent in groups of at most
+   * 100, each all or nothing; the first refused group stops the rest and says
+   * why.
+   */
+  async function decideSelected(action: "accept" | "verify" | "reject") {
+    const ids = targets;
+    if (ids.length === 0) return;
+    setPending(action);
+    setError(null);
+    setMessage(null);
+    const outcome = await decideInBatches(ids, async (batch) => {
+      const body =
+        action === "reject"
+          ? { action: "reject", claimIds: batch }
+          : { action: "accept", claimIds: batch, ...(action === "verify" ? { asVerified: true } : {}) };
+      const response = await fetch(`${base}/claims`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }).catch(() => null);
+      if (!response) return { ok: false as const, error: "The connection failed. Try again." };
+      if (response.ok) return { ok: true as const };
+      const parsed = await response.json().catch(() => ({}));
+      return { ok: false as const, error: parsed.error ?? "Something went wrong. Try again." };
+    });
+    setPending(null);
+    const text = decisionMessage(action, outcome);
+    if (outcome.error) setError(text);
+    else setMessage(text);
+    setSelected(new Set());
+    router.refresh();
+  }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6" data-knowledge-product={intelligence.pkbProductId}>
       {error ? <p role="alert" className="text-sm text-stamp-red-text">{error}</p> : null}
       {message ? <p className="text-sm text-ink/70">{message}</p> : null}
 
@@ -167,9 +225,9 @@ export function IntelligencePanels({
         </ul>
       </section>
 
-      <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4">
+      <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4" aria-labelledby="proposed-values">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="font-display text-lg text-ink">Proposed values</h2>
+          <h2 id="proposed-values" className="font-display text-lg text-ink">Proposed values</h2>
           <span className="text-[0.75rem] text-ink/55">{open.length} waiting</span>
         </div>
 
@@ -177,87 +235,161 @@ export function IntelligencePanels({
           <p className="text-sm text-ink/65">Nothing is proposed. Add a source, or ask for an enrichment run below.</p>
         ) : (
           <>
-            <ul className="flex flex-col gap-2">
-              {open.map((row) => (
-                <li key={row.claim.id} className="rounded-lg border border-line p-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <label className="flex items-start gap-2 text-sm text-ink">
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={selected.has(row.claim.id)}
-                        onChange={() => toggle(row.claim.id)}
-                      />
-                      <span className="flex flex-col gap-0.5">
-                        <span className="font-medium">
-                          {row.claim.rawValue ?? "(not applicable)"}
-                          {row.claim.valueUnit ? ` ${row.claim.valueUnit}` : ""}
-                        </span>
-                        <span className="text-[0.75rem] text-ink/60">
-                          {row.claim.status} · {row.sourceType.replace(/_/g, " ")}
-                          {row.domain ? ` · ${row.domain}` : ""} · tier {row.authorityTier ?? "—"} ·{" "}
-                          {row.extractionMethod.replace(/_/g, " ")}
-                        </span>
-                        {row.excerpt ? <span className="text-[0.75rem] italic text-ink/55">“{row.excerpt}”</span> : null}
-                        <span className="text-[0.75rem] text-ink/60">
-                          {row.verification?.eligible
-                            ? `Verifiable under ${row.verification.policy?.name}`
-                            : (row.verification?.reasons[0] ?? "Not verifiable yet")}
-                        </span>
-                      </span>
-                    </label>
-                    {row.claim.status === "CONFLICT" ? (
-                      <span className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={pending !== null}
-                          onClick={() =>
-                            void post("/claims", { action: "resolve_conflict", claimId: row.claim.id }, row.claim.id, "Conflict resolved.")
-                          }
-                        >
-                          Keep this one
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          disabled={pending !== null}
-                          onClick={() =>
-                            void post(
-                              "/claims",
-                              { action: "resolve_conflict", claimId: row.claim.id, keepCurrent: true },
-                              `${row.claim.id}-keep`,
-                              "Kept the existing value.",
-                            )
-                          }
-                        >
-                          Keep what we have
-                        </Button>
-                      </span>
-                    ) : null}
-                  </div>
-                </li>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Show">
+              {(
+                [
+                  ["all", "All waiting"],
+                  ["proposed", "Proposed"],
+                  ["conflict", "In conflict"],
+                ] as [ClaimFilter, string][]
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={filter === value}
+                  onClick={() => setFilter(value)}
+                  className={`rounded-full border px-3 py-1 text-[0.75rem] ${
+                    filter === value ? "border-ink bg-ink text-paper" : "border-line text-ink/70 hover:border-ink/40"
+                  }`}
+                >
+                  {label} ({counts[value]})
+                </button>
               ))}
-            </ul>
+            </div>
 
-            <div className="flex flex-wrap gap-2 border-t border-line pt-3">
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-paper px-3 py-2 text-sm">
+              <label className="flex items-center gap-2 text-ink">
+                <input
+                  type="checkbox"
+                  checked={everyShownSelected}
+                  disabled={shown.length === 0}
+                  onChange={() => setSelected(everyShownSelected ? new Set() : selectAllVisible(selected, shown))}
+                />
+                Select all shown ({shown.length})
+              </label>
+              <span className="text-ink/60" aria-live="polite">
+                {targets.length} selected
+              </span>
+              {targets.length > 0 ? (
+                <button type="button" className="text-[0.8rem] text-blue-600 hover:underline" onClick={() => setSelected(new Set())}>
+                  Clear
+                </button>
+              ) : null}
+            </div>
+
+            {shown.length === 0 ? (
+              <p className="text-sm text-ink/65">Nothing waiting under this filter.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {shown.map(({ row }) => {
+                  const chosen = selected.has(row.claim.id);
+                  const value =
+                    row.claim.rawValue === null ? "(not applicable)" : valueWithUnit(row.claim.rawValue, row.claim.valueUnit);
+                  return (
+                    <li
+                      key={row.claim.id}
+                      data-claim={row.attributeLabel ?? ""}
+                      className={`rounded-lg border p-3 ${chosen ? "border-blue-500 bg-blue-50/40" : "border-line"}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          className="mt-1.5 h-4 w-4 shrink-0"
+                          checked={chosen}
+                          onChange={() => toggle(row.claim.id)}
+                          aria-label={`Select ${row.attributeLabel ?? "value"}: ${value}`}
+                        />
+                        <div className="flex min-w-0 flex-1 flex-col gap-1">
+                          <div className="flex flex-wrap items-baseline justify-between gap-2">
+                            <span className="text-[0.7rem] font-semibold uppercase tracking-[0.06em] text-ink/60">
+                              {row.attributeLabel ?? "Value"}
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide ${
+                                row.claim.status === "CONFLICT" ? "bg-stamp-red-text/10 text-stamp-red-text" : "bg-blue-100 text-blue-700"
+                              }`}
+                            >
+                              {row.claim.status === "CONFLICT" ? "In conflict" : "Proposed"}
+                            </span>
+                          </div>
+                          <span className="text-base font-medium text-ink [overflow-wrap:anywhere]">{value}</span>
+                          <span className="text-[0.75rem] text-ink/60">
+                            {row.domain ?? row.sourceType.replace(/_/g, " ")} · tier {row.authorityTier ?? "—"} ·{" "}
+                            {row.extractionMethod.replace(/_/g, " ")}
+                            {row.sourceUrl ? (
+                              <>
+                                {" · "}
+                                <a className="text-blue-600 hover:underline" href={row.sourceUrl} target="_blank" rel="noreferrer">
+                                  source
+                                </a>
+                              </>
+                            ) : null}
+                          </span>
+                          {row.excerpt ? (
+                            <blockquote className="border-l-2 border-line pl-2 text-[0.75rem] italic text-ink/55 [overflow-wrap:anywhere]">
+                              “{row.excerpt.length > 300 ? `${row.excerpt.slice(0, 297)}…` : row.excerpt}”
+                            </blockquote>
+                          ) : null}
+                          <span className="text-[0.75rem] text-ink/60">
+                            {row.verification?.eligible
+                              ? `Verifiable under ${row.verification.policy?.name}`
+                              : (row.verification?.reasons[0] ?? "Not verifiable yet")}
+                          </span>
+                          {row.claim.status === "CONFLICT" ? (
+                            <span className="mt-1 flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={pending !== null}
+                                onClick={() =>
+                                  void post("/claims", { action: "resolve_conflict", claimId: row.claim.id }, row.claim.id, "Conflict resolved.")
+                                }
+                              >
+                                Keep this one
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                disabled={pending !== null}
+                                onClick={() =>
+                                  void post(
+                                    "/claims",
+                                    { action: "resolve_conflict", claimId: row.claim.id, keepCurrent: true },
+                                    `${row.claim.id}-keep`,
+                                    "Kept the existing value.",
+                                  )
+                                }
+                              >
+                                Keep what we have
+                              </Button>
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {/* Stays in reach while scrolling a long list; nothing is decided until one of these is pressed. */}
+            <div className="sticky bottom-0 z-10 -mx-4 -mb-4 flex flex-wrap items-center gap-2 rounded-b-xl border-t border-line bg-surface/95 px-4 py-3 backdrop-blur">
+              <span className="mr-auto text-[0.8rem] text-ink/70">{targets.length} selected</span>
               <Button
                 type="button"
                 size="sm"
-                disabled={pending !== null || chosen.length === 0}
-                onClick={() => void post("/claims", { action: "accept", claimIds: chosen }, "accept", "Applied the selected values.")}
+                disabled={pending !== null || targets.length === 0}
+                onClick={() => void decideSelected("accept")}
               >
-                Apply selected ({chosen.length})
+                Accept selected ({targets.length})
               </Button>
               <Button
                 type="button"
                 size="sm"
                 disabled={pending !== null || !allChosenQualify}
                 title={allChosenQualify ? undefined : "Every selected value must qualify under a verification policy."}
-                onClick={() =>
-                  void post("/claims", { action: "accept", claimIds: chosen, asVerified: true }, "verify", "Accepted as verified.")
-                }
+                onClick={() => void decideSelected("verify")}
               >
                 Accept as verified
               </Button>
@@ -265,8 +397,8 @@ export function IntelligencePanels({
                 type="button"
                 size="sm"
                 variant="secondary"
-                disabled={pending !== null || chosen.length === 0}
-                onClick={() => void post("/claims", { action: "reject", claimIds: chosen }, "reject", "Rejected.")}
+                disabled={pending !== null || targets.length === 0}
+                onClick={() => void decideSelected("reject")}
               >
                 Reject selected
               </Button>

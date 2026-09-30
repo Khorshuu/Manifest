@@ -1,6 +1,10 @@
+import { valueWithUnit } from "@/lib/pkb/unit-text";
 import { getLocalServicesConfig, ollamaModelFor } from "@/lib/providers/local/config";
 import { chatJson, LocalAiError, OllamaClient } from "@/lib/providers/local/ollama";
 import { generateByRules, relevantSiteSynonyms } from "../rules";
+import { contentPlan } from "../content-plan";
+import { applyQualityGate } from "../quality";
+import { isWarrantyLabel } from "@/lib/pkb/warranty-policy";
 import { measurementRows, specificationRows } from "../facts";
 import { sanitizeDescriptionHtml, sanitizeGenerated } from "../sanitize";
 import type { GeneratedRecommendations, SeoPulseInput, SeoResearchData } from "../types";
@@ -63,8 +67,28 @@ export function groundedPromptInput(input: SeoPulseInput) {
       ...measurementRows(input).map((row) => ({ ...row, scope: "product" })),
       ...knowledge.attributes
         .filter((attribute) => attribute.pkbVariantId !== null)
-        .map((attribute) => ({ label: attribute.label, value: attribute.unit && !attribute.value.includes(attribute.unit) ? `${attribute.value} ${attribute.unit}` : attribute.value, scope: "one version" })),
-    ].filter((row) => !OFFER_LABEL.test(row.label.trim())),
+        .map((attribute) => ({ label: attribute.label, value: valueWithUnit(attribute.value, attribute.unit), scope: "one version" })),
+    ].filter((row) => !OFFER_LABEL.test(row.label.trim()) && !isWarrantyLabel(row.label)),
+    /*
+     * The plan this one generation follows (D-128): the facts that matter
+     * most, in order and bounded; the exact name to use once and the shorter
+     * names to use after; how much the facts support writing; and what At a
+     * Glance already shows, so the key points say something else. The only
+     * warranty the model may mention is the listing's own, entered by staff.
+     */
+    contentPlan: (() => {
+      const plan = contentPlan(input);
+      return {
+        exactName: plan.exactName,
+        shortNames: plan.shortNames,
+        priorityFacts: plan.facts,
+        atAGlance: plan.atAGlance,
+        depth: plan.depth,
+        usefulWords: plan.usefulWords,
+        sections: plan.sections,
+      };
+    })(),
+    manualWarranty: contentPlan(input).manualWarranty,
     // Staff's own words only: SEO Pulse's earlier wording is not evidence (D-120).
     staffKeyFeatures: input.pulseWritten?.bulletFeatures ? [] : input.bulletFeatures,
     staffDescription: input.pulseWritten?.description ? "" : input.descriptionText.slice(0, 4_000),
@@ -137,6 +161,7 @@ export function supportedFigures(input: SeoPulseInput): Set<string> {
     ...view.staffKeyFeatures,
     view.staffDescription,
     ...view.boxContents,
+    view.manualWarranty ?? "",
     ...view.identifiers.map((identifier) => JSON.stringify(identifier)),
   ];
   return new Set(sources.flatMap(figures));
@@ -265,11 +290,15 @@ export class OllamaIntelligenceProvider implements SeoIntelligenceProvider {
     );
     if (!answer.ok) throw new LocalAiError(answer.kind, answer.message);
     let rules: GeneratedRecommendations | null = null;
-    const { generated } = withholdUnsupportedFigures(
-      withoutSiteName(answer.value),
-      input,
-      () => (rules ??= sanitizeGenerated(generateByRules(input, research), input)),
-    );
+    const fallback = () => (rules ??= sanitizeGenerated(generateByRules(input, research), input));
+    /*
+     * The deterministic quality gate first (D-128): a sentence it removes —
+     * "Backed by a 3-year warranty." — no longer takes the whole description
+     * down with it in the figures check that follows. SeoPulse runs the gate
+     * again on every generator's answer; it changes nothing the second time.
+     */
+    const gate = applyQualityGate(withoutSiteName(answer.value), input, fallback);
+    const { generated } = withholdUnsupportedFigures(gate.generated, input, fallback);
     return {
       generated,
       model: answer.model,
@@ -277,6 +306,7 @@ export class OllamaIntelligenceProvider implements SeoIntelligenceProvider {
       outputTokens: answer.outputTokens,
       // Runs on this computer: nothing is charged.
       estimatedCostUsd: 0,
+      quality: { repaired: gate.repaired, withheld: gate.withheld },
     };
   }
 }

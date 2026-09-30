@@ -4396,3 +4396,91 @@ that moment makes preparation decide again instead of stopping.
   same batch.
 - Preparation ticks keep counting during live waits. A later ordinary wait
   after a very long generation can still meet `MAX_TICKS`.
+
+## Product data quality, SeoPulse content quality, bulk review, short SKUs, English-only research (D-128)
+
+Details and rules in DECISIONS.md D-128. Every rule is generic and tested with
+invented products from unrelated families.
+
+`[x]` **Units written once** (`lib/pkb/unit-text.ts`) at every join: claims,
+attribute display, structured data, SeoPulse facts, the model's view, review,
+product page, quality gate.
+
+`[x]` **Candidate gate** (`lib/pkb/candidate-quality.ts`) in
+`proposeFromExtraction`: calls to action, navigation, decoration, persuasion,
+URLs, sentence labels and warranties never become claims or proposals.
+
+`[x]` **Warranty is manual-only** (`lib/pkb/warranty-policy.ts`).
+
+`[x]` **At a Glance and Key Points** (`lib/seo-pulse/content-plan.ts`); the
+product page shows At a Glance as label → value.
+
+`[x]` **Bulk review in Product Intelligence** (`panels.tsx`,
+`lib/pkb/claim-selection.ts`): filters, select all shown, sticky actions,
+groups of 100 through `acceptClaims`/`rejectClaims`.
+
+`[x]` **Short generated SKUs** (`lib/catalog/sku-generator.ts`).
+
+`[x]` **English-only research** (`lib/pkb/language.ts`), with hreflang
+English alternates.
+
+`[x]` **SeoPulse content plan and quality gate** (`lib/seo-pulse/quality.ts`).
+
+`[x]` **No migration.**
+
+`[x]` **Verification.**
+- A session break left `tests/data-quality.test.ts` with 2,412 trailing NUL
+  bytes, which failed typecheck and lint. The bytes were stripped; the file's
+  eight `describe` blocks match TESTING.md.
+- Typecheck clean. Lint clean.
+- Vitest (`--maxWorkers=3`, real PostgreSQL): 131 files, 1,889 passed,
+  8 skipped. That is 1,831 before, plus 58 new D-128 tests.
+- Production build passed.
+- Playwright (production build on port 3200, 2 workers, providers `rules` /
+  `none` as in the D-125 baseline): claim review, product preparation,
+  SeoPulse regeneration, intelligence, product edit, admin boundary, cron,
+  product detail, admin variants, variant through order, storefront, admin
+  catalog, SEO. 173 passed, 1 skipped, 0 failed, before and after the live
+  fixes below.
+- Product page looked at on a Pixel 7 viewport (PNY RTX 5070, dev server):
+  At a Glance shows five label → value rows ("Boost Clock: 2685 MHz", unit
+  once), no sideways scroll.
+
+`[x]` **Live check (real `qwen2.5:7b`, `preorder_utf8`, dev server scheduler,
+SeoPulse panel runs).** Before: the PNY listing's stored content had a
+warranty key point and "Get expert advice…"; Soundcore and Model D 2 metas
+ended on "and"; Soundcore said "clear sound".
+- PNY run 1 (572 s): warranty gone, "smooth" and "perfect" removed, units
+  once, exact name once, readable key points. The gate missed an "Experience
+  the power of …" meta, "high-performance", a "High-End …" title alternative
+  and a "high end" tag. Fixed (DECISIONS D-128, addendum to 10).
+- PNY run 2 (552 s): those caught; the meta was withheld for the rules meta.
+  New fault: the opening sentence was dropped for one adjective, so the
+  description began "It features …". Fixed with `withoutPraise`.
+- PNY run 3 (577 s): opening sentence kept ("… is a graphics card designed
+  for gamers and professionals"). New faults: "a more gaming experience",
+  "a compact yet addition", "smoothly" not caught. Fixed.
+- PNY run 4 (416 s): new faults "For 4K gaming and virtual reality
+  applications." (from "Perfect for …") and a "Memory: 12GB GDDR7" key point
+  left as label: value. Fixed.
+- Soundcore run (371 s), a different family: "clear sound", "lightweight" and
+  "Perfect" removed, filler meta withheld, title "Soundcore Liberty 4 NC
+  Wireless Earbuds", key points readable, no warranty. The description was
+  left as one true sentence without the product name.
+- Every run: `kind: ai`, `localGrounded: true`, one attempt, no error.
+- Not re-run live after the last two fixes (runs take 6–10 minutes); both
+  are covered by the automated tests above.
+
+`[!]` **Limitations.**
+- A long product name cut to 70 characters for the SEO title can end on an
+  adjective ("… 12GB GDDR7 Graphics"). The rules title cuts the same way, so
+  it is not treated as a fault yet.
+- When the model's opening sentence carries unrepairable praise ("delivers
+  clear sound"), it is dropped, and the description may no longer name the
+  product.
+- Removing an attributive word can leave a vacuous phrase ("it delivers
+  performance"). It is grammatical and true, but thin.
+- The rules meta used when a meta is withheld reads as a list ("– 2685 MHz:
+  Blackwell architecture; NVIDIA chipset manufacturer.").
+- Research reading (language gate, candidate gate) was covered by automated
+  tests with fake fetch, not re-run live against SearXNG in this session.

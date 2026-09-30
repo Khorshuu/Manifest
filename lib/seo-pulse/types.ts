@@ -306,6 +306,11 @@ export type SeoAnalysis = GeneratedRecommendations & {
      */
     fallbackFrom?: { provider: string; code: string | null; message: string };
   };
+  /**
+   * What SeoPulse's deterministic quality gate repaired and withheld before
+   * the run was stored (D-128). Absent on runs made before it.
+   */
+  quality?: { repaired: string[]; withheld: string[] };
   keywordGroups: Record<KeywordIntent, string[]>;
   slugConflict: boolean;
   imageFilenames: { imageId: string; filename: string }[];

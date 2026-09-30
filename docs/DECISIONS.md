@@ -4069,3 +4069,181 @@ D-125 ownership and auto-apply rules, D-126 streaming, the hosted provider,
 the rules generator, and every job kind's limits when no local model is in
 use. No migration: the slot uses advisory locks, and phases are read from the
 existing `jobs` rows.
+
+## D-128 — Product data quality, SeoPulse content quality, bulk review, short SKUs, English-only research
+
+Live acceptance (D-126, D-127) produced listings with doubled units ("2685 MHz
+MHz"), page furniture as specifications ("Get Educated → … Learn More"), a
+manufacturer's warranty treated as a product fact, Key Points repeating At a
+Glance, SKUs made of whole titles, non-English pages read for facts, and
+generated wording with claims the facts did not make. Every rule below is
+generic: none names a brand, a product or a category, and each is tested with
+invented products from unrelated families.
+
+**1. A unit is written once** (`lib/pkb/unit-text.ts`). `valueWithUnit(value,
+unit)` appends a unit only to a value that ends in a number and does not
+already end with that unit; a value that spells its own unit ("7.97 ounces
+(226 grams)") is left alone. `collapseRepeatedUnits` repairs a doubled unit
+only straight after a number ("2685 MHz MHz"), never ordinary repeated words.
+There is no unit list. Every join goes through it: claim creation (review and
+evidence — this was the source of the doubled values), category attribute
+display, structured data, SeoPulse's fact rows, the local model's view, the
+review screen, the product page's specification rows and At a Glance, and the
+quality gate on generated text. Evidence keeps the page's own words.
+
+**2. What may become candidate knowledge** (`lib/pkb/candidate-quality.ts`).
+`candidateRejection(label, value)` runs in `proposeFromExtraction`, the one
+place every reader's rows — structured, text, and AI-assisted — become claims
+or attribute proposals. It refuses: a warranty (`WARRANTY_EXTERNAL`);
+decoration only (`DECORATIVE`: emoji, ticks, stars — but never Ω µ ° ± × ²
+® ™ ©, which are kept); calls to action as label or value, navigation words as
+a label, a value trailing off into "Learn More", persuasion and URLs
+(`SOURCE_NOISE`); and a label that is a sentence, a value that only repeats its
+label, or reader-addressed prose with no figure (`NOT_A_SPECIFICATION`). It is
+conservative: any short plausible label with a plain value passes, numeric or
+not, and an unfamiliar label still becomes a proposal for a person. The
+retrieved document's text is stored unchanged.
+
+**3. Warranty is manual-only** (`lib/pkb/warranty-policy.ts`, the one place
+that decides it). A researched warranty never becomes a claim or a proposal
+(candidate gate), never reaches a generator (`groundedKnowledge` drops any
+warranty attribute, whatever its state), never reaches structured data
+(`publishableKnowledge`), never enters SeoPulse's facts, At a Glance or Key
+Points (`content-plan.ts`), and generated text mentioning a warranty is
+removed unless the listing's own Warranty & safety field says there is one.
+That field (`products.warranty`) is untouched by research and is passed to the
+model as `manualWarranty`.
+
+**4. At a Glance and Key Points have different jobs**
+(`lib/seo-pulse/content-plan.ts`).
+
+- *At a Glance*: up to five short label → value facts for scanning, chosen
+  deterministically from established facts — the family's required, then SEO
+  relevant or filterable attributes first (`familyGlancePriority`), otherwise
+  short specific values. Identifiers, offer terms, warranties, instructions
+  and long values are left out. The product page now shows this instead of
+  the first four bullets.
+- *Key Points*: one established fact each, read as a shopper reads it —
+  `keyPointFromFact("Memory", "12GB GDDR7")` is "12GB GDDR7 memory". The rules
+  generator writes them this way, and the quality gate rewrites any
+  "Label: value" line a model returns. Nothing is added that the fact does
+  not say.
+
+**5. Bulk review in Product Intelligence** (`panels.tsx`,
+`lib/pkb/claim-selection.ts`). Filter chips (all waiting, proposed, in
+conflict), a "Select all shown" checkbox, a selected count, Clear, and a
+sticky action bar with Accept selected, Accept as verified and Reject
+selected. Select all takes only the open claims the current filter shows; an
+action acts only on what is selected *and* shown. Selecting decides nothing.
+Decisions go through the existing endpoint and `acceptClaims`/`rejectClaims`
+— same permission check, verification policy, evidence, per-claim decision
+fields, fact history and audit (which lists every claim id) — in groups of at
+most 100, each all or nothing; the first refused group stops the rest, and the
+screen says how many were decided and why the rest were not. Rows now show the
+attribute, the value with its unit once, the source and the evidence excerpt.
+
+**6. Short generated SKUs** (`lib/catalog/sku-generator.ts`).
+`BRAND-MODEL-VARIANT…`: the brand's first word (≤8), the model or part number
+compacted (or a short title token: the first word with a number and the word
+before it, or two words), and each variant value (≤8). ASCII A–Z 0–9 and "-",
+shortened towards 40, always ≤64. Collisions get "-2", "-3" … within 64. Used
+for the primary variant, generated combinations, a variant added by hand, and
+duplicates (`-COPY` within 64). A SKU is never regenerated except when an
+option value is renamed, and then only for variants whose SKU is still exactly
+what the generator produced (`refreshGeneratedSkus`); a SKU staff typed never
+matches and stays byte for byte, and order lines keep their own SKU snapshot.
+The product-level SKU (`SKU-000001`, reserved when the Add Product form opens,
+before brand or model is known) is unchanged. Manufacturer identifiers (MPN,
+model number, GTIN) stay in their own fields.
+
+**7. Specification quality gate** — see 2; it is the same gate, applied before
+a row becomes a claim or a proposal.
+
+**8. English-only research** (`lib/pkb/language.ts`).
+
+- *Discovery*: SearXNG is asked for `language=en`, Brave for
+  `search_lang=en`; results and sitemap URLs that name an English locale rank
+  first and ones naming another language last (`urlLanguagePreference`) — a
+  hint only.
+- *Reading*: before a retrieved page is read into anything — and before the
+  optional AI reading, so a model never sees it — `detectLanguage` decides
+  from the visible text (writing system; which language's function words it
+  is made of; for thin pages, common English page words at half weight),
+  with the declared language (`<html lang>`, Content-Language,
+  schema.org `inLanguage`) used only when the text is too thin to decide and
+  never against clear text. English → read; another language →
+  `NON_ENGLISH_SOURCE`; too little or mixed → `LANGUAGE_UNCERTAIN`. Both are
+  recorded as refused documents. A few foreign navigation or footer words do
+  not outvote an English page.
+- *English version*: a refused page's `hreflang="en…"` alternates are read
+  instead, at most three per run and never an alternate's alternate.
+- *Official is no exception*, and there is no translation path: nothing from
+  a refused page reaches evidence, claims, proposals, the model, or content.
+- *Staff documents*: a pasted document clearly in another language is
+  refused (422, NON_ENGLISH_SOURCE); a short one that cannot be told is
+  accepted, because a person chose and read it.
+- *Output*: the quality gate removes non-English sentences, key points,
+  alt text and non-Latin search terms; the product's own names are not
+  counted as foreign.
+
+**9. SeoPulse content architecture.** Established facts → `contentPlan`
+(deterministic) → one model call → `applyQualityGate` (deterministic) →
+ownership and the D-127 final write check. The plan ranks facts by the
+family's attribute order and requirement, else by specificity, and bounds them
+at 12; names the exact title to use once and shorter names built from the
+product's own brand and model; chooses depth (simple / medium / detailed, with
+useful-word guidance that is never a target); lists sections only where some
+fact belongs in them (a perfume gets no connectivity paragraph); and carries
+At a Glance so Key Points say something else. The prompt adds rules for the
+plan, claim strength, filler, warranty, English and the separate jobs of
+description, title, meta and search terms. Still one generation: no critic,
+no rewrite.
+
+**10. The quality gate** (`lib/seo-pulse/quality.ts`), on every generator's
+answer (local, hosted, rules) before it is stored; the local provider runs it
+before its figure check too, so one bad sentence no longer takes the whole
+description down. Sentence by sentence: sales filler and page furniture
+removed; evaluative words ("exceptional", "premium", "lightweight", "clear
+sound", "best", "ultra-…", "most …") removed unless the established facts use
+the word themselves; warranty without a manual warranty removed; non-English
+removed; doubled units repaired. Across the description: the exact title used
+once, later uses replaced by a short identity name; a fact stated twice is not
+stated a third time; empty headings and lists removed; malformed markup or
+fewer than five words left → the description is withheld. Key points rewritten
+from "Label: value". A stuffed or promotional title → the rules title. The
+meta description is fitted at a sentence, then clause, then word boundary,
+never ending on a comma or a dangling "and" — `fitMetaDescription` also
+replaces the old 170-character cut in `sanitizeGenerated`. What was repaired
+and withheld is stored on the run (`analysis.quality`).
+
+Added after the first live run with `qwen2.5:7b`, which the gate above let
+through: a sentence that *opens* by telling the reader to experience,
+discover, unlock or feel something ("Experience the power of the …") is sales
+filler (a sentence merely containing "experience" is not); "high-performance",
+"high-end", "top-tier", "next-level", "next-gen" and "flagship" are evaluative;
+search terms, tags and brand variations are held to the same evaluative rule
+as sentences (a "high end" tag goes); and the brand and model name count as
+established text, so a brand that happens to contain such a word is not
+dropped from its own terms. The adverb makes the same claim as its adjective
+("smoothly" as "smooth").
+
+Dropping a whole sentence for one adjective lost, on the second live run, the
+opening sentence that named the product; the description began "It features
+…". A sentence whose only fault is praise used in front of another word now
+has that word taken out instead (`withoutPraise`: "is a high-performance
+graphics card" → "is a graphics card", "an exceptional cooler" → "a cooler").
+It is dropped as before when the word is predicative ("It is exceptional."),
+one half of a pair or after a degree word ("compact yet powerful", "a more
+immersive experience" — found on the third live run), a "most …" phrase, when
+the sentence has another fault, or when fewer than four words are left.
+
+Not fixed: a model title that is the product name cut at 70 characters can
+end on an adjective ("… 12GB GDDR7 Graphics"). The rules title also fits a
+long name by cutting it, so treating any cut name as a fault would reject the
+fallback too; choosing a better cut is left for later.
+
+**Not changed.** D-127's background execution, local-AI slot, stale policy,
+seoRunId reuse, streaming and error codes; the final write boundary,
+ownership, locks, D-125 auto-apply rules, the localGrounded, rules and hosted
+distinctions; identity matching; grounding; verification policies. No
+migration.

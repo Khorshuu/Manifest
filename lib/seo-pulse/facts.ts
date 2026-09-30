@@ -1,3 +1,4 @@
+import { valueWithUnit } from "@/lib/pkb/unit-text";
 import {
   KEYWORD_INTENTS,
   type GeneratedRecommendations,
@@ -381,15 +382,12 @@ function knowledgeRows(input: SeoPulseInput, kind: "specification" | "measuremen
     .map((attribute) => ({
       label: attribute.label,
       /*
-       * The unit is appended only to a value that is a bare number. A value
-       * read from a manufacturer's page usually spells its own unit — "665g",
-       * "7.97 ounces (226 grams)" — and normalisation stores the unit beside
-       * it, so appending it anyway prints "665g g".
+       * A value read from a manufacturer's page usually spells its own unit —
+       * "665g", "2685 MHz" — and normalisation stores the unit beside it, so
+       * the two are joined only where the value does not already say it
+       * (`valueWithUnit`, D-128).
        */
-      value:
-        attribute.unit && !/\p{L}/u.test(attribute.value)
-          ? `${attribute.value} ${attribute.unit}`
-          : attribute.value,
+      value: valueWithUnit(attribute.value, attribute.unit),
     }));
 }
 

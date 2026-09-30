@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { queryRows, type Executor } from "./common";
 import { resolveFamilySchema } from "./families";
+import { isWarrantyLabel } from "./warranty-policy";
 
 /**
  * What the knowledge base is willing to publish about a product (D-080).
@@ -120,7 +121,8 @@ export async function publishableKnowledge(
       pkbVariantId: row.pkb_variant_id,
       state: row.verification_state,
     })),
-    properties: propertyRows.map((row) => ({
+    // A warranty is never told to a search engine from research (D-128).
+    properties: propertyRows.filter((row) => !isWarrantyLabel(row.label)).map((row) => ({
       property: row.property,
       label: row.label,
       value: row.value,
@@ -290,14 +292,23 @@ export async function groundedKnowledge(
     ),
   ]);
 
-  const attributes = attributeRows.map((row) => ({
-    key: row.key,
-    label: row.label,
-    value: row.value,
-    unit: row.unit,
-    pkbVariantId: row.pkb_variant_id,
-    state: row.verification_state,
-  }));
+  const attributes = attributeRows
+    /*
+     * Warranty is Manifest's own term, entered in the listing's Warranty &
+     * safety section and carried separately (`products.warranty`). A value
+     * about a warranty in the knowledge base is never shown to a generator,
+     * so a researched warranty cannot reach content or override the manual
+     * one (D-128, lib/pkb/warranty-policy.ts).
+     */
+    .filter((row) => !isWarrantyLabel(row.label) && !isWarrantyLabel(row.key))
+    .map((row) => ({
+      key: row.key,
+      label: row.label,
+      value: row.value,
+      unit: row.unit,
+      pkbVariantId: row.pkb_variant_id,
+      state: row.verification_state,
+    }));
 
   const familyId = productRows[0]?.family_id ?? null;
   const schema = familyId ? await resolveFamilySchema(executor, familyId) : [];

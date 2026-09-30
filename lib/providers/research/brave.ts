@@ -87,6 +87,8 @@ export class BraveResearchProvider implements ProductResearchProvider {
     address.searchParams.set("count", String(Math.min(Math.max(query.limit, 1), 20)));
     address.searchParams.set("safesearch", "strict");
     address.searchParams.set("result_filter", "web");
+    // English pages only are read (D-128).
+    address.searchParams.set("search_lang", "en");
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);

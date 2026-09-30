@@ -7,7 +7,7 @@ import {
   productVariants,
   variantOptionValues,
 } from "@/db/schema";
-import { removeVariant } from "./variants";
+import { refreshGeneratedSkus, removeVariant } from "./variants";
 import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
@@ -519,6 +519,8 @@ export async function renameProductOptionValue(
     for (const id of listings) await beginListingChange(tx, id);
 
     await tx.update(attributeValues).set({ value: next }).where(eq(attributeValues.id, valueId));
+    // Generated SKUs follow the new value; SKUs staff wrote do not change (D-128).
+    for (const id of listings) await refreshGeneratedSkus(tx, id, { attributeValueId: valueId, from: row.value, to: next });
 
     await auditAttribute(
       staff.id,

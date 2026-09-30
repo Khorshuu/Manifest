@@ -78,13 +78,13 @@ test("a description SeoPulse wrote is regenerated with one click; one staff wrot
 
   // Reviewing shows the new version before anything is written.
   await description.getByRole("button", { name: "Review SeoPulse version" }).click();
-  await expect(description.getByTestId("seo-pulse-proposed")).toContainText("Polling rate: 1000 Hz");
-  await expect(page.locator("#descriptionHtml")).not.toHaveValue(/Polling rate/);
+  await expect(description.getByTestId("seo-pulse-proposed")).toContainText("1000 Hz polling rate");
+  await expect(page.locator("#descriptionHtml")).not.toHaveValue(/polling rate/i);
 
   const regenerated = page.waitForResponse((r) => r.url().endsWith("/seo-pulse/regenerate") && r.request().method() === "POST");
   await description.getByRole("button", { name: "Regenerate with SeoPulse" }).click();
   expect((await regenerated).status()).toBe(200);
-  await expect(page.locator("#descriptionHtml")).toHaveValue(/Polling rate: 1000 Hz/);
+  await expect(page.locator("#descriptionHtml")).toHaveValue(/1000 Hz polling rate/);
 
   // Staff now write their own description.
   await page.locator("#descriptionHtml").fill("<p>Our buyers' own words about the Model O.</p>");

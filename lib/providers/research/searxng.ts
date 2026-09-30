@@ -1,3 +1,4 @@
+import { urlLanguagePreference } from "@/lib/pkb/language";
 import { localRequest, localServiceUrl } from "@/lib/providers/local/config";
 import type { ResearchCandidate } from "./types";
 
@@ -59,6 +60,9 @@ export async function searchSearxng(
   address.searchParams.set("format", "json");
   address.searchParams.set("safesearch", "1");
   address.searchParams.set("categories", "general");
+  // English results only where the engines support it (D-128): Manifest reads
+  // English pages, so there is no point asking for others.
+  address.searchParams.set("language", "en");
 
   const response = await localRequest(address, { timeoutMs: options.timeoutMs ?? TIMEOUT_MS, maxBytes: MAX_BYTES });
   if (!response.ok) return { status: "UNAVAILABLE", message: `Local web search (SearXNG): ${response.message}.` };
@@ -90,7 +94,13 @@ export async function searchSearxng(
       // The search engine's words about the page: why it was offered, never a fact.
       note: text(result.content, 300),
     });
-    if (candidates.length >= limit) break;
   }
-  return { status: "OK", candidates };
+  // An address that names another language goes last, one that names English
+  // first (D-128). Only a hint: the page's own language is still checked when
+  // it is read. Stable, so the engines' order stands among equals.
+  const ordered = candidates
+    .map((candidate, index) => ({ candidate, index, preference: urlLanguagePreference(candidate.url) }))
+    .sort((a, b) => b.preference - a.preference || a.index - b.index)
+    .map((entry) => entry.candidate);
+  return { status: "OK", candidates: ordered.slice(0, limit) };
 }
