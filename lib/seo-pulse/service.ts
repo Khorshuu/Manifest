@@ -132,7 +132,7 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
       .where(eq(productImages.productId, productId))
       .orderBy(productImages.sortOrder, productImages.createdAt),
     db
-      .select({ id: categories.id, parentId: categories.parentId, name: categories.name })
+      .select({ id: categories.id, parentId: categories.parentId, name: categories.name, defaultFamilyId: categories.defaultFamilyId })
       .from(categories),
     db
       .select()
@@ -174,6 +174,11 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
     categoryPath.unshift(cursor.name);
     cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
   }
+  // A category with others under it is a grouping, not a kind of product (D-130).
+  const categoryShape = {
+    hasChildren: allCategories.some((row) => row.parentId === product.categoryId),
+    hasFamily: Boolean(byId.get(product.categoryId)?.defaultFamilyId),
+  };
 
   const attributeValues = (product.attributeValues ?? {}) as Record<string, unknown>;
   const specifications = [
@@ -211,6 +216,7 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
     identifierValue: product.identifierValue,
     categoryId: product.categoryId,
     categoryPath,
+    categoryShape,
     status: product.status,
     descriptionText: stripHtml(product.descriptionHtml).slice(0, 6000),
     bulletFeatures: strings(product.bulletFeatures),
@@ -262,7 +268,12 @@ export async function loadPulseInput(productId: string): Promise<SeoPulseInput |
 
 /** The part of the input that, when it changes, makes research out of date. */
 function hashInput(input: SeoPulseInput): string {
-  return hashValue(input);
+  // The category's shape (D-130) only refines title fitting; it is left out so
+  // adding it did not mark every earlier run as out of date. The category
+  // itself is still in the path.
+  const { categoryShape: _shape, ...hashed } = input;
+  void _shape;
+  return hashValue(hashed);
 }
 
 // --------------------------------------------------------------- research

@@ -4428,3 +4428,86 @@ and card aggregates for the 4 shown products; no descriptions, facets or
 recommendations. The route keeps its two-character floor and its in-memory
 per-visitor limit (`SEARCH_SUGGEST_LIMIT`, default 40 per 10 s). The client
 debounce is a courtesy, not that protection.
+
+## D-130 — Product identity-aware SEO titles and deterministic grammar
+
+D-129 left four deterministic weaknesses: the product type was guessed from
+the last words of the name whenever the family or category did not name it
+("… Olive Oil Cold Pressed Glass Bottle" protected "Glass Bottle"); every
+protected unit was equally immortal, so a guess was kept as firmly as a model
+code; a name whose protected identity passed 60 characters was cut at 60,
+which could drop a variant's value; and "<name> has / have …" chose its verb
+from the name's last word ("… Series", "… Lens", "… Edition"). All fixes are
+deterministic. No model call, no prompt change, no migration, no UI change.
+
+**Product type** (`lib/seo-pulse/product-type.ts`, `resolveProductType` in
+`title-fit.ts`). Strongest source first: the knowledge base family; the
+product's own category when it is specific — the last level of the path, with
+no categories under it, that carries a default family or that the title
+names (every level above, and any category with children, is a grouping); a
+recorded product type (`product_type`, "Product type", "Item type"); then the
+title, as a last resort. From the title, a phrase is taken only when the
+listing's own words repeat it (search keywords, tags, focus keyword, staff
+features and description — never SeoPulse's own earlier wording, D-120), or
+the closing words of the name when nothing suggests a descriptive tail: an
+-ed word between the start of the name and those words ("Cold Pressed",
+"Vacuum Insulated"), or one of them a value the facts state (a material, a
+container). Otherwise the type is unknown, and nothing is protected as the
+type. The input now carries `categoryShape` (has children, has a default
+family), read from categories already loaded; it is left out of the input
+hash so earlier runs are not marked out of date.
+
+**Title identity hierarchy** (`fitSeoTitle`). The D-129 removal order stays
+for normal material (praise and repeats, asides, "for/with" phrases,
+fact-stated words, other descriptive words, descriptive model words, codes the
+model does not contain). Added:
+
+- after a confirmed type, the descriptive tail that follows it ("Cold Pressed
+  Unfiltered Glass Bottle") goes first among descriptive words, whole;
+- a word and the -ed word it qualifies go together ("Cold Pressed"), and
+  praise spelled over two words ("Long Lasting") is praise in both;
+- **strong** tier, removed only when the title would otherwise miss 49: the
+  product line read from the name (no recorded model), a first word that is
+  not the brand, a quantity no variant records, a type guessed from the end
+  of the name;
+- **critical**: the brand, the recorded model's name word and codes, the
+  short word completing a model code ("Ti", "Pro", "Ultra"), a recorded
+  variant value (listing variants, variant details, variant-level knowledge
+  facts, a product-level capacity, storage, volume, size, shade,
+  concentration or generation), a generation ("Gen 3", "3rd Gen"), every
+  code in a name with no recorded model, a joiner inside a variant value
+  ("Wi-Fi + Cellular"), and a confirmed product type (with it, when no
+  brand is recorded, the first word of the name).
+
+"11 Tablet" is no longer read as a count ("60 Tablets" and "1 Tablet" are).
+
+**Preferred length vs identity.** 49 is the goal (60 with " · Manifest"),
+60 the readiness limit, both unchanged. Critical identity is never removed to
+meet either: it may pass 60, up to 70 (`SEO_TITLE_HARD_MAX`, what a stored
+SEO title holds; readiness then reports the title as long). Only past 70 does
+the confirmed type go, then whole codes from the right, and only then is the
+name cut at a unit boundary; the brand, the model's name, a variant's value
+and a generation go last. Variant safety comes from the ranking itself, not
+from checking uniqueness afterwards: two listings that differ in capacity,
+shade, size, generation, connectivity or model suffix keep that difference.
+The site's name is still stripped however often it appears, and the page
+adds " · Manifest" once.
+
+**Grammar.** No sentence verb depends on the product name any more. The plain
+opening is "Key specifications of the <name> include <fact> and <fact>.";
+the rules meta "Key specifications of the <name> include <fact>, <fact> and
+<fact>.", with ", intended for <use>," when the listing states a use, and
+"Key features …" when staff's own lines stand in for facts. "include" suits
+any fact (a colour, a clock speed, a port). With no fact that reads well:
+"This listing is for the <name>." — added only when no sentence of the
+opening paragraph already names the product. A name that starts with an
+article is not given another. Lists are built from cleaned items and the
+sentence is tidied of doubled spaces, spaces before punctuation, doubled
+commas and a doubled "and". The D-129 fact filter, the exact-name-once rule
+and the sentence checks are unchanged.
+
+**Not changed.** SearchPulse and the search patch; D-127 runtime and
+concurrency; D-128 units, warranty, English-only, SKUs, At a Glance, Key
+Points; D-129 praise and generic-predicate removal; FAQ, alt text, tags and
+aliases (out of scope). A staff-typed meta title that itself ends in
+" · Manifest" is not stripped on the product page (SeoPulse never writes one).

@@ -4,7 +4,7 @@ import { stripDecoration } from "@/lib/pkb/candidate-quality";
 import { collapseRepeatedUnits } from "@/lib/pkb/unit-text";
 import { mentionsWarranty } from "@/lib/pkb/warranty-policy";
 import { EVALUATIVE_PATTERN } from "./claim-words";
-import { contentPlan, keyPointFromFact, labelValueLine, openingSentence, type ContentPlan } from "./content-plan";
+import { contentPlan, identitySentence, keyPointFromFact, labelValueLine, openingSentence, type ContentPlan } from "./content-plan";
 import { sanitizeDescriptionHtml } from "./sanitize";
 import { escapeHtml, fitMetaDescription, sentences } from "./text";
 import { fitSeoTitle, titleIdentity } from "./title-fit";
@@ -467,7 +467,13 @@ function gateDescription(html: string, context: Context, repaired: string[]): st
    */
   const first = [...clean.matchAll(/<(p|li)>([\s\S]*?)<\/\1>/g)].flatMap((match) => sentences(match[2]))[0] ?? "";
   if (!namesProduct(plain(first), context)) {
-    const candidates = [openingSentence(context.plan), context.plan.exactName.trim() ? `This is the ${context.plan.exactName.trim()}.` : ""];
+    // With no fact to say, a bare "This listing is for the …" is added only
+    // when no sentence of the opening paragraph already names the product (D-130).
+    const leading = sentences(/^<(p|li)>([\s\S]*?)<\/\1>/.exec(clean)?.[2] ?? "");
+    const namedLater = leading.some((sentence) => namesProduct(plain(sentence), context));
+    const withFacts = openingSentence(context.plan);
+    const bare = identitySentence(context.plan.exactName);
+    const candidates = [withFacts === bare ? "" : withFacts, namedLater ? "" : bare];
     const intro = candidates.find((candidate) => candidate && !sentenceProblem(candidate, context));
     if (intro) {
       clean = clean.startsWith("<p>") ? clean.replace(/^<p>/, `<p>${escapeHtml(intro)} `) : `<p>${escapeHtml(intro)}</p>${clean}`;

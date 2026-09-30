@@ -1028,10 +1028,10 @@ describe("SeoPulse content polish written through preparation (D-129)", () => {
     const run = await drive((await startPreparation(staff, product.id, { requestKey: requestKey() })).id);
     expect(run.stage).toBe("READY");
     const [after] = await harness.db.select().from(products).where(eq(products.id, product.id));
-    expect(after.descriptionHtml).toMatch(/^<p>HP-900 Headphones (?:has|have) /);
+    expect(after.descriptionHtml).toMatch(/^<p>Key specifications of the HP-900 Headphones include /);
     expect(after.descriptionHtml).toContain("It pairs 40 mm drivers with Bluetooth 5.4.");
     expect(after.descriptionHtml).not.toMatch(/Experience|exceptional|performance/);
-    expect(after.seoMetaDescription).toMatch(/^Harbor Acoustics HP-900 Headphones feature .+\.$/);
+    expect(after.seoMetaDescription).toMatch(/^Key specifications of the Harbor Acoustics HP-900 Headphones include .+\.$/);
     expect(after.seoMetaDescription).not.toMatch(/;|Discover|Don't|warrant/i);
   });
 

@@ -70,6 +70,12 @@ export type SeoPulseInput = {
   categoryId: string;
   /** Root first: ["Audio", "Headphones"]. */
   categoryPath: string[];
+  /**
+   * The product's own category: whether other categories sit under it (then
+   * it is a grouping, not a kind of product) and whether it names a product
+   * family (D-130). Absent when unknown.
+   */
+  categoryShape?: { hasChildren: boolean; hasFamily: boolean };
   status: string;
   descriptionText: string;
   bulletFeatures: string[];

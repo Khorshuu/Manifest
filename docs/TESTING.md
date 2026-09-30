@@ -819,3 +819,25 @@ for 4K gaming", "a cooler that ensures stability", "It provides quality."),
 real objects and sentences without such a predicate kept byte for byte, "ensures
 stability" kept when a fact states it, and an opening removed this way given
 the plain opening.
+
+D-130 — `tests/seo-title-identity.test.ts` (pure, 22 tests): product type from
+the family, a specific category, a recorded product type and, only without
+those, the listing's own words; a category with children, a leaf with no
+family the title does not name, and levels above the product's category not
+taken for the type; a packaging tail and a fact-stated container not taken
+for the type; unknown rather than a guess; no brand or kind of product in the
+code. Titles: a fitting name unchanged; a packaging tail and praise go before
+identity; a model code, its suffix ("Ti") and the model's name word kept;
+capacity, shade, size, generation and variant-level facts kept; no cut inside
+a word or code and no half type; the site's name once; 128GB/256GB, Shade
+120/150, 50/100 ml, Gen 2/3, Wi-Fi/Wi-Fi + Cellular and a model suffix never
+shortened to the same title; a critical identity of 60–70 characters kept
+whole, and past 70 the type and whole codes go before a variant's value; a
+sanitised model title fitted the same way. Grammar: names ending in Series,
+Lens, Headphones, Jeans and Edition read the same; one, two and no facts;
+filtered facts leave no dangling "and", stray punctuation or doubled space;
+staff lines as "key features"; a stated use; the full name once; the bare
+identity sentence only when nothing names the product. D-129 assertions in
+`seo-content-polish.test.ts`, `local-pipeline.test.ts` and
+`source-grounded-extraction.test.ts` updated from "has/have/features" to the
+new wording.

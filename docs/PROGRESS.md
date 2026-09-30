@@ -4608,3 +4608,63 @@ Verified:
 `[ ]` Follow-up: the suggest limiter counts in process memory, so across
 several server instances it is approximate (documented in
 `lib/search/throttle.ts`). A shared limiter would need its own change.
+
+## Product identity-aware SEO titles and deterministic grammar (D-130)
+
+`[x]` Product type resolved from the family, a specific category (leaf, no
+children, default family or named by the title), a recorded product type,
+then the listing's own words; otherwise a clean closing phrase of the name,
+and unknown when the name shows a descriptive tail or the closing words are
+fact-stated (`lib/seo-pulse/product-type.ts`, `resolveProductType`).
+
+`[x]` SEO title identity hierarchy (`lib/seo-pulse/title-fit.ts`): a
+descriptive tail after a confirmed type goes first and whole; a strong tier
+(product line, non-brand first word, unrecorded quantity, guessed type) goes
+only to reach 49; critical identity (brand, model name and codes, model
+suffix, recorded variant values, generation, confirmed type) is kept past 60
+up to 70, the stored-title limit. 128GB/256GB, Shade 120/150, 50/100 ml,
+Gen 2/3, Wi-Fi/Wi-Fi + Cellular and model suffixes stay distinct.
+
+`[x]` Deterministic grammar: no verb depends on the product name. "Key
+specifications of the <name> include …" for the plain opening and the rules
+meta; "This listing is for the <name>." only when no fact reads well and
+nothing in the opening paragraph names the product.
+
+Synthetic examples (before → after):
+- Olive oil in a specific "Olive Oils" category: D-129 protected "Glass
+  Bottle" → "Harvest Hill Extra Virgin Olive Oil 1 L".
+- Same name, broad category, no other evidence: type unknown (was "Glass
+  Bottle") → "Harvest Hill Extra Virgin Olive Oil 1 L".
+- "Tessera Slate 11 Tablet …": "11 Tablet" was a count and "Slate" was
+  removable → "Tessera Slate 11 Tablet 11-inch 256GB Wi-Fi".
+- "… Liquid Lipstick Transfer Proof Shade 150 Rosewood" → "Maison Lune
+  Velvet Matte Lipstick Shade 150" ("Long Lasting" is praise as a pair).
+- "Brightwave Pulse 2 Wireless Earbuds have …" → "Key specifications of the
+  Brightwave Pulse 2 Wireless Earbuds include …".
+
+Verified:
+- `tests/seo-title-identity.test.ts` (new, 22) and
+  `tests/seo-content-polish.test.ts` (38, wording assertions updated): 60
+  passed. With the search autocomplete suite: 87 passed.
+- All 19 SeoPulse-related suites: 463 passed after updating two wording
+  assertions (`local-pipeline`, `source-grounded-extraction`).
+- Full Vitest (the input loader and shared content plan changed): 134 files,
+  1980 passed, 8 skipped.
+- `npm run typecheck` and `npm run lint`: clean.
+- No Playwright, build or live Ollama run: nothing browser-visible changed
+  beyond the stored text, which the unit suites cover.
+
+`[!]` Limitations.
+- A name with an -ed word before its closing words ("Vacuum Insulated Water
+  Bottle") and no structured type or listing vocabulary is "unknown", and is
+  shortened from the right like other descriptive words, which can drop the
+  real noun ("Kestrel Trailhead Vacuum Insulated 750 ml").
+- A category's specificity is only as good as its data: a leaf with no
+  children and a default family counts as specific, whatever its name.
+- A quantity no variant records is strong, not critical: it can go to reach
+  49 when normal material is not enough.
+- Past 70 characters, critical codes are dropped whole from the right.
+- The rules title can still append a leaf category ("… | <Category>") as a
+  candidate (D-123); unchanged here.
+- The product page does not strip " · Manifest" from a staff-typed meta
+  title; SeoPulse never writes one.

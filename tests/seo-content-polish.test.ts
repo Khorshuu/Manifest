@@ -290,7 +290,8 @@ describe("a description that names its product near the start (D-129)", () => {
     const gated = gate(graphics(), describeHtml(html));
     const text = gated.generated.description.suggestedHtml ?? "";
     const opening = openingSentence(contentPlan(graphics()));
-    expect(opening).toBe(`${TITLE} has 12GB GDDR7 memory and 6,144 shader cores.`);
+    // D-130: a subject whose number is fixed, so no verb depends on the name.
+    expect(opening).toBe(`Key specifications of the ${TITLE} include 12GB GDDR7 memory and 6,144 shader cores.`);
     expect(text.startsWith(`<p>${opening} It connects over PCIe 5.0`)).toBe(true);
     expect(text).not.toMatch(/Experience the power/);
     expect(gated.repaired).toContain("description: a plain opening naming the product");
@@ -309,7 +310,7 @@ describe("a description that names its product near the start (D-129)", () => {
     });
     const text = gate(product, describeHtml(html)).generated.description.suggestedHtml ?? "";
     const first = sentences(text.replace(/<[^>]+>/g, " ").trim())[0];
-    expect(first).toMatch(/^Brightwave Pulse 2 Wireless Earbuds have /);
+    expect(first).toMatch(/^Key specifications of the Brightwave Pulse 2 Wireless Earbuds include /);
     expect(text).toContain("It uses Bluetooth 5.3");
   });
 
@@ -324,7 +325,7 @@ describe("a description that names its product near the start (D-129)", () => {
     // Nothing reads well in a sentence: only the name, never a guess.
     const bare = contentPlan(input({ title: "Maison Lune Nuit Eau de Parfum 50 ml", brand: "Maison Lune", knowledge: knowledge([{ label: "Top notes", value: "Bergamot, pink pepper" }, { label: "Size", value: "50 ml" }]) }));
     expect(sentenceFacts(bare, 2)).toEqual([]);
-    expect(openingSentence(bare)).toBe("This is the Maison Lune Nuit Eau de Parfum 50 ml.");
+    expect(openingSentence(bare)).toBe("This listing is for the Maison Lune Nuit Eau de Parfum 50 ml.");
   });
 
   it("does not then repeat the full name through the rest of the description", () => {
@@ -332,7 +333,7 @@ describe("a description that names its product near the start (D-129)", () => {
     const html = `<p>Discover what the ${TITLE} can do for you today. It connects over PCIe 5.0.</p><p>The ${TITLE} uses the Aurora architecture. The ${TITLE} boosts to 2685 MHz.</p>`;
     const text = gate(product, describeHtml(html)).generated.description.suggestedHtml ?? "";
     expect(text.split(TITLE).length - 1).toBe(1);
-    expect(text.startsWith(`<p>${TITLE} has `)).toBe(true);
+    expect(text.startsWith(`<p>Key specifications of the ${TITLE} include `)).toBe(true);
     expect(text).toContain("Tessera Vx-70 uses the Aurora architecture");
   });
 });
@@ -394,7 +395,7 @@ describe("the rules meta description reads as one sentence (D-129)", () => {
   const meta = () => generateByRules(graphics(), research).metaDescription.recommended;
 
   it("is one natural sentence naming the product, not a list of specifications", () => {
-    expect(meta()).toBe(`${TITLE} features 12GB GDDR7 memory, 6,144 shader cores and 2685 MHz boost clock.`);
+    expect(meta()).toBe(`Key specifications of the ${TITLE} include 12GB GDDR7 memory, 6,144 shader cores and 2685 MHz boost clock.`);
     expect(sentences(meta())).toHaveLength(1);
     expect(meta()).not.toMatch(/;|: | – /);
   });
@@ -402,16 +403,16 @@ describe("the rules meta description reads as one sentence (D-129)", () => {
   it("takes the highest-ranked facts, and fewer when fewer fit", () => {
     expect(meta()).toContain("12GB GDDR7 memory");
     const plan = contentPlan(graphics());
-    expect(factMetaSentence(plan, { max: 80 })).toBe(`${TITLE} features 12GB GDDR7 memory.`);
-    expect(factMetaSentence(plan, { use: "gaming and 3D work" })).toMatch(/ for gaming and 3D work\.$/);
+    expect(factMetaSentence(plan, { max: 100 })).toBe(`Key specifications of the ${TITLE} include 12GB GDDR7 memory.`);
+    expect(factMetaSentence(plan, { use: "gaming and 3D work", max: 200 })).toMatch(/, intended for gaming and 3D work, include /);
     // A label naming who makes a part is not something the product has (found live).
     const withMaker = contentPlan(graphics({ knowledge: knowledge([{ label: "Chipset Manufacturer", value: "Aurora Labs" }, ...CARD_FACTS], { family: CARD_FAMILY }) }));
     expect(factMetaSentence(withMaker)).not.toMatch(/manufacturer|Aurora Labs/i);
     // Sizes, weights, counts and raw data keys stay in At a Glance and the specifications.
     const measured = contentPlan(input({ title: "Oakhollow Arc Floor Lamp", brand: "Oakhollow", knowledge: knowledge([{ label: "Item weight", value: "4.2 kg" }, { label: "Height", value: "180 cm" }, { label: "Unit count", value: "1 Count" }, { label: "Capacity", value: "2000 milliamp_hours" }, { label: "Bulb", value: "E27" }]) }));
-    expect(factMetaSentence(measured)).toBe("Oakhollow Arc Floor Lamp features E27 bulb.");
-    // A plural name takes the plural verb.
-    expect(factMetaSentence({ ...plan, exactName: "Brightwave Pulse 2 Wireless Earbuds" })).toMatch(/^Brightwave Pulse 2 Wireless Earbuds feature /);
+    expect(factMetaSentence(measured)).toBe("Key specifications of the Oakhollow Arc Floor Lamp include E27 bulb.");
+    // No verb depends on the name (D-130): a plural-looking name reads the same way.
+    expect(factMetaSentence({ ...plan, exactName: "Brightwave Pulse 2 Wireless Earbuds" })).toMatch(/^Key specifications of the Brightwave Pulse 2 Wireless Earbuds include /);
   });
 
   it("ends cleanly, within the length policy, with no praise, sales call or warranty", () => {
@@ -551,7 +552,7 @@ describe("generic predicates in any generated sentence, praised or not (D-129A)"
 
   it("gives an opening removed this way the plain opening instead", () => {
     const text = gate(graphics(), describeHtml(`<p>The ${TITLE} delivers performance for 4K gaming. It connects over PCIe 5.0.</p>`)).generated.description.suggestedHtml ?? "";
-    expect(text.startsWith(`<p>${TITLE} has `)).toBe(true);
+    expect(text.startsWith(`<p>Key specifications of the ${TITLE} include `)).toBe(true);
     expect(text).not.toMatch(/delivers performance/);
   });
 });

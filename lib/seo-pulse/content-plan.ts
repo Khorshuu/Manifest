@@ -194,18 +194,48 @@ const COMPANY_LABEL = /\b(?:manufacturer|maker|brand|vendor|supplier|made by)$/i
 /** Weights and counts: measurements, like dimensions. */
 const MEASURE_LABEL = /\b(weight|mass|count|quantity|pieces|pack size)\b/i;
 
-/** "a", "a and b", "a, b and c". */
+/** "a", "a and b", "a, b and c" — from items already cleaned of stray joiners and punctuation. */
 function spokenList(items: string[]): string {
-  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+  const clean = items
+    .map((item) => item.replace(/\s+/g, " ").replace(/^(?:and|or)\s+|[\s,;]+$|^[\s,;]+/gi, "").trim())
+    .filter(Boolean);
+  return clean.length <= 1 ? (clean[0] ?? "") : `${clean.slice(0, -1).join(", ")} and ${clean.at(-1)}`;
 }
 
 /**
- * Whether a product name reads as plural ("… Earbuds", "… Headphones"), so a
- * sentence about it takes "have", not "has". From the name's last word only.
+ * "the <name>", or the name alone when it already starts with an article
+ * ("The Ordinary …"), so a sentence never reads "the The …".
  */
-function pluralName(name: string): boolean {
-  const last = name.match(/\p{L}+(?=[^\p{L}]*$)/u)?.[0] ?? "";
-  return last.length > 3 && /s$/i.test(last) && !/(?:ss|us|is)$/i.test(last);
+function theName(name: string): string {
+  return /^(?:the|a|an)\s/i.test(name) ? name : `the ${name}`;
+}
+
+/** One sentence, tidied of what a template can leave: doubled spaces, a space before a comma, a comma before the full stop. */
+function tidySentence(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.])/g, "$1")
+    .replace(/,+/g, ",")
+    .replace(/,\s*\./g, ".")
+    .replace(/\b(and|or)\s+\1\b/gi, "$1")
+    .trim();
+}
+
+/*
+ * Sentences about a product never guess its grammatical number (D-130).
+ * "<name> has …" / "<name> have …" was chosen from the name's last word,
+ * and a product name is not an English noun phrase: "… Series", "… Lens",
+ * "… Edition" read as plural or singular by accident. The subject is now a
+ * noun whose number is fixed — "Key specifications of the <name> include …"
+ * — so the verb never depends on the name. "include" is also right for any
+ * fact: a colour, a clock speed or a port is a specification, where "features
+ * 500 g" would not be.
+ */
+
+/** The sentence that names a product when no fact reads well in one: nothing about it is claimed. */
+export function identitySentence(name: string): string {
+  const clean = name.replace(/\s+/g, " ").trim();
+  return clean ? tidySentence(`This listing is for ${theName(clean)}.`) : "";
 }
 
 /**
@@ -241,38 +271,41 @@ export function sentenceFacts(plan: Pick<ContentPlan, "facts" | "exactName">, ma
 /**
  * A short, plain opening that names the product (D-129), used when the
  * generated opening could not be kept and nothing near the start of the
- * description still says which product it is: "<name> has <fact> and
- * <fact>.", or only "This is the <name>." when no fact reads well in a
- * sentence. Deterministic; nothing is added that the facts do not say.
+ * description still says which product it is: "Key specifications of the
+ * <name> include <fact> and <fact>." (D-130), or only "This listing is for
+ * the <name>." when no fact reads well in a sentence. Deterministic; nothing
+ * is added that the facts do not say, and no verb depends on the name.
  */
 export function openingSentence(plan: Pick<ContentPlan, "facts" | "exactName">): string {
-  const name = plan.exactName.trim();
+  const name = plan.exactName.replace(/\s+/g, " ").trim();
   if (!name) return "";
   const facts = sentenceFacts(plan, 2);
-  return facts.length ? `${name} ${pluralName(name) ? "have" : "has"} ${spokenList(facts)}.` : `This is the ${name}.`;
+  return facts.length ? tidySentence(`Key specifications of ${theName(name)} include ${spokenList(facts)}.`) : identitySentence(name);
 }
 
 /**
- * A meta description as one sentence from established facts (D-129): "<name>
- * features <fact>, <fact> and <fact>." — at most three, fewer when that is all
- * that fits in `max` — and "for <use>" only when the listing states a use.
- * Empty when no fact reads well in a sentence: no snippet is better than
- * filler.
+ * A meta description as one sentence from established facts (D-129): "Key
+ * specifications of the <name> include <fact>, <fact> and <fact>." (D-130) —
+ * at most three, fewer when that is all that fits in `max` — with ", intended
+ * for <use>," only when the listing states a use. Staff's own feature lines,
+ * when they stand in, are "key features". Empty when nothing reads well in a
+ * sentence: no snippet is better than filler.
  */
 export function factMetaSentence(
   plan: Pick<ContentPlan, "facts" | "exactName">,
   options: { name?: string; use?: string | null; extra?: string[]; max?: number } = {},
 ): string {
-  const name = (options.name ?? plan.exactName).trim();
+  const name = (options.name ?? plan.exactName).replace(/\s+/g, " ").trim();
   const max = options.max ?? 155;
   const established = sentenceFacts(plan, 3);
   const facts = established.length ? established : (options.extra ?? []).slice(0, 3);
   if (!name || facts.length === 0) return "";
-  const verb = pluralName(name) ? "feature" : "features";
-  const use = options.use?.trim();
+  const kind = established.length ? "specifications" : "features";
+  const use = options.use?.replace(/\s+/g, " ").replace(/[.,;:\s]+$/, "").trim();
   for (let count = facts.length; count >= 1; count -= 1) {
     for (const withUse of use ? [true, false] : [false]) {
-      const sentence = `${name} ${verb} ${spokenList(facts.slice(0, count))}${withUse ? ` for ${use}` : ""}.`;
+      const subject = `Key ${kind} of ${theName(name)}${withUse ? `, intended for ${use},` : ""}`;
+      const sentence = tidySentence(`${subject} include ${spokenList(facts.slice(0, count))}.`);
       if (sentence.length <= max) return sentence;
     }
   }
