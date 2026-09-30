@@ -7,6 +7,13 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { formatBdt } from "@/lib/money";
+import {
+  IDLE_AUTOCOMPLETE,
+  SEARCH_MIN_CHARS,
+  createAutocomplete,
+  type AutocompleteController,
+  type AutocompleteState,
+} from "@/lib/search/autocomplete";
 import { looksPersonal } from "@/lib/search/normalize";
 import type { Suggestion } from "@/lib/search/suggest";
 import { IconArrowRight, IconClock, IconClose, IconSearch } from "./icons";
@@ -50,13 +57,29 @@ type Option = {
 type Section = { key: string; heading: string; options: Option[] };
 
 type Answer = {
-  term: string;
   suggestions: Suggestion[];
   correctedQuery: string | null;
 };
 
 const searchHref = (query: string) =>
   `/search?q=${encodeURIComponent(query)}`;
+
+async function fetchSuggestions(
+  query: string,
+  signal: AbortSignal,
+): Promise<Answer> {
+  const response = await fetch(
+    `/api/search/suggest?q=${encodeURIComponent(query)}`,
+    { signal },
+  );
+  if (!response.ok) throw new Error(`Suggest answered ${response.status}`);
+
+  const body = await response.json();
+  return {
+    suggestions: (body.suggestions ?? []) as Suggestion[],
+    correctedQuery: (body.correctedQuery ?? null) as string | null,
+  };
+}
 
 function readRecent(): string[] {
   try {
@@ -173,9 +196,8 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
   const [open, setOpen] = useState(false);
   const [overlay, setOverlay] = useState(false);
   const [active, setActive] = useState(-1);
-  const [answer, setAnswer] = useState<Answer | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [failedTerm, setFailedTerm] = useState<string | null>(null);
+  const [autocomplete, setAutocomplete] =
+    useState<AutocompleteState<Answer>>(IDLE_AUTOCOMPLETE);
   const [recent, setRecent] = useState<string[]>(() =>
     signedIn || typeof window === "undefined" ? [] : readRecent(),
   );
@@ -201,64 +223,44 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
   }, []);
 
   const extrasLoaded = useRef(false);
-  const cache = useRef(new Map<string, Omit<Answer, "term">>());
+  const autocompleteRef = useRef<AutocompleteController | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const trimmed = term.trim();
-  const typing = trimmed.length >= 2;
+  const typing = trimmed.length >= SEARCH_MIN_CHARS;
 
+  // Suggestions are requested once typing pauses (lib/search/autocomplete.ts);
+  // the field itself never waits. A newer query cancels the older request,
+  // and an answer that arrives for anything but the current query is dropped.
   useEffect(() => {
-    if (!typing) return;
-
-    const key = trimmed.toLowerCase();
-    const cached = cache.current.get(key);
-    const controller = new AbortController();
-
-    // Debounced and cancelled on the next keystroke, so a fast typist never
-    // leaves a queue of stale answers racing to render. A term already
-    // answered in this visit is shown straight from memory.
-    const timer = setTimeout(
-      async () => {
-        if (cached) {
-          setAnswer({ term: trimmed, ...cached });
-          setActive(-1);
-          return;
-        }
-
-        setLoading(true);
-        try {
-          const response = await fetch(
-            `/api/search/suggest?q=${encodeURIComponent(trimmed)}`,
-            { signal: controller.signal },
-          );
-          if (!response.ok) throw new Error(`Suggest answered ${response.status}`);
-
-          const body = await response.json();
-          const entry = {
-            suggestions: (body.suggestions ?? []) as Suggestion[],
-            correctedQuery: (body.correctedQuery ?? null) as string | null,
-          };
-          cache.current.set(key, entry);
-          setAnswer({ term: trimmed, ...entry });
-          setFailedTerm(null);
-          setActive(-1);
-        } catch {
-          if (!controller.signal.aborted) setFailedTerm(trimmed);
-        } finally {
-          if (!controller.signal.aborted) setLoading(false);
-        }
+    const controller = createAutocomplete<Answer>({
+      fetchAnswer: fetchSuggestions,
+      onChange: (next) => {
+        setAutocomplete(next);
+        // A fresh list starts with nothing highlighted, so Enter can never
+        // take an option from the list that was there before.
+        if (next.answer) setActive(-1);
       },
-      cached ? 0 : 160,
-    );
-
+    });
+    autocompleteRef.current = controller;
     return () => {
-      clearTimeout(timer);
-      controller.abort();
+      controller.dispose();
+      autocompleteRef.current = null;
     };
-  }, [trimmed, typing]);
+  }, []);
 
-  const current = typing && answer?.term === trimmed ? answer : null;
+  // Only an open list asks. Closing it — a submitted search, a chosen
+  // suggestion, Escape, leaving the field — drops the pending timer and any
+  // request still out, so nothing is fetched for a list no one will see.
+  useEffect(() => {
+    if (open) autocompleteRef.current?.update(term);
+    else autocompleteRef.current?.cancel();
+  }, [open, term]);
+
+  const forTerm = typing && autocomplete.query === trimmed;
+  const current = forTerm ? autocomplete.answer : null;
+  const loading = forTerm && autocomplete.loading;
 
   const sections: Section[] = useMemo(() => {
     if (typing) {
@@ -310,7 +312,7 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
   const indexOf = new Map(ordered.map((option, index) => [option.key, index]));
 
   const noMatches = typing && current !== null && ordered.length === 0 && !loading;
-  const failed = typing && failedTerm === trimmed && current === null && !loading;
+  const failed = forTerm && autocomplete.failed && current === null && !loading;
   const listVisible = open && ordered.length > 0;
   const panelVisible =
     open && (listVisible || noMatches || failed || (overlay && !typing));
@@ -670,7 +672,6 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
               setTerm(next);
               setActive(-1);
               setOpen(true);
-              if (next.trim().length < 2) setLoading(false);
             }}
             onFocus={openPanel}
             onKeyDown={onKeyDown}
@@ -709,7 +710,6 @@ export function SearchBox({ signedIn = false }: { signedIn?: boolean }) {
                 onClick={() => {
                   setTerm("");
                   setActive(-1);
-                  setLoading(false);
                   setOpen(true);
                   inputRef.current?.focus();
                 }}

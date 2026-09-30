@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/api-error";
 import { getEnv } from "@/lib/env";
+import { SEARCH_MIN_CHARS } from "@/lib/search/autocomplete";
 import { cleanQuery } from "@/lib/search/normalize";
 import { suggest } from "@/lib/search/suggest";
 import { allowRequest } from "@/lib/search/throttle";
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
 
   // Two characters is the floor: one character matches most of the catalogue
   // and makes the answer worthless to the shopper and expensive to produce.
-  if (cleanQuery(term).length < 2) {
+  if (cleanQuery(term).length < SEARCH_MIN_CHARS) {
     return NextResponse.json({ suggestions: [], correctedQuery: null });
   }
 

@@ -23,6 +23,7 @@ import {
   suggestSearch,
   toTsQuery,
 } from "@/lib/catalog";
+import { suggest } from "@/lib/search/suggest";
 import { createTestDatabase } from "./helpers/database";
 import { createProductForTest } from "./helpers/catalog";
 
@@ -262,5 +263,47 @@ describe("autosuggest", () => {
     );
     expect(product?.priceBdt).toBe(12_345_00);
     expect(JSON.stringify(product)).not.toMatch(/cost/i);
+  });
+
+  /*
+   * The dropdown is asked on every pause in typing, so what one answer can
+   * carry stays small however much of the catalogue matches: four products,
+   * two shelves, two named categories, two brands, six searches.
+   */
+  it("keeps one answer small and to what the dropdown shows", async () => {
+    for (let index = 1; index <= 10; index++) {
+      await seed({
+        title: `Lamp Model ${index}`,
+        categoryId: index % 2 ? electronicsId : snacksId,
+        brand: `Lampworks ${index}`,
+        descriptionHtml: "<p>A long description the dropdown never shows.</p>",
+        tags: [`lamp tag ${index}`],
+      });
+    }
+
+    const { suggestions } = await suggest("lamp");
+    const count = (kind: string) =>
+      suggestions.filter((suggestion) => suggestion.kind === kind).length;
+
+    expect(count("product")).toBe(4);
+    expect(count("brand")).toBeLessThanOrEqual(2);
+    expect(count("category")).toBeLessThanOrEqual(4);
+    expect(count("search")).toBeLessThanOrEqual(6);
+    expect(suggestions.length).toBeLessThanOrEqual(16);
+
+    for (const suggestion of suggestions) {
+      for (const key of Object.keys(suggestion)) {
+        expect([
+          "kind",
+          "label",
+          "href",
+          "thumbnailUrl",
+          "hint",
+          "priceBdt",
+          "scope",
+        ]).toContain(key);
+      }
+    }
+    expect(JSON.stringify(suggestions)).not.toMatch(/long description/);
   });
 });

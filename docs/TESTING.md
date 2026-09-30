@@ -172,7 +172,14 @@ is under test is that choosing *a* product works.
 - `e2e/search.spec.ts` — header box keyboard and Escape behaviour, recent
   searches, results page state in the URL, correction notice, empty page with
   related searches, chips, `noindex`, axe with filters on, staff hiding a
-  product and adding a synonym, and the phone full-screen search.
+  product and adding a synonym, and the phone full-screen search. Also: typing
+  asks for suggestions fewer times than keystrokes, and Enter or the Search
+  button navigates without a suggestion request for the submitted query.
+- `tests/search-autocomplete.test.ts` — the header box's request control with
+  fake timers: 250 ms debounce reset per keystroke, the two-character floor
+  and whitespace, one request for fast typing or a paste, abort of superseded
+  requests, AbortError never a failure, a late older answer never shown or
+  cached, clear and cancel immediate, delayed loading mark, bounded cache.
 
 One PGlite trap found writing these: `updateProduct` derives a new slug
 through the base connection while its transaction is open. On a real server

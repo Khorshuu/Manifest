@@ -61,6 +61,79 @@ test("the header box suggests searches and products, and the keyboard drives it"
   await page.waitForURL((url) => url.pathname !== "/");
 });
 
+/** The queries the header box sent for suggestions, in order. */
+function recordSuggestQueries(page: Page): string[] {
+  const queries: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/search/suggest") {
+      queries.push(url.searchParams.get("q") ?? "");
+    }
+  });
+  return queries;
+}
+
+/*
+ * The exact timing (250 ms, reset on every keystroke) is pinned with fake
+ * timers in tests/search-autocomplete.test.ts. Here: in a real browser,
+ * typing does not ask once per keystroke, and a submitted search does not
+ * wait for suggestions or fetch any for the list it closes.
+ */
+test("the header box asks for suggestions when typing pauses, not per keystroke", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const queries = recordSuggestQueries(page);
+  const input = page.getByLabel("Search products");
+
+  await input.pressSequentially("headph", { delay: 30 });
+  await expect(input).toHaveValue("headph");
+
+  const listbox = page.getByRole("listbox", { name: "Search suggestions" });
+  await expect(
+    listbox.getByRole("option", { name: /Studio Reference Headphones/ }),
+  ).toBeVisible();
+
+  // Five keystrokes were long enough to ask on.
+  expect(queries.length).toBeLessThan(5);
+  expect(queries.at(-1)).toBe("headph");
+  expect(queries.some((query) => query.trim().length < 2)).toBe(false);
+});
+
+test("Enter searches at once, without fetching suggestions first", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const queries = recordSuggestQueries(page);
+  const input = page.getByLabel("Search products");
+
+  await input.pressSequentially("coffee", { delay: 20 });
+  await input.press("Enter");
+  await page.waitForURL(/\/search\?q=coffee/);
+
+  // Longer than the debounce: a timer that survived the submit would fire.
+  await page.waitForTimeout(600);
+  expect(queries).not.toContain("coffee");
+});
+
+test("the Search button searches at once, without fetching suggestions first", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const queries = recordSuggestQueries(page);
+  const input = page.getByLabel("Search products");
+
+  await input.pressSequentially("candy", { delay: 20 });
+  await page
+    .getByRole("search", { name: "Search the catalogue" })
+    .getByRole("button", { name: "Search", exact: true })
+    .click();
+  await page.waitForURL(/\/search\?q=candy/);
+
+  await page.waitForTimeout(600);
+  expect(queries).not.toContain("candy");
+});
+
 test("a submitted search is remembered as a recent search", async ({ page }) => {
   await page.goto("/");
   const input = page.getByLabel("Search products");

@@ -4578,3 +4578,33 @@ finish and Ergonomic shape."; Anker 737 withheld (no fact reads well).
 - A title protected identity longer than 49 characters is allowed up to 60, so
   the page title with " · Manifest" can exceed 60 for very long model names.
 - The English-version (hreflang) path was not exercised live.
+
+## Search autocomplete debounce and request control (patch)
+
+`[x]` Header search suggestions wait 250 ms after typing stops
+(`SEARCH_DEBOUNCE_MS`, `lib/search/autocomplete.ts`), need two trimmed
+characters, abort superseded requests, and show only the answer for the query
+in the field (generation counter; a late older answer is dropped and not
+cached). Enter, the Search button and choosing a suggestion navigate at once
+and cancel pending suggestion work; clearing or going under two characters
+clears suggestions, loading and failure at once. The loading mark waits
+150 ms. The per-visit answer cache is kept and bounded to 50. Suggest endpoint
+and SearchPulse ranking unchanged. See DECISIONS.md, "Search autocomplete
+request control".
+
+Verified:
+- `tests/search-autocomplete.test.ts` (new, fake timers) and
+  `tests/search.test.ts` (new bound test: at most 16 suggestions, 4 products,
+  only dropdown fields) — 45 passed; with `tests/proxy.test.ts`, 60 passed.
+  The stale-answer guard was checked by removing it: 5 tests failed.
+- `npm run typecheck` — clean. `npm run lint` — clean.
+- `e2e/search.spec.ts` against the production build on :3200 (dev server on
+  :3000): 28 passed, 2 skipped (phone-only tests on the desktop project),
+  including three new tests for per-keystroke requests, Enter and the Search
+  button.
+- Full Vitest not run: the change touches only the header box, the new module
+  and one constant in the suggest route.
+
+`[ ]` Follow-up: the suggest limiter counts in process memory, so across
+several server instances it is approximate (documented in
+`lib/search/throttle.ts`). A shared limiter would need its own change.

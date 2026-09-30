@@ -4383,3 +4383,48 @@ at all. A sentence with no such predicate is left byte for byte. An object
 the established facts' values state is a fact, not an empty claim ("ensures
 stability" stays when a fact says "Anti-sag bracket for stability"). An
 opening removed this way gets the D-129 plain opening.
+
+## Search autocomplete request control (patch, no new phase)
+
+The header search asked for suggestions 160 ms after the last keystroke,
+aborted the superseded request in the effect cleanup, and hid an answer whose
+term no longer matched the field. It also asked while the list was closed
+(landing on `/search?q=…` fetched suggestions no one saw), a submitted search
+left its timer running, the loading mark showed the moment a request went out,
+and the per-visit answer cache had no bound.
+
+Request control now lives in `lib/search/autocomplete.ts`, free of React so
+the timing is tested with fake timers:
+
+- `SEARCH_DEBOUNCE_MS = 250`. Only the request waits; the field, the clear
+  button, focus and the keyboard never do. Every change of the trimmed query
+  restarts the wait.
+- `SEARCH_MIN_CHARS = 2`, on the trimmed query; internal spaces are sent as
+  typed. The suggest route uses the same constant for its own floor.
+- A newer query, a query under two characters, or closing the list aborts the
+  request in flight and clears the timer. An abort is never shown or logged as
+  a failure.
+- A generation counter, bumped on every new query and every cancel, decides
+  whether a response may be shown. A response that finishes after its abort,
+  or after a newer query, is dropped and not cached. This does not depend on
+  timing.
+- The box asks only while the list is open. Enter, the Search button, choosing
+  a suggestion, Escape and leaving the field all close it, which cancels
+  pending and in-flight work. The search itself is the form's normal submit
+  and goes at once.
+- The loading mark shows only once a request has been out 150 ms
+  (`SEARCH_LOADING_DELAY_MS`, not part of the debounce).
+- The existing cache is kept: exact trimmed query, lowercased, successful
+  answers only, now bounded to 50 entries, oldest dropped first. A cached
+  answer is shown at once without a request.
+- Every applied answer resets the highlighted option, so Enter can only take
+  an option from the list on screen.
+
+Unchanged: the suggest endpoint and SearchPulse ranking. One answer is bounded
+by the service (at most 4 products, 2 shelves, 2 named categories, 2 brands,
+6 searches — 16 in all) and carries only label, link, thumbnail, hint, public
+price and scope. It reads 40 candidate rows of id/title/slug/brand/category
+and card aggregates for the 4 shown products; no descriptions, facets or
+recommendations. The route keeps its two-character floor and its in-memory
+per-visitor limit (`SEARCH_SUGGEST_LIMIT`, default 40 per 10 s). The client
+debounce is a courtesy, not that protection.
