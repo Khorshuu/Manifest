@@ -1,0 +1,101 @@
+# The GPU side of a hosted environment (docs/STAGING.md, D-134): Ollama with
+# qwen2.5:7b on one NVIDIA GPU, reachable only by the worker.
+#
+#   docker compose -f deploy/gpu-stack.compose.yml --env-file .env.gpu up -d
+#
+# Needs the NVIDIA driver and the NVIDIA Container Toolkit on the host. The
+# application does not know or care which card it is; 24 GB of video memory is
+# the recommended class for headroom, and qwen2.5:7b fits a 12–16 GB card.
+#
+# Ollama has no authentication of its own, so its port is never open to the
+# internet. Two ways for the worker to reach it, in order of preference:
+#
+#  1. A private network between the two machines — a WireGuard or Tailscale
+#     overlay, or the provider's private network. Set OLLAMA_BIND_ADDRESS to
+#     this machine's address ON THAT NETWORK (10.x, 172.16-31.x, 192.168.x or
+#     100.64-127.x), never 0.0.0.0, and on the worker:
+#       OLLAMA_BASE_URL=http://<that address>:11434  OLLAMA_ALLOW_REMOTE=true
+#  2. Only when no private network is possible: the `gateway` profile below, a
+#     Caddy reverse proxy that serves https on a domain pointed at this
+#     machine, answers only Ollama's two read/generate endpoints, and only with
+#     the bearer token. Then on the worker:
+#       OLLAMA_BASE_URL=https://<OLLAMA_GATEWAY_DOMAIN>  OLLAMA_ALLOW_REMOTE=true
+#       OLLAMA_AUTH_TOKEN=<the same token>
+#     and set OLLAMA_BIND_ADDRESS=127.0.0.1 so the raw port is not reachable
+#     from outside at all.
+#
+# The worker refuses a non-private address over plain http, and any remote
+# address unless OLLAMA_ALLOW_REMOTE=true, so a mistake here is refused rather
+# than sending product documents in the clear.
+#
+# A reference, validated as far as this repository can without a GPU or
+# Docker (docs/PROGRESS.md records what was run).
+
+name: manifest-gpu
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      # Only on the private network's address (see above). Required, so a
+      # forgotten setting cannot fall back to every interface.
+      - "${OLLAMA_BIND_ADDRESS:?Set OLLAMA_BIND_ADDRESS to this machine's private-network address}:11434:11434"
+    volumes:
+      # The models. Kept across restarts so a reboot does not download 5 GB again.
+      - ollama-models:/root/.ollama
+    environment:
+      # One request at a time, matching LOCAL_AI_CONCURRENCY=1 on the worker.
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      # Keeps the model in memory between jobs; lower it on a GPU billed while loaded.
+      OLLAMA_KEEP_ALIVE: 30m
+    healthcheck:
+      # The CLI asks the server it ships with; no network beyond the container.
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Downloads the model once, then exits. Safe to run again: a model that is
+  # already there is not downloaded twice.
+  ollama-model:
+    image: ollama/ollama:latest
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-qwen2.5:7b}"]
+
+  # Only with `--profile gateway`, and only when no private network exists.
+  gateway:
+    profiles: ["gateway"]
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      OLLAMA_GATEWAY_DOMAIN: ${OLLAMA_GATEWAY_DOMAIN:-}
+      OLLAMA_AUTH_TOKEN: ${OLLAMA_AUTH_TOKEN:-}
+    volumes:
+      - ./ollama/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Caddy's certificates, so a restart does not ask for new ones.
+      - caddy-data:/data
+    mem_limit: 256m
+
+volumes:
+  ollama-models:
+  caddy-data:

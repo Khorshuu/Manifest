@@ -1,10 +1,15 @@
 # SearXNG for Manifest's product research (docs/STAGING.md, LOCAL_AI_SETUP.md).
 #
 # Private: this instance is called only by the worker, over a network nothing
-# else can reach. It must not be published to the internet as it is — the
-# rate limiter is off, because its only caller is one known service.
+# else can reach (deploy/worker-stack.compose.yml publishes no port). It must
+# not be published to the internet as it is — the rate limiter is off,
+# because its only caller is one known service.
 
 use_default_settings: true
+
+general:
+  # No usage statistics kept or shown.
+  enable_metrics: false
 
 server:
   # Supplied by the SEARXNG_SECRET environment variable; never written here.
@@ -17,6 +22,9 @@ server:
 
 search:
   safe_search: 1
+  # Manifest asks for English results (lib/providers/research/searxng.ts);
+  # this is the default for anything that does not say.
+  default_lang: "en"
   # Manifest reads the JSON output. Without `json` here every search is
   # refused with 403 and the setup panel says "SearXNG JSON search disabled".
   formats:

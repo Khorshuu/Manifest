@@ -1,0 +1,30 @@
+# The optional https gateway in front of Ollama (deploy/gpu-stack.compose.yml,
+# `--profile gateway`; docs/STAGING.md). Only for when the worker and the GPU
+# cannot share a private network.
+#
+# It answers only what Manifest calls — the model list and a chat — and only
+# with `Authorization: Bearer <OLLAMA_AUTH_TOKEN>`. Pulling, deleting or
+# copying models is never reachable through it. With no token (or a short
+# one) it refuses everything rather than accepting an empty one.
+#
+# OLLAMA_AUTH_TOKEN: 32+ letters and digits, e.g. `openssl rand -hex 32`; the
+# same value is set on the worker. OLLAMA_GATEWAY_DOMAIN: a name whose DNS
+# points at this machine, so Caddy can obtain its certificate.
+
+{$OLLAMA_GATEWAY_DOMAIN} {
+	request_body {
+		max_size 8MB
+	}
+	route {
+		@unconfigured expression `size("{$OLLAMA_AUTH_TOKEN}") < 32`
+		respond @unconfigured "The gateway has no token configured." 503
+
+		@allowed {
+			header Authorization "Bearer {$OLLAMA_AUTH_TOKEN}"
+			path /api/tags /api/chat
+		}
+		reverse_proxy @allowed ollama:11434
+
+		respond 401
+	}
+}

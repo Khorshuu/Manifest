@@ -29,13 +29,33 @@ import {
 /** A stored photograph is capped well below this; anything larger is a surprise. */
 const MAX_READ_BYTES = 25 * 1024 * 1024;
 
+const PREFIX = /^[a-z0-9][a-z0-9-]*(\/[a-z0-9][a-z0-9-]*)*$/;
+
+/**
+ * The folder this environment's uploads go in: MEDIA_BLOB_PREFIX, or
+ * `products` (D-134).
+ *
+ * Every environment should have its own Blob store. Where one is shared
+ * anyway — a project whose single store is linked to Production and Preview
+ * alike — a prefix of its own (`staging/products`) keeps the environments
+ * apart: a store only ever claims, reads, sweeps or deletes keys under its
+ * own prefix, so staging's media sweep can never reach production's files.
+ */
+export function blobPrefix(value: string | undefined = process.env.MEDIA_BLOB_PREFIX): string {
+  const prefix = value?.trim().replace(/^\/+|\/+$/g, "") || "products";
+  if (!PREFIX.test(prefix)) {
+    throw new Error("MEDIA_BLOB_PREFIX may contain only lower-case letters, digits, hyphens and single slashes.");
+  }
+  return prefix;
+}
+
 export class BlobMediaProvider implements MediaProvider {
   readonly name = "blob";
 
   private readonly token: string | undefined;
   private readonly prefix: string;
 
-  constructor(token = process.env.BLOB_READ_WRITE_TOKEN, prefix = "products") {
+  constructor(token = process.env.BLOB_READ_WRITE_TOKEN, prefix = blobPrefix()) {
     this.token = token;
     this.prefix = prefix;
   }
@@ -116,7 +136,9 @@ export class BlobMediaProvider implements MediaProvider {
   }
 
   async delete(key: string): Promise<void> {
-    if (key.includes("..")) {
+    // Only this environment's own files: a key outside the prefix belongs to
+    // another environment sharing the store, or to nothing this one wrote.
+    if (key.includes("..") || !key.startsWith(`${this.prefix}/`)) {
       throw new Error("That media key is not valid.");
     }
 
