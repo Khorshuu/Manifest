@@ -49,8 +49,13 @@ export function SeoReadinessBox({
     router.refresh();
   }
 
-  const failing = [...seo.checks, ...search.checks].filter((check) => check.state === "fail");
-  const passing = [...seo.checks, ...search.checks].filter((check) => check.state === "pass");
+  // Keyed by report as well as id: the two reports share ids ("brand" is in both).
+  const rows = [
+    ...seo.checks.map((check) => ({ ...check, key: `seo:${check.id}` })),
+    ...search.checks.map((check) => ({ ...check, key: `search:${check.id}` })),
+  ];
+  const failing = rows.filter((check) => check.state === "fail");
+  const passing = rows.filter((check) => check.state === "pass");
 
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4">
@@ -70,7 +75,7 @@ export function SeoReadinessBox({
       ) : (
         <ul className="flex flex-col gap-2">
           {failing.map((check) => (
-            <li key={check.id} className="flex flex-col gap-0.5 border-l-2 border-brass pl-2">
+            <li key={check.key} className="flex flex-col gap-0.5 border-l-2 border-brass pl-2">
               <p className="text-[0.8rem] text-ink">
                 {check.label} <span className="text-[0.7rem] text-ink/50">({check.severity})</span>
               </p>
@@ -93,7 +98,7 @@ export function SeoReadinessBox({
           {showPassed ? (
             <ul className="flex flex-col gap-1 text-[0.7rem] text-ink/60">
               {passing.map((check) => (
-                <li key={check.id}>
+                <li key={check.key}>
                   {check.label} — {check.detail}
                 </li>
               ))}

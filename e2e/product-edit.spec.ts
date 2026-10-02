@@ -244,3 +244,23 @@ test("a malformed product id is refused rather than crashing", async ({
 
   expect(status).toBe(400);
 });
+
+/*
+ * The editor's search-readiness box lists search-engine and site-search checks
+ * together, and both reports have a "brand" check. Keyed by id alone, React
+ * saw two children with one key and could drop or repeat a row on update.
+ * React reports this only in development, so this guards the `next dev` run;
+ * a production build stays silent either way.
+ */
+test("the product editor renders every readiness row under its own key", async ({ page }) => {
+  const duplicates: string[] = [];
+  page.on("console", (message) => {
+    if (message.text().includes("same key")) duplicates.push(message.text());
+  });
+  await signIn(page, "staff@example.com");
+  // No brand: the brand check fails in both reports, so both rows are shown.
+  await createProduct(page);
+  await expect(page.getByRole("heading", { name: "Search readiness" })).toBeAttached();
+  await expect(page.getByText("Brand recorded")).toHaveCount(2);
+  expect(duplicates).toEqual([]);
+});
