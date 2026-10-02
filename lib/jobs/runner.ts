@@ -212,6 +212,8 @@ export async function claimJobs(options: {
   onlyKinds?: string[];
   /** Never these kinds. */
   excludeKinds?: string[];
+  /** Only jobs queued at or before this moment. */
+  createdBefore?: Date;
 }): Promise<ClaimedJob[]> {
   const now = options.now ?? new Date();
   if (options.onlyKinds !== undefined && options.onlyKinds.length === 0) return [];
@@ -223,7 +225,14 @@ export async function claimJobs(options: {
   const due = db
     .select({ id: jobs.id })
     .from(jobs)
-    .where(and(eq(jobs.status, "queued"), sql`${jobs.runAt} <= ${now.toISOString()}::timestamptz`, kindFilter))
+    .where(
+      and(
+        eq(jobs.status, "queued"),
+        sql`${jobs.runAt} <= ${now.toISOString()}::timestamptz`,
+        kindFilter,
+        options.createdBefore ? sql`${jobs.createdAt} <= ${options.createdBefore.toISOString()}::timestamptz` : undefined,
+      ),
+    )
     .orderBy(asc(jobs.runAt), asc(jobs.createdAt))
     .limit(options.limit)
     .for("update", { skipLocked: true });
@@ -444,10 +453,23 @@ export async function runDueJobs(
  * sitting on a claimed job waiting for the model. The model calls inside the
  * handler find the slot already held and do not queue again. The slot is
  * released however the job ends.
+ *
+ * With `service` (the worker passes it, D-134), a job is also left queued
+ * while the model's service is not answering — a GPU restarting, or one
+ * switched on for the work — for up to `service.waitMs` after it was queued.
+ * Older than that, it is claimed anyway and falls back exactly as it would
+ * have, recorded as rules with the failure it fell back from, so a service
+ * that never returns cannot hold a run for ever.
  */
 export async function runLocalAiJob(
   handlers: JobHandlers,
-  options: { workerId?: string; now?: () => Date; policies: JobPolicies; report?: RunReport },
+  options: {
+    workerId?: string;
+    now?: () => Date;
+    policies: JobPolicies;
+    report?: RunReport;
+    service?: { ready: () => Promise<boolean>; waitMs: number };
+  },
 ): Promise<RunReport> {
   const workerId = options.workerId ?? randomUUID();
   const clock = options.now ?? (() => new Date());
@@ -455,18 +477,35 @@ export async function runLocalAiJob(
   const heavy = localAiKinds(options.policies);
   if (heavy.length === 0) return report;
 
-  // Nothing due: no connection is reserved for a slot.
-  const [due] = await db
-    .select({ id: jobs.id })
-    .from(jobs)
-    .where(and(eq(jobs.status, "queued"), inArray(jobs.kind, heavy), sql`${jobs.runAt} <= ${clock().toISOString()}::timestamptz`))
-    .limit(1);
+  const dueNow = (createdBefore?: Date) =>
+    db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.status, "queued"),
+          inArray(jobs.kind, heavy),
+          sql`${jobs.runAt} <= ${clock().toISOString()}::timestamptz`,
+          createdBefore ? sql`${jobs.createdAt} <= ${createdBefore.toISOString()}::timestamptz` : undefined,
+        ),
+      )
+      .limit(1);
+
+  // Nothing due: no connection is reserved for a slot, and the service is not asked.
+  const [due] = await dueNow();
   if (!due) return report;
+
+  let createdBefore: Date | undefined;
+  if (options.service && options.service.waitMs > 0 && !(await options.service.ready().catch(() => false))) {
+    createdBefore = new Date(clock().getTime() - options.service.waitMs);
+    const [overdue] = await dueNow(createdBefore);
+    if (!overdue) return report;
+  }
 
   const slot = await tryAcquireLocalAiSlot();
   if (!slot) return report;
   try {
-    const [job] = await claimJobs({ workerId, limit: 1, now: clock(), onlyKinds: heavy });
+    const [job] = await claimJobs({ workerId, limit: 1, now: clock(), onlyKinds: heavy, createdBefore });
     if (!job) return report;
     await runHoldingLocalAiSlot(slot, () =>
       runClaimedJob(job, handlers, report, { workerId, clock, policy: options.policies[job.kind] }),

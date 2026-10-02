@@ -12,8 +12,14 @@
  * on both, so the web application's trigger declines and this runs the queue.
  *
  * Its DATABASE_URL must be the database's direct address, not a pooled one:
- * the local-AI slot is a session advisory lock. It refuses to start otherwise
- * when local AI is configured.
+ * the local-AI slot is a session advisory lock. When local AI is configured
+ * it refuses an address known to be pooled and tests any other with a real
+ * session lock before starting (D-134). With EXPECTED_DATABASE_NAME set it
+ * also refuses a database of another name.
+ *
+ * WORKER_ALIVE_FILE, when set, is touched on every pass of the loop, for a
+ * container health check (scripts/jobs/worker-alive.mjs) that needs no
+ * database and no network.
  *
  * Stopping (SIGTERM, SIGINT) lets work in hand finish for a short while; a
  * job cut off is returned to the queue by stale recovery, as after a crash.
@@ -21,18 +27,19 @@
  * policy, the platform's process supervisor) — this never restarts itself.
  */
 import "../../lib/load-env";
+import { writeFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { db } from "../../db";
 import { getEnv } from "../../lib/env";
 import { systemHealth } from "../../lib/health";
 import { jobRunnerMode, markWorkerProcess, WORKER_HEARTBEAT } from "../../lib/jobs/mode";
 import { recordSchedulerRun } from "../../lib/jobs/schedule";
-import { runWorker, startCacheForwarding, workerLocalAiLane, workerTick } from "../../lib/jobs/worker";
+import { localAiServiceGate, runWorker, startCacheForwarding, workerLocalAiLane, workerTick } from "../../lib/jobs/worker";
+import { checkWorkerDatabase } from "../../lib/jobs/worker-database";
 import { startErrorReporting } from "../../lib/observability/error-reporting";
 import { logEvent } from "../../lib/observability/log";
 import { researchSetup } from "../../lib/preparation/setup";
 import { getLocalServicesConfig } from "../../lib/providers/local/config";
-import { slotConnectionProblem } from "../../lib/providers/local/slot";
 
 function numberFrom(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name]?.trim();
@@ -61,22 +68,29 @@ async function main() {
   const maxConcurrentTicks = numberFrom("WORKER_MAX_CONCURRENT_TICKS", 3, 1, 8);
   const shutdownGraceMs = numberFrom("WORKER_SHUTDOWN_GRACE_SECONDS", 25, 0, 600) * 1000;
 
-  // Refused before anything is claimed: with a pooled address the slot's
-  // lock is not a lock, and two generations would share one graphics card.
-  const slotProblem = usesLocalAi() ? slotConnectionProblem(env.DATABASE_URL) : null;
-  if (slotProblem) {
-    await logEvent("error", "worker.refused_to_start", { reason: slotProblem.message });
-    process.exit(1);
-  }
-
-  // A database that is not there is the one thing worth failing fast on.
-  await db.execute(sql`select 1`);
+  // Refused before anything is claimed: another environment's database, or
+  // an address where the slot's lock is not a lock and two generations
+  // would share one graphics card. A database that is not there fails here
+  // too, which is the one thing worth failing fast on.
+  const database = await checkWorkerDatabase(env.DATABASE_URL, {
+    localAi: usesLocalAi(),
+    expected: process.env.EXPECTED_DATABASE_NAME,
+  });
+  for (const note of database.notes) await logEvent("warn", "worker.database_note", { note });
 
   if (check) {
+    await db.execute(sql`select 1`);
     const health = await systemHealth();
-    process.stdout.write(`${JSON.stringify(health, null, 2)}\n`);
-    process.exit(health.status === "down" ? 1 : 0);
+    const { problems, ...startup } = database;
+    process.stdout.write(`${JSON.stringify({ ...health, startup: { ...startup, refused: problems } }, null, 2)}\n`);
+    process.exit(health.status === "down" || problems.length > 0 ? 1 : 0);
   }
+
+  if (database.problems.length > 0) {
+    await logEvent("error", "worker.refused_to_start", { reason: database.problems.join(" ") });
+    process.exit(1);
+  }
+  await db.execute(sql`select 1`);
 
   if (jobRunnerMode() !== "worker") {
     await logEvent("warn", "worker.runner_mode", {
@@ -97,6 +111,9 @@ async function main() {
   }
 
   const local = getLocalServicesConfig();
+  const localAiService = usesLocalAi() ? localAiServiceGate(local) : undefined;
+  const aliveFile = process.env.WORKER_ALIVE_FILE?.trim() || undefined;
+  const alive = aliveFile ? () => writeFileSync(aliveFile, String(Date.now())) : undefined;
   const startedAt = new Date().toISOString();
   await logEvent("info", "worker.started", {
     intervalSeconds: intervalMs / 1000,
@@ -108,6 +125,10 @@ async function main() {
     browserRenderer: local.LOCAL_BROWSER_RENDERER,
     notifications: env.NOTIFICATION_PROVIDER,
     cacheForwarding: Boolean(cache),
+    database: database.database,
+    databaseMode: database.mode.mode,
+    sessionLock: database.sessionLock,
+    localAiServiceWaitMinutes: localAiService ? local.LOCAL_AI_SERVICE_WAIT_MINUTES : null,
     errorTracking,
     node: process.version,
   });
@@ -119,7 +140,7 @@ async function main() {
 
   if (once) {
     const summary = await workerTick();
-    await workerLocalAiLane();
+    await workerLocalAiLane({ localAiService });
     await cache?.flush();
     await report();
     await logEvent("info", "jobs.trigger", { ...summary, runner: "worker", once: true });
@@ -137,7 +158,16 @@ async function main() {
   process.on("SIGTERM", () => stop("SIGTERM"));
   process.on("SIGINT", () => stop("SIGINT"));
 
-  const result = await runWorker({ intervalMs, maxConcurrentTicks, shutdownGraceMs, signal: controller.signal, afterTick: async () => cache?.flush(), everyMinute: report });
+  const result = await runWorker({
+    intervalMs,
+    maxConcurrentTicks,
+    shutdownGraceMs,
+    signal: controller.signal,
+    afterTick: async () => cache?.flush(),
+    everyMinute: report,
+    localAiService,
+    alive,
+  });
   await cache?.flush();
   await logEvent("info", "worker.stopped", result);
   process.exit(0);

@@ -14,7 +14,9 @@ import { createCategory, createProduct } from "@/lib/catalog";
 import { jobPolicies } from "@/lib/jobs/policies";
 import { enqueueJob, recoverStaleJobs, runDueJobs, runLocalAiJob, type JobPolicies } from "@/lib/jobs/runner";
 import { setProductExtractionProviderForTesting, UnconfiguredExtractionProvider } from "@/lib/providers/extraction";
+import { workerLocalAiLane, localAiServiceGate } from "@/lib/jobs/worker";
 import { getLocalServicesConfig, localAiRuntime } from "@/lib/providers/local/config";
+import { clearLocalHealthCache } from "@/lib/providers/local/health";
 import { chatJson, LocalAiError, localAiFailureCode, OllamaClient } from "@/lib/providers/local/ollama";
 import {
   LocalAiQueueTimeoutError,
@@ -364,5 +366,82 @@ describe("naming local-model failures", () => {
     const analysis = stored.analysis as { generator: { kind: string; localGrounded: boolean; fallbackFrom?: { code: string } } };
     expect(analysis.generator).toMatchObject({ kind: "rules", localGrounded: false, fallbackFrom: { code: "OLLAMA_UNAVAILABLE" } });
     expect(stored.providerUsage).toContainEqual(expect.objectContaining({ id: "ollama", status: "failed", errorCode: "OLLAMA_UNAVAILABLE" }));
+  });
+});
+
+// ------------------------------------- 6. a GPU that is down, for the worker
+
+describe("the worker's lane while the model's service is down (D-134)", () => {
+  /** The worker's gate, pointed at an address where nothing answers, or at the fake Ollama. */
+  async function gate(url: string, waitMinutes = 30) {
+    clearLocalHealthCache();
+    return localAiServiceGate({ ...getLocalServicesConfig(), OLLAMA_BASE_URL: url, OLLAMA_MODEL: "qwen2.5:7b", LOCAL_AI_SERVICE_WAIT_MINUTES: waitMinutes });
+  }
+
+  async function queuedRun(url: string) {
+    setIntelligenceProviderForTesting(new OllamaIntelligenceProvider(client(url), "qwen2.5:7b"));
+    const product = await aProduct();
+    return (await runSeoPulse(staff, product.id, { requestKey: requestKey(), fresh: true })).run;
+  }
+
+  const stored = async (runId: string) => (await harness.db.select().from(seoResearchRuns).where(eq(seoResearchRuns.id, runId)))[0];
+  const job = async () => (await harness.db.select().from(jobs).where(eq(jobs.kind, "seo.research_product")))[0];
+
+  it("leaves a fresh SeoPulse run queued instead of finishing it with rules wording", async () => {
+    const down = `http://127.0.0.1:${await closedPort()}`;
+    const run = await queuedRun(down);
+    const service = await gate(down);
+
+    await workerLocalAiLane({ localAiService: service });
+
+    expect((await job()).status).toBe("queued");
+    expect((await job()).attempts).toBe(0);
+    expect((await stored(run.id)).status).toBe("running");
+  });
+
+  it("claims it as soon as the model's service answers, and asks the model", async () => {
+    const run = await queuedRun(ollama.url);
+    const service = await gate(ollama.url);
+
+    await workerLocalAiLane({ localAiService: service });
+
+    expect((await job()).status).toBe("succeeded");
+    expect((await stored(run.id)).status).toBe("completed");
+    expect(ollama.requests.filter((request) => request.path === "/api/chat").length).toBeGreaterThan(0);
+  });
+
+  it("runs it after the wait anyway, recorded as rules with the outage it fell back from", async () => {
+    const down = `http://127.0.0.1:${await closedPort()}`;
+    const run = await queuedRun(down);
+    await harness.db.update(jobs).set({ createdAt: new Date(Date.now() - 31 * 60_000) }).where(eq(jobs.kind, "seo.research_product"));
+
+    await workerLocalAiLane({ localAiService: await gate(down) });
+
+    const after = await stored(run.id);
+    expect(after.status).toBe("completed");
+    const analysis = after.analysis as { generator: { kind: string; fallbackFrom?: { code: string } } };
+    expect(analysis.generator).toMatchObject({ kind: "rules", fallbackFrom: { code: "OLLAMA_UNAVAILABLE" } });
+  });
+
+  it("does not wait at all with LOCAL_AI_SERVICE_WAIT_MINUTES=0, as before", async () => {
+    const down = `http://127.0.0.1:${await closedPort()}`;
+    const run = await queuedRun(down);
+    await workerLocalAiLane({ localAiService: await gate(down, 0) });
+    expect((await stored(run.id)).status).toBe("completed");
+  });
+
+  it("does not wait for an address that is refused: that cannot clear by itself", async () => {
+    const refused = "http://gpu.example.net:11434";
+    const run = await queuedRun(`http://127.0.0.1:${await closedPort()}`);
+    await workerLocalAiLane({ localAiService: await gate(refused) });
+    expect((await stored(run.id)).status).toBe("completed");
+  });
+
+  it("leaves ordinary jobs alone: an outage of the model never holds up the rest of the queue", async () => {
+    const down = `http://127.0.0.1:${await closedPort()}`;
+    await queuedRun(down);
+    await enqueueJob({ kind: "light" });
+    const report = await runDueJobs({ light: async () => null }, { policies: jobPolicies(), localAiLane: false });
+    expect(report.ran.map((entry) => entry.kind)).toEqual(["light"]);
   });
 });

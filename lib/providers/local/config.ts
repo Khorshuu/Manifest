@@ -60,6 +60,15 @@ const schema = z.object({
    * finish both of its attempts (`localAiRuntime`).
    */
   LOCAL_AI_QUEUE_WAIT_MS: z.coerce.number().int().min(1_000).max(7_200_000).optional(),
+  /**
+   * How long the worker leaves a local-AI job queued while Ollama is not
+   * answering, before running it anyway (D-134). A GPU that is restarting, or
+   * one switched on for the work, is waited for instead of every run in the
+   * meantime finishing with the rules generator's wording. After this long
+   * the job runs and falls back as before, recorded as rules with the
+   * failure it fell back from, so nothing waits for ever. 0: never wait.
+   */
+  LOCAL_AI_SERVICE_WAIT_MINUTES: z.coerce.number().int().min(0).max(1_440).default(30),
   SEARXNG_BASE_URL: z.string().min(1).optional(),
   SEARXNG_ALLOW_REMOTE: flag,
   /** As OLLAMA_AUTH_TOKEN, for a SearXNG behind a gateway. */
@@ -148,6 +157,8 @@ export type LocalServiceUrl = { ok: true; url: URL; remote: boolean } | { ok: fa
  * The base address of a local service, or why it is refused.
  *
  * Only loopback hosts are accepted unless the owner opted in to a remote one.
+ * A reason never names the host: it reaches the health report, which carries
+ * no address (lib/health.ts, D-134).
  * This is what keeps "local AI" local: a mistyped or copied address pointing
  * at a hosted, OpenAI-compatible endpoint would otherwise receive every
  * product document without anyone noticing. Credentials in the address are
@@ -171,13 +182,13 @@ export function localServiceUrl(raw: string, allowRemote: boolean): LocalService
   if (remote && !allowRemote) {
     return {
       ok: false,
-      reason: `${url.hostname} is not this computer; only 127.0.0.1, localhost or ::1 are used unless remote use is explicitly allowed`,
+      reason: "the address is not this computer; only 127.0.0.1, localhost or ::1 are used unless remote use is explicitly allowed",
     };
   }
   if (remote && url.protocol !== "https:" && !isPrivateNetworkHost(url.hostname)) {
     return {
       ok: false,
-      reason: `${url.hostname} is outside a private network, so it must be reached over https`,
+      reason: "the address is outside a private network, so it must be reached over https",
     };
   }
   url.hash = "";

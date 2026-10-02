@@ -41,6 +41,7 @@ import { LocalResearchProvider, setProductResearchProviderForTesting } from "@/l
 import { clearLocalSearchCache } from "@/lib/providers/research/local";
 import { clearSitemapCache, type Fetcher } from "@/lib/providers/research/sitemap";
 import { processSearchQueue } from "@/lib/search/maintenance";
+import { setWorkerProcessForTesting } from "@/lib/jobs/mode";
 import { JOB_HANDLERS, jobPolicies } from "@/lib/jobs/registry";
 import { runLocalAiJob } from "@/lib/jobs/runner";
 import { contentOwnership, setFieldLock } from "@/lib/seo/fields";
@@ -276,6 +277,42 @@ async function approveDomain(pkbProductId: string, domain: string) {
 
 const evidenceOf = (pkbProductId: string) => harness.db.select().from(pkbEvidence).where(eq(pkbEvidence.pkbProductId, pkbProductId));
 const claimsOf = (pkbProductId: string) => harness.db.select().from(pkbClaims).where(eq(pkbClaims.pkbProductId, pkbProductId));
+
+// ------------------------- a document staff provide, by who runs the jobs
+
+describe("a document staff provide, where a worker runs the jobs (D-134)", () => {
+  const chats = () => ollama.requests.filter((request) => request.path === "/api/chat").length;
+
+  async function provideRevlonPage() {
+    const product = await listing({ title: "Revlon Colorsilk Hair Color - Black", brand: "Revlon" } as never);
+    await provideDocument(staff, product.pkbProductId!, { title: "Revlon Colorsilk", content: PAGES[REVLON], contentType: "text/html", url: REVLON });
+    return product;
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    setWorkerProcessForTesting(false);
+  });
+
+  it("is read by the local model inside the request when the web application runs the jobs", async () => {
+    await provideRevlonPage();
+    expect(chats()).toBeGreaterThan(0);
+  });
+
+  it("is not sent towards the model from a web request when the model is private to the worker, and the structured reading stands", async () => {
+    vi.stubEnv("JOB_RUNNER", "worker");
+    const product = await provideRevlonPage();
+    expect(chats()).toBe(0);
+    expect((await claimsOf(product.pkbProductId!)).map((claim) => claim.rawValue)).toContain("Black (010)");
+  });
+
+  it("is still read by the model in the worker's own process", async () => {
+    vi.stubEnv("JOB_RUNNER", "worker");
+    setWorkerProcessForTesting(true);
+    await provideRevlonPage();
+    expect(chats()).toBeGreaterThan(0);
+  });
+});
 
 // -------------------------------------------------- 1. beauty, sold by shade
 

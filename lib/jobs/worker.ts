@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { CACHE_TAGS, isKnownCacheTag, setCacheInvalidationForwarder } from "@/lib/cache";
 import { logEvent } from "@/lib/observability/log";
+import { getLocalServicesConfig, ollamaModelFor, type LocalServicesConfig } from "@/lib/providers/local/config";
+import { checkOllama } from "@/lib/providers/local/health";
 import { JOB_HANDLERS, jobPolicies, RECURRING_JOBS } from "./registry";
 import { runDueJobs, runLocalAiJob, scheduleRecurringJobs, type JobHandlers, type JobPolicies, type RecurringJob } from "./runner";
 import { JOB_TRIGGER, recordSchedulerRun, resolveRecurringJobs } from "./schedule";
@@ -43,6 +45,8 @@ export type WorkerDependencies = {
   /** Time a tick may spend claiming more work. */
   budgetMs?: number;
   now?: () => Date;
+  /** Leaves local-AI jobs queued while the model's service is down (D-134); see `localAiServiceGate`. */
+  localAiService?: { ready: () => Promise<boolean>; waitMs: number };
 };
 
 /** One call of the trigger, without the local-AI lane. */
@@ -74,11 +78,41 @@ export async function workerLocalAiLane(dependencies: WorkerDependencies = {}): 
     const lane = await runLocalAiJob(dependencies.handlers ?? JOB_HANDLERS, {
       policies: (dependencies.policies ?? jobPolicies)(),
       now: dependencies.now,
+      service: dependencies.localAiService,
     });
     if (lane.ran.length > 0) await logEvent("info", "jobs.local_ai", { ran: lane.ran });
   } catch (error) {
     await logEvent("error", "jobs.local_ai_failed", { error });
   }
+}
+
+/**
+ * Whether the model's service can take a local-AI job now, for the worker's
+ * lane (D-134). Waits only for what can clear by itself: Ollama not
+ * answering, or answering without the model while it is still being pulled.
+ * An address that is refused, or no model chosen, cannot clear without a
+ * person, so those jobs run at once and fall back as they always have.
+ *
+ * Asks through the setup panel's cached probe (30 s), and logs a change of
+ * state once rather than on every tick.
+ */
+export function localAiServiceGate(config: LocalServicesConfig = getLocalServicesConfig(), probe: typeof checkOllama = checkOllama) {
+  const model = ollamaModelFor(config, "seo") ?? ollamaModelFor(config, "extraction");
+  let waiting = false;
+  return {
+    waitMs: config.LOCAL_AI_SERVICE_WAIT_MINUTES * 60_000,
+    async ready(): Promise<boolean> {
+      const health = await probe(model, config);
+      const ready = health.state !== "unavailable" && health.state !== "model_missing";
+      if (!ready && !waiting) {
+        void logEvent("warn", "worker.local_ai_waiting", { state: health.state, waitMinutes: config.LOCAL_AI_SERVICE_WAIT_MINUTES });
+      } else if (ready && waiting) {
+        void logEvent("info", "worker.local_ai_available", { state: health.state });
+      }
+      waiting = !ready;
+      return ready;
+    },
+  };
 }
 
 export type WorkerOptions = WorkerDependencies & {
@@ -95,6 +129,8 @@ export type WorkerOptions = WorkerDependencies & {
   everyMinute?: () => Promise<void>;
   /** Test seam for the wait between ticks. */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  /** Called on every pass of the loop, busy or not: the container's liveness file (WORKER_ALIVE_FILE). */
+  alive?: () => void;
 };
 
 function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -129,6 +165,11 @@ export async function runWorker(options: WorkerOptions): Promise<{ ticks: number
   };
 
   while (!options.signal.aborted) {
+    try {
+      options.alive?.();
+    } catch {
+      // A liveness file that cannot be written must not stop the jobs.
+    }
     if (running.size >= options.maxConcurrentTicks) {
       skipped += 1;
       void logEvent("warn", "worker.tick_skipped", { running: running.size, reason: "Every tick is still busy with earlier work." });

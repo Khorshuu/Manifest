@@ -167,6 +167,32 @@ describe("the worker loop", () => {
     expect(beat).toBeDefined();
   });
 
+  it("marks itself alive on every pass, busy or not, for the container's health check (D-134)", async () => {
+    const controller = new AbortController();
+    let passes = 0;
+    let alive = 0;
+    await runWorker({
+      handlers: {},
+      recurring: [],
+      policies: NO_POLICIES,
+      budgetMs: 1_000,
+      intervalMs: 5,
+      maxConcurrentTicks: 1,
+      shutdownGraceMs: 1_000,
+      signal: controller.signal,
+      alive: () => {
+        alive += 1;
+        if (alive === 2) throw new Error("disk full");
+      },
+      sleep: async () => {
+        passes += 1;
+        if (passes >= 4) controller.abort();
+      },
+    });
+    // A liveness file that cannot be written does not stop the loop.
+    expect(alive).toBe(4);
+  });
+
   it("keeps ticking while one tick is held by a slow job, up to its ceiling", async () => {
     const controller = new AbortController();
     let release: () => void = () => undefined;
@@ -329,6 +355,9 @@ describe("system health", () => {
     expect(health.shipping.provider).toBe("mock");
     expect(health.status).toBe("ok");
     expect(health.problems).toEqual([]);
+    // The suite's database is on this machine: direct, and the slot's lock is trusted.
+    expect(health.database).toMatchObject({ pooled: false, mode: "direct" });
+    expect(health.ai.lockConnection).toBe("direct");
   });
 
   it("is degraded, with the reason, when nothing is draining the queue", async () => {

@@ -16,8 +16,10 @@ import { recordAudit } from "@/lib/audit";
 import { requirePermission } from "@/lib/auth/authorize";
 import type { SessionUser } from "@/lib/auth/session";
 import { describeDatabaseError, isEncodingDatabaseError } from "@/lib/db-errors";
+import { isWorkerProcess, jobRunnerMode } from "@/lib/jobs/mode";
 import { enqueueJob } from "@/lib/jobs/runner";
 import { logEvent } from "@/lib/observability/log";
+import { getProductExtractionProvider } from "@/lib/providers/extraction";
 import { getProductResearchProvider, type ResearchQuery, type ResearchResult } from "@/lib/providers/research";
 import { PkbError, queryRows, type Executor } from "./common";
 import { assistExtraction } from "./assist";
@@ -233,11 +235,26 @@ export async function provideDocument(
   if (language.verdict === "non_english") {
     throw new PkbError(`NON_ENGLISH_SOURCE: ${language.reason} Manifest reads product facts from English documents only; provide the English version.`, 422);
   }
-  const assisted = await assistExtraction(known, deterministic, {
-    url: input.url ?? null,
-    title: cleanText(input.title) || null,
-    version: { multiVersion: false, ours: null },
-  });
+  /*
+   * Where a worker runs the jobs (JOB_RUNNER=worker, D-133), a local model is
+   * a service private to the worker, and this is a web request that cannot
+   * reach it: it would only wait to be refused (D-134). The document is read
+   * by the structured readers alone, exactly as when the model is down. A
+   * hosted provider is reachable from anywhere and is still asked.
+   */
+  let assisted: { extraction: Extraction };
+  if (jobRunnerMode() === "worker" && !isWorkerProcess() && getProductExtractionProvider().key === "ollama") {
+    void logEvent("info", "pkb.extraction_not_in_web_request", {
+      reason: "The local model is private to the worker, so a provided document is read by the structured readers only.",
+    });
+    assisted = { extraction: deterministic };
+  } else {
+    assisted = await assistExtraction(known, deterministic, {
+      url: input.url ?? null,
+      title: cleanText(input.title) || null,
+      version: { multiVersion: false, ours: null },
+    });
+  }
 
   return db.transaction(async (tx) => {
     const identity = await loadIdentity(tx, pkbProductId);
