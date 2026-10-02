@@ -56,7 +56,8 @@ const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PAYMENT_PROVIDER: z.enum(["mock", "sslcommerz"]).default("mock"),
   SHIPPING_PROVIDER: z.enum(["mock", "courier"]).default("mock"),
-  NOTIFICATION_PROVIDER: z.enum(["mock", "live"]).default("mock"),
+  /** `smtp` sends real email and reads its own settings (lib/providers/notification/config.ts, D-132). */
+  NOTIFICATION_PROVIDER: z.enum(["mock", "smtp"]).default("mock"),
   /**
    * Automatic source discovery for the knowledge base; `none` is the default
    * and a fully supported setting (A-6). `brave` adds discovery of candidate

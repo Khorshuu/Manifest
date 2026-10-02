@@ -1,6 +1,7 @@
-import { and, asc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { notifications, orders, payments, users } from "@/db/schema";
+import { logEvent } from "@/lib/observability/log";
 import {
   DeliveryError,
   getNotificationProvider,
@@ -108,8 +109,16 @@ export type DeliveryReport = {
  * A message that has failed this many times is left alone. Retrying a bad
  * address forever costs money at a real provider and buries the failures that
  * could still be fixed.
+ *
+ * Eight attempts with the waits below reach a little over two hours, which is
+ * what a real provider's outage or rate limit can last (D-132).
  */
-export const MAX_DELIVERY_ATTEMPTS = 5;
+export const MAX_DELIVERY_ATTEMPTS = 8;
+
+/** Minutes before attempt `attempts + 1`: 1, 2, 4 … capped at an hour. */
+export function retryDelayMinutes(attempts: number): number {
+  return Math.min(60, 2 ** Math.max(0, attempts - 1));
+}
 
 /** A claim older than this belongs to a run that died; the message is retried. */
 export const DELIVERY_CLAIM_MINUTES = 10;
@@ -124,11 +133,17 @@ export const DELIVERY_CLAIM_MINUTES = 10;
  * same queued row and the customer heard twice. A run that dies after claiming
  * leaves the row `sending`; the next run past DELIVERY_CLAIM_MINUTES marks that
  * attempt failed so it is retried.
+ *
+ * A failed message waits before its next attempt, longer each time
+ * (`retryDelayMinutes`), so a provider that is down is not hammered and a
+ * message outlives the outage. A failure the provider calls permanent — no
+ * such mailbox, a channel it does not carry — stops at once.
  */
 export async function deliverQueuedNotifications(
   limit = 50,
+  options: { now?: Date } = {},
 ): Promise<DeliveryReport> {
-  const now = new Date();
+  const now = options.now ?? new Date();
 
   await db
     .update(notifications)
@@ -137,6 +152,7 @@ export async function deliverQueuedNotifications(
       attempts: sql`${notifications.attempts} + 1`,
       error: "Delivery did not finish.",
       claimedAt: null,
+      nextAttemptAt: null,
     })
     .where(
       and(
@@ -159,6 +175,7 @@ export async function deliverQueuedNotifications(
           and(
             eq(notifications.status, "failed"),
             lt(notifications.attempts, MAX_DELIVERY_ATTEMPTS),
+            or(isNull(notifications.nextAttemptAt), lte(notifications.nextAttemptAt, now)),
           ),
         ),
       ),
@@ -190,6 +207,8 @@ export async function deliverQueuedNotifications(
         recipient: message.recipient,
         subject: message.subject,
         body: message.body,
+        // The row, not the attempt: every retry of one message carries the same key.
+        idempotencyKey: message.id,
       });
 
       await db
@@ -201,27 +220,45 @@ export async function deliverQueuedNotifications(
           attempts: message.attempts + 1,
           error: null,
           claimedAt: null,
+          nextAttemptAt: null,
         })
         .where(eq(notifications.id, message.id));
 
       report.sent += 1;
     } catch (error) {
-      const reason =
+      const reason = (
         error instanceof DeliveryError || error instanceof Error
           ? error.message
-          : "Delivery failed.";
+          : "Delivery failed."
+      ).slice(0, 500);
+      const permanent = error instanceof DeliveryError && error.permanent;
+      // A permanent failure is given no further attempts; the count still
+      // never goes down, so a row past the limit stays past it.
+      const attempts = permanent ? Math.max(MAX_DELIVERY_ATTEMPTS, message.attempts + 1) : message.attempts + 1;
+      const exhausted = attempts >= MAX_DELIVERY_ATTEMPTS;
 
       await db
         .update(notifications)
         .set({
           status: "failed",
-          attempts: message.attempts + 1,
+          attempts,
           error: reason,
           claimedAt: null,
+          nextAttemptAt: exhausted ? null : new Date(now.getTime() + retryDelayMinutes(attempts) * 60_000),
         })
         .where(eq(notifications.id, message.id));
 
       report.failed += 1;
+      // The recipient is deliberately not a field: the row has it, a log need not.
+      void logEvent(exhausted ? "error" : "warn", exhausted ? "notification.dead" : "notification.retrying", {
+        notificationId: message.id,
+        channel: message.channel,
+        provider: provider.name ?? "unknown",
+        attempt: attempts,
+        maxAttempts: MAX_DELIVERY_ATTEMPTS,
+        permanent,
+        reason,
+      });
     }
   }
 

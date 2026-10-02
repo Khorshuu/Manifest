@@ -1,27 +1,23 @@
 import { getEnv } from "@/lib/env";
 import { MockNotificationProvider } from "./mock";
+import { SmtpNotificationProvider } from "./smtp";
 import type { NotificationProvider } from "./types";
 
 export * from "./types";
-export { MockNotificationProvider };
+export { MockNotificationProvider, SmtpNotificationProvider };
 
 let instance: NotificationProvider | undefined;
 
 /**
- * The provider selected by NOTIFICATION_PROVIDER. Only the mock exists today;
- * a real email/SMS provider slots in here without any call site changing
- * (DECISIONS.md D-004).
+ * The provider selected by NOTIFICATION_PROVIDER (DECISIONS.md D-004, D-132):
+ * `mock`, which delivers nowhere and says so, or `smtp`, real email through
+ * whichever service the SMTP settings name. No call site knows which.
  */
 export function getNotificationProvider(): NotificationProvider {
   if (instance) return instance;
 
-  if (getEnv().NOTIFICATION_PROVIDER === "live") {
-    throw new Error(
-      "No live notification provider is implemented yet. Set NOTIFICATION_PROVIDER=mock.",
-    );
-  }
-
-  instance = new MockNotificationProvider();
+  instance =
+    getEnv().NOTIFICATION_PROVIDER === "smtp" ? new SmtpNotificationProvider() : new MockNotificationProvider();
   return instance;
 }
 

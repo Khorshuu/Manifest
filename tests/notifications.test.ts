@@ -25,6 +25,7 @@ import {
   listOutbox,
   MAX_DELIVERY_ATTEMPTS,
   NOTIFIED_STATUSES,
+  retryDelayMinutes,
   setBackgroundDeliveryForTesting,
 } from "@/lib/notifications";
 import {
@@ -49,6 +50,10 @@ import { createTestDatabase } from "./helpers/database";
 import { createProductForTest } from "./helpers/catalog";
 
 let harness: Awaited<ReturnType<typeof createTestDatabase>>;
+
+function minutesFromNow(minutes: number): Date {
+  return new Date(Date.now() + minutes * 60_000 + 1_000);
+}
 let notifier: MockNotificationProvider;
 
 const staff: SessionUser = {
@@ -326,7 +331,9 @@ describe("delivering", () => {
     expect((await deliverQueuedNotifications()).failed).toBe(1);
 
     reachable = true;
-    expect((await deliverQueuedNotifications()).sent).toBe(1);
+    // Not at once: a provider that just failed is given a minute first (D-132).
+    expect((await deliverQueuedNotifications()).attempted).toBe(0);
+    expect((await deliverQueuedNotifications(50, { now: minutesFromNow(1) })).sent).toBe(1);
 
     const [row] = await outboxFor(placed.orderId);
     expect(row.status).toBe("sent");
@@ -344,17 +351,90 @@ describe("delivering", () => {
 
     const placed = await placeTestOrder();
 
+    // Each drain comes after the wait the one before it set.
+    let elapsed = 0;
     for (let i = 0; i < MAX_DELIVERY_ATTEMPTS; i++) {
-      await deliverQueuedNotifications();
+      await deliverQueuedNotifications(50, { now: minutesFromNow(elapsed) });
+      elapsed += retryDelayMinutes(i + 1);
     }
 
     const [row] = await outboxFor(placed.orderId);
     expect(row.attempts).toBe(MAX_DELIVERY_ATTEMPTS);
 
     // Nothing left to attempt: the row is still there, still failed, and no
-    // longer picked up.
-    expect((await deliverQueuedNotifications()).attempted).toBe(0);
+    // longer picked up, however long anyone waits.
+    expect((await deliverQueuedNotifications(50, { now: minutesFromNow(elapsed + 24 * 60) })).attempted).toBe(0);
     expect(row.status).toBe("failed");
+  });
+
+  /** The waits a real provider's outage needs (D-132). */
+  it("waits longer before each retry, and survives an outage of two hours", async () => {
+    expect([1, 2, 3, 4, 5, 6, 7].map(retryDelayMinutes)).toEqual([1, 2, 4, 8, 16, 32, 60]);
+
+    let reachable = false;
+    setNotificationProviderForTesting({
+      async send() {
+        if (!reachable) throw new DeliveryError("The provider is unreachable.");
+        return { providerMessageId: "after-the-outage" };
+      },
+    });
+    const placed = await placeTestOrder();
+
+    // Down for the first two hours, drained every minute throughout.
+    let attempts = 0;
+    for (let minute = 0; minute < 120; minute++) {
+      attempts += (await deliverQueuedNotifications(50, { now: minutesFromNow(minute) })).attempted;
+    }
+    // 0, 1, 3, 7, 15, 31 and 63 minutes in: seven attempts, not a hundred and twenty.
+    expect(attempts).toBe(7);
+
+    reachable = true;
+    expect((await deliverQueuedNotifications(50, { now: minutesFromNow(123) })).sent).toBe(1);
+    const [row] = await outboxFor(placed.orderId);
+    expect(row.status).toBe("sent");
+    expect(row.providerMessageId).toBe("after-the-outage");
+    expect(row.nextAttemptAt).toBeNull();
+  });
+
+  /** A mailbox that does not exist is not asked eight times. */
+  it("stops at once on a failure the provider calls permanent", async () => {
+    let calls = 0;
+    setNotificationProviderForTesting({
+      async send() {
+        calls += 1;
+        throw new DeliveryError("The email provider refused the recipient (550).", { permanent: true });
+      },
+    });
+    const placed = await placeTestOrder();
+
+    expect((await deliverQueuedNotifications()).failed).toBe(1);
+    expect((await deliverQueuedNotifications(50, { now: minutesFromNow(24 * 60) })).attempted).toBe(0);
+
+    const [row] = await outboxFor(placed.orderId);
+    expect(calls).toBe(1);
+    expect(row.status).toBe("failed");
+    expect(row.attempts).toBe(MAX_DELIVERY_ATTEMPTS);
+    expect(row.error).toBe("The email provider refused the recipient (550).");
+  });
+
+  /** Every attempt at one message carries the same key, so a provider can refuse a repeat. */
+  it("hands the provider the same idempotency key on every attempt", async () => {
+    const keys: (string | undefined)[] = [];
+    let fail = true;
+    setNotificationProviderForTesting({
+      async send(message) {
+        keys.push(message.idempotencyKey);
+        if (fail) throw new DeliveryError("The provider is unreachable.");
+        return { providerMessageId: "ok" };
+      },
+    });
+    const placed = await placeTestOrder();
+    await deliverQueuedNotifications();
+    fail = false;
+    await deliverQueuedNotifications(50, { now: minutesFromNow(1) });
+
+    const [row] = await outboxFor(placed.orderId);
+    expect(keys).toEqual([row.id, row.id]);
   });
 
   it("never picks up a message that was already sent", async () => {

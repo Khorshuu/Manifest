@@ -58,6 +58,8 @@ export const notifications = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }),
     /** When a delivery run claimed it; a stale claim is recovered as failed. */
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    /** A failed message is left alone until then; null means due now (D-132). */
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
   },
   (table) => [
     unique("notifications_dedupe_key_unique").on(table.dedupeKey),

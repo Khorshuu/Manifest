@@ -3,6 +3,7 @@ import {
   DeliveryError,
   type DeliveryResult,
   type NotificationProvider,
+  type NotificationProviderHealth,
   type OutgoingNotification,
 } from "./types";
 
@@ -15,6 +16,7 @@ import {
  * was told (CLAUDE.md section 6).
  */
 export class MockNotificationProvider implements NotificationProvider {
+  readonly name = "mock";
   readonly sent: OutgoingNotification[] = [];
 
   async send(message: OutgoingNotification): Promise<DeliveryResult> {
@@ -25,5 +27,13 @@ export class MockNotificationProvider implements NotificationProvider {
     this.sent.push(message);
 
     return { providerMessageId: `mock_${randomUUID()}` };
+  }
+
+  async health(): Promise<NotificationProviderHealth> {
+    return {
+      provider: "mock",
+      state: "mock",
+      message: "The mock provider is in use: messages are recorded as sent and reach nobody.",
+    };
   }
 }
