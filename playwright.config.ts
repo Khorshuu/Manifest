@@ -90,6 +90,23 @@ export default defineConfig({
           // A known secret, so the scheduled sweep can be exercised the way a real
           // scheduler calls it.
           CRON_SECRET: "test-cron-secret",
+          // Deterministic providers. Next loads .env.local for this server too,
+          // and a developer's .env.local may select live web research and a
+          // local model; the suite must not depend on either. E2E_* overrides
+          // exist for a deliberate live run.
+          SEO_PULSE_AI_PROVIDER: process.env.E2E_SEO_PULSE_AI_PROVIDER ?? "rules",
+          PRODUCT_RESEARCH_PROVIDER: process.env.E2E_PRODUCT_RESEARCH_PROVIDER ?? "none",
+          PRODUCT_EXTRACTION_PROVIDER: process.env.E2E_PRODUCT_EXTRACTION_PROVIDER ?? "none",
+          LOCAL_BROWSER_RENDERER: process.env.E2E_LOCAL_BROWSER_RENDERER ?? "none",
+          // The same for everything else a .env.local can point at a real
+          // service: the suite pays, ships, sends and uploads only to mocks and
+          // the local disk, and reads no external keyword or search data.
+          PAYMENT_PROVIDER: "mock",
+          SHIPPING_PROVIDER: "mock",
+          NOTIFICATION_PROVIDER: "mock",
+          MEDIA_PROVIDER: "local",
+          SEO_PULSE_DATA_PROVIDER: "none",
+          SEARCH_CONSOLE_PROVIDER: "none",
           ...(isProduction
             ? {
                 NODE_ENV: "production",
