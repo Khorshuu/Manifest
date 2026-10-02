@@ -242,7 +242,11 @@ describe("signing in", () => {
 
   it("records which step was spent", async () => {
     const { secret } = await enrol(admin);
-    await verifySecondFactor(admin.id, nextCode(secret));
+    // One reading of the clock for the code and the expectation: read twice,
+    // a run that crossed a 30-second boundary in between expected the step
+    // after the one the code came from.
+    const at = Date.now() + 30_000;
+    await verifySecondFactor(admin.id, totp(secret, at));
 
     const [row] = await harness.db
       .select({ step: users.totpLastUsedStep })
@@ -250,7 +254,7 @@ describe("signing in", () => {
       .where(eq(users.id, admin.id));
 
     // The code came from the next step, and that is the step recorded.
-    expect(row.step).toBe(totpStep(Date.now() + 30_000));
+    expect(row.step).toBe(totpStep(at));
   });
 
   it("refuses a code belonging to a different account", async () => {
