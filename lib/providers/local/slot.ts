@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
-import { isPooledUrl } from "@/db/connection";
+import { connectionMode, declaredConnectionMode } from "@/db/connection";
 import { getLocalServicesConfig, localAiRuntime } from "./config";
 
 /**
@@ -71,9 +71,16 @@ export class LocalAiSlotConnectionError extends Error {
   }
 }
 
-/** Whether the slot's session lock can be trusted over `databaseUrl`. */
-export function slotConnectionProblem(databaseUrl: string | undefined = process.env.DATABASE_URL): LocalAiSlotConnectionError | null {
-  return databaseUrl && isPooledUrl(databaseUrl) ? new LocalAiSlotConnectionError() : null;
+/**
+ * Whether the slot's session lock can be trusted over `databaseUrl`: refused
+ * when the address is a transaction pooler's, by its name (Neon's "-pooler")
+ * or by DATABASE_CONNECTION_MODE=transaction (D-134).
+ */
+export function slotConnectionProblem(
+  databaseUrl: string | undefined = process.env.DATABASE_URL,
+  declared = declaredConnectionMode(),
+): LocalAiSlotConnectionError | null {
+  return databaseUrl && connectionMode(databaseUrl, declared).mode === "transaction" ? new LocalAiSlotConnectionError() : null;
 }
 
 async function openSession(): Promise<Session> {

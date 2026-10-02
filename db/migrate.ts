@@ -21,7 +21,8 @@ import { hash } from "@node-rs/argon2";
 import { sql } from "drizzle-orm";
 import postgres from "postgres";
 import { getDb } from "./index";
-import { isPooledUrl } from "./connection";
+import { connectionMode, declaredConnectionMode } from "./connection";
+import { databaseIdentityProblem } from "./identity";
 import { checkDatabaseEncoding } from "./encoding";
 import { migratePostgres } from "./migrator";
 import { users } from "./schema";
@@ -68,12 +69,15 @@ async function main() {
    * the direct address: Neon's integration provides it as
    * DATABASE_URL_UNPOOLED.
    */
-  const url = (process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL)?.trim();
+  const unpooled = process.env.DATABASE_URL_UNPOOLED?.trim();
+  const url = (unpooled || process.env.DATABASE_URL)?.trim();
   if (!url) {
     process.stdout.write("No DATABASE_URL; skipping migrations.\n");
     process.exit(0);
   }
-  if (isPooledUrl(url)) {
+  // DATABASE_CONNECTION_MODE describes DATABASE_URL, so it only applies when
+  // that is the address in use (D-134).
+  if (connectionMode(url, unpooled ? undefined : declaredConnectionMode()).mode === "transaction") {
     throw new Error(
       "Migrations need a direct database connection, not the pooled one. Set DATABASE_URL_UNPOOLED.",
     );
@@ -81,6 +85,11 @@ async function main() {
 
   const client = postgres(url, { max: 1, onnotice: () => {} });
   try {
+    // A deployment pointed at the wrong database stops before it writes
+    // anything: EXPECTED_DATABASE_NAME pins the one this environment owns.
+    const [{ name }] = await client<{ name: string }[]>`select current_database() as name`;
+    const identity = databaseIdentityProblem(name, process.env.EXPECTED_DATABASE_NAME);
+    if (identity) throw new Error(identity);
     // Reported, never fixed here: recreating a database is a person's decision.
     const encoding = await checkDatabaseEncoding((text) => client.unsafe(text));
     if (encoding) process.stderr.write(`\nWARNING — ${encoding}\n\n`);

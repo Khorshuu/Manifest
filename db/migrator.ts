@@ -197,6 +197,43 @@ export async function migrate(
   }
 }
 
+export type MigrationStatus = {
+  /** Whether the database has a migration ledger at all. */
+  ledger: boolean;
+  applied: number;
+  /** The newest file recorded as applied or baselined. */
+  latest: string | null;
+  /** Files in the repository the database has not had yet. */
+  pending: string[];
+  /** Recorded files whose contents have since changed: `migrate` would stop on these. */
+  changed: string[];
+  /** Recorded files that are no longer in the repository. */
+  unknown: string[];
+};
+
+/**
+ * Where a database stands against the repository's migrations, read only:
+ * no lock, no ledger created, nothing applied. For checks run before a
+ * deployment (scripts/staging/check.ts), where `migrate` would be a write.
+ */
+export async function migrationStatus(executor: Pick<MigrationExecutor, "query">, dir = MIGRATIONS_DIR): Promise<MigrationStatus> {
+  const files = migrationFiles(dir);
+  const [state] = await executor.query<{ ledger: boolean }>(
+    "select to_regclass('public.schema_migrations') is not null as ledger",
+  );
+  if (!state?.ledger) return { ledger: false, applied: 0, latest: null, pending: files, changed: [], unknown: [] };
+  const recorded = await executor.query<{ name: string; checksum: string }>("select name, checksum from schema_migrations order by name");
+  const names = new Set(recorded.map((row) => row.name));
+  return {
+    ledger: true,
+    applied: recorded.length,
+    latest: recorded.at(-1)?.name ?? null,
+    pending: files.filter((file) => !names.has(file)),
+    changed: recorded.filter((row) => files.includes(row.name) && migrationChecksum(row.name, dir) !== row.checksum).map((row) => row.name),
+    unknown: recorded.filter((row) => !files.includes(row.name)).map((row) => row.name),
+  };
+}
+
 /** A postgres-js connection. Pass a reserved one: the lock and BEGIN need one session. */
 export function postgresExecutor(connection: postgres.Sql | postgres.ReservedSql): MigrationExecutor {
   return {

@@ -1,6 +1,6 @@
 import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { isPooledUrl } from "@/db/connection";
+import { connectionMode, declaredConnectionMode } from "@/db/connection";
 import { jobs, schedulerHeartbeats } from "@/db/schema";
 import { getEnv } from "@/lib/env";
 import { isWorkerProcess, jobRunnerMode, WORKER_HEARTBEAT } from "@/lib/jobs/mode";
@@ -36,7 +36,12 @@ export type SystemHealth = {
   checkedAt: string;
   /** What is wrong, in sentences an operator can act on. Empty when `ok`. */
   problems: string[];
-  database: { state: "ok" | "unreachable"; latencyMs: number | null; pooled: boolean };
+  /**
+   * `mode` is how DATABASE_URL reaches the server, as far as can be known
+   * without a test (db/connection.ts): `unknown` unless the address says so
+   * (Neon) or DATABASE_CONNECTION_MODE declares it (D-134).
+   */
+  database: { state: "ok" | "unreachable"; latencyMs: number | null; pooled: boolean; mode: "direct" | "session" | "transaction" | "unknown" };
   jobs: {
     runner: "scheduler" | "worker";
     /** Whoever drains the queue called in recently enough for the schedule. */
@@ -66,7 +71,8 @@ export type SystemHealth = {
     oldestQueuedMinutes: number | null;
   };
   research: { key: string; state: string; status: string }[];
-  ai: { provider: string; model: string | null; remote: boolean; concurrency: number; lockConnection: "direct" | "pooled" };
+  /** `lockConnection: unverified` — the address's mode is not known, so the slot's session lock is untested here; the worker tests it at start. */
+  ai: { provider: string; model: string | null; remote: boolean; concurrency: number; lockConnection: "direct" | "pooled" | "unverified" };
   media: { provider: string };
   /** Named so nobody reads a staging environment as taking real money or booking real couriers. */
   payment: { provider: string };
@@ -111,7 +117,8 @@ export async function systemHealth(now: Date = new Date()): Promise<SystemHealth
   const local = getLocalServicesConfig();
   const runner = jobRunnerMode();
   const problems: string[] = [];
-  const pooled = isPooledUrl(env.DATABASE_URL);
+  const mode = connectionMode(env.DATABASE_URL, declaredConnectionMode(env.DATABASE_CONNECTION_MODE)).mode;
+  const pooled = mode === "transaction";
 
   // Everything else reads the database, so when it is down that is the whole answer.
   const started = performance.now();
@@ -127,13 +134,13 @@ export async function systemHealth(now: Date = new Date()): Promise<SystemHealth
   const usesLocalAi = env.PRODUCT_EXTRACTION_PROVIDER === "ollama" || (process.env.SEO_PULSE_AI_PROVIDER ?? "").trim() === "ollama";
   const base: Pick<SystemHealth, "checkedAt" | "database" | "ai" | "media" | "payment" | "shipping"> = {
     checkedAt: now.toISOString(),
-    database: { state: reachable ? "ok" : "unreachable", latencyMs, pooled },
+    database: { state: reachable ? "ok" : "unreachable", latencyMs, pooled, mode },
     ai: {
       provider: usesLocalAi ? "ollama" : "none",
       model: usesLocalAi ? (ollamaModelFor(local, "seo") ?? ollamaModelFor(local, "extraction")) : null,
       remote: ollamaAddress.ok && ollamaAddress.remote,
       concurrency: local.LOCAL_AI_CONCURRENCY,
-      lockConnection: pooled ? "pooled" : "direct",
+      lockConnection: pooled ? "pooled" : mode === "unknown" ? "unverified" : "direct",
     },
     media: { provider: mediaProviderName() },
     payment: { provider: env.PAYMENT_PROVIDER },

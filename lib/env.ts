@@ -20,6 +20,14 @@ const schema = z.object({
    * server connection.
    */
   DATABASE_PREPARE: z.enum(["auto", "on", "off"]).default("auto"),
+  /**
+   * How DATABASE_URL reaches the server: `direct`, `session` (a session-mode
+   * pooler) or `transaction` (a transaction-mode pooler). Only Neon's
+   * "-pooler" host gives itself away; for every other provider this is the
+   * operator's statement, and the worker and the staging check rely on it
+   * (db/connection.ts, D-134).
+   */
+  DATABASE_CONNECTION_MODE: z.enum(["direct", "session", "transaction"]).optional(),
   SESSION_SECRET: z.string().min(32),
   /**
    * Login attempt ceilings per 15-minute window. The per-account limit is the
