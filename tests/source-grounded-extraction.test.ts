@@ -496,6 +496,29 @@ describe("SEO wording from what is known, and nothing when too little is", () =>
     expect(generated.longTailKeywords.some((keyword) => keyword.keyword.includes("price in bangladesh"))).toBe(true);
   });
 
+  it("does not end the title with a value that says nothing without its label", () => {
+    // Found live: "Buttons: 7" gave "<name> – 7".
+    const generated = generateByRules(
+      pulseInput({
+        title: "Northfield Vector Wireless Mouse",
+        brand: "Northfield",
+        details: {},
+        specifications: [
+          { label: "Buttons", value: "7" },
+          { label: "Batteries Included", value: "Yes" },
+          { label: "Frequency", value: "2.4 GHz" },
+          { label: "Mouse Technology", value: "Optical" },
+        ],
+      }),
+      research,
+    );
+    expect(knowledgeSufficiency(pulseInput({ specifications: [{ label: "Buttons", value: "7" }, { label: "Frequency", value: "2.4 GHz" }, { label: "Mouse Technology", value: "Optical" }] })).sufficient).toBe(true);
+    expect(generated.seoTitle.recommended).toBe("Northfield Vector Wireless Mouse – 2.4 GHz");
+    for (const title of [generated.seoTitle.recommended, ...generated.seoTitle.alternatives]) {
+      expect(title).not.toMatch(/[–|]\s*(\d+(\.\d+)?|yes|no)$/i);
+    }
+  });
+
   it("writes the snippet and key features from the product's own established statements", () => {
     const generated = generateByRules(
       pulseInput({

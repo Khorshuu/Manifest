@@ -418,10 +418,13 @@ export function generateByRules(
    * phrase (below), which is what people type — not what a title must say.
    */
   // A short labelled fact the name does not already say ("Black (010)" adds
-  // nothing to "… - Black" but its code).
+  // nothing to "… - Black" but its code). The value stands without its label
+  // here, so one that says nothing alone — "7" (buttons), "Yes" — is not used:
+  // it made the title "<name> – 7".
   const firstFact = featureRows
     .filter((row) => !statements(row.value))
     .map((row) => row.value.trim())
+    .filter((value) => /\p{L}{2,}/u.test(value) && !/^(yes|no|true|false)$/i.test(value))
     .find((value) => value.length <= 28 && !keywordKey(value).split(" ").some((word) => word && containsWords(displayName, word)));
   const candidates = [
     firstFact && sufficient ? `${fitted} – ${firstFact}` : "",
