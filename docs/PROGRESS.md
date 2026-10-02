@@ -4732,3 +4732,101 @@ Verified:
   reads "Batch full" on its card, as before.
 - No end-to-end spec for the wishlist, saved addresses or Google sign-in
   (unit tests only).
+
+## Final verification campaign (2026-10-02 to 03)
+
+Verification only; no feature work. Machine: i9-11900K, 32 GB, GTX 1050 Ti
+(4 GB), repository and PostgreSQL 18.4 on a hard disk, Node 24.20 (the project
+pins 22.x), Playwright 1.63.0.
+
+| Stage | Result |
+|---|---|
+| Full Vitest | `[x]` 134 files, 1981 passed, 8 skipped, 240 s. A second run after the fixes below: 1 failed (`two-factor.test.ts`, a clock-boundary flake, fixed), 1981 passed. |
+| Production build | `[x]` `npm run build` against `preorder_e2e`, 116 s, no warning or error. |
+| Mobile Playwright | `[x]` `--project=mobile --workers=1` on `next dev`: 284 passed, 1 skipped (desktop-only), 1 failed — a test race, fixed; 16 of 16 repeats then passed. |
+| Concurrency | `[x]` 13 files, 43 passed (the 8 skips are the "no server" placeholders), 73 s. No deadlock, oversell, duplicate order or raw integrity error. |
+| Scale, 1,000 listings | `[x]` `manifest_scale_1k` (UTF8): 3,745 variants, 20,000 orders, 84 MB, seeded in 50 s. |
+| Scale, 5,000 listings | `[x]` `manifest_scale_5k` (UTF8): 18,731 variants (one listing has 250), 100,000 orders, 320 MB, seeded in 292 s. Whole-catalogue reindex 12.5 s (2.5 ms a listing). |
+| Budgets | `[x]` `perf:budget` on the production build at both sizes: largest page 169 KB of JavaScript against 170, HTML 31 KB against 60. |
+| Live research | `[~]` one product, `preorder_e2e`, SearXNG + Ollama. Stopped at NEEDS_REVIEW, correctly. See below. |
+| Live Ollama | `[!]` timed out at 600 s and fell back to the rules generator. |
+
+### Measurements
+
+`perf:bench`, p50 / p95 in ms, 15 runs:
+
+| Path | 1,000 | 5,000 |
+|---|---|---|
+| Category listing, featured | 14 / 20 | 43 / 48 |
+| Category, three filters | 27 / 38 | 72 / 78 |
+| Search "wireless headphones" | 16 / 21 | 35 / 38 |
+| Suggest "hea" (11 statements, 12 rows) | 8 / 15 | 16 / 20 |
+| Product core data | 14 / 20 | 45 / 61 |
+| Admin overview | 9 / 13 | 149 / 171 |
+| Admin products list | 9 / 13 | 29 / 36 |
+| Admin orders CSV export | 277 / 305 | 1558 / 1641 |
+
+`perf:http`, production build, 20 clients, 200 requests a path, no errors:
+pages p95 between 157 ms (`/cart`) and 520 ms (category, search) at 5,000
+listings, 44–145 requests a second, at most 12 database connections; much the
+same at 1,000. The suggestion endpoint with its limit raised for measuring:
+p95 139–173 ms, 145–200 requests a second (a SKU prefix: 386 ms, 78 a second).
+With the real limit (40 a window) the burst was refused with 429, as intended.
+A suggestion answer is at most 12 rows of label, link, thumbnail, hint and
+price — about 1.5 KB.
+
+No HTTP checkout benchmark exists; reservation under load is the
+`checkout-concurrency` suite (40 simultaneous carts).
+
+### Live acceptance: Logitech MX Master 3S (910-006556), a product never used before
+
+- SearXNG returned 27 results; 12 candidates were read. The manufacturer's own
+  en-us page was read but does not state the model number, so its identity was
+  "unknown" and nothing on it was used. A combo listing was a mismatch. A Polish
+  retailer was refused as LANGUAGE_UNCERTAIN. Five sites answering 403 or with
+  no readable robots.txt were not read.
+- One retailer page matched the model number. It gave 18 label proposals with
+  the table row as evidence. Nothing became knowledge without a decision.
+- Accepting those values leaves them UNVERIFIED — no verification policy
+  qualifies a retailer — and the run stopped at INSUFFICIENT_KNOWLEDGE, also
+  after logitech.com was approved in the registry and the official page
+  attached. That is the system refusing to write from unverified facts.
+- Generation was reached only after nine specifications were typed in by hand
+  (the product editor's save), as the remedy says. Ollama (`qwen2.5:7b`, 11 of
+  29 layers on the GPU) was cancelled at 10 minutes, having run alone; the run
+  finished READY with `kind: rules`, `fallbackFrom: OLLAMA_GENERATION_TIMEOUT`.
+  The earlier live run the same day finished in 257 s.
+
+### Fixed
+
+- **Rules SEO title ended in a bare value** — "Logitech MX Master 3S Wireless
+  Mouse – 7" from "Buttons: 7" (found in the live run; the rules generator is
+  the default and the fallback). A value that says nothing without its label
+  is no longer appended. `tests/source-grounded-extraction.test.ts`, confirmed
+  to fail on the old code.
+- `e2e/search.spec.ts`, the Search button test on a phone: the tap can land
+  after the 250 ms pause has asked for suggestions, which is correct. The test
+  now asserts no request after the search is submitted, and at most one before.
+- `tests/two-factor.test.ts` read the clock twice across a 30-second step.
+
+### Found, not changed
+
+- `[!]` Local generation is marginal on this graphics card: 257 s once,
+  over 600 s once.
+- A promotional row ("Deal Time! Get $10 Off") reached the label proposals. It
+  was a proposal, not knowledge.
+- "Accept the values research found" in the INSUFFICIENT_KNOWLEDGE remedy does
+  not help when no policy can verify them: they stay unestablished and are
+  proposed again on the next read.
+- Rules wording: "Bluetooth; Logi Bolt USB Connector/Port/Interface" as a key
+  point; a one-line description; an English value removed as "not English".
+- Suggestions for "wireless he" return nothing ("he" is a stop word); "wireless
+  hea" returns twelve.
+- Admin overview is 16 times slower at five times the orders (9 to 149 ms).
+
+### Not verified
+
+Real payment, courier, email and SMS (all mock); Google sign-in and Search
+Console against Google; deployed hosting; a hosted AI or research provider; the
+suite on Node 22; SKU generation, At a Glance and the storefront page for the
+live product; a successful local-model generation in this campaign.
