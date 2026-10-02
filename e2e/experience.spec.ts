@@ -62,11 +62,12 @@ test("the preorder countdown is live and announced once", async ({ page }) => {
 });
 
 test("the gallery thumbnails work as buttons", async ({ page }) => {
-  await page.goto(PRODUCT);
+  // The seeded headphones have two gallery photographs; the candy box has one,
+  // and a skip on "fewer than two" meant this never ran against the seed.
+  await page.goto("/products/studio-reference-headphones");
 
   const thumbnails = page.getByRole("button", { name: /^Show / });
-  const count = await thumbnails.count();
-  test.skip(count < 2, "This product has one photograph.");
+  await expect(thumbnails.nth(1)).toBeVisible();
 
   await thumbnails.nth(1).click();
   await expect(thumbnails.nth(1)).toHaveAttribute("aria-current", "true");
