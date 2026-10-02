@@ -131,7 +131,18 @@ test("the Search button searches at once, without fetching suggestions first", a
   page,
 }) => {
   await openHome(page);
-  const queries = recordSuggestQueries(page);
+  /*
+   * In order, not just whether: reaching the button takes a pointer longer
+   * than a key press, and on a phone the tap can land after the 250 ms pause
+   * has already asked for "candy" — which is the debounce working, not a
+   * failure. What must not happen is a request after the search was submitted.
+   */
+  const events: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/search/suggest") events.push(`suggest:${url.searchParams.get("q") ?? ""}`);
+    else if (url.pathname === "/search" && url.searchParams.get("q") === "candy") events.push("submitted");
+  });
   const input = page.getByLabel("Search products");
 
   await input.pressSequentially("candy", { delay: 20 });
@@ -141,8 +152,12 @@ test("the Search button searches at once, without fetching suggestions first", a
     .click();
   await page.waitForURL(/\/search\?q=candy/);
 
+  // Longer than the debounce: a timer that survived the submit would fire.
   await page.waitForTimeout(600);
-  expect(queries).not.toContain("candy");
+  expect(events).toContain("submitted");
+  expect(events.slice(events.indexOf("submitted") + 1).filter((event) => event.startsWith("suggest:"))).toEqual([]);
+  // And at most one request before it, never one per keystroke.
+  expect(events.filter((event) => event.startsWith("suggest:")).length).toBeLessThanOrEqual(1);
 });
 
 test("a submitted search is remembered as a recent search", async ({ page }) => {
