@@ -1,9 +1,12 @@
+import { BlockList, isIP } from "node:net";
 import { z } from "zod";
 
 /**
- * Settings for the services that run on the owner's own machine (D-124):
- * Ollama for local AI, an optional SearXNG instance for local web search, and
- * an optional Playwright/Chromium page renderer.
+ * Settings for the services Manifest runs for itself rather than buys (D-124):
+ * Ollama for AI, an optional SearXNG instance for web search, and an optional
+ * Playwright/Chromium page renderer. On a development machine they are on the
+ * same computer; in a hosted environment they are private services beside the
+ * worker (D-133). "Local" in these names means "ours", not "this computer".
  *
  * None of them is required. Each one that is absent or not running degrades to
  * what Manifest already does without it — the structured readers, the rules
@@ -27,11 +30,19 @@ const schema = z.object({
   OLLAMA_EXTRACTION_MODEL: z.string().min(1).optional(),
   OLLAMA_SEO_MODEL: z.string().min(1).optional(),
   /**
-   * Explicit opt-in to an Ollama that is not on this machine (a LAN box). Off
-   * by default: product documents are only ever sent to a loopback address
-   * unless the owner says otherwise here.
+   * Explicit opt-in to an Ollama that is not on this machine (a LAN box, or a
+   * private GPU service in a hosted environment). Off by default: product
+   * documents are only ever sent to a loopback address unless the owner says
+   * otherwise here.
    */
   OLLAMA_ALLOW_REMOTE: flag,
+  /**
+   * Sent as `Authorization: Bearer` to an Ollama that sits behind a gateway
+   * or reverse proxy (D-133). Ollama has no authentication of its own, so a
+   * remote one must be either on a private network or behind something that
+   * asks for this. Never sent over plain http outside a private network.
+   */
+  OLLAMA_AUTH_TOKEN: z.string().min(16).optional(),
   /** Local inference is slow on ordinary hardware; one answer may take minutes. */
   OLLAMA_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(900_000).default(240_000),
   /** Context window asked of the model. Ollama's own default is too small for a product page. */
@@ -51,6 +62,8 @@ const schema = z.object({
   LOCAL_AI_QUEUE_WAIT_MS: z.coerce.number().int().min(1_000).max(7_200_000).optional(),
   SEARXNG_BASE_URL: z.string().min(1).optional(),
   SEARXNG_ALLOW_REMOTE: flag,
+  /** As OLLAMA_AUTH_TOKEN, for a SearXNG behind a gateway. */
+  SEARXNG_AUTH_TOKEN: z.string().min(16).optional(),
   /** `none` (default): static fetch only. `playwright`: render a JavaScript-only page when the static copy is an empty shell. */
   LOCAL_BROWSER_RENDERER: z.enum(["none", "playwright"]).default("none"),
 });
@@ -101,7 +114,35 @@ export function ollamaModelFor(config: LocalServicesConfig, use: "extraction" | 
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
-export type LocalServiceUrl = { ok: true; url: URL } | { ok: false; reason: string };
+const privateRanges = new BlockList();
+privateRanges.addSubnet("10.0.0.0", 8, "ipv4");
+privateRanges.addSubnet("172.16.0.0", 12, "ipv4");
+privateRanges.addSubnet("192.168.0.0", 16, "ipv4");
+// Carrier-grade NAT: what WireGuard-style overlay networks hand out.
+privateRanges.addSubnet("100.64.0.0", 10, "ipv4");
+// Unique local: private IPv6 networks, including a host's own.
+privateRanges.addSubnet("fc00::", 7, "ipv6");
+
+/**
+ * Whether a host name can only be reached from inside a private network: a
+ * private address written out, a single-label name (a service name on a
+ * container network: `ollama`, `searxng`), or a name under `.internal` or
+ * `.local`, which are reserved for private use and never resolve publicly.
+ *
+ * Judged from the name alone, with no lookup, so it is a statement about what
+ * the operator wrote. Anything else is treated as reachable from the internet.
+ */
+export function isPrivateNetworkHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const family = isIP(host);
+  if (family === 4) return privateRanges.check(host, "ipv4");
+  if (family === 6) return privateRanges.check(host, "ipv6");
+  if (!/^[a-z0-9.-]+$/.test(host)) return false;
+  if (!host.includes(".")) return true;
+  return host.endsWith(".internal") || host.endsWith(".local");
+}
+
+export type LocalServiceUrl = { ok: true; url: URL; remote: boolean } | { ok: false; reason: string };
 
 /**
  * The base address of a local service, or why it is refused.
@@ -111,6 +152,11 @@ export type LocalServiceUrl = { ok: true; url: URL } | { ok: false; reason: stri
  * at a hosted, OpenAI-compatible endpoint would otherwise receive every
  * product document without anyone noticing. Credentials in the address are
  * refused either way, and only http(s) is spoken.
+ *
+ * A remote address that was opted in to must still be one of two things
+ * (D-133): on a private network, where plain http is what these services
+ * speak, or https. Product documents, and the gateway token when there is
+ * one, are never sent in the clear across the public internet.
  */
 export function localServiceUrl(raw: string, allowRemote: boolean): LocalServiceUrl {
   let url: URL;
@@ -121,16 +167,23 @@ export function localServiceUrl(raw: string, allowRemote: boolean): LocalService
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return { ok: false, reason: `${url.protocol} is not allowed` };
   if (url.username || url.password) return { ok: false, reason: "addresses with credentials are refused" };
-  if (!allowRemote && !LOOPBACK_HOSTS.has(url.hostname.toLowerCase())) {
+  const remote = !LOOPBACK_HOSTS.has(url.hostname.toLowerCase());
+  if (remote && !allowRemote) {
     return {
       ok: false,
       reason: `${url.hostname} is not this computer; only 127.0.0.1, localhost or ::1 are used unless remote use is explicitly allowed`,
     };
   }
+  if (remote && url.protocol !== "https:" && !isPrivateNetworkHost(url.hostname)) {
+    return {
+      ok: false,
+      reason: `${url.hostname} is outside a private network, so it must be reached over https`,
+    };
+  }
   url.hash = "";
   url.search = "";
   if (!url.pathname.endsWith("/")) url.pathname = `${url.pathname}/`;
-  return { ok: true, url };
+  return { ok: true, url, remote };
 }
 
 /**
@@ -145,7 +198,15 @@ export type LocalRequestResult =
 
 export async function localRequest(
   url: URL,
-  init: { method?: "GET" | "POST"; body?: unknown; timeoutMs: number; maxBytes: number; accept?: string },
+  init: {
+    method?: "GET" | "POST";
+    body?: unknown;
+    timeoutMs: number;
+    maxBytes: number;
+    accept?: string;
+    /** The gateway's bearer token, when the service sits behind one. Never logged, never in an error. */
+    token?: string;
+  },
 ): Promise<LocalRequestResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), init.timeoutMs);
@@ -156,6 +217,7 @@ export async function localRequest(
       redirect: "manual",
       headers: {
         accept: init.accept ?? "application/json",
+        ...(init.token ? { authorization: `Bearer ${init.token}` } : {}),
         ...(init.body !== undefined ? { "content-type": "application/json" } : {}),
       },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,

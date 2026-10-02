@@ -14,7 +14,9 @@ import type { ResearchCandidate } from "./types";
  * exactly like one staff paste.
  *
  * The base address must be loopback unless the owner explicitly allowed a
- * remote instance. SearXNG answers 403 to `format=json` when JSON output is
+ * remote instance, which must be on a private network or reached over https
+ * (D-133); SEARXNG_AUTH_TOKEN is sent as a bearer token to one behind a
+ * gateway, and a gateway refusing it is reported as unavailable. SearXNG answers 403 to `format=json` when JSON output is
  * not enabled in its settings; that is reported as its own state, because the
  * fix (add `json` to `search.formats`) is different from starting the
  * service.
@@ -51,7 +53,7 @@ export async function searchSearxng(
   allowRemote: boolean,
   query: string,
   limit: number,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; token?: string } = {},
 ): Promise<SearxngResult> {
   const base = localServiceUrl(baseUrl, allowRemote);
   if (!base.ok) return { status: "REFUSED_ADDRESS", message: `SEARXNG_BASE_URL is refused: ${base.reason}.` };
@@ -64,8 +66,11 @@ export async function searchSearxng(
   // English pages, so there is no point asking for others.
   address.searchParams.set("language", "en");
 
-  const response = await localRequest(address, { timeoutMs: options.timeoutMs ?? TIMEOUT_MS, maxBytes: MAX_BYTES });
+  const response = await localRequest(address, { timeoutMs: options.timeoutMs ?? TIMEOUT_MS, maxBytes: MAX_BYTES, token: options.token });
   if (!response.ok) return { status: "UNAVAILABLE", message: `Local web search (SearXNG): ${response.message}.` };
+  if (response.status === 401) {
+    return { status: "UNAVAILABLE", message: "Local web search (SearXNG): its gateway refused the request (check SEARXNG_AUTH_TOKEN)." };
+  }
   if (response.status === 403) {
     return { status: "JSON_DISABLED", message: "Local web search (SearXNG) is running but JSON output is disabled: add json to search.formats in its settings.yml." };
   }

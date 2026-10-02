@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
+import { isPooledUrl } from "@/db/connection";
 import { getLocalServicesConfig, localAiRuntime } from "./config";
 
 /**
@@ -24,9 +25,13 @@ import { getLocalServicesConfig, localAiRuntime } from "./config";
  *    it, so a crash cannot leave the slot taken.
  *
  * The session lock needs a direct connection: through a transaction pooler a
- * session lock is not pinned to anything. Local AI runs against the local
- * database, where that holds; the one other session lock in Manifest, the
- * migration lock, relies on the same thing (db/connection.ts).
+ * session lock is not pinned to anything — the lock and its unlock can reach
+ * different server connections, leaving a slot taken by nobody, or two calls
+ * each believing they hold it. A development database is direct. In a hosted
+ * environment the process that runs local-AI work (the worker, D-133) must be
+ * given the database's direct address as DATABASE_URL; a pooled address is
+ * refused here rather than trusted, exactly as the migration lock refuses one
+ * (db/migrate.ts).
  *
  * A call made while its caller already holds a slot — the job runner takes
  * one before running a local-AI job — runs inside it rather than queueing
@@ -50,9 +55,32 @@ const takenHere = new Set<number>();
    clients differ; only `reserve` is looked for */
 type Session = { tryLock(key: string): Promise<boolean>; unlock(key: string): Promise<void>; close(): void };
 
+/**
+ * The slot cannot be taken over this connection (D-133). Thrown, not returned
+ * as "busy": a busy slot comes free, and this never will until the
+ * environment is corrected, so the job fails with the reason on it.
+ */
+export class LocalAiSlotConnectionError extends Error {
+  readonly code = "LOCAL_AI_SLOT_NEEDS_DIRECT_CONNECTION";
+  constructor() {
+    super(
+      "The local-AI slot needs a direct database connection, and DATABASE_URL is a pooled address. " +
+        "Give the process that runs local-AI jobs the database's direct (unpooled) address as DATABASE_URL.",
+    );
+    this.name = "LocalAiSlotConnectionError";
+  }
+}
+
+/** Whether the slot's session lock can be trusted over `databaseUrl`. */
+export function slotConnectionProblem(databaseUrl: string | undefined = process.env.DATABASE_URL): LocalAiSlotConnectionError | null {
+  return databaseUrl && isPooledUrl(databaseUrl) ? new LocalAiSlotConnectionError() : null;
+}
+
 async function openSession(): Promise<Session> {
   const client = (db as any).$client;
   if (client && typeof client.reserve === "function") {
+    const problem = slotConnectionProblem();
+    if (problem) throw problem;
     // postgres-js: one connection kept for the call, so the lock and its
     // unlock happen in the same session.
     const reserved = await client.reserve();

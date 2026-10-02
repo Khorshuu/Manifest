@@ -5,8 +5,8 @@ import { modelInstalled, OllamaClient } from "./ollama";
 
 /**
  * Whether each local service is actually usable right now (D-124), for the
- * owner's setup panel. Bounded (a couple of seconds at most, and a loopback
- * service that is not running refuses at once) and cached briefly, so a page
+ * owner's setup panel and the operators' health check. Bounded (a few seconds
+ * at most, and a loopback service that is not running refuses at once) and cached briefly, so a page
  * that shows the panel is not slowed by it and nothing is asked on every
  * render. States only: never a document, never a secret.
  */
@@ -47,11 +47,11 @@ export function checkOllama(model: string | null, config: LocalServicesConfig = 
     if (!model) return { state: "no_model", model: null, message: "No local model is chosen. Set OLLAMA_MODEL to a model installed in Ollama." };
     const address = localServiceUrl(config.OLLAMA_BASE_URL, config.OLLAMA_ALLOW_REMOTE);
     if (!address.ok) return { state: "refused_address", model, message: `OLLAMA_BASE_URL is refused: ${address.reason}.` };
-    const listed = await OllamaClient.fromConfig(config).models(2_000);
+    const listed = await OllamaClient.fromConfig(config).models(address.remote ? 5_000 : 2_000);
     if (!listed.ok) {
       return listed.kind === "refused_address"
         ? { state: "refused_address", model, message: listed.message }
-        : { state: "unavailable", model, message: "Ollama is not running on this computer (or did not answer)." };
+        : { state: "unavailable", model, message: address.remote ? "Ollama did not answer at its configured address." : "Ollama is not running on this computer (or did not answer)." };
     }
     return modelInstalled(model, listed.names)
       ? { state: "ready", model, message: `Ollama is running and ${model} is installed.` }
@@ -64,7 +64,7 @@ export function checkSearxng(config: LocalServicesConfig = getLocalServicesConfi
   if (!base) return Promise.resolve({ state: "not_configured", message: "SEARXNG_BASE_URL is not set." });
   return cached(`searxng:${base}`, async (): Promise<SearxngHealth> => {
     // SearXNG refuses format=json before searching when JSON is disabled, so this is quick either way.
-    const result = await searchSearxng(base, config.SEARXNG_ALLOW_REMOTE, "manifest", 1, { timeoutMs: 2_500 });
+    const result = await searchSearxng(base, config.SEARXNG_ALLOW_REMOTE, "manifest", 1, { timeoutMs: 2_500, token: config.SEARXNG_AUTH_TOKEN });
     switch (result.status) {
       case "OK":
         return { state: "ready", message: "SearXNG is running with JSON search enabled." };
@@ -73,7 +73,7 @@ export function checkSearxng(config: LocalServicesConfig = getLocalServicesConfi
       case "REFUSED_ADDRESS":
         return { state: "refused_address", message: result.message };
       default:
-        return { state: "unavailable", message: "SearXNG is not running on this computer (or did not answer)." };
+        return { state: "unavailable", message: result.message };
     }
   });
 }

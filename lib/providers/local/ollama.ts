@@ -1,5 +1,5 @@
 import { getLocalServicesConfig, LOCAL_AI_ATTEMPTS, localRequest, localServiceUrl, type LocalServicesConfig } from "./config";
-import { LocalAiQueueTimeoutError, withLocalAiSlot } from "./slot";
+import { LocalAiQueueTimeoutError, LocalAiSlotConnectionError, withLocalAiSlot } from "./slot";
 
 /**
  * A minimal client for Ollama's local HTTP API (D-124).
@@ -10,10 +10,12 @@ import { LocalAiQueueTimeoutError, withLocalAiSlot } from "./slot";
  * guarantee Manifest relies on: every caller still parses and validates what
  * comes back, and a malformed answer is a failure, never a partial success.
  *
- * No API key exists or is sent. The base address must be loopback unless the
- * owner explicitly allowed a remote one (`localServiceUrl`), and there is no
- * fallback to any other service: when Ollama is not answering, the caller is
- * told so and decides what to do without AI.
+ * Ollama itself has no API key. The base address must be loopback unless the
+ * owner explicitly allowed a remote one (`localServiceUrl`); a remote one
+ * behind a gateway is sent OLLAMA_AUTH_TOKEN as a bearer token (D-133), and a
+ * gateway that refuses it is reported as unavailable like any other outage.
+ * There is no fallback to any other service: when Ollama is not answering,
+ * the caller is told so and decides what to do without AI.
  */
 
 export type OllamaChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -95,10 +97,11 @@ export class OllamaClient {
     private readonly allowRemote: boolean,
     private readonly timeoutMs: number,
     private readonly numCtx: number,
+    private readonly token?: string,
   ) {}
 
   static fromConfig(config: LocalServicesConfig = getLocalServicesConfig()): OllamaClient {
-    return new OllamaClient(config.OLLAMA_BASE_URL, config.OLLAMA_ALLOW_REMOTE, config.OLLAMA_TIMEOUT_MS, config.OLLAMA_NUM_CTX);
+    return new OllamaClient(config.OLLAMA_BASE_URL, config.OLLAMA_ALLOW_REMOTE, config.OLLAMA_TIMEOUT_MS, config.OLLAMA_NUM_CTX, config.OLLAMA_AUTH_TOKEN);
   }
 
   private endpoint(path: string): URL | { refused: string } {
@@ -111,7 +114,11 @@ export class OllamaClient {
   async models(timeoutMs = 2_000): Promise<{ ok: true; names: string[] } | { ok: false; kind: "refused_address" | "unreachable" | "timeout" | "error"; message: string }> {
     const url = this.endpoint("api/tags");
     if ("refused" in url) return { ok: false, kind: "refused_address", message: url.refused };
-    const result = await localRequest(url, { timeoutMs, maxBytes: MAX_TAGS_BYTES });
+    const result = await localRequest(url, { timeoutMs, maxBytes: MAX_TAGS_BYTES, token: this.token });
+    // A gateway that does not accept the token is an outage as far as any job is concerned.
+    if (result.ok && (result.status === 401 || result.status === 403)) {
+      return { ok: false, kind: "unreachable", message: "Ollama's gateway refused the request (check OLLAMA_AUTH_TOKEN)." };
+    }
     if (!result.ok) return { ok: false, kind: result.kind === "timeout" ? "timeout" : result.kind === "unreachable" ? "unreachable" : "error", message: `Ollama: ${result.message}.` };
     if (result.status !== 200) return { ok: false, kind: "error", message: `Ollama answered ${result.status}.` };
     try {
@@ -137,6 +144,7 @@ export class OllamaClient {
       method: "POST",
       timeoutMs: this.timeoutMs,
       maxBytes: MAX_CHAT_BYTES,
+      token: this.token,
       body: {
         model: request.model,
         messages: request.messages,
@@ -159,6 +167,9 @@ export class OllamaClient {
         kind: result.kind === "timeout" ? "timeout" : result.kind === "unreachable" ? "unreachable" : "error",
         message: `Ollama: ${result.message}.`,
       };
+    }
+    if (result.status === 401 || result.status === 403) {
+      return { ok: false, kind: "unreachable", message: "Ollama's gateway refused the request (check OLLAMA_AUTH_TOKEN)." };
     }
     if (result.status === 404) {
       return { ok: false, kind: "model_missing", message: `The model "${request.model}" is not installed in Ollama (run: ollama pull ${request.model}).` };
@@ -245,6 +256,10 @@ export async function chatJson<T>(
     return await withLocalAiSlot(() => chatJsonHoldingSlot(client, request, accept));
   } catch (error) {
     if (error instanceof LocalAiQueueTimeoutError) return { ok: false, kind: "queue_timeout", message: error.message };
+    // A process that reaches the database through a pooler cannot hold the
+    // slot (D-133): the web application in a hosted environment, where the
+    // model is the worker's. To this caller the model is simply not available.
+    if (error instanceof LocalAiSlotConnectionError) return { ok: false, kind: "unreachable", message: "The local AI is not available to this process: it runs in the background worker." };
     throw error;
   }
 }

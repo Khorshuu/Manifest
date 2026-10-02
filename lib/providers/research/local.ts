@@ -41,6 +41,8 @@ export function clearLocalSearchCache(): void {
 export type LocalResearchOptions = {
   searxngBaseUrl: string | null;
   searxngAllowRemote: boolean;
+  /** Bearer token for a SearXNG behind a gateway (D-133). */
+  searxngToken?: string;
   /** Test seam for sitemap retrieval; production uses `safeFetch`. */
   fetcher?: Fetcher;
 };
@@ -52,7 +54,7 @@ export class LocalResearchProvider implements ProductResearchProvider {
 
   static fromConfig(): LocalResearchProvider {
     const config = getLocalServicesConfig();
-    return new LocalResearchProvider({ searxngBaseUrl: config.SEARXNG_BASE_URL ?? null, searxngAllowRemote: config.SEARXNG_ALLOW_REMOTE });
+    return new LocalResearchProvider({ searxngBaseUrl: config.SEARXNG_BASE_URL ?? null, searxngAllowRemote: config.SEARXNG_ALLOW_REMOTE, searxngToken: config.SEARXNG_AUTH_TOKEN });
   }
 
   async findSources(query: ResearchQuery): Promise<ResearchResult> {
@@ -112,7 +114,7 @@ export class LocalResearchProvider implements ProductResearchProvider {
     const key = `${search}\u0000${limit}`;
     const cached = searchCache.get(key);
     if (cached && Date.now() - cached.at < SEARCH_CACHE_TTL_MS) return cached.result;
-    const result = await searchSearxng(this.options.searxngBaseUrl!, this.options.searxngAllowRemote, search, limit);
+    const result = await searchSearxng(this.options.searxngBaseUrl!, this.options.searxngAllowRemote, search, limit, { token: this.options.searxngToken });
     if (result.status === "OK") {
       searchCache.set(key, { at: Date.now(), result });
       while (searchCache.size > 200) searchCache.delete(searchCache.keys().next().value!);
