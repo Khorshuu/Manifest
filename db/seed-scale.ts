@@ -43,7 +43,10 @@ async function main() {
   if (has("create")) {
     const admin = postgres(url!.replace(/\/[^/?]*(\?|$)/, "/postgres$1"), { max: 1, onnotice: () => {} });
     const exists = await admin`select 1 from pg_database where datname = ${target.database}`;
-    if (exists.length === 0) await admin.unsafe(`create database "${target.database}"`);
+    // UTF8 explicitly, as e2e/prepare-db.ts: a Windows cluster defaults to WIN1252.
+    if (exists.length === 0) {
+      await admin.unsafe(`create database "${target.database}" encoding 'UTF8' lc_collate 'C' lc_ctype 'C' template template0`);
+    }
     await admin.end();
   }
 
