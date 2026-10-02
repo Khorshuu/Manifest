@@ -4857,3 +4857,33 @@ Verified on Node 24.20.0:
 `[!]` Found, not changed: accepted values for attributes that are also listing
 fields (colour, material, item weight, country of origin) count towards
 "enough is established" through the listing's details, verified or not (D-131).
+
+## Node 22 verification (2026-10-03)
+
+The project pins Node 22.x and the final campaign ran on 24.20. No version
+manager is installed on this PC, so the official `node-v22.23.3-win-x64.zip`
+from nodejs.org was checked against its published SHA-256, unpacked under
+`%TEMP%\manifest-node22` and put first on the PATH of the verifying shell
+only. The installed Node 24 and the system PATH were not touched; npm, tsx,
+Vitest, Next and Playwright were each confirmed to run under 22.23.3 (npm
+10.9.9). `node_modules` and the lockfile are unchanged.
+
+| Stage | Result |
+|---|---|
+| Full Vitest | `[x]` 135 files, 1993 passed, 8 skipped, 0 failed, 196 s. |
+| Production build | `[x]` `npm run build` against `preorder_e2e`, providers `rules` / `none` / mocks: 150 s, no warning or error. |
+| Desktop Playwright | `[x]` `--project=desktop --workers=1`, production build on :3200 (`E2E_PRODUCTION=1`): 282 passed, 4 skipped (phone-only), 0 failed, no retries, 5.6 min. |
+
+Playwright ran against the production build rather than `next dev` because a
+development server was already running in this directory on :3000, and Next
+allows one `next dev` per directory. It was left running.
+
+The first run was 280 passed, 2 failed, both in tests:
+- `e2e/claim-review.spec.ts` expected "Accepted 1 value."; a plain accept now
+  reads "Accepted 1 value as unverified." (D-131).
+- `e2e/accessibility.spec.ts`, home: against a production build the audit
+  landed inside the showcase tiles' 320 ms entrance animation and measured
+  text that was still fading in (5 of 5 failed). It now waits for short
+  entrance animations; 10 of 10 then passed. Not specific to Node 22.
+
+No Node 22 incompatibility was found.
