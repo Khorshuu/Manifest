@@ -129,11 +129,16 @@ test("filtering by an attribute value", async ({ page }) => {
 });
 
 test("in-stock only excludes the preorder catalog", async ({ page }) => {
-  // Everything seeded is a preorder, so this filter should empty the listing
-  // rather than quietly ignore itself.
+  // The development seed is all preorders; the listings sold from stock are
+  // the end-to-end ones (e2e/seed-variety.ts). The filter must leave those and
+  // nothing else, rather than quietly ignore itself.
   await page.goto("/search?fulfillment=in_stock");
 
-  await expect(page.getByText("Nothing matches those filters")).toBeVisible();
+  const titles = page.getByRole("main").getByRole("heading", { level: 3 });
+  await expect(titles.filter({ hasText: "Dotted Grid Notebook, A5" })).toHaveCount(1);
+  await expect(titles.filter({ hasText: "Seasonal Candy Variety Box" })).toHaveCount(0);
+  await expect(titles.filter({ hasText: "Studio Reference Headphones" })).toHaveCount(0);
+  await expect(page.getByText("Preorder open")).toHaveCount(0);
 });
 
 test("filters survive pagination and sorting", async ({ page }) => {

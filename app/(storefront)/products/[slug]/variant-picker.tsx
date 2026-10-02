@@ -242,10 +242,15 @@ export function VariantPicker({
   const closed = shown.isClosed;
   const arrival = shown.arrivalLabel;
 
+  const fromStock = shown.fulfillmentMode !== "preorder";
+
+  // A listing sold from stock has no batch and no window to speak of.
   const unavailableReason = closed
     ? "This preorder has closed."
     : soldOut
-      ? "This preorder is full."
+      ? fromStock
+        ? "This item is out of stock."
+        : "This preorder is full."
       : null;
 
   const total = shown.priceBdt * quantity;
@@ -536,7 +541,9 @@ export function VariantPicker({
 
         {shown.remaining !== null && shown.remaining > 0 ? (
           <span className="text-meta text-ink/70">
-            {shown.remaining} place{shown.remaining === 1 ? "" : "s"} left
+            {fromStock
+              ? `${shown.remaining} left in stock`
+              : `${shown.remaining} place${shown.remaining === 1 ? "" : "s"} left`}
           </span>
         ) : null}
 
@@ -671,7 +678,7 @@ export function VariantPicker({
             <IconAlert size={16} className="mt-0.5 shrink-0" />
             <span>
               {unavailableReason} Join the waitlist and we will tell you when
-              the next batch opens.
+              {fromStock && !closed ? " it is back." : " the next batch opens."}
             </span>
           </p>
         ) : error ? (

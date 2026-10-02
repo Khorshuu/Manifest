@@ -5,6 +5,7 @@ import { migratePostgres } from "../db/migrator";
 import { assertDisposableTestDatabase } from "../db/scratch-guard";
 import * as schema from "../db/schema";
 import { seed } from "../db/seed";
+import { seedVariety } from "./seed-variety";
 
 /**
  * Gives the end-to-end suite its own database, created fresh for every run.
@@ -33,7 +34,11 @@ async function prepareDatabase() {
     )
     .catch(() => undefined);
   await admin.unsafe(`drop database if exists ${databaseName}`);
-  await admin.unsafe(`create database ${databaseName}`);
+  // UTF8 explicitly: a cluster created on Windows without --encoding defaults
+  // to WIN1252, which cannot store what research reads (db/encoding.ts).
+  await admin.unsafe(
+    `create database ${databaseName} encoding 'UTF8' lc_collate 'C' lc_ctype 'C' template template0`,
+  );
   await admin.end();
 
   const client = postgres(testUrl, { max: 1, onnotice: () => {} });
@@ -42,6 +47,7 @@ async function prepareDatabase() {
   await migratePostgres(client, { log: () => undefined });
 
   await seed(db);
+  await seedVariety(db);
   await client.end();
 
   process.stdout.write(`End-to-end database ready: ${databaseName}

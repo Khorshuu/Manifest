@@ -4668,3 +4668,67 @@ Verified:
   candidate (D-123); unchanged here.
 - The product page does not strip " · Manifest" from a staff-typed meta
   title; SeoPulse never writes one.
+
+## Playwright suite run, variety listings and two storefront defects (2026-10-02)
+
+Scope: get the end-to-end suite running on this machine, run it, fix what it
+found. Desktop project, `next dev` started by Playwright against
+`preorder_e2e`, deterministic providers (`rules` / `none`).
+
+`[x]` Environment. Nothing was listening on 3000 or 5432 after a reboot;
+`npm run db:server` was started. The first run failed with "Timed out waiting
+180000ms from config.webServer": `.next/dev` is 4.7 GB on a hard disk (F:),
+and a cold Turbopack cache kept the disk queue at about 18 with the processor
+idle. Reading the cache files once (2 m 44 s) so the operating system holds
+them fixed it; no configuration was changed. The same applies after any
+reboot.
+
+`[x]` `e2e/catalog-variety.spec.ts` (new, 11 tests) asserts on the six
+listings `e2e/seed-variety.ts` adds to the end-to-end database only: sold from
+stock, out of stock, low stock on sale, a 143-character title on a 30%
+deposit, a listing with nothing optional, and a draft.
+
+`[x]` Two defects it found, both fixed:
+- **A listing sold from stock read "Batch full" on every card.** PostgreSQL's
+  `greatest(0, null)` is 0, so a variant with no preorder capacity counted as
+  no places left (`lib/catalog/card-data.ts`). The sum now covers capped
+  variants only and is null when nothing is capped. Guarded by
+  `tests/storefront-offers.test.ts` (confirmed to fail on the old query) and
+  the card test in the new spec.
+- **An out-of-stock listing sold from stock said "This preorder is full … the
+  next batch opens", and stock was counted as "2 places left".**
+  `variant-picker.tsx` now says "This item is out of stock." and "2 left in
+  stock" for a listing sold from stock. Preorder wording is unchanged.
+
+`[x]` Two test problems fixed:
+- `filters.spec.ts` "in-stock only excludes the preorder catalog" assumed the
+  catalogue had nothing in stock, which stopped being true when the variety
+  listings were added. It now asserts the filter keeps a stock listing and
+  drops the preorders.
+- `search.spec.ts`: the three tests that type one key at a time straight
+  after `goto("/")` lost keys typed before the header box hydrated (one
+  failure each in two of four runs). They now wait for the page to settle
+  first; 18 of 18 repeated runs passed.
+
+Verified:
+- `npx playwright test --project=desktop --workers=1`: 282 passed, 4 skipped
+  (phone-only), 0 failed, 10.3 min. With `--workers=2`: the same, 7.3 min.
+- `npm run typecheck`, `npm run lint`: clean. Vitest for the touched code
+  (`storefront-offers`, `catalog`, `variants`, `search-autocomplete`): 86
+  passed. The full Vitest suite and the production build were not run.
+- One live SeoPulse generation, run alone, on `preorder_e2e` with
+  `qwen2.5:7b` (`.scratch-acceptance/e2e-live-seo.ts`): completed in 257 s,
+  `localGrounded: true`, no number absent from the listing, six praise words
+  repaired, the model's meta description withheld and the rules one used.
+  The listing itself is not written by that script.
+
+`[!]` Not done.
+- The mobile project was not run.
+- The live description still opens "Experience sound with …" after praise
+  removal, and reads "250 ohm impedance for sound reproduction". Not changed.
+- Text typed into the header search before it hydrates is lost. The tests no
+  longer depend on it; the behaviour is unchanged.
+- A product with a full capped preorder variant and an in-stock variant still
+  reads "Batch full" on its card, as before.
+- No end-to-end spec for the wishlist, saved addresses or Google sign-in
+  (unit tests only).

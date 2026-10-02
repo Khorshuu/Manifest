@@ -108,9 +108,12 @@ export async function loadCardAggregates(
         and ${productVariants.stockQuantity} is not null
         and ${productVariants.stockQuantity} <= 0
       )`,
-      remaining: sql<number | null>`sum(
+      /* Capped variants only: greatest() ignores a null, so an uncapped
+         variant counted as 0 left and a listing sold from stock read
+         "Batch full". Null when nothing is capped. */
+      remaining: sql<number | null>`(sum(
         greatest(0, ${productVariants.preorderCapacity} - ${productVariants.preorderReserved})
-      )::int`,
+      ) filter (where ${productVariants.preorderCapacity} is not null))::int`,
       capacity: sql<number | null>`sum(${productVariants.preorderCapacity})::int`,
       closesAt: sql<Date | null>`max(${productVariants.preorderClosesAt})`,
       /* Whether the window shuts within three days, decided by the database so

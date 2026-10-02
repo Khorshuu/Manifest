@@ -73,6 +73,17 @@ function recordSuggestQueries(page: Page): string[] {
   return queries;
 }
 
+/**
+ * The home page, once its scripts have run. Keys pressed before the header box
+ * hydrates are typed into markup React then resets to its own empty state, so
+ * a test that types one key at a time straight after `goto` loses them on a
+ * slow `next dev` compile and fails on an empty field.
+ */
+async function openHome(page: Page) {
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+}
+
 /*
  * The exact timing (250 ms, reset on every keystroke) is pinned with fake
  * timers in tests/search-autocomplete.test.ts. Here: in a real browser,
@@ -82,7 +93,7 @@ function recordSuggestQueries(page: Page): string[] {
 test("the header box asks for suggestions when typing pauses, not per keystroke", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openHome(page);
   const queries = recordSuggestQueries(page);
   const input = page.getByLabel("Search products");
 
@@ -103,7 +114,7 @@ test("the header box asks for suggestions when typing pauses, not per keystroke"
 test("Enter searches at once, without fetching suggestions first", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openHome(page);
   const queries = recordSuggestQueries(page);
   const input = page.getByLabel("Search products");
 
@@ -119,7 +130,7 @@ test("Enter searches at once, without fetching suggestions first", async ({
 test("the Search button searches at once, without fetching suggestions first", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openHome(page);
   const queries = recordSuggestQueries(page);
   const input = page.getByLabel("Search products");
 

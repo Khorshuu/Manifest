@@ -98,6 +98,29 @@ describe("unpriced variants", () => {
   });
 });
 
+describe("a card's remaining capacity", () => {
+  it("is not zero for a listing sold from stock, which has no batch to fill", async () => {
+    const product = await createProductForTest(staff, { title: "Notebook", categoryId, status: "in_stock" });
+    await harness.db.insert(productVariants).values({
+      productId: product.id,
+      sku: "NOTEBOOK-0",
+      priceBdt: 950_00,
+      fulfillmentMode: "in_stock",
+      stockQuantity: 40,
+    });
+    const full = await preorder("Full batch", [{ priceBdt: 100_00, closesInHours: 24, capacity: 5 }]);
+    await harness.db.update(productVariants).set({ preorderReserved: 5 }).where(eq(productVariants.id, full.variantIds[0]));
+
+    const cards = await listProductCards({ limit: 10 });
+    const notebook = cards.find((card) => card.title === "Notebook");
+    expect(notebook?.remainingCapacity).toBeNull();
+    expect(notebook?.totalCapacity).toBeNull();
+    expect(notebook?.outOfStock).toBe(false);
+    // A capped batch with every place taken still reads as full.
+    expect(cards.find((card) => card.title === "Full batch")?.remainingCapacity).toBe(0);
+  });
+});
+
 describe("preorders without a capacity or a closing date", () => {
   it("are not offered in the buy box", async () => {
     const product = await preorder("Lamp", [

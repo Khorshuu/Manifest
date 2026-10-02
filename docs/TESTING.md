@@ -841,3 +841,37 @@ identity sentence only when nothing names the product. D-129 assertions in
 `seo-content-polish.test.ts`, `local-pipeline.test.ts` and
 `source-grounded-extraction.test.ts` updated from "has/have/features" to the
 new wording.
+
+## End-to-end variety listings and running on a hard disk (2026-10-02)
+
+`e2e/seed-variety.ts` adds six listings to `preorder_e2e` only (never the
+development catalogue), on a shelf of their own, and
+`e2e/catalog-variety.spec.ts` asserts on them: the shelf count and the draft's
+absence, what each card says (stock, out of stock, sale price and saving),
+buying from stock, the out-of-stock reason, low stock with a sale, a
+143-character title at 320 px, a deposit, a listing with nothing optional,
+and a draft unreachable by address, search and suggestion.
+
+Three sizes of data, three tools:
+
+| Size | How | For |
+|---|---|---|
+| Small (30 listings) | `npm run test:e2e` — `db/seed.ts` + `e2e/seed-variety.ts` | Browser tests |
+| Medium | `DATABASE_URL=…/manifest_scale npm run db:seed:scale -- --create --reset --products 500 --customers 2000 --orders 10000` | Looking at a busy catalogue by hand |
+| Large | the same with the defaults (5,000 / 20,000 / 100,000) | `npm run perf:bench`, `perf:http`, `perf:search-rebuild` |
+
+The scale seed refuses any database not named as scratch. Playwright is not
+the load test: races, idempotency and throughput are the
+`tests/*-concurrency.test.ts` suites and `scripts/perf/`.
+
+On this machine the repository is on a hard disk. After a reboot, read the
+dev cache once before the first run, or the web server does not answer within
+its three minutes:
+
+```sh
+find .next/dev -type f -print0 | xargs -0 -P 4 -n 64 cat > /dev/null
+```
+
+A test that types one key at a time (`pressSequentially`) waits for the page
+to settle first (`openHome` in `search.spec.ts`): keys typed before the header
+box hydrates are lost.
