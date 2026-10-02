@@ -64,6 +64,23 @@ async function addToCart(page: Page) {
 }
 
 async function audit(page: Page) {
+  /*
+   * Entrance animations fade content in from transparent, and text measured
+   * part-way through one has less contrast than it will a moment later. A
+   * production build answers fast enough for the audit to land inside the
+   * home page's 320 ms rise, so the audit waits for whatever is still fading
+   * in. Only short ones: a looping animation, or a slide's seconds-long
+   * timer, is the page's resting state.
+   */
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => Number(animation.effect?.getComputedTiming().endTime) <= 2_000)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    ),
+  );
+
   const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
 
   const readable = results.violations.map((violation) => ({

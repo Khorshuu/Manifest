@@ -73,7 +73,8 @@ test("selecting decides nothing; Accept selected and Reject selected do, for wha
   // Accept one, reject the rest.
   await section.locator("li[data-claim]").first().getByRole("checkbox").check();
   await section.getByRole("button", { name: /Accept selected \(1\)/ }).click();
-  await expect(page.getByText("Accepted 1 value.")).toBeVisible();
+  // A plain accept is said to be what it is: accepted, not verified (D-131).
+  await expect(page.getByText("Accepted 1 value as unverified.")).toBeVisible();
   await expect(section.locator("li[data-claim]")).toHaveCount(count - 1);
 
   await section.getByLabel(/Select all shown/).check();
