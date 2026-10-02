@@ -82,6 +82,32 @@ export function sentryOptions() {
   };
 }
 
+type SentrySdk = typeof import("@sentry/nextjs");
+
+/**
+ * The SDK, wherever this runs. Inside Next.js its functions are the module's
+ * own exports; in a plain Node process — the background worker (D-133) — the
+ * same package exposes them on its default export instead.
+ */
+export async function loadSentry(): Promise<SentrySdk> {
+  const loaded = (await import("@sentry/nextjs")) as SentrySdk & { default?: SentrySdk };
+  return typeof loaded.withScope === "function" ? loaded : (loaded.default ?? loaded);
+}
+
+/**
+ * Starts error tracking in a process Next.js did not start (the worker).
+ * Inside Next.js, instrumentation.ts does this. Never throws.
+ */
+export async function startErrorReporting(): Promise<boolean> {
+  if (!errorReportingEnabled()) return false;
+  try {
+    (await loadSentry()).init(sentryOptions());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Sends one error-level log event to Sentry. Never throws: failing to report
  * an error must not become a second error for the request that had the first.
@@ -89,7 +115,7 @@ export function sentryOptions() {
 export async function reportError(event: string, fields: Record<string, unknown>): Promise<void> {
   if (!errorReportingEnabled()) return;
   try {
-    const Sentry = await import("@sentry/nextjs");
+    const Sentry = await loadSentry();
     const { error, requestId, ...rest } = fields;
     const cause = error instanceof Error ? error : new Error(event);
     Sentry.withScope((scope) => {

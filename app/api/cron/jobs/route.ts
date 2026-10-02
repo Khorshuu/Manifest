@@ -4,6 +4,7 @@ import { toErrorResponse } from "@/lib/api-error";
 import { isAuthorisedScheduler } from "@/lib/cron-auth";
 import { JOB_HANDLERS, jobPolicies, RECURRING_JOBS } from "@/lib/jobs/registry";
 import { runDueJobs, runLocalAiJob, scheduleRecurringJobs } from "@/lib/jobs/runner";
+import { jobRunnerMode } from "@/lib/jobs/mode";
 import { JOB_TRIGGER, recordSchedulerRun, resolveRecurringJobs } from "@/lib/jobs/schedule";
 import { logEvent } from "@/lib/observability/log";
 
@@ -20,7 +21,12 @@ import { logEvent } from "@/lib/observability/log";
  * A local-AI job (D-127) takes minutes, so it is not run inside this request:
  * after the response, one due local-AI job runs holding the local-AI slot. A
  * scheduler tick that arrives meanwhile finds the slot taken and leaves the
- * next one queued. Only a local set-up has such jobs; a hosted one has none.
+ * next one queued.
+ *
+ * Where a worker runs the jobs (`JOB_RUNNER=worker`, D-133) this trigger
+ * declines: the research and AI services are private to the worker, and a
+ * job claimed here would fail for want of them. A scheduler that still calls
+ * is answered 200 and told so, and nothing is claimed.
  */
 
 export const maxDuration = 60;
@@ -28,6 +34,10 @@ export const maxDuration = 60;
 async function run() {
   if (!isAuthorisedScheduler((await headers()).get("authorization"))) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 });
+  }
+
+  if (jobRunnerMode() === "worker") {
+    return NextResponse.json({ skipped: true, reason: "Background jobs run in the worker in this environment." });
   }
 
   try {

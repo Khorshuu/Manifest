@@ -83,4 +83,31 @@ export function invalidateCatalog(tags: string[]): void {
   };
 
   expire();
+  forwarder?.(unique);
+}
+
+let forwarder: ((tags: string[]) => void) | undefined;
+
+/**
+ * Where invalidations go when this process has no cache of its own (D-133).
+ *
+ * The worker changes what shoppers see — a publish date arriving, a prepared
+ * listing — but it is not the web application, so `revalidateTag` above has
+ * nothing to act on. The worker registers a forwarder that hands the tags to
+ * the web application's `/api/cron/revalidate`, which calls this same
+ * function inside a request. Without one, cached pages simply catch up when
+ * their lifetime lapses, as they always have for a script.
+ */
+export function setCacheInvalidationForwarder(forward: ((tags: string[]) => void) | undefined): void {
+  forwarder = forward;
+}
+
+const FIXED_TAGS: ReadonlySet<string> = new Set(
+  (Object.values(CACHE_TAGS) as unknown[]).filter((tag): tag is string => typeof tag === "string"),
+);
+
+/** Whether a tag is one this application uses: nothing else is accepted from outside. */
+export function isKnownCacheTag(tag: unknown): tag is string {
+  if (typeof tag !== "string") return false;
+  return FIXED_TAGS.has(tag) || /^product:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(tag);
 }

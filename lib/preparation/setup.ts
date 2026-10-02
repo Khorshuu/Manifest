@@ -1,5 +1,9 @@
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { schedulerHeartbeats } from "@/db/schema";
 import { getEnv } from "@/lib/env";
-import { getLocalServicesConfig, ollamaModelFor } from "@/lib/providers/local/config";
+import { isWorkerProcess, jobRunnerMode, WORKER_HEARTBEAT } from "@/lib/jobs/mode";
+import { getLocalServicesConfig, localServiceUrl, ollamaModelFor } from "@/lib/providers/local/config";
 import { checkBrowser, checkOllama, checkSearxng, type OllamaHealth } from "@/lib/providers/local/health";
 import { getSeoPulseConfig } from "@/lib/seo-pulse/config";
 import { describeIntelligenceProvider } from "@/lib/seo-pulse/providers/intelligence";
@@ -29,10 +33,12 @@ function ollamaItem(
   health: OllamaHealth,
   what: string,
   fallback: string,
+  /** The model is a service of the shop's own beside the worker, not this computer (D-133). */
+  remote: boolean,
 ): ResearchSetupItem {
   switch (health.state) {
     case "ready":
-      return { key, label, state: "configured", status: `Ollama ready — ${health.model}`, detail: `${what} Runs on this computer; nothing is sent to a cloud AI service.` };
+      return { key, label, state: "configured", status: `Ollama ready — ${health.model}`, detail: `${what} Runs on ${remote ? "the shop's own AI service" : "this computer"}; nothing is sent to a cloud AI service.` };
     case "model_missing":
       return { key, label, state: "unavailable", status: "Configured model not installed", detail: `${health.message} ${fallback}` };
     case "no_model":
@@ -40,14 +46,67 @@ function ollamaItem(
     case "refused_address":
       return { key, label, state: "unavailable", status: "Ollama address refused", detail: `${health.message} ${fallback}` };
     case "unavailable":
-      return { key, label, state: "unavailable", status: "Ollama not running", detail: `Start Ollama (ollama serve) on this computer. ${fallback}` };
+      return remote
+        ? { key, label, state: "unavailable", status: "Ollama not reachable", detail: `The AI service did not answer. Jobs that need it wait and are retried. ${fallback}` }
+        : { key, label, state: "unavailable", status: "Ollama not running", detail: `Start Ollama (ollama serve) on this computer. ${fallback}` };
   }
 }
 
+const SETUP_KEYS: ResearchSetupItem["key"][] = ["discovery", "extraction", "content", "crawler"];
+const SETUP_STATES: SetupState[] = ["configured", "missing_key", "not_configured", "unavailable", "partial"];
+const SETUP_LABELS: Record<ResearchSetupItem["key"], string> = {
+  discovery: "Source discovery",
+  extraction: "Intelligent extraction",
+  content: "SeoPulse content AI",
+  crawler: "Crawler",
+};
+/** A worker that has said nothing for this long is not vouched for. */
+export const WORKER_REPORT_STALE_MS = 5 * 60_000;
+
+/**
+ * What the worker last found (D-133). In an environment where a worker runs
+ * the jobs, the research and AI services are private to it: the web
+ * application cannot reach them, so asking them from here would report every
+ * one as down while the worker uses them without trouble. The worker checks
+ * about once a minute and records the answer; this reads it back, and says so
+ * plainly when the worker has stopped reporting.
+ */
+async function reportedResearchSetup(now: number = Date.now()): Promise<ResearchSetupItem[]> {
+  const [row] = await db
+    .select({ lastRunAt: schedulerHeartbeats.lastRunAt, lastReport: schedulerHeartbeats.lastReport })
+    .from(schedulerHeartbeats)
+    .where(eq(schedulerHeartbeats.name, WORKER_HEARTBEAT));
+
+  const silent = !row || now - row.lastRunAt.getTime() > WORKER_REPORT_STALE_MS;
+  const reported = Array.isArray((row?.lastReport as { services?: unknown } | undefined)?.services)
+    ? ((row!.lastReport as { services: unknown[] }).services as Partial<ResearchSetupItem>[])
+    : [];
+
+  return SETUP_KEYS.map((key): ResearchSetupItem => {
+    const item = reported.find((entry) => entry?.key === key);
+    const label = typeof item?.label === "string" ? item.label : SETUP_LABELS[key];
+    if (silent || !item || !SETUP_STATES.includes(item.state as SetupState)) {
+      return {
+        key,
+        label,
+        state: "unavailable",
+        status: "Worker not reporting",
+        detail: row
+          ? "The background worker has not reported for several minutes, so what it can reach is unknown. Jobs wait in the queue until it is running again."
+          : "The background worker has not reported yet. Research and AI jobs run there; they wait in the queue until it starts.",
+      };
+    }
+    return { key, label, state: item.state as SetupState, status: String(item.status ?? ""), detail: String(item.detail ?? "") };
+  });
+}
+
 export async function researchSetup(): Promise<ResearchSetupItem[]> {
+  if (jobRunnerMode() === "worker" && !isWorkerProcess()) return reportedResearchSetup();
   const env = getEnv();
   const local = getLocalServicesConfig();
   const pulse = getSeoPulseConfig();
+  const ollamaAddress = localServiceUrl(local.OLLAMA_BASE_URL, local.OLLAMA_ALLOW_REMOTE);
+  const ollamaRemote = ollamaAddress.ok && ollamaAddress.remote;
 
   let discovery: ResearchSetupItem;
   if (env.PRODUCT_RESEARCH_PROVIDER === "local") {
@@ -82,6 +141,7 @@ export async function researchSetup(): Promise<ResearchSetupItem[]> {
       await checkOllama(ollamaModelFor(local, "extraction"), local),
       "Reads facts written as sentences on pages whose tables say little. Every value is checked against the page's own text; the page is the evidence.",
       "Until then pages are read by the structured readers only, and prose is reported as not read.",
+      ollamaRemote,
     );
   } else if (env.PRODUCT_EXTRACTION_PROVIDER === "anthropic") {
     extraction = env.ANTHROPIC_API_KEY
@@ -100,6 +160,7 @@ export async function researchSetup(): Promise<ResearchSetupItem[]> {
       await checkOllama(ollamaModelFor(local, "seo"), local),
       "Writes descriptions, key features and SEO wording from verified knowledge only, and preparation fills them into fields that are empty or still SeoPulse's own. Staff-written and locked fields are never changed.",
       "Until then content is written by the rules generator, and runs say so.",
+      ollamaRemote,
     );
   } else {
     const ai = describeIntelligenceProvider();
