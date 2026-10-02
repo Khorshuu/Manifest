@@ -1,0 +1,18 @@
+# Keeps secrets, local data and build output out of image build contexts
+# (deploy/worker.Dockerfile).
+.git
+.env*
+!.env.example
+node_modules
+.next
+.vercel
+.postgres-dev
+.pglite-dev
+.uploads
+.scratch-acceptance
+.claude
+test-results
+playwright-report
+coverage
+*.log
+tsconfig.tsbuildinfo

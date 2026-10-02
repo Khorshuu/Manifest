@@ -1,0 +1,24 @@
+# SearXNG for Manifest's product research (docs/STAGING.md, LOCAL_AI_SETUP.md).
+#
+# Private: this instance is called only by the worker, over a network nothing
+# else can reach. It must not be published to the internet as it is — the
+# rate limiter is off, because its only caller is one known service.
+
+use_default_settings: true
+
+server:
+  # Supplied by the SEARXNG_SECRET environment variable; never written here.
+  secret_key: ""
+  bind_address: "0.0.0.0"
+  port: 8080
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+search:
+  safe_search: 1
+  # Manifest reads the JSON output. Without `json` here every search is
+  # refused with 403 and the setup panel says "SearXNG JSON search disabled".
+  formats:
+    - html
+    - json

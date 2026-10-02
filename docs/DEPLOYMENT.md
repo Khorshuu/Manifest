@@ -83,6 +83,7 @@ left on (every minute with the defaults):
 | Production on a Vercel paid plan | `vercel.json`: change the `/api/cron/jobs` schedule to `* * * * *`. |
 | Production on Vercel Hobby | Vercel allows only a daily cron: use a cron service (for example cron-job.org or Upstash QStash schedules) calling the endpoint every minute. |
 | Staging (a Vercel preview or separate project) | Vercel runs no cron on previews: enable `.github/workflows/scheduler.yml` for the `staging` environment (every 5 minutes; set `JOB_SCHEDULE` so nothing needs more often), or a cron service. |
+| Any environment with private research or AI services | `npm run worker` on a long-running machine, with `JOB_RUNNER=worker` on it and on the web application (D-133, docs/STAGING.md). The worker is the scheduler; `/api/cron/jobs` declines. Its `DATABASE_URL` is the **direct** address. |
 | Development | `npm run dev` starts it with the web server (D-121); `npm run jobs:dev` alone, beside `npm run dev:web`, for debugging. Both need the server's `CRON_SECRET`. |
 
 **Checking it.** Each call records a heartbeat. The admin overview warns the

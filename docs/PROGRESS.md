@@ -4887,3 +4887,48 @@ The first run was 280 passed, 2 failed, both in tests:
   entrance animations; 10 of 10 then passed. Not specific to Node 22.
 
 No Node 22 incompatibility was found.
+
+## Staging infrastructure, notifications, cloud research (2026-10-03, D-132, D-133)
+
+Preparation for a hosted staging environment that does not depend on the
+owner's computer. Payment and shipping were not touched and stay mock.
+
+- `[x]` **Real email adapter.** `NOTIFICATION_PROVIDER=smtp`
+  (`lib/providers/notification/smtp.ts`), behind the existing boundary and
+  outbox. Outbox retries now back off over about two hours (migration 0045),
+  stop at once on a permanent failure, and carry an idempotency key.
+- `[x]` **Worker.** `npm run worker`: the job trigger as a long-running
+  process. `JOB_RUNNER=worker` makes the web trigger decline.
+- `[x]` **Private remote Ollama and SearXNG.** Existing remote opt-in kept;
+  a remote address must be private or https; optional gateway token.
+- `[x]` **Local-AI slot refuses a pooled database address.**
+- `[x]` **Health report** at `/api/admin/health` and `/api/cron/health`;
+  `npm run worker -- --check`.
+- `[x]` **Cache invalidation from the worker** through `/api/cron/revalidate`.
+- `[x]` **Docs and templates.** `docs/STAGING.md` (rewritten),
+  `.env.example` (regrouped), `deploy/`.
+- `[x]` **CI typecheck.** Failing on every push since before D-122:
+  `PageProps` and `LayoutProps` come from `.next/types`, which a fresh
+  checkout lacks. Reproduced in a clean worktree; `npx next typegen` before
+  the typecheck fixes it there. Not yet seen passing on GitHub.
+
+Verified on Node 24.20.0:
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | `[x]` clean |
+| `npm run lint` | `[x]` clean |
+| Vitest, `unit` project | `[x]` 125 files, 2015 passed, 0 failed |
+| New suites | `[x]` `notification-smtp` (22), `remote-services` (18), `worker` (22); `notifications` gained 3 |
+| Worker under plain Node | `[x]` `npx tsx scripts/jobs/worker.ts --check` loads the whole job registry outside Next.js and reports against the development database |
+| `npm run build` | `[x]` passes against `preorder_e2e` with providers `rules` / `none` / mocks; the three new routes are in the route list |
+
+- `[!]` UNVERIFIED — external integration unavailable: email through a real
+  SMTP service; the worker on a hosted machine; `deploy/` built or run; Ollama
+  on a cloud GPU; SearXNG as a hosted service; Sentry from the worker; a
+  managed database's pooled and direct addresses; a staging Blob store.
+- `[!]` Vercel preview for `a1bd8c2`: deployed (GitHub reports success) but
+  behind Vercel Deployment Protection, so no page could be requested from
+  here. Check it by hand in the Vercel dashboard.
+- `[!]` The real-PostgreSQL concurrency suites were not rerun; nothing they
+  cover changed.

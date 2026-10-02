@@ -39,6 +39,14 @@ line for that request.
 | `api.unexpected_error` | error | A route handler caught an error it could not classify (answered 500) | error |
 | `api.database_conflict` | warn | A known database conflict answered as 409/503 | `code`, `status` |
 | `rate_limit.check_failed` | error | The rate-limit table could not be read (the attempt is allowed) | error |
+| `notification.retrying` / `notification.dead` | warn / error | A message could not be delivered and will be tried again / will not | `notificationId`, `channel`, `provider`, `attempt`, `maxAttempts`, `permanent`, `reason` (never the recipient) |
+| `jobs.local_ai` / `jobs.local_ai_failed` | info / error | The local-AI lane ran a job / could not start | `ran`, or the error |
+| `worker.started` / `worker.stopping` / `worker.stopped` | info | The background worker's lifecycle (D-133) | interval, providers in use, ticks run |
+| `worker.tick_failed` | error | One worker tick threw, usually the database being unreachable; the next tick tries again | `tickId`, error |
+| `worker.tick_skipped` | warn | Every tick was still busy when the next was due | `running` |
+| `worker.refused_to_start` / `worker.crashed` | error | The worker would not start (a pooled database address with local AI on) / exited on an error | reason or error |
+| `worker.cache_forward_failed` / `worker.cache_forward_off` | warn | Cache tags could not be handed to the web application / are not configured to be | `status`, `tags` |
+| `health.check_failed` | error | The health report itself threw | error |
 | `search.log_failed` and neighbours | warn | Best-effort analytics could not be written | error |
 
 A known refusal (an error with a status below 500 — the preorder is full, the
@@ -67,6 +75,21 @@ broken.
    or `request.failed` line from that request.
 3. The order number on a successful `checkout.place` links the log to the
    order in the admin, where its status history and payment rows are kept.
+
+## Health
+
+`GET /api/admin/health` (staff) and `GET /api/cron/health` (with
+`Authorization: Bearer <CRON_SECRET>`) return one report: the database, the
+job queue and whoever drains it, the worker, the notification provider and
+outbox, SearXNG, Ollama and its model, and the providers in use. `status` is
+`ok`, `degraded` or `down`, with `problems` in sentences; the monitor's route
+answers 503 only when the database is unreachable. States and counts only: no
+address, key or customer data. `npm run worker -- --check` prints the same
+from the worker. docs/STAGING.md, section K, lists what to watch.
+
+The background worker writes the same JSON lines to its standard output as
+the web application; whatever runs it (a container runtime, systemd) collects
+them.
 
 ## Not in place
 

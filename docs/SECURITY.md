@@ -418,3 +418,33 @@ the Brand Source Registry blocks its domain (D-114).
   approved official domains, after robots.txt allows them, within fixed limits.
   A search snippet is kept only as the provider's note and never becomes
   evidence.
+
+## Hosted research services and real email (D-132, D-133)
+
+- **Remote AI and search are opt-in, and private or encrypted.** A
+  non-loopback `OLLAMA_BASE_URL` or `SEARXNG_BASE_URL` is refused unless its
+  `*_ALLOW_REMOTE` flag is true, so an address changed by mistake sends no
+  product document anywhere. An allowed remote address must be on a private
+  network (a private IP, a single-label service name, a name under `.internal`
+  or `.local`) or use https. Judged from the name, with no lookup.
+- **Ollama has no authentication.** It is never to have a port open to the
+  internet: a private network, or a reverse proxy that requires
+  `OLLAMA_AUTH_TOKEN`. The token is sent as a bearer header, is never logged
+  or put in an error, and — by the rule above — never crosses the internet in
+  the clear. The same holds for `SEARXNG_AUTH_TOKEN`. The application cannot
+  check a firewall; the operator must.
+- **The worker listens on nothing.** It has no HTTP server and no port.
+- **`/api/cron/revalidate`** needs CRON_SECRET, accepts only this
+  application's own cache tags, and can only mark cache entries stale.
+- **The health report carries no secret.** `/api/admin/health` needs staff and
+  `notifications.view`; `/api/cron/health` needs CRON_SECRET and tells an
+  unauthenticated caller nothing. Neither returns an address, a key, a prompt
+  or a recipient (`tests/worker.test.ts`).
+- **Email.** Plain text; one validated recipient; subject on one line; TLS
+  required; no file or URL read into a message. A failure is recorded by kind,
+  built from the reply code — never the provider's own text — so no password,
+  user or host reaches the outbox or a log. `notification.*` log events omit
+  the recipient. Staging restricts recipients with
+  `NOTIFICATION_RECIPIENT_ALLOWLIST`.
+- **The local-AI slot** refuses a pooled database address, where its lock
+  would not be a lock.

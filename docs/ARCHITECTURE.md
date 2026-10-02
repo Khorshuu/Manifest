@@ -233,6 +233,20 @@ Prepare with SeoPulse
                    ─▶ withholdUnsupportedFigures ─▶ offered for review (D-122)
 ```
 
+**Hosted (D-133).** The same providers run with SearXNG and Ollama as private
+services beside a worker instead of on the developer's computer. The worker
+(`npm run worker`, `lib/jobs/worker.ts`) is the job trigger as a long-running
+process — same registry, runner and local-AI lane — because a serverless
+function can neither reach a private service nor outlive a generation. With
+`JOB_RUNNER=worker` the web application's `/api/cron/jobs` declines, the
+worker hands cache invalidations to `/api/cron/revalidate`, and reports what
+it can reach for `lib/health.ts` and the setup panel. docs/STAGING.md has the
+topology.
+
+`lib/providers/notification/` has two implementations: the mock, and
+`SmtpNotificationProvider` for real email (D-132). The outbox in
+`lib/notifications/outbox.ts` is the only caller of either.
+
 `lib/providers/search-console/` is the same shape again (D-096): one interface
 for what is configured and one page of performance rows, a default that reports
 `NOT_CONFIGURED`, and `GoogleSearchConsoleProvider` as the only file that reads

@@ -875,3 +875,19 @@ find .next/dev -type f -print0 | xargs -0 -P 4 -n 64 cat > /dev/null
 A test that types one key at a time (`pressSequentially`) waits for the page
 to settle first (`openHome` in `search.spec.ts`): keys typed before the header
 box hydrates are lost.
+
+## Staging infrastructure (D-132, D-133)
+
+No test sends an email, calls a real model or opens a connection beyond
+loopback.
+
+| Suite | Covers |
+|---|---|
+| `tests/notification-smtp.test.ts` | Email settings and what is refused; the message as nodemailer composes it (sender, one recipient, plain text, stable Message-ID, one-line subject); the allow-list; SMS refused; failures recorded by kind with no setting in them; provider health |
+| `tests/notifications.test.ts` | Added: waits between retries and an outage of two hours survived; a permanent failure stops at once; the same idempotency key on every attempt |
+| `tests/remote-services.test.ts` | Remote use is opt-in; private-or-https; the gateway token sent and a refused one reported as unavailable; SearXNG through a gateway; the slot refusing a pooled address; concurrency 1 by default |
+| `tests/worker.test.ts` | A worker tick schedules, runs, retries and records the heartbeat; the loop overlaps ticks up to its ceiling and survives a failing one; `/api/cron/jobs` declines under `JOB_RUNNER=worker`; cache tags collected, forwarded, kept on failure, and validated by the route; the health report's counts and that it carries no secret; the setup panel reading the worker's report |
+
+`npx tsx scripts/jobs/worker.ts --check` is the check that the worker's
+module graph loads outside Next.js; it reads and writes nothing but the
+health queries.

@@ -196,3 +196,9 @@ content in the listing. What it found:
   code, a SKU with a suffix, a shade not in the page's name). The run then
   asks for the page: give the product's exact page or paste its
   specification.
+
+## Hosted environments
+
+This guide is for a development computer. Running the same services for a
+hosted environment — SearXNG and Ollama as private services beside a worker,
+on a machine with a GPU — is in docs/STAGING.md.

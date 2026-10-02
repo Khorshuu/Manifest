@@ -4571,3 +4571,109 @@ enough for those attributes; it does not for attributes that exist only in the
 knowledge base, which is what a retailer's specification table mostly yields.
 This predates D-131 and is left as it is: changing it either way is a
 verification-policy decision, not a wording fix.
+
+## D-132 — Real email goes out over SMTP, and a failed message waits before it is tried again
+
+**Context.** The notification boundary (D-004) had one implementation, the
+mock. `NOTIFICATION_PROVIDER=live` threw. Staging needs real email, and the
+owner has not chosen an email service.
+
+**Decision.** One adapter, `SmtpNotificationProvider`
+(`NOTIFICATION_PROVIDER=smtp`, replacing the value `live`), using
+`nodemailer`. SMTP because every transactional email service speaks it:
+choosing or changing the service is a change of `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USER`, `SMTP_PASSWORD` and `EMAIL_FROM`, and no code names a vendor. Its
+settings are read in `lib/providers/notification/config.ts`, apart from
+`lib/env.ts`, so a mistake in them cannot stop the site from starting.
+
+What the adapter holds to:
+
+- Plain text only, so nothing a customer typed becomes markup.
+- One recipient, validated before any connection; the subject on one line;
+  no file or URL is ever read into a message.
+- TLS always: implicit on 465, STARTTLS required on any other port.
+- A failure is recorded by its kind (`describeSmtpFailure`), built from the
+  reply code, never from the provider's text: no password, user or host
+  reaches the outbox row or a log.
+- `NOTIFICATION_RECIPIENT_ALLOWLIST`: when set, only those addresses or
+  domains are written to. Staging sets it; production does not.
+- SMS is refused with a reason. The outbox still models the channel.
+
+The outbox changed in three ways, all behind its existing interface:
+
+- **Backoff** (migration 0045, `notifications.next_attempt_at`). A failed
+  message used to be retried every minute and parked after five attempts, so
+  a provider that was down for ten minutes lost what was queued. It now waits
+  1, 2, 4, 8, 16, 32 and 60 minutes, eight attempts in all — about two hours.
+- **Permanent failures stop at once.** `DeliveryError` carries `permanent`;
+  a refused mailbox or a recipient outside the allow-list is not tried again.
+- **An idempotency key**, the outbox row's id, on every attempt.
+
+**Accepted.** SMTP has no idempotency key. A crash after the provider accepts
+a message and before the row is marked sent delivers it twice; both copies
+carry the same Message-ID. An HTTP API with real idempotency would close this,
+at the cost of naming a vendor; it can be a second adapter later.
+
+**Not verified.** No message has been sent through a real SMTP service: no
+account exists. The adapter is tested against nodemailer's own message
+composer, with failures injected.
+
+## D-133 — Staging runs off the owner's computer: a worker, private research services, one health report
+
+**Context.** Research and AI ran on the owner's PC: SearXNG and Ollama on
+loopback, jobs driven by `npm run dev`. With the PC off, nothing in the
+background ran. On Vercel the job trigger is a serverless function: it cannot
+reach a private service and cannot live through a ten-minute generation.
+
+**Decisions.**
+
+1. **A worker process, not a second job system.** `npm run worker`
+   (`scripts/jobs/worker.ts`, `lib/jobs/worker.ts`) is the job trigger
+   without the request: same registry, runner, SKIP LOCKED claiming,
+   heartbeats, stale recovery, retries and local-AI lane. Ticks start on an
+   interval and may overlap up to `WORKER_MAX_CONCURRENT_TICKS`, as a
+   scheduler's calls do, so a slow research job does not hold up message
+   delivery. The PostgreSQL queue is unchanged; nothing was added beside it.
+2. **`JOB_RUNNER=worker`** makes `/api/cron/jobs` decline (200, nothing
+   claimed). Without it a leftover cron would claim a research job in a
+   function that cannot reach SearXNG or Ollama, and the run would finish
+   degraded instead of waiting for the worker.
+3. **Remote services stay opt-in, and must be private or encrypted.**
+   `OLLAMA_ALLOW_REMOTE` and `SEARXNG_ALLOW_REMOTE` already existed and are
+   kept: changing an address alone sends nothing anywhere. Added: a remote
+   address must be on a private network (a private IP, a single-label service
+   name, a name under `.internal` or `.local`) or use https; and
+   `OLLAMA_AUTH_TOKEN` / `SEARXNG_AUTH_TOKEN` are sent as a bearer token to a
+   gateway. A gateway that refuses is `OLLAMA_UNAVAILABLE`. "Private" is
+   judged from the name the operator wrote, with no lookup; the application
+   cannot check a firewall.
+4. **The local-AI slot refuses a pooled database address.** The slot is a
+   session advisory lock, which a transaction pooler cannot hold. D-127
+   relied on the local database being direct. A hosted worker must be given
+   the direct address; a pooled one now fails with
+   `LOCAL_AI_SLOT_NEEDS_DIRECT_CONNECTION` rather than running two generations
+   on one card. `LOCAL_AI_CONCURRENCY` stays 1.
+5. **Cache invalidation is handed over.** The worker is not the web
+   application, so `revalidateTag` there does nothing. It posts the tags to
+   `/api/cron/revalidate` (CRON_SECRET; known tags only). Without it, pages
+   catch up when their cache lifetime lapses.
+6. **One health report** (`lib/health.ts`), at `/api/admin/health` for staff
+   and `/api/cron/health` for a monitor holding CRON_SECRET. Built from the
+   existing checks. The worker records what it can reach every minute; the
+   web application reports that, since it cannot reach those services itself.
+
+**Not changed.** Renderer restrictions, safeFetch, robots, SSRF rules,
+English-only research, source trust and ranking, D-127's queue behaviour and
+error codes, SeoPulse's writing rules, the verification policy.
+
+**Left as follow-up.** A SeoPulse run claimed while Ollama is unreachable
+finishes with rules wording at once rather than waiting for a GPU to start;
+a document staff provide is read inside the web request, which cannot reach
+a private Ollama, so there it is read by the structured readers only;
+an on-demand GPU endpoint that is not Ollama's API needs its own provider;
+R2 has no media provider (Vercel Blob is the implemented store); SMS has no
+provider; account and security email is not written.
+
+**Not verified.** No hosted environment exists. `deploy/` (the worker image,
+the compose file, SearXNG's settings) has not been built or run: there is no
+Docker and no cloud GPU here.
