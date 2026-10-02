@@ -115,6 +115,8 @@ export async function createClaim(tx: Executor, input: NewClaim): Promise<ClaimR
   let disagreesWithAccepted = false;
   /** An accepted value already stands in this slot, and this claim says the same. */
   let repeatsAccepted = false;
+  /** A person accepted the same value without verification; it stands as UNVERIFIED. */
+  let repeatsUnverified = false;
 
   if (input.target === "fact") {
     const ordinal = input.ordinal ?? 0;
@@ -148,6 +150,8 @@ export async function createClaim(tx: Executor, input: NewClaim): Promise<ClaimR
     // Only a value a person decided: a legacy or unverified one is exactly
     // what a source repeating it may still be accepted to verify.
     repeatsAccepted = fact !== undefined && !disagreesWithAccepted && DECIDED.has(fact.verificationState);
+    repeatsUnverified =
+      fact !== undefined && !disagreesWithAccepted && fact.verificationState === "UNVERIFIED" && fact.decidedBy !== null;
   } else {
     const normalized = normalizeIdentifier(input.inputType, input.raw);
     columns = {
@@ -176,9 +180,20 @@ export async function createClaim(tx: Executor, input: NewClaim): Promise<ClaimR
       existing.some(
         (row) => (row.valueNormalized ?? row.valueRaw) === (normalized.normalized ?? normalized.raw) && DECIDED.has(row.verificationState),
       );
+    repeatsUnverified =
+      !disagreesWithAccepted &&
+      existing.some(
+        (row) =>
+          (row.valueNormalized ?? row.valueRaw) === (normalized.normalized ?? normalized.raw) &&
+          row.verificationState === "UNVERIFIED" &&
+          row.decidedBy !== null,
+      );
     if (normalized.gtin14) {
       const [owner] = await tx.select({ id: pkbIdentifiers.pkbProductId }).from(pkbIdentifiers).where(eq(pkbIdentifiers.gtin14, normalized.gtin14));
-      if (owner && owner.id !== input.pkbProductId) disagreesWithAccepted = true;
+      if (owner && owner.id !== input.pkbProductId) {
+        disagreesWithAccepted = true;
+        repeatsUnverified = false;
+      }
     }
   }
 
@@ -226,6 +241,33 @@ export async function createClaim(tx: Executor, input: NewClaim): Promise<ClaimR
       .where(eq(pkbClaims.id, claim.id));
     claim.status = "SUPERSEDED";
     return claim;
+  }
+
+  /*
+   * A source repeating a value a person accepted without verification. The
+   * repeat is worth a person's time only when it could change something: when
+   * a policy would now verify it — the source's domain was approved since, a
+   * second independent source arrived, an official document was supplied — it
+   * stays open, and "Accept as verified" is what establishes the value.
+   * Otherwise accepting it again would leave the value exactly as unverified
+   * as it is, and offering it would send the reviewer round in a circle; it is
+   * kept, with its evidence, as a closed record. Nothing is verified here and
+   * the fact is untouched.
+   */
+  if (repeatsUnverified && disagreeing.length === 0) {
+    const qualification = await evaluateVerification(tx, claim.id);
+    if (!qualification.eligible) {
+      await tx
+        .update(pkbClaims)
+        .set({
+          status: "SUPERSEDED",
+          decisionNote: "Repeats a value already accepted as unverified; this source does not qualify to verify it.",
+          updatedAt: new Date(),
+        })
+        .where(eq(pkbClaims.id, claim.id));
+      claim.status = "SUPERSEDED";
+      return claim;
+    }
   }
 
   if (disagreesWithAccepted || disagreeing.length > 0) {

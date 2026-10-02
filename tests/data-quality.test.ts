@@ -324,7 +324,9 @@ describe("choosing many proposed values at once", () => {
     });
     expect(sent).toEqual([100, 100]);
     expect(outcome).toEqual({ decided: 100, failed: 150, error: "That claim is already accepted." });
-    expect(decisionMessage("accept", outcome)).toBe("Accepted 100 values. 150 not decided — nothing in that group was changed: That claim is already accepted.");
+    // A plain accept never reads as verification.
+    expect(decisionMessage("accept", outcome)).toBe("Accepted 100 values as unverified. 150 not decided — nothing in that group was changed: That claim is already accepted.");
+    expect(decisionMessage("verify", { decided: 2, failed: 0, error: null })).toBe("Accepted as verified 2 values.");
     expect(decisionMessage("reject", { decided: 3, failed: 0, error: null })).toBe("Rejected 3 values.");
   });
 });

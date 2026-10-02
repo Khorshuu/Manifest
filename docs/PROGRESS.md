@@ -4830,3 +4830,30 @@ Real payment, courier, email and SMS (all mock); Google sign-in and Search
 Console against Google; deployed hosting; a hosted AI or research provider; the
 suite on Node 22; SKU generation, At a Glance and the storefront page for the
 live product; a successful local-model generation in this campaign.
+
+## Insufficient-knowledge workflow (2026-10-03, D-131)
+
+`[x]` The one P2 defect the final campaign left: `INSUFFICIENT_KNOWLEDGE` told
+staff to "accept the values research found" when they already had, and the
+values were proposed again on the next read.
+
+- `lib/preparation/runner.ts`: the note names the values accepted without
+  verification and says accepting them again changes nothing; the remedy names
+  the qualifying-source and by-hand routes. `CLAIMS_WAITING` no longer says an
+  accepted value is established.
+- `lib/pkb/review.ts` (`createClaim`): a repeat of a value a person accepted as
+  UNVERIFIED is closed as SUPERSEDED unless a policy would verify it now.
+- `lib/pkb/claim-selection.ts`, `intelligence/panels.tsx`: "Accepted N values
+  as unverified."; the Unverified count is explained.
+- No verification policy, registry rule or sufficiency rule changed.
+
+Verified on Node 24.20.0:
+- `tests/insufficient-knowledge-workflow.test.ts`: 11 passed. On the previous
+  code 6 of them fail, including the repeat being proposed again.
+- Preparation, knowledge base, review, local pipeline and SeoPulse suites
+  (30 files): 625 passed.
+- `npm run typecheck`, `npm run lint`: clean.
+
+`[!]` Found, not changed: accepted values for attributes that are also listing
+fields (colour, material, item weight, country of origin) count towards
+"enough is established" through the listing's details, verified or not (D-131).

@@ -223,6 +223,13 @@ export function IntelligencePanels({
           <li>In conflict: {completeness.conflict}</li>
           <li>Missing, required: {completeness.missingRequired}</li>
         </ul>
+        {completeness.unverified > 0 ? (
+          <p className="max-w-[70ch] text-[0.75rem] text-ink/60" data-testid="unverified-note">
+            Unverified values are recorded but are not established knowledge, and customer content is not written from
+            them. A value becomes established when a qualifying source lets it be accepted as verified, or when it is
+            entered by hand in the product&apos;s specifications.
+          </p>
+        ) : null}
       </section>
 
       <section className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4" aria-labelledby="proposed-values">
@@ -388,8 +395,7 @@ export function IntelligencePanels({
                 type="button"
                 size="sm"
                 disabled={pending !== null || !allChosenQualify}
-                title={allChosenQualify ? undefined : "Every selected value must qualify under a verification policy."}
-                onClick={() => void decideSelected("verify")}
+                title={allChosenQualify ? undefined : "Every selected value must qualify under a verification policy."}                onClick={() => void decideSelected("verify")}
               >
                 Accept as verified
               </Button>

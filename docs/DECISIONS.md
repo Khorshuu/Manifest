@@ -4511,3 +4511,63 @@ concurrency; D-128 units, warranty, English-only, SKUs, At a Glance, Key
 Points; D-129 praise and generic-predicate removal; FAQ, alt text, tags and
 aliases (out of scope). A staff-typed meta title that itself ends in
 " · Manifest" is not stripped on the product page (SeoPulse never writes one).
+
+## D-131 — Accepting a value is not verifying it, and the screen says which
+
+**The defect.** The final campaign's live run (PROGRESS.md) accepted eighteen
+retailer values and stopped at `INSUFFICIENT_KNOWLEDGE`, whose remedy began
+"Accept the values research found". They had been accepted. A plain Accept
+records a value as UNVERIFIED when no verification policy qualifies its
+source; only VERIFIED and MANUAL values are established knowledge (I-11), so
+content generation correctly refused to write from them. The stop was right
+and the instruction was wrong, and the next read of the same page proposed the
+same eighteen values again, because `createClaim` closes a repeat only of a
+value a person *decided as VERIFIED or MANUAL* (D-122).
+
+**The distinction, unchanged.** A staff decision (Accept / Reject / Correct)
+and a fact becoming established are two things. Accept writes the fact with
+its source and the deciding person, as UNVERIFIED. It becomes VERIFIED only
+through "Accept as verified", which requires `evaluateVerification` to find an
+active policy the claim qualifies under at that moment. No policy, registry
+rule, source type or sufficiency rule was changed, and nothing is promoted.
+
+**What changed.**
+
+- `stepContent` reads which accepted values are UNVERIFIED (a fact with
+  `decided_by` set) and are not already counted through the listing. When
+  there are any, the note says so by name — "4 values were accepted without
+  verification (…), so they do not count as established" — and the remedy
+  says that accepting them again changes nothing, and names what does: the
+  manufacturer's own page or its official specification, then "Accept as
+  verified" in Product Intelligence (a manufacturer's page qualifies once its
+  domain is approved for the brand in Sources & Policies), or the
+  specifications entered by hand. Every one of those is an existing action.
+  With nothing accepted, the remedy no longer mentions accepting at all: by
+  the content step nothing is waiting, or the verification step would have
+  stopped the run.
+- `CLAIMS_WAITING` no longer promises "Accepted values then count as
+  established knowledge". It says a value counts once accepted as verified.
+- The review screen's result line for a plain accept reads "Accepted N values
+  as unverified.", and "How complete is it?" explains the Unverified count
+  when it is not zero.
+- **Repeats.** A claim that repeats a value a person accepted as UNVERIFIED
+  is judged once, on arrival: if a policy would verify it now — the domain was
+  approved since, a second independent source arrived, an official document
+  was supplied — it stays SUGGESTED, because "Accept as verified" on it is
+  exactly what establishes the value. If none would, it is closed as
+  SUPERSEDED with its evidence kept and a note, like the D-122 repeat: no
+  decision is recorded, the fact is untouched. A different value is still a
+  CONFLICT; a legacy or copied UNVERIFIED value nobody decided is still
+  proposed as before. The test is "would deciding this change anything", not
+  "is it the same source": a second retailer saying the same thing changes
+  nothing either, unless a two-source policy is active and now satisfied, in
+  which case the claim is eligible and stays open.
+
+**Found, not changed.** A system attribute that is also a field of the
+listing (colour, material, item weight, country of origin) is written into the
+listing's details when its claim is accepted, verified or not, and
+`knowledgeSufficiency` counts listing details. So plain Accept does establish
+enough for those attributes; it does not for attributes that exist only in the
+knowledge base, which is what a retailer's specification table mostly yields.
+This predates D-131 and is left as it is: changing it either way is a
+verification-policy decision, not a wording fix.

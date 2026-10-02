@@ -1,9 +1,11 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  pkbAttributeDefinitions,
   pkbAttributeProposals,
   pkbClaims,
   pkbEnrichmentRuns,
+  pkbFacts,
   pkbSourceDocuments,
   pkbSources,
   productPreparationRuns,
@@ -21,7 +23,8 @@ import { reassessResolution } from "@/lib/pkb/resolution";
 import { beginListingChange, syncListingKnowledge } from "@/lib/pkb/sync";
 import { logEvent } from "@/lib/observability/log";
 import { enqueueUniquePending } from "@/lib/jobs/runner";
-import { knowledgeSufficiency } from "@/lib/seo-pulse/facts";
+import { labelKey } from "@/lib/pkb/normalize";
+import { knowledgeSufficiency, measurementRows, specificationRows } from "@/lib/seo-pulse/facts";
 import { localAiRuntime } from "@/lib/providers/local/config";
 import { applyPreparedContent, loadPulseInput, runSeoPulse, SeoPulseError, seoRunProgress } from "@/lib/seo-pulse/service";
 import { searchReadiness, seoReadiness } from "@/lib/seo/readiness";
@@ -682,7 +685,10 @@ async function stepVerification(context: Context): Promise<Outcome> {
     notes.push({
       code: PREPARATION_CODES.CLAIMS_WAITING,
       message: `${counts.waiting} value${counts.waiting === 1 ? "" : "s"} proposed from sources, waiting for someone to accept or reject them.`,
-      remedy: "Open Product Intelligence and review them. Accepted values then count as established knowledge.",
+      // Accepting is a decision, not verification: only a value accepted as
+      // verified, or entered by staff, is established knowledge.
+      remedy:
+        "Open Product Intelligence and review them. A value counts as established once it is accepted as verified; one accepted from a source no verification policy qualifies is kept as unverified.",
     });
   }
   if (Number(labels?.open ?? 0) > 0) {
@@ -735,16 +741,32 @@ async function stepContent(context: Context): Promise<Outcome> {
         ? " The manufacturer's page describes the product in prose, and intelligent document extraction is not configured, so those statements were not read into facts."
         : " The manufacturer's page describes the product in prose, and intelligent document extraction is unavailable just now, so those statements were not read into facts."
       : "";
+    /*
+     * Values a person accepted that no verification policy qualified. They
+     * are recorded, and they are not established knowledge: saying "accept
+     * the values" here would send the reviewer back to a decision already
+     * taken, which changes nothing. What changes it is a qualifying source,
+     * or the value entered by staff.
+     */
+    const counted = new Set([...specificationRows(input), ...measurementRows(input)].map((row) => labelKey(row.label)));
+    // A value the listing itself carries is already counted, whatever its state.
+    const unverified = (await acceptedUnverified(context.pkbProductId!)).filter((label) => !counted.has(labelKey(label)));
+    const accepted = unverified.length
+      ? ` ${unverified.length} value${unverified.length === 1 ? " was" : "s were"} accepted without verification (${listLabels(unverified)}), so ${unverified.length === 1 ? "it does" : "they do"} not count as established.`
+      : "";
+    const missing = sufficiency.missing.length ? `What is missing: ${sufficiency.missing.join("; ")}. ` : "";
     return {
       kind: "review",
       notes: [
         {
           code: PREPARATION_CODES.INSUFFICIENT_KNOWLEDGE,
-          message: `There is too little established about this product to write customer content from. ${sufficiency.summary}${prose} SEO and customer content will be prepared once enough product information is verified.`,
+          message: `There is too little established about this product to write customer content from. ${sufficiency.summary}${prose}${accepted} SEO and customer content will be prepared once enough product information is verified.`,
           remedy: [
-            sufficiency.missing.length
-              ? `What is missing: ${sufficiency.missing.join("; ")}. Accept the values research found, add them by hand, or attach the manufacturer's page, then continue.`
-              : "Add what the product's specification says, then continue.",
+            unverified.length
+              ? `${missing}Accepting the unverified values again will not change this. Attach the manufacturer's own page or paste its official specification, then accept the values as verified in Product Intelligence — a manufacturer's page qualifies once its domain is approved for the brand in Sources & Policies — or enter the specifications by hand, then continue.`
+              : sufficiency.missing.length
+                ? `${missing}Add them by hand, or attach the manufacturer's page or specification, then continue.`
+                : "Add what the product's specification says, then continue.",
             sufficiency.schemaGap,
           ]
             .filter(Boolean)
@@ -817,6 +839,28 @@ async function stepContent(context: Context): Promise<Outcome> {
     }
     throw error;
   }
+}
+
+/** The attributes whose value a person accepted and no policy verified. */
+async function acceptedUnverified(pkbProductId: string): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ label: pkbAttributeDefinitions.label })
+    .from(pkbFacts)
+    .innerJoin(pkbAttributeDefinitions, eq(pkbAttributeDefinitions.id, pkbFacts.definitionId))
+    .where(
+      and(
+        eq(pkbFacts.pkbProductId, pkbProductId),
+        eq(pkbFacts.verificationState, "UNVERIFIED"),
+        isNotNull(pkbFacts.decidedBy),
+      ),
+    )
+    .orderBy(pkbAttributeDefinitions.label);
+  return rows.map((row) => row.label);
+}
+
+/** "Colour, Material", or the first four and how many more. */
+function listLabels(labels: string[]): string {
+  return labels.length <= 4 ? labels.join(", ") : `${labels.slice(0, 4).join(", ")} and ${labels.length - 4} more`;
 }
 
 /**

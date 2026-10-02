@@ -79,7 +79,10 @@ export async function decideInBatches(
 /** What the screen says after a bulk decision. */
 export function decisionMessage(action: "accept" | "verify" | "reject", outcome: { decided: number; failed: number; error: string | null }): string {
   const verb = action === "reject" ? "Rejected" : action === "verify" ? "Accepted as verified" : "Accepted";
-  const done = `${verb} ${outcome.decided} value${outcome.decided === 1 ? "" : "s"}.`;
+  // A plain accept records the value as unverified, and the screen says so:
+  // only a verified or staff-entered value is established knowledge.
+  const unverified = action === "accept" && outcome.decided > 0 ? " as unverified" : "";
+  const done = `${verb} ${outcome.decided} value${outcome.decided === 1 ? "" : "s"}${unverified}.`;
   if (!outcome.error) return done;
   return `${outcome.decided > 0 ? `${done} ` : ""}${outcome.failed} not decided — nothing in that group was changed: ${outcome.error}`;
 }
