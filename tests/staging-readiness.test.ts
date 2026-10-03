@@ -22,6 +22,7 @@ import { checkOllama, checkSearxng, clearLocalHealthCache } from "@/lib/provider
 import { slotConnectionProblem } from "@/lib/providers/local/slot";
 import { BlobMediaProvider, blobPrefix } from "@/lib/providers/media/blob";
 import { stagingConfigReport, type Environment } from "@/lib/staging/config-check";
+import { tlsRequiredByAddress } from "@/lib/staging/live-check";
 
 const NEON_POOLED = "postgres://app:pooled-pass-1@ep-quiet-sea-123456-pooler.ap-southeast-1.aws.neon.tech/manifest_staging?sslmode=require";
 const NEON_DIRECT = "postgres://app:direct-pass-2@ep-quiet-sea-123456.ap-southeast-1.aws.neon.tech/manifest_staging?sslmode=require";
@@ -333,5 +334,15 @@ describe("a private service's connection that was reset before answering", () =>
     } finally {
       await service.close();
     }
+  });
+});
+
+describe("TLS to a database behind a provider's proxy", () => {
+  it("counts an address that makes the client require TLS as encrypted, and nothing weaker", () => {
+    expect(tlsRequiredByAddress(NEON_DIRECT)).toBe(true);
+    expect(tlsRequiredByAddress(NEON_DIRECT.replace("sslmode=require", "sslmode=verify-full"))).toBe(true);
+    expect(tlsRequiredByAddress(NEON_DIRECT.replace("sslmode=require", "sslmode=prefer"))).toBe(false);
+    expect(tlsRequiredByAddress(NEON_DIRECT.replace("?sslmode=require", ""))).toBe(false);
+    expect(tlsRequiredByAddress("not a url")).toBe(false);
   });
 });

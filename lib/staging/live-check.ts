@@ -30,6 +30,16 @@ function isRemote(url: string): boolean {
   }
 }
 
+/** Whether the address makes the client refuse a connection without TLS. */
+export function tlsRequiredByAddress(url: string): boolean {
+  try {
+    const mode = new URL(url).searchParams.get("sslmode")?.toLowerCase();
+    return mode === "require" || mode === "verify-ca" || mode === "verify-full";
+  } catch {
+    return false;
+  }
+}
+
 function failureKind(error: unknown): string {
   const code = (error as { code?: unknown })?.code;
   if (code === "28P01" || code === "28000") return "the login was refused";
@@ -74,12 +84,19 @@ export async function checkDatabaseLive(
     else items.push({ area: `${label}: identity`, state: "READY", detail: `current_database() is "${name}", as expected.` });
 
     const remote = isRemote(url);
+    // A provider's proxy (Neon's) ends TLS in front of the server, so the
+    // server can report its own connection as unencrypted while the one from
+    // here is. sslmode=require (or verify-*) makes the client refuse to
+    // connect without TLS, so a connection that exists is encrypted.
+    const tlsRequired = tlsRequiredByAddress(url);
     items.push(
       row.ssl === true
         ? { area: `${label}: TLS`, state: "READY", detail: "The connection is encrypted." }
-        : remote
-          ? { area: `${label}: TLS`, state: "MISSING", detail: "A remote database reached without TLS. Add sslmode=require to the address." }
-          : { area: `${label}: TLS`, state: "READY", detail: "Not encrypted; acceptable only because the server is on this machine." },
+        : tlsRequired
+          ? { area: `${label}: TLS`, state: "READY", detail: "Encrypted to the provider: the address requires TLS (the server sits behind a TLS-ending proxy)." }
+          : remote
+            ? { area: `${label}: TLS`, state: "MISSING", detail: "A remote database reached without TLS. Add sslmode=require to the address." }
+            : { area: `${label}: TLS`, state: "READY", detail: "Not encrypted; acceptable only because the server is on this machine." },
     );
 
     const status = await migrationStatus(postgresExecutor(client));
