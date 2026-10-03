@@ -4757,6 +4757,17 @@ external action.
     worker restarted for nothing. The image runs under tini so the browser's
     processes are reaped.
 
+11. **One retry on a connection reset before any answer.** `localRequest`
+    (Ollama and SearXNG) sends a request once more, on a fresh connection,
+    when the first fails with ECONNRESET / a closed socket: fetch reuses
+    kept-alive connections that the service or its gateway may already have
+    closed, and that reset was being recorded as `OLLAMA_UNAVAILABLE` and a
+    rules fallback. Found as an intermittent failure of two D-127 tests in
+    the full suite (the fake Ollama's idle connection reset under load);
+    reproduced with a captured `read ECONNRESET` before fixing. Same time
+    limit; never more than two tries; a reset after the service received a
+    chat could cost one repeated generation, never a second answer kept.
+
 **Not changed.** The job queue, claiming, retries, D-127's codes, safeFetch,
 robots, the renderer's restrictions, the outbox's schedule, payment and
 shipping (mock), the Vercel project's settings.

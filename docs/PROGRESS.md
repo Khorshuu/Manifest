@@ -4965,6 +4965,15 @@ PATH untouched).
 - `[x]` Found while verifying: the worker's `sessionLock` start-up field was
   `[redacted]` in its own log (a key containing "session" is redacted); now
   `lockTest`.
+- `[x]` Found while verifying: two D-127 tests in `local-pipeline` failed in
+  3 of 5 full runs at `3c21b88` (never alone, never in 12 concurrent runs of
+  the file; the baseline `fc329eb` passed). Captured cause: `read ECONNRESET`
+  on `/api/chat` — fetch reused a kept-alive connection the fake Ollama had
+  closed — recorded as `OLLAMA_UNAVAILABLE` and a rules fallback. The same
+  can happen against a real Ollama or its gateway. `localRequest` now tries
+  once more on a fresh connection after a reset before any answer (D-134
+  point 11); `tests/staging-readiness.test.ts` shows both directions, and
+  fails on the previous code.
 
 ### Decided, not changed
 
@@ -5007,6 +5016,7 @@ migration 0022). STAGING.md, External action 1.
 | SMTP protocol | `[x]` Real adapter against a local STARTTLS capture server (throwaway self-signed certificate, nothing committed): login checked without sending; 451 retried with the same Message-ID; 550 permanent; a recipient outside the allow-list refused before connecting |
 | SearXNG | `[x]` `deploy/searxng/settings.yml` (bind and port changed for the test) loaded by the local SearXNG source build: `/healthz` 200, English JSON search 27 results; stopped afterwards |
 | Local staging simulation | `[x]` Production build + worker from the clean worktree, both on `manifest_staging_verify`, SMTP capture, SearXNG: web reads the database; `/api/cron/jobs` declines (200 skipped) and refuses without the secret (401); revalidate refuses a wrong secret (401) and unknown tags (400); the worker unpublished a scheduled product and its forwarded invalidation refreshed product pages within 2 s while a control page changed behind the cache stayed stale; outbox: 451 → retried after 1 min → sent on attempt 2; a non-allow-listed message failed permanently and counted in health; `/api/cron/health` showed the worker reporting with what it can reach and no address, secret or recipient; with Ollama and SearXNG pointed at closed ports the worker stayed up, health degraded with reasons, and the storefront, search, cart and login answered 200 |
+| Clean worktree at `914a95a` (after the reset fix) | `[x]` `next typegen`, typecheck, lint; full Vitest three times in a row: 140 files, 2105 passed, 8 skipped, 0 failed each (253–257 s); `next build` (no warning or error); CI's nine Playwright specs 51 passed; budgets all ok |
 | Docker images, compose runtime | `[!]` BLOCKED_LOCAL_TOOLING: no Docker. YAML of both compose files and SearXNG settings parsed; nothing built or run |
 | GPU container | `[!]` BLOCKED_LOCAL_HARDWARE: GTX 1050 Ti, no NVIDIA container runtime; local Ollama not restarted, no model pulled |
 | Real cloud services | `[!]` none exists to test (External actions in STAGING.md) |
