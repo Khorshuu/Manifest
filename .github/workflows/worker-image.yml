@@ -1,0 +1,273 @@
+# The background worker's container, built and run (docs/STAGING.md section 6,
+# DECISIONS.md D-134, D-136).
+#
+# deploy/worker.Dockerfile and deploy/worker-stack.compose.yml cannot be built
+# on a machine without Docker, so this is where they are: the image is built
+# as the host will build it, checked for anything secret, and run against a
+# throwaway PostgreSQL on the stack's own private network. Every value below
+# is a test value made up here; nothing can reach staging or production.
+#
+# What it shows: the image builds on Node 22 and carries no env file; the
+# worker refuses another database; it starts, reports healthy, ticks, runs a
+# job somebody else enqueued once, recovers a job whose worker vanished, comes
+# back after its process is killed, stops cleanly on SIGTERM, publishes no
+# port, logs no address or secret — first without SearXNG or Ollama, then with
+# the stack's private SearXNG.
+name: Worker image
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "deploy/**"
+      - ".dockerignore"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/jobs/**"
+      - "lib/jobs/**"
+      - "db/migrations/**"
+      - ".github/workflows/worker-image.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: worker-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  COMPOSE: docker compose -f deploy/worker-stack.compose.yml -f /tmp/ci.compose.yml --env-file .env.staging
+  IMAGE: manifest-worker-worker
+  TSX: node node_modules/tsx/dist/cli.mjs
+  # Appears in the test environment only, so finding it anywhere in the image
+  # or the logs means a value leaked.
+  MARKER: ci-db-password-7c1f29
+
+jobs:
+  worker-image:
+    name: Build the worker image and run it
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write a test environment and helpers
+        run: |
+          # Unquoted values: `docker run --env-file` keeps quotes as part of
+          # the value, compose does not, and the same file must serve both.
+          cat > .env.staging <<EOF
+          DATABASE_URL=postgres://postgres:${MARKER}@postgres:5432/manifest_staging
+          DATABASE_CONNECTION_MODE=direct
+          EXPECTED_DATABASE_NAME=manifest_staging
+          JOB_RUNNER=worker
+          SESSION_SECRET=ci-worker-session-secret-used-nowhere-real-0000
+          CRON_SECRET=ci-worker-cron-secret-used-nowhere-real
+          SEARXNG_SECRET=ci-searxng-secret-used-nowhere-real
+          PAYMENT_PROVIDER=mock
+          SHIPPING_PROVIDER=mock
+          NOTIFICATION_PROVIDER=mock
+          EOF
+          cat > /tmp/ci.compose.yml <<EOF
+          services:
+            postgres:
+              image: postgres:18
+              environment:
+                POSTGRES_PASSWORD: ${MARKER}
+                POSTGRES_DB: manifest_staging
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U postgres -d manifest_staging"]
+                interval: 3s
+                timeout: 3s
+                retries: 30
+          EOF
+          mkdir -p "$HOME/bin"
+          cat > "$HOME/bin/q" <<'EOF'
+          #!/usr/bin/env bash
+          # One SQL statement against the test database; prints bare values.
+          exec $COMPOSE exec -T postgres psql -U postgres -d manifest_staging -v ON_ERROR_STOP=1 -At -c "$1"
+          EOF
+          cat > "$HOME/bin/events" <<'EOF'
+          #!/usr/bin/env bash
+          # The worker's log lines for one event, as JSON.
+          docker logs "$(cat /tmp/worker.cid)" 2>&1 | jq -Rc --arg event "$1" 'fromjson? | select(.event == $event)'
+          EOF
+          cat > "$HOME/bin/wait-healthy" <<'EOF'
+          #!/usr/bin/env bash
+          for _ in $(seq 1 48); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' "$1" 2>/dev/null || true)
+            [ "$status" = healthy ] && exit 0
+            sleep 5
+          done
+          echo "Not healthy after 4 minutes: ${status:-no status}" >&2
+          exit 1
+          EOF
+          chmod +x "$HOME/bin/q" "$HOME/bin/events" "$HOME/bin/wait-healthy"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: The compose file is valid and publishes no port
+        run: |
+          $COMPOSE config --quiet
+          published=$($COMPOSE config --format json | jq '[.services[] | select(.ports != null and (.ports | length) > 0)] | length')
+          test "$published" = 0
+
+      - name: Build the image
+        run: $COMPOSE build worker
+
+      - name: The image is Node 22, not root, and carries nothing secret
+        run: |
+          docker run --rm --entrypoint node "$IMAGE" --version | grep -E '^v22\.'
+          test "$(docker run --rm --entrypoint id "$IMAGE" -u)" != 0
+          test "$(docker image inspect -f '{{json .Config.ExposedPorts}}' "$IMAGE")" = null
+          # .env.staging sits in the build context; .dockerignore must keep it out.
+          files=$(docker run --rm --entrypoint sh "$IMAGE" -c 'ls -A /app | grep -E "^\.(env|git\$|vercel\$)" || true')
+          echo "dot files in the image: ${files:-none}"
+          test "$files" = .env.example
+          # `if` and not `!`: a negated command never fails a step under `set -e`.
+          if docker run --rm --entrypoint sh "$IMAGE" -c "grep -rIl --exclude-dir=node_modules '$MARKER' /app"; then
+            echo "A test value is inside the image." >&2; exit 1
+          fi
+          if docker history --no-trunc "$IMAGE" | grep -q "$MARKER"; then
+            echo "A test value is in the image's history." >&2; exit 1
+          fi
+          if docker image inspect -f '{{json .Config.Env}}' "$IMAGE" | grep -Ei 'secret|password|token|database_url'; then
+            echo "The image's own environment names something secret." >&2; exit 1
+          fi
+          # With no liveness file the health check must say unhealthy.
+          if docker run --rm --entrypoint node "$IMAGE" scripts/jobs/worker-alive.mjs; then
+            echo "The liveness check passed with no worker running." >&2; exit 1
+          fi
+
+      - name: Start the database and migrate it from the image
+        run: |
+          $COMPOSE up -d --wait postgres
+          $COMPOSE run --rm --no-deps -T worker $TSX db/migrate.ts
+          test "$(q "select current_database()")" = manifest_staging
+          q "select count(*) || ' migrations, latest ' || max(name) from schema_migrations"
+
+      - name: The worker refuses a database it was not pinned to
+        run: |
+          if $COMPOSE run --rm --no-deps -T -e EXPECTED_DATABASE_NAME=manifest_other worker $TSX scripts/jobs/worker.ts --check > /tmp/refused.json; then
+            echo "The check passed against the wrong database." >&2
+            exit 1
+          fi
+          jq -s 'map(select(.startup)) | .[0].startup | {identity, refused}' /tmp/refused.json || cat /tmp/refused.json
+          test "$(q "select count(*) from jobs")" = 0
+
+      - name: The worker's check passes on a direct connection
+        run: |
+          $COMPOSE run --rm --no-deps -T worker $TSX scripts/jobs/worker.ts --check > /tmp/check.json
+          jq -s 'map(select(.startup)) | .[0] | {status, database, startup, worker, runner: .jobs.runner, payment, shipping}' /tmp/check.json
+          jq -se 'map(select(.startup)) | .[0] | .startup.identity == "ok" and .startup.mode.mode == "direct" and .database.state == "ok" and .jobs.runner == "worker" and .payment.provider == "mock" and .shipping.provider == "mock"' /tmp/check.json
+
+      - name: Start the worker alone (no SearXNG, no Ollama) and wait for healthy
+        run: |
+          $COMPOSE up -d --no-deps worker
+          $COMPOSE ps -q worker > /tmp/worker.cid
+          wait-healthy "$(cat /tmp/worker.cid)"
+          events worker.started | jq -c '{event, database, databaseMode, runner, node, cacheForwarding, research, notifications}'
+          events worker.started | jq -se 'length == 1 and .[0].database == "manifest_staging" and .[0].databaseMode == "direct" and .[0].runner == "worker" and (.[0].node | startswith("v22."))'
+
+      - name: It ticks about every 15 seconds and records its heartbeat
+        run: |
+          for _ in $(seq 1 30); do
+            [ "$(events jobs.trigger | wc -l)" -ge 5 ] && break
+            sleep 5
+          done
+          events jobs.trigger | jq -sc 'map(.ts | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) | [range(1; length) as $i | .[$i] - .[$i - 1]]' | tee /tmp/gaps.json
+          jq -e 'length >= 4 and all(.[]; . >= 5 and . <= 40)' /tmp/gaps.json
+          q "select name || ' last ran ' || round(extract(epoch from now() - last_run_at)) || ' s ago' from scheduler_heartbeats order by name"
+          test "$(q "select count(*) from scheduler_heartbeats where name in ('jobs', 'worker') and last_run_at > now() - interval '90 seconds'")" = 2
+          docker exec "$(cat /tmp/worker.cid)" node scripts/jobs/worker-alive.mjs
+
+      - name: Scheduled jobs ran once each; nothing failed
+        run: |
+          q "select kind || ': ' || status || ', attempts ' || attempts from jobs order by kind, created_at"
+          test "$(q "select count(*) from jobs where status = 'succeeded'")" -ge 5
+          test "$(q "select count(*) from jobs where status in ('failed', 'dead') or attempts > 1 or last_error is not null")" = 0
+          test "$(events job.retrying | wc -l)" = 0
+          test "$(events job.dead | wc -l)" = 0
+
+      - name: A job enqueued by somebody else is claimed and finished once
+        run: |
+          q "insert into jobs (kind, payload, dedupe_key, run_at) values ('catalog.release_sku_holds', '{}'::jsonb, 'ci-enqueued-elsewhere', now())"
+          for _ in $(seq 1 18); do
+            [ "$(q "select status from jobs where dedupe_key = 'ci-enqueued-elsewhere'")" = succeeded ] && break
+            sleep 5
+          done
+          q "select status || ', attempts ' || attempts || ', finished ' || (finished_at is not null) from jobs where dedupe_key = 'ci-enqueued-elsewhere'"
+          test "$(q "select status || attempts from jobs where dedupe_key = 'ci-enqueued-elsewhere'")" = succeeded1
+          id=$(q "select id from jobs where dedupe_key = 'ci-enqueued-elsewhere'")
+          test "$(events job.succeeded | jq -c --arg id "$id" 'select(.jobId == $id)' | wc -l)" = 1
+
+      - name: A job whose worker vanished is recovered and finished
+        run: |
+          q "insert into jobs (kind, payload, dedupe_key, status, attempts, run_at, locked_at, locked_by) values ('catalog.release_sku_holds', '{}'::jsonb, 'ci-worker-vanished', 'running', 1, now() - interval '2 hours', now() - interval '2 hours', 'a-worker-that-vanished')"
+          for _ in $(seq 1 18); do
+            [ "$(q "select status from jobs where dedupe_key = 'ci-worker-vanished'")" = succeeded ] && break
+            sleep 5
+          done
+          test "$(q "select status || attempts from jobs where dedupe_key = 'ci-worker-vanished'")" = succeeded2
+          events jobs.trigger | jq -se 'map(.recovered) | add >= 1'
+
+      - name: Killed, it is restarted by its restart policy and carries on
+        run: |
+          cid=$(cat /tmp/worker.cid)
+          # From the host, not through Docker: Docker treats its own kill as a
+          # deliberate stop and would not restart the container.
+          sudo kill -9 "$(docker inspect -f '{{.State.Pid}}' "$cid")"
+          for _ in $(seq 1 24); do
+            [ "$(events worker.started | wc -l)" -ge 2 ] && break
+            sleep 5
+          done
+          test "$(docker inspect -f '{{.RestartCount}} {{.State.Running}}' "$cid")" = "1 true"
+          test "$(events worker.started | wc -l)" = 2
+          wait-healthy "$cid"
+          sleep 20
+          test "$(q "select count(*) from scheduler_heartbeats where name = 'jobs' and last_run_at > now() - interval '30 seconds'")" = 1
+          test "$(q "select count(*) from jobs where status in ('failed', 'dead')")" = 0
+          test "$(q "select count(*) from jobs where attempts > 1 and dedupe_key is distinct from 'ci-worker-vanished'")" = 0
+
+      - name: It publishes no port and logs no address or secret
+        run: |
+          cid=$(cat /tmp/worker.cid)
+          test -z "$(docker port "$cid")"
+          docker logs "$cid" > /tmp/worker.log 2>&1
+          if grep -E "$MARKER|ci-worker-session-secret|ci-worker-cron-secret|ci-searxng-secret|postgres(ql)?://" /tmp/worker.log; then
+            echo "The worker's log carries an address or a secret." >&2; exit 1
+          fi
+          jq -Rr 'fromjson? | .event' /tmp/worker.log | sort | uniq -c
+
+      - name: SIGTERM stops it cleanly
+        run: |
+          cid=$(cat /tmp/worker.cid)
+          $COMPOSE stop worker
+          test "$(docker inspect -f '{{.State.Running}} {{.State.ExitCode}}' "$cid")" = "false 0"
+          test "$(events worker.stopping | wc -l)" = 1
+          events worker.stopped | jq -se 'length == 1'
+
+      - name: The whole stack comes up, with SearXNG private to the worker
+        run: |
+          $COMPOSE up -d --wait --wait-timeout 300
+          docker ps --filter label=com.docker.compose.project=manifest-worker --format '{{.Names}}: {{.Status}} [{{.Ports}}]'
+          if docker ps --filter label=com.docker.compose.project=manifest-worker --format '{{.Ports}}' | grep -E -e '->' -e '0\.0\.0\.0'; then
+            echo "A service publishes a port." >&2; exit 1
+          fi
+          $COMPOSE exec -T worker node -e "fetch('http://searxng:8080/healthz').then((r) => process.exit(r.status === 200 ? 0 : 1), () => process.exit(1))"
+          # The command docs/STAGING.md gives for a running stack.
+          $COMPOSE exec -T worker $TSX scripts/jobs/worker.ts --check | jq -s 'map(select(.startup)) | .[0] | {status, problems, research, ai, startup: .startup.identity}'
+
+      - name: Logs, when something failed
+        if: failure()
+        run: |
+          docker ps -a
+          $COMPOSE logs --no-color --tail 300 || true
+          q "select kind || ' ' || status || ' ' || attempts || ' ' || coalesce(left(last_error, 300), '') from jobs order by created_at" || true
+
+      - name: Remove everything
+        if: always()
+        run: $COMPOSE down -v --remove-orphans || true
