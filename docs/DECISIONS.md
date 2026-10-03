@@ -4677,3 +4677,90 @@ provider; account and security email is not written.
 **Not verified.** No hosted environment exists. `deploy/` (the worker image,
 the compose file, SearXNG's settings) has not been built or run: there is no
 Docker and no cloud GPU here.
+
+## D-134 — Staging readiness: which database, which kind of connection, a GPU apart from the worker
+
+**Context.** D-133 made a worker and private services possible but left the
+hosted environment unbuilt and three things open: nothing proved which
+database a deployment would migrate, only Neon's "-pooler" host name told a
+pooled address from a direct one, and the worker template put every
+background job on the GPU machine. Inspecting the Vercel project (read only)
+also showed that its one `DATABASE_URL` / `DATABASE_URL_UNPOOLED` pair,
+`SESSION_SECRET`, `CRON_SECRET` and Blob token are each a single entry shared
+by Production and Preview, and the build logs show preview builds of this
+branch applying migrations 0023–0045 to that database (0045 by `fc329eb`)
+while the production deployment still runs code from migration 0022. No
+project setting was changed; docs/STAGING.md lists the fix as the first
+external action.
+
+**Decisions.**
+
+1. **`EXPECTED_DATABASE_NAME` pins the database.** `db/migrate.ts` (and so
+   `vercel-build`) and the worker ask `current_database()` before writing
+   anything and stop when it is not the expected name (`db/identity.ts`).
+   Unset, nothing changes. The staging check also refuses development, test,
+   scale and providers' default databases (`neondb`, `postgres`) as staging.
+2. **`DATABASE_CONNECTION_MODE` (direct | session | transaction) states what
+   an address is.** Only Neon names its pooler; for any other provider an
+   address without "-pooler" is now `unknown`, not assumed direct. A
+   declaration never overrides an address that says it is pooled.
+   `transaction` turns prepared statements off and refuses the local-AI slot
+   and migrations, as "-pooler" does.
+3. **A real session-lock test** (`db/session-probe.ts`): one held
+   connection takes an advisory lock on a fresh key; a second connection must
+   be refused it; the same server process must answer throughout; the
+   release must report that session held it. Failing proves a transaction
+   pooler; passing is evidence, not proof (an idle pooler can pass), and is
+   reported that way. The worker runs it at start whenever local AI is on and
+   refuses to start on a failure; `npm run staging:check` runs it always.
+4. **The worker's lane waits for the model's service** (`localAiServiceGate`,
+   `LOCAL_AI_SERVICE_WAIT_MINUTES`, default 30). While Ollama is not
+   answering, or answers without the model, a local-AI job is left queued
+   instead of finishing with rules wording; older than the wait it runs and
+   falls back exactly as before, recorded as rules with `fallbackFrom`. An
+   address that is refused, or no model chosen, cannot clear by itself and
+   is not waited for. Only the worker passes the gate: `/api/cron/jobs` in
+   development behaves as D-127 left it. Ordinary jobs never wait.
+   The D-133 follow-up asked whether finishing with rules during an outage
+   was a bug: it was not — the run is recorded as rules with the outage's
+   code and never as the model's — but with a CPU worker apart from the GPU
+   it would have made every run during a GPU restart a rules run.
+5. **The worker runs apart from the GPU** (`deploy/worker-stack.compose.yml`
+   for the worker and a private SearXNG, `deploy/gpu-stack.compose.yml` for
+   Ollama). A GPU that is off must not stop email, order expiry or publish
+   dates. Ollama is reached over a private network (its port bound to the
+   overlay address only) or through an optional Caddy gateway that answers
+   only `/api/tags` and `/api/chat`, only with the bearer token, and refuses
+   everything when no token of 32+ characters is set.
+6. **A provided document is not sent towards a private model from a web
+   request.** With `JOB_RUNNER=worker`, `provideDocument` outside the worker
+   reads with the structured readers only and logs
+   `pkb.extraction_not_in_web_request` (a hosted extraction provider is still
+   asked). Moving that reading into a job needs a new job kind, re-reading the
+   stored text without its original HTML, and deduplicating evidence against
+   what the request already proposed: left as follow-up (BLOCKED_ARCHITECTURE
+   for this pass), not improvised.
+7. **Media stays apart even in a shared store.** `MEDIA_BLOB_PREFIX`
+   (default `products`) is the only folder a Blob provider claims, reads,
+   sweeps or deletes in; `delete` now refuses a key outside it. A staging
+   deployment sharing production's store with `staging/products` cannot
+   touch production's photographs.
+8. **Refusals no longer name the host.** `localServiceUrl`'s reasons reach
+   the health report, which carries no address; they now say "the address".
+9. **`npm run staging:check`** (`lib/staging/*`): one role's settings
+   (`--role web|worker`, `--env-file`) as READY / WARNING / MISSING, then
+   read-only live checks (database identity, TLS, migrations, session lock,
+   SMTP login, one SearXNG query, Ollama's model list). Never prints a value.
+10. **Container health is liveness only.** `WORKER_ALIVE_FILE` is touched on
+    every pass of the loop; `scripts/jobs/worker-alive.mjs` checks its age.
+    It never queries the database, so a database outage does not get the
+    worker restarted for nothing. The image runs under tini so the browser's
+    processes are reaped.
+
+**Not changed.** The job queue, claiming, retries, D-127's codes, safeFetch,
+robots, the renderer's restrictions, the outbox's schedule, payment and
+shipping (mock), the Vercel project's settings.
+
+**Not verified.** No managed database, staging Blob store, SMTP account,
+GPU, Docker host or Sentry project exists; see docs/STAGING.md, "External
+actions".

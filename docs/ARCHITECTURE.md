@@ -243,6 +243,15 @@ worker hands cache invalidations to `/api/cron/revalidate`, and reports what
 it can reach for `lib/health.ts` and the setup panel. docs/STAGING.md has the
 topology.
 
+**Topology (D-134).** The worker runs on an always-on CPU host beside a
+private SearXNG; Ollama runs on a GPU host that may be stopped, reached over a
+private network. While the model is down the worker leaves local-AI jobs
+queued for up to `LOCAL_AI_SERVICE_WAIT_MINUTES`, then falls back to rules as
+before; everything else keeps running. `EXPECTED_DATABASE_NAME` and
+`DATABASE_CONNECTION_MODE` say which database and what kind of connection
+each process has, and `npm run staging:check` checks a configuration before
+it is deployed (docs/STAGING.md).
+
 `lib/providers/notification/` has two implementations: the mock, and
 `SmtpNotificationProvider` for real email (D-132). The outbox in
 `lib/notifications/outbox.ts` is the only caller of either.

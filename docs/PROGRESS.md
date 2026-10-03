@@ -4932,3 +4932,81 @@ Verified on Node 24.20.0:
   here. Check it by hand in the Vercel dashboard.
 - `[!]` The real-PostgreSQL concurrency suites were not rerun; nothing they
   cover changed.
+
+## Staging readiness (2026-10-03, D-134)
+
+Started at `fc329eb` (GitHub CI green; Vercel preview Ready). Payment and
+shipping untouched, still mock. All verification on Node 22.23.3 (the
+portable build under `%TEMP%\manifest-node22`; the installed Node 24 and
+PATH untouched).
+
+### Code
+
+- `[x]` `EXPECTED_DATABASE_NAME`: migrations and the worker refuse another
+  database before writing (`db/identity.ts`).
+- `[x]` `DATABASE_CONNECTION_MODE`; a remote address without Neon's
+  `-pooler` is `unknown`, not assumed direct (`db/connection.ts`).
+- `[x]` Session-lock test (`db/session-probe.ts`); worker start-up check
+  (`lib/jobs/worker-database.ts`); read-only migration status.
+- `[x]` Worker lane waits for the model's service
+  (`LOCAL_AI_SERVICE_WAIT_MINUTES`, 30), then falls back as before.
+- `[x]` A provided document is not sent towards a private model from a web
+  request under `JOB_RUNNER=worker`.
+- `[x]` `MEDIA_BLOB_PREFIX`; Blob `delete` refuses keys outside it.
+- `[x]` Refusal reasons no longer name the host (they reached health).
+- `[x]` `npm run staging:check`; `WORKER_ALIVE_FILE` and
+  `scripts/jobs/worker-alive.mjs`.
+- `[x]` `deploy/`: worker image under tini with a liveness HEALTHCHECK;
+  `worker-stack.compose.yml` (CPU worker + private SearXNG, bounded);
+  `gpu-stack.compose.yml` (Ollama bound to a private address; optional Caddy
+  gateway: `/api/tags`, `/api/chat`, bearer token only).
+- `[x]` Docs: STAGING.md rewritten (Part 1), D-134, SECURITY, TESTING,
+  OBSERVABILITY, ARCHITECTURE, `.env.example`.
+- `[x]` Found while verifying: the worker's `sessionLock` start-up field was
+  `[redacted]` in its own log (a key containing "session" is redacted); now
+  `lockTest`.
+
+### Decided, not changed
+
+- SeoPulse during an outage finishing with rules wording was not a
+  correctness bug — recorded as rules with `fallbackFrom`, never as the
+  model's. The worker now waits instead (D-134 point 4).
+- `[!]` Moving a provided document's model reading into a job:
+  BLOCKED_ARCHITECTURE for this pass (D-134 point 6).
+- `[!]` `/api/cron/maintenance` still runs in the web application under
+  `JOB_RUNNER=worker`; idempotent and needs no private service.
+
+### External capability (read only, no value printed)
+
+| System | State |
+|---|---|
+| Managed PostgreSQL for staging | NOT_CONFIGURED. Vercel holds one Neon `DATABASE_URL` / `DATABASE_URL_UNPOOLED` entry (Sensitive, unreadable) shared by Production and Preview. |
+| Vercel | AVAILABLE (stored CLI login; read only). Deployment Protection `all_except_custom_domains`; one bypass entry exists. |
+| Vercel Blob | Token shared by Production, Preview and Development: not a staging store. Not used. |
+| SMTP | NOT_CONFIGURED |
+| Sentry | NOT_CONFIGURED (clean disabled state: `errorTracking: false`) |
+| SearXNG / Ollama remote | NOT_CONFIGURED (local SearXNG source install and local Ollama exist) |
+| Cloudflare | NOT_CONFIGURED (WARP client only; no CLI or API token) |
+| Docker, GitHub CLI | Not installed (GitHub read through its public API) |
+
+`[!]` **Finding:** the Vercel build logs show preview builds of this branch
+applying migrations 0023–0045 to the database those shared variables name
+(0045 by `fc329eb`), while the production deployment runs `6b22ba9` (code at
+migration 0022). STAGING.md, External action 1.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `git diff --check`, typecheck, lint | `[x]` clean |
+| New and changed suites | `[x]` `staging-readiness` 24, `session-lock-concurrency` 11 (real PostgreSQL), `local-ai-runtime` 30, `local-pipeline` +3, `worker` +1, plus remote-services, db-connection, local-health, notification-smtp, notifications, migrations, scratch-guard: 116 |
+| Real Chromium renderer, research | `[x]` `local-browser-render` + `local-research`: 26 passed, none skipped |
+| Full Vitest (main checkout) | `[x]` 140 files, 2103 passed, 8 skipped, 0 failed, 256 s |
+| Clean worktree at `f79a3ca` (no `.env.local`, no `.next`, `npm ci`) | `[x]` `next typegen`, typecheck, lint; Vitest 140 files, 2103 passed, 8 skipped, 0 failed, 250 s; `next build` against `preorder_e2e` (no warning or error); targeted Playwright (CI's nine specs, desktop, production build on :3200) 51 passed; performance budgets all ok |
+| Disposable `manifest_staging_verify` | `[x]` `db/migrate.ts` refused it under `EXPECTED_DATABASE_NAME=manifest_staging` before writing, then applied 46 migrations when pinned to it; `staging:check --role worker`: 0 missing, 21 ready, 4 warnings (http site address, local media, Search Console, Sentry); `worker --check`: identity ok, lock test `session`; database dropped afterwards |
+| SMTP protocol | `[x]` Real adapter against a local STARTTLS capture server (throwaway self-signed certificate, nothing committed): login checked without sending; 451 retried with the same Message-ID; 550 permanent; a recipient outside the allow-list refused before connecting |
+| SearXNG | `[x]` `deploy/searxng/settings.yml` (bind and port changed for the test) loaded by the local SearXNG source build: `/healthz` 200, English JSON search 27 results; stopped afterwards |
+| Local staging simulation | `[x]` Production build + worker from the clean worktree, both on `manifest_staging_verify`, SMTP capture, SearXNG: web reads the database; `/api/cron/jobs` declines (200 skipped) and refuses without the secret (401); revalidate refuses a wrong secret (401) and unknown tags (400); the worker unpublished a scheduled product and its forwarded invalidation refreshed product pages within 2 s while a control page changed behind the cache stayed stale; outbox: 451 → retried after 1 min → sent on attempt 2; a non-allow-listed message failed permanently and counted in health; `/api/cron/health` showed the worker reporting with what it can reach and no address, secret or recipient; with Ollama and SearXNG pointed at closed ports the worker stayed up, health degraded with reasons, and the storefront, search, cart and login answered 200 |
+| Docker images, compose runtime | `[!]` BLOCKED_LOCAL_TOOLING: no Docker. YAML of both compose files and SearXNG settings parsed; nothing built or run |
+| GPU container | `[!]` BLOCKED_LOCAL_HARDWARE: GTX 1050 Ti, no NVIDIA container runtime; local Ollama not restarted, no model pulled |
+| Real cloud services | `[!]` none exists to test (External actions in STAGING.md) |

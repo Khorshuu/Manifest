@@ -1,354 +1,232 @@
 # Staging: infrastructure and validation
 
 How Manifest runs as a hosted staging environment that does not depend on
-anybody's computer, and how that environment is checked. Written for whoever
-sets up and runs staging.
+anybody's computer, and how that environment is checked. Written for the
+engineer who sets it up and runs it, without the history behind it.
 
-Part 1 is the infrastructure: what runs where, how it is configured, and what
-is still missing. Part 2 is the validation runbook that is run against it.
+Part 1 is the infrastructure: what runs where, how it is configured, how it
+is started, checked, backed up and rolled back, and what is still missing.
+Part 2 is the validation runbook run against it once it exists.
 
-**Status.** The application side is built and tested (DECISIONS.md D-132,
-D-133). No hosted staging environment exists yet: no managed database, worker
-machine, GPU, email service or staging media store has been created, because
-each needs an account only the owner can open. Everything below that needs
-one is marked **NEEDED**. `deploy/` holds templates that have not been run.
+**Status (2026-10-03).** The application side is built and tested
+(DECISIONS.md D-132, D-133, D-134). No hosted staging environment exists yet:
+no managed staging database, worker host, GPU, email account, staging media
+store or Sentry project has been created, because each needs an account,
+billing or DNS decision only the owner can make. Each is listed under
+**External actions** at the end of Part 1 with the exact next step.
+`deploy/` holds templates validated as far as this repository can without
+Docker or a GPU (PROGRESS.md says what was run).
+
+**Read this first — the current Vercel project.** Its Production and Preview
+environments share one `DATABASE_URL` / `DATABASE_URL_UNPOOLED` entry, one
+`SESSION_SECRET`, one `CRON_SECRET` and one Blob token. Preview builds run
+`vercel-build`, which migrates: the build logs show preview builds of the
+`production-readiness` branch applying migrations 0023–0045 to that shared
+database, while the production deployment runs code from migration 0022.
+Fixing this is External action 1. Nothing in this document is safe to do on
+Preview until it is fixed.
 
 ## Part 1 — Infrastructure
 
-### A. Services
+### 1. Architecture
 
 ```
-                        shoppers and staff
-                               │
-                        ┌──────▼──────┐
-                        │  Cloudflare │  DNS, TLS, caching                 PUBLIC
-                        └──────┬──────┘
-                        ┌──────▼──────┐
-                        │   Vercel    │  Next.js: storefront, admin, APIs   PUBLIC
-                        └───┬─────┬───┘
-            pooled address  │     │  Vercel Blob (media)
-                        ┌───▼─────▼───┐
-                        │  PostgreSQL │  managed, database manifest_staging PRIVATE
-                        └──────▲──────┘
-             direct address    │
-   ┌───────────────────────────┴────────────────────────────────────────┐
-   │ research machine (NVIDIA GPU) — nothing listens on the internet     │
-   │                                                                     │
-   │   ┌────────────┐   http://searxng:8080    ┌──────────┐              │
-   │   │   worker   ├─────────────────────────▶│ SearXNG  │──▶ search    │
-   │   │ npm run    │                          └──────────┘    engines   │
-   │   │  worker    │   http://ollama:11434    ┌──────────┐              │
-   │   │            ├─────────────────────────▶│  Ollama  │ qwen2.5:7b   │
-   │   │ job queue  │                          └──────────┘              │
-   │   │ crawler    │                                                    │
-   │   │ Chromium   │──▶ manufacturer pages (safeFetch, robots.txt)      │
-   │   └─────┬──────┘                                                    │
-   └─────────┼───────────────────────────────────────────────────────────┘
-             ├──▶ email service (SMTP, TLS)
-             └──▶ Vercel: POST /api/cron/revalidate (cache tags)
+                         shoppers and staff
+                                 │
+                          ┌──────▼──────┐
+                          │  Cloudflare │  DNS, TLS                         PUBLIC
+                          └──────┬──────┘
+                          ┌──────▼──────┐
+                          │   Vercel    │  Next.js: storefront, admin, APIs PUBLIC
+                          └──┬───────┬──┘
+              pooled address │       │ Vercel Blob (staging store)
+                          ┌──▼───────▼──┐
+                          │ PostgreSQL  │  managed; database manifest_staging
+                          └──────▲──────┘
+               direct address    │
+   ┌─────────────────────────────┴─────────────────────────┐
+   │ CPU host, always on — publishes no port                │
+   │  ┌──────────┐  http://searxng:8080  ┌─────────┐        │
+   │  │  worker  ├──────────────────────▶│ SearXNG │──▶ web search engines
+   │  │ jobs,    │                       └─────────┘        │
+   │  │ email,   │──▶ manufacturer pages (safeFetch, robots, Chromium)
+   │  │ crawler  │──▶ SMTP service (TLS)                    │
+   │  │          │──▶ Vercel: POST /api/cron/revalidate     │
+   │  └────┬─────┘                                          │
+   └───────┼────────────────────────────────────────────────┘
+           │ private network (WireGuard / Tailscale / provider VPC)
+           │ or https + bearer token through the gateway
+   ┌───────▼──────────────────────────┐
+   │ GPU host — may be stopped         │
+   │  Ollama, qwen2.5:7b, one NVIDIA   │
+   │  GPU; port bound to the private   │
+   │  address only                     │
+   └──────────────────────────────────┘
 ```
 
-| Service | What it is | Runs |
-|---|---|---|
-| Web application | The Next.js app: storefront, admin, APIs | Vercel |
-| Database | Managed PostgreSQL, one database per environment | Neon (or any managed Postgres) |
-| Worker | `npm run worker`: the job queue, scheduled work, message delivery, crawler, browser renderer | The research machine |
-| SearXNG | Web search for product research | The research machine, private |
-| Ollama | The model for SeoPulse and prose extraction | The research machine, on its GPU, private |
-| Media | Product photographs | Vercel Blob, one store per environment |
-| Email | Transactional email over SMTP | Any transactional email service |
-| Cloudflare | DNS and TLS in front of Vercel | Cloudflare |
+| Service | What it is | Runs on | Template |
+|---|---|---|---|
+| Web application | Next.js: storefront, admin, APIs | Vercel | — |
+| Database | Managed PostgreSQL, one database per environment | Neon or any managed Postgres | — |
+| Worker | `npm run worker`: job queue, scheduled work, email delivery, crawler, browser renderer | An always-on CPU host (2 vCPU, 4 GB is enough) | `deploy/worker.Dockerfile`, `deploy/worker-stack.compose.yml` |
+| SearXNG | Web search for product research | Beside the worker, private | `deploy/worker-stack.compose.yml`, `deploy/searxng/settings.yml` |
+| Ollama | The model for SeoPulse and prose extraction | A GPU host, private | `deploy/gpu-stack.compose.yml` |
+| Media | Product photographs | Vercel Blob, one store per environment | — |
+| Email | Transactional email over SMTP | Any transactional email service | — |
+| Cloudflare | DNS and TLS in front of Vercel | Cloudflare | — |
 
-With the owner's computer off, every one of these keeps running: nothing in
-the table is on it.
+**Why the worker is not on the GPU host** (D-134). The worker also delivers
+email, expires unpaid orders, applies publish dates, prunes and sweeps. A GPU
+that is stopped, restarting or switched on only for work must not stop any of
+that. While Ollama is not answering, the worker leaves SeoPulse runs queued
+for up to `LOCAL_AI_SERVICE_WAIT_MINUTES` (30) rather than finishing them
+with the rules generator's wording; everything else runs as usual. Putting
+all three on one GPU host also works (it is the same images), at the price of
+that coupling.
 
-### B. Environment variables
+With the owner's computer off, everything above keeps running: nothing in the
+table is on it.
 
-`.env.example` lists every name, grouped as APP / DATABASE, BACKGROUND JOBS,
-MEDIA, NOTIFICATIONS, RESEARCH, SEARXNG, OLLAMA, SEO PULSE, SEARCH CONSOLE,
-PAYMENT, SHIPPING, SIGN-IN and OBSERVABILITY. Values live only in the hosts'
-own settings — Vercel's for the web application, the worker machine's
-`.env.staging` (never committed) for the worker. Nothing secret goes in Git,
-`.env.example`, this document or a test.
-
-What staging sets, and where:
-
-| Variable | Web application (Vercel) | Worker |
-|---|---|---|
-| `DATABASE_URL` | **pooled** address of `manifest_staging` | **direct** address of `manifest_staging` |
-| `DATABASE_URL_UNPOOLED` | direct address (migrations at build) | — |
-| `SESSION_SECRET` | new random value | same value |
-| `CRON_SECRET` | new random value | same value |
-| `SITE_URL` | the staging address | same value |
-| `JOB_RUNNER` | `worker` | `worker` |
-| `NOTIFICATION_PROVIDER`, `SMTP_*`, `EMAIL_FROM*` | set | same values |
-| `NOTIFICATION_RECIPIENT_ALLOWLIST` | the testers' addresses | same value |
-| `MEDIA_PROVIDER=blob`, `BLOB_READ_WRITE_TOKEN` | the staging store's | same values |
-| `PRODUCT_RESEARCH_PROVIDER=local` | set | set |
-| `PRODUCT_EXTRACTION_PROVIDER=ollama` | set | set |
-| `SEO_PULSE_AI_PROVIDER=ollama`, `OLLAMA_MODEL` | set | set |
-| `OLLAMA_BASE_URL`, `OLLAMA_ALLOW_REMOTE` | — | `http://ollama:11434`, `true` |
-| `SEARXNG_BASE_URL`, `SEARXNG_ALLOW_REMOTE` | — | `http://searxng:8080`, `true` |
-| `LOCAL_BROWSER_RENDERER` | — | `playwright` |
-| `LOCAL_AI_CONCURRENCY` | — | `1` |
-| `PAYMENT_PROVIDER`, `SHIPPING_PROVIDER` | `mock` | `mock` |
-| `SENTRY_DSN`, `SENTRY_ENVIRONMENT=staging` | when there is a Sentry project | same |
-| `VERCEL_AUTOMATION_BYPASS_SECRET` | — | only if Deployment Protection is on |
-
-The provider names are set on the web application as well as the worker
-because the web application decides, when staff start a run, whether it must
-be queued. It never calls the services themselves, so it needs none of their
-addresses.
-
-### C. Public and private
+### 2. Public and private
 
 | | Reachable from the internet | Protected by |
 |---|---|---|
-| Web application | Yes | TLS; sessions; `CRON_SECRET` on `/api/cron/*` |
-| Database | Only with its credentials | TLS, the provider's password |
+| Web application | Yes | TLS; sessions; `CRON_SECRET` on `/api/cron/*`; Vercel Deployment Protection on previews |
+| Database | Only with its credentials | TLS (`sslmode=require`), the provider's password |
 | Worker | **No.** It serves no HTTP and listens on nothing | — |
-| SearXNG | **No** | No published port; reachable only from the worker |
-| Ollama | **No** | No published port; reachable only from the worker |
-| Media | Yes, read-only (photographs are public) | Unguessable names; a write token |
-
-Ollama has no authentication and must never have a port open to the internet.
-Three arrangements are supported, in order of preference:
-
-1. **Same private network as the worker** (the `deploy/` template): a service
-   name, a private IP or a name under `.internal`, over plain http.
-2. **A private overlay network** between two machines (WireGuard and the
-   like): a private IP, over plain http inside the tunnel.
-3. **Across the public internet**, only when neither is possible: `https://`
-   to a reverse proxy that requires a bearer token, with `OLLAMA_AUTH_TOKEN`
-   (and `SEARXNG_AUTH_TOKEN`) set on the worker.
+| SearXNG | **No** | No published port; reachable only from the worker on the compose network |
+| Ollama | **No** | Port bound to the private-network address only, or the https gateway with a bearer token |
+| Media | Yes, read-only (photographs are public) | Unguessable names; a write token held server-side only |
 
 The application enforces what it can (`lib/providers/local/config.ts`): a
-non-loopback address is refused unless `OLLAMA_ALLOW_REMOTE` /
-`SEARXNG_ALLOW_REMOTE` is true, so changing the address alone never sends a
-product document anywhere; and a remote address must be on a private network
-or use https, so documents and the token never cross the internet in the
-clear. It cannot check that a firewall is closed. That is the operator's job.
+non-loopback Ollama or SearXNG address is refused unless
+`OLLAMA_ALLOW_REMOTE` / `SEARXNG_ALLOW_REMOTE` is true, so changing the
+address alone never sends a product document anywhere; a remote address must
+be on a private network (a private IP, a single-label service name, a name
+under `.internal` or `.local`) or use https; credentials in an address are
+refused; redirects are not followed; answers are size- and time-bounded. It
+cannot check a firewall. That is the operator's job.
 
-### D. Database: direct and pooled
+SearXNG's rate limiter is off because its one caller is known — which is
+exactly why it must never be published. Research itself is unchanged by
+where SearXNG runs: English-only results, bounded counts, and every address
+still fetched through `safeFetch`, checked against robots.txt, matched against
+the product and proposed to a person.
 
-Staging has its own database, `manifest_staging`, on a managed server. It is
-never the development database, `preorder_e2e`, a scale-test database or
-production. The destructive scripts refuse it by name (`db/scratch-guard.ts`).
+### 3. Database: pooled and direct
 
-A managed Postgres gives two addresses. Which process uses which matters:
+Staging has its own database, `manifest_staging`. It is never the development
+database (`preorder_utf8`), the end-to-end database (`preorder_e2e`), a
+scale-test database (`manifest_scale_*`) or production's.
 
-| Process | Address | Why |
+| Process | `DATABASE_URL` | Why |
 |---|---|---|
-| Web application | **Pooled** | Serverless starts many instances; a transaction pooler absorbs them (docs/DEPLOYMENT.md). |
-| Migrations (`vercel-build`) | **Direct** (`DATABASE_URL_UNPOOLED`) | The migration lock is a session lock; `db/migrate.ts` refuses a pooled address. |
-| Worker | **Direct** (as its `DATABASE_URL`) | The local-AI slot is a session advisory lock held for a whole generation. |
+| Web application | **Pooled** | Serverless starts many instances; a transaction pooler absorbs them (DEPLOYMENT.md). |
+| Migrations (`vercel-build`) | `DATABASE_URL_UNPOOLED` = **direct** | The migration lock is a session lock. |
+| Worker | **Direct** (or a session-mode pooler) | The local-AI slot is a session advisory lock held for a whole generation. |
 
-A session advisory lock belongs to one server connection. A transaction pooler
-hands each statement to whichever connection is free, so the lock and its
-unlock can land on different ones: a slot nobody holds stays taken, or two
-generations both believe they hold it and share one graphics card. So the
-slot refuses a pooled address (`LOCAL_AI_SLOT_NEEDS_DIRECT_CONNECTION`), and
-the worker refuses to start with one while local AI is configured. Everything
-else the application locks with is transaction-scoped and works through a
-pooler.
+Only Neon names its pooler (`-pooler` in the host). For any other provider,
+say what each address is with **`DATABASE_CONNECTION_MODE`** = `direct`,
+`session` or `transaction` (D-134): set `transaction` on the web application
+if its pooled address has no `-pooler`, and `direct` on the worker once the
+provider's documentation confirms it. A declaration never overrides a
+`-pooler` host.
 
-The worker is one long-lived process holding at most 10 connections, plus one
-per running generation. That is well inside a direct connection limit.
+The worker does not take an address's word for it. At start, with local AI
+configured, it holds one connection, takes an advisory lock, checks that a
+second connection is refused it and that the release comes from the same
+session (`db/session-probe.ts`). A failure proves a transaction pooler and
+the worker refuses to start. A pass is evidence, not proof — an idle pooler
+can pass — so an undeclared address passes with a warning.
 
-### E. Web command
+**`EXPECTED_DATABASE_NAME=manifest_staging`** on the web application and the
+worker makes migrations and the worker ask `current_database()` before
+writing anything, and stop when it is another database.
 
-Vercel builds with `npm run vercel-build` (`tsx db/migrate.ts && next build`)
-and serves the result. Nothing is typed. On any other host: `npm run build`,
-then `npm run start`.
+### 4. Migrations
 
-### F. Worker command
+`vercel-build` runs `tsx db/migrate.ts && next build`: every deployment
+applies pending migrations through `DATABASE_URL_UNPOOLED` before building,
+each file once, in a transaction, recorded with its checksum in
+`schema_migrations`. The latest is `0045_notification_retry_backoff.sql`.
 
-```
-npm ci --include=dev
-npx playwright-core install --with-deps chromium
-npm run worker
-```
-
-The worker is the job trigger as a process of its own: the same registry,
-runner, claiming (`FOR UPDATE SKIP LOCKED`), heartbeats, stale recovery,
-retries and local-AI lane as `/api/cron/jobs`, started on an interval instead
-of by a request. It runs everything in the queue: SeoPulse, product
-preparation, knowledge-base enrichment, the notification outbox, and the
-scheduled jobs (unpaid-order expiry, publish dates, pruning, the media sweep).
-There is no separate scheduler process.
-
-With `JOB_RUNNER=worker`, `/api/cron/jobs` on the web application answers 200
-and claims nothing, so a leftover cron cannot claim a job that needs services
-only the worker can reach. Jobs are claimed with SKIP LOCKED either way: a
-mistake here can make a job wait or fail, never run twice. A second worker is
-safe for the same reason, though one is enough.
-
-`npm run worker -- --check` prints what the worker can reach and exits;
-`-- --once` runs a single tick. Settings: `WORKER_INTERVAL_SECONDS` (15),
-`WORKER_MAX_CONCURRENT_TICKS` (3), `WORKER_SHUTDOWN_GRACE_SECONDS` (25).
-
-What the worker changes that shoppers see — a publish date arriving, a
-prepared listing — is in the database at once, but the web application caches
-catalogue pages. The worker hands the cache tags to
-`POST /api/cron/revalidate` (with `CRON_SECRET`); without `SITE_URL` or
-`WORKER_WEB_URL` it says so at start, and pages catch up when their cache
-lifetime lapses (minutes).
-
-### G. SearXNG
-
-A private SearXNG with JSON output enabled (`deploy/searxng/settings.yml`),
-reachable only from the worker. Its rate limiter is off because its one
-caller is known; that is exactly why it must not be published. Set
-`SEARXNG_BASE_URL` and `SEARXNG_ALLOW_REMOTE=true` on the worker.
-
-Nothing about research changes with where SearXNG runs: English-only results,
-bounded result counts, and every address still fetched through `safeFetch`,
-checked against robots.txt, matched against the product and proposed to a
-person. Development keeps `http://127.0.0.1:8080` with no flag.
-
-### H. GPU and Ollama
-
-- **Machine:** one NVIDIA GPU. 24 GB of video memory is the recommended class
-  for headroom; `qwen2.5:7b` needs about 6 GB and fits a 12–16 GB card. The
-  application does not know or care which card it is.
-- **Model:** `OLLAMA_MODEL=qwen2.5:7b` to start. The `deploy/` template pulls
-  it once and keeps it on a volume.
-- **Concurrency:** `LOCAL_AI_CONCURRENCY=1`, and Ollama's own
-  `OLLAMA_NUM_PARALLEL=1`. Raise it only after benchmarking that card with two
-  generations at once; a faster GPU is not by itself a reason.
-- **Timeout:** `OLLAMA_TIMEOUT_MS` defaults to 240000. The job's stale window
-  and heartbeat are derived from it, so change the one value only.
-
-**When the GPU is not there.** Nothing a shopper touches calls Ollama: the
-storefront, accounts, orders and search do not depend on it. Work that needs
-it records why it could not have it, with D-127's codes —
-`OLLAMA_UNAVAILABLE`, `OLLAMA_MODEL_NOT_FOUND`, `OLLAMA_GENERATION_TIMEOUT`,
-`OLLAMA_QUEUE_WAIT_TIMEOUT` and the rest:
-
-- A SeoPulse run finishes with the rules generator's wording, recorded as
-  rules with the failure it fell back from. It is never stored as the model's.
-- Prose extraction reports that the page's sentences were not read; the
-  structured readers' findings stand.
-- A job that fails outright is retried with backoff, then left dead where the
-  owner can see and retry it.
-
-A partial or malformed answer is never kept.
-
-**On-demand GPUs.** The job queue already works the way a GPU that is switched
-on for the work needs: a run is queued by the web application, waits as long
-as it must, and is processed when a worker with a model is running. Three
-things do not fit that, and are left as follow-up rather than redesigned:
-
-1. Work does not wait for a GPU to start. A SeoPulse run claimed while
-   Ollama is unreachable finishes at once with rules wording (and says so);
-   staff regenerate it when the model is back. The way round it without a
-   code change is to run the worker on the GPU machine itself, as the
-   template does: when the machine is off there is no worker, runs stay
-   queued, and they are processed when it starts.
-2. A document staff paste or upload is read inside the web request, not by a
-   job. The web application cannot reach Ollama, so in a hosted environment
-   that document is read by the structured readers only and its sentences are
-   reported as not read by the model. Pages found by research are read by the
-   worker and are not affected. Moving this read to a job is follow-up.
-3. A "serverless GPU" endpoint that is not Ollama's API (a provider's own
-   request/response format) needs its own provider beside `ollama`. None is
-   written.
-
-### I. Notifications
-
-Email goes out through one adapter, SMTP (`NOTIFICATION_PROVIDER=smtp`),
-behind the existing provider boundary and outbox. SMTP is what every
-transactional email service speaks, so choosing one — or changing it — is a
-change of settings and of no code.
-
-**NEEDED:** an account with a transactional email service, a sending domain
-verified with it (SPF and DKIM records in Cloudflare DNS), and its SMTP host,
-port, user and password. Then set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
-`SMTP_PASSWORD`, `EMAIL_FROM`, and on staging
-`NOTIFICATION_RECIPIENT_ALLOWLIST`.
-
-How a message is kept safe:
-
-- It is written to the outbox in the same transaction as the change that
-  caused it, with a dedupe key, so an event is told once.
-- Delivery claims each row before sending, so two drains never send one
-  message twice.
-- A failure is recorded on the row and retried after 1, 2, 4, 8, 16, 32 and
-  60 minutes — eight attempts over about two hours. A provider that is down
-  for an afternoon loses nothing that was queued in its first two hours; after
-  that the row is `failed` for good, counted in the health check and shown on
-  the admin Notifications screen.
-- A failure that cannot clear — no such mailbox, a recipient outside the
-  staging allow-list — stops at once.
-- Messages are plain text, to one validated recipient, over TLS. Errors are
-  recorded by kind; no password, user or host reaches a row or a log.
-- SMTP has no idempotency key. A crash between the provider accepting a
-  message and the row being marked sent can deliver it twice; both copies
-  carry the same Message-ID.
-
-**SMS** is a channel the outbox models and no provider carries. An SMS row
-fails with "No SMS provider is configured". Adding one is a second adapter
-behind the same interface and a way to route by channel; it is follow-up.
-
-Nothing queues an SMS today, and the only messages that exist are about
-orders, payments, refunds and the waitlist. Account and security email
-(password reset, sign-in alerts) is not written.
-
-### J. Media
-
-Vercel Blob is the implemented object store (`MEDIA_PROVIDER=blob`).
-Cloudflare R2 is named in D-001 and has no provider. Staging gets its **own
-Blob store**, linked to the staging Vercel project, so its token cannot reach
-another environment's files. **NEEDED:** create that store. Nothing is copied
-into it: staging starts with the seed's images or whatever staff upload there.
-
-Local uploads (`.uploads/`), the end-to-end suite's files, staging and
-production never share storage: the first two are on a developer's disk, the
-last two are separate stores. The worker has the staging token because it runs
-the hourly sweep of unreferenced files.
-
-### K. Health
-
-| Check | Who | What it tells |
-|---|---|---|
-| `GET /` | Anyone | The web application is serving. Point uptime monitors here. |
-| `GET /api/cron/health` with `Authorization: Bearer <CRON_SECRET>` | A monitor | Everything below, as JSON. 503 only when the database is unreachable. |
-| `GET /api/admin/health` | Signed-in staff | The same report. |
-| Admin → Background work | Staff | Every job kind's last run, failures, dead jobs, retry. |
-| Admin → Notifications | Staff | The outbox and its failures. |
-| `npm run worker -- --check` | On the worker | The same report, from where the private services are reachable. |
-
-The report covers the database (reachable, latency), the job queue (queued,
-due, oldest waiting, running, stale, dead, local-AI jobs waiting), whoever
-drains it (last run, late or not), the worker (reporting or silent), the
-notification provider (it connects and logs in; it sends nothing) and outbox,
-SearXNG, Ollama and whether the configured model is installed, the browser
-renderer, and which media, payment and shipping providers are in use. `status`
-is `ok`, `degraded` (with `problems` in sentences) or `down`.
-
-It carries states and counts only: no address, key, prompt or customer data.
-There is no public dashboard.
-
-SearXNG and Ollama are private to the worker, so the web application cannot
-ask them. The worker checks about once a minute and records the answer; the
-web application reports that, and says "Worker not reporting" when it is more
-than five minutes old.
-
-### L. Startup and restart
-
-Nobody types a start command after a reboot.
-
-| Service | Started and restarted by |
-|---|---|
-| Web application | Vercel |
-| Database | The provider |
-| Worker, SearXNG, Ollama | The container runtime's restart policy (`restart: unless-stopped` in `deploy/research-stack.compose.yml`) with the Docker service enabled at boot — or a systemd unit each, or the platform's own supervisor |
+First time, or by hand, from any machine with the direct address:
 
 ```
-docker compose -f deploy/research-stack.compose.yml --env-file .env.staging up -d
+npm run staging:check -- --role web --env-file .env.staging.web   # read only: identity, TLS, ledger, lock
+DATABASE_URL=<direct address> DATABASE_URL_UNPOOLED= \
+EXPECTED_DATABASE_NAME=manifest_staging npm run db:migrate:deploy
+npm run staging:check -- --role web --env-file .env.staging.web   # "Up to date: 46 applied, latest 0045_…"
 ```
 
-Without containers, the worker as a systemd unit:
+Never replay SQL files by hand, never run `npm run db:setup` or `db:seed`
+against staging (they seed and truncate), and never seed customers or
+orders there.
+
+### 5. Environment variables
+
+Values live only in the hosts' own settings: Vercel's for the web
+application (Preview, or a custom `staging` environment — never
+Production), the worker host's `.env.staging` for the worker (never
+committed; `.gitignore` covers `.env*`), the GPU host's `.env.gpu`. Nothing
+secret goes in Git, `.env.example`, this document or a test. `.env.example`
+lists every name.
+
+| Variable | Web (Vercel Preview/staging) | Worker | Purpose | Secret | Connection |
+|---|---|---|---|---|---|
+| `DATABASE_URL` | yes | yes | Database | yes | web: **pooled**; worker: **direct** |
+| `DATABASE_URL_UNPOOLED` | yes | — | Migrations at build | yes | **direct** |
+| `DATABASE_CONNECTION_MODE` | `transaction` unless Neon | `direct` / `session` | What `DATABASE_URL` is | no | — |
+| `EXPECTED_DATABASE_NAME` | `manifest_staging` | `manifest_staging` | Refuse another database | no | — |
+| `SESSION_SECRET` | yes | same value | Session signing, 32+ chars | yes | — |
+| `CRON_SECRET` | yes | same value | `/api/cron/*`, revalidation | yes | — |
+| `SITE_URL` | staging address | same | Canonical links; worker's revalidation target | no | https |
+| `WORKER_WEB_URL` | — | optional | Revalidation target if not `SITE_URL` | no | https |
+| `VERCEL_AUTOMATION_BYPASS_SECRET` | — | if Deployment Protection is on | Worker → protected deployment | yes | — |
+| `JOB_RUNNER` | `worker` | `worker` | Web trigger declines; worker runs the queue | no | — |
+| `WORKER_ALIVE_FILE` | — | set by the image | Container liveness | no | — |
+| `MEDIA_PROVIDER` | `blob` | `blob` | Media store | no | — |
+| `BLOB_READ_WRITE_TOKEN` | staging store's | same | Media writes and sweep | yes | — |
+| `MEDIA_BLOB_PREFIX` | `staging/products` if the store is shared | same | Folder this environment owns | no | — |
+| `NOTIFICATION_PROVIDER` | `smtp` | `smtp` | Real email | no | — |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE` | yes | same | Email service endpoint | no | TLS required |
+| `SMTP_USER`, `SMTP_PASSWORD` | yes | same | Email service login | yes | — |
+| `EMAIL_FROM`, `EMAIL_FROM_NAME`, `EMAIL_REPLY_TO` | yes | same | Sender on a verified domain | no | — |
+| `NOTIFICATION_RECIPIENT_ALLOWLIST` | testers | same | Staging writes only to these | no (but personal data) | — |
+| `PRODUCT_RESEARCH_PROVIDER` | `local` | `local` | Research discovery | no | — |
+| `PRODUCT_EXTRACTION_PROVIDER` | `ollama` | `ollama` | Prose extraction | no | — |
+| `SEO_PULSE_AI_PROVIDER`, `OLLAMA_MODEL` | `ollama`, `qwen2.5:7b` | same | SeoPulse model | no | — |
+| `OLLAMA_BASE_URL`, `OLLAMA_ALLOW_REMOTE` | **unset** | GPU's private address (or gateway https), `true` | Model service | no | private http or https |
+| `OLLAMA_AUTH_TOKEN` | — | only with the gateway | Gateway bearer token | yes | https only |
+| `SEARXNG_BASE_URL`, `SEARXNG_ALLOW_REMOTE` | **unset** | `http://searxng:8080`, `true` (compose sets them) | Search service | no | private |
+| `SEARXNG_SECRET` | — | worker host's env file (compose) | SearXNG's own key | yes | — |
+| `LOCAL_BROWSER_RENDERER` | — | `playwright` | JavaScript-only pages | no | — |
+| `LOCAL_AI_CONCURRENCY` | — | `1` | Generations at once | no | — |
+| `LOCAL_AI_SERVICE_WAIT_MINUTES` | — | `30` | How long AI jobs wait for a GPU | no | — |
+| `PAYMENT_PROVIDER`, `SHIPPING_PROVIDER` | `mock` | `mock` | **Mock** | no | — |
+| `SENTRY_DSN`, `SENTRY_ENVIRONMENT=staging` | optional | same | Error tracking | DSN: low | https |
+
+The provider names are set on the web application too because it decides,
+when staff start a run, whether the run must be queued. It never calls
+Ollama or SearXNG, so it gets none of their addresses.
+
+### 6. Worker deployment
+
+Build from the repository root and run on the CPU host:
+
+```
+docker compose -f deploy/worker-stack.compose.yml --env-file .env.staging up -d --build
+docker compose -f deploy/worker-stack.compose.yml exec worker \
+  node node_modules/tsx/dist/cli.mjs scripts/jobs/worker.ts --check
+```
+
+The image (`deploy/worker.Dockerfile`): Node 22, `npm ci` from the lockfile,
+Chromium with its libraries for the renderer, tini as PID 1, runs as `node`,
+no secret and no `.env` file inside (`.dockerignore`). The start command is
+`npm run worker` in effect (`node node_modules/tsx/dist/cli.mjs
+scripts/jobs/worker.ts`). Without containers: `npm ci --include=dev`,
+`npx playwright-core install --with-deps chromium`, `npm run worker` under
+systemd:
 
 ```
 [Service]
@@ -361,69 +239,330 @@ TimeoutStopSec=40
 User=manifest
 ```
 
-Stopping the worker (SIGTERM) lets work in hand finish for
-`WORKER_SHUTDOWN_GRACE_SECONDS`. A job cut off, or lost in a crash, is still
-`running` in the table; stale recovery returns it to the queue, and a research
-or SeoPulse run resumes under the same run id.
+What it does: every 15 s (`WORKER_INTERVAL_SECONDS`) a tick schedules
+recurring work, recovers stale jobs, claims due jobs with
+`FOR UPDATE SKIP LOCKED`, runs them with heartbeats, retries with backoff and
+records the scheduler heartbeat; up to 3 ticks overlap
+(`WORKER_MAX_CONCURRENT_TICKS`) so a slow research job never holds up email.
+One local-AI job at a time runs in its own lane holding the local-AI slot.
+About once a minute it records what it can reach (SearXNG, Ollama and the
+model, the renderer) for the health report. A second worker is safe; one is
+enough.
 
-`npm run db:server`, `npm run dev` and the Windows instructions in
-LOCAL_AI_SETUP.md are for development only.
+`npm run worker -- --check` prints the full health report plus its own
+startup checks (database identity, mode, session lock) and exits 1 on a
+problem. `-- --once` runs one tick.
 
-### M. Backups
+### 7. Health and liveness
 
-**NEEDED, in the database provider's console** (docs/DEPLOYMENT.md has the
-checks): point-in-time restore switched on with a window the business accepts,
-and one restore rehearsed into a branch. The database is the only state worth
-backing up:
-
-- Media is in the object store, which keeps its own copies; the database holds
-  the references.
-- The worker, SearXNG and the web application hold no state.
-- Ollama's model volume is a download, not data: losing it costs a re-pull.
-
-### N. What is still mock
-
-| | Staging | Notes |
+| Check | Who | What it tells |
 |---|---|---|
-| Payment | `mock` | No real gateway is implemented. No money moves. |
-| Shipping | `mock` | No courier is implemented. Nothing is booked. |
-| SMS | none | See I. |
-| Email | real once `smtp` is configured | `mock` until then. |
+| `GET /` | Anyone; point uptime monitors here | The web application is serving |
+| `GET /api/cron/health` + `Authorization: Bearer <CRON_SECRET>` | A monitor | The report below as JSON; 503 only when the database is unreachable |
+| `GET /api/admin/health` | Signed-in staff | The same report |
+| Admin → Background work / Notifications | Staff | Each job kind's last run, dead jobs (retry), the outbox |
+| `npm run worker -- --check` | On the worker | The report from where the private services are reachable |
+| Container `HEALTHCHECK` (`scripts/jobs/worker-alive.mjs`) | Docker | The worker's loop is turning (liveness only; no database, no network) |
 
-### Observability
+The report: database (reachable, latency, pooled, connection mode), the job
+queue (queued, due, oldest due, running, stale, dead, local-AI jobs
+waiting), whoever drains it (late or not), the worker (reporting or silent),
+the email provider (logs in, sends nothing) and outbox (queued, sending,
+retrying, failed for good), SearXNG, Ollama and its model, the renderer, the
+local-AI lock connection (`direct`, `pooled`, `unverified`), and the media,
+payment and shipping providers by name. `status` is `ok`, `degraded` (with
+`problems` in sentences) or `down`. It never carries an address, host name,
+key, token, password, recipient, prompt or customer data
+(`tests/worker.test.ts`, `tests/staging-readiness.test.ts`).
 
-Every process writes one JSON object per line (docs/OBSERVABILITY.md); the
-worker writes the same events to its standard output, where the container
-runtime or systemd collects them. What to look for:
+### 8. Media
+
+Vercel Blob is the implemented store (`MEDIA_PROVIDER=blob`); R2 has no
+provider. Staging gets its **own Blob store**, linked to the staging
+environment only, so its token cannot reach production's files. Where a
+store must be shared, `MEDIA_BLOB_PREFIX=staging/products` keeps staging in a
+folder of its own: the provider claims, reads, sweeps and deletes only keys
+under its prefix (D-134). The token is read only by server code (the media
+provider); it is never sent to a browser or written to a log. The end-to-end
+suite and unit tests use `MEDIA_PROVIDER=local` and never touch Blob.
+Uploads are validated, decoded and re-encoded as WebP under generated names;
+only Admin and Staff can upload (enforced in the API).
+
+### 9. Email
+
+One adapter, SMTP (`NOTIFICATION_PROVIDER=smtp`), behind the provider
+boundary and the durable outbox (D-132):
+
+- A message is written to the outbox in the same transaction as its cause,
+  with a dedupe key.
+- Delivery claims each row before sending, so two drains never send one
+  message twice.
+- TLS is required (STARTTLS on 587, TLS on 465); a server that does not offer
+  it gets nothing.
+- A temporary failure is retried after 1, 2, 4, 8, 16, 32 and 60 minutes —
+  eight attempts over about two hours — then the row is `failed` for good,
+  counted in health and shown on Admin → Notifications.
+- A permanent failure (no such mailbox; a recipient outside the allow-list;
+  an invalid address) stops at once.
+- Every attempt at one message carries the same `Message-ID`
+  (`<idempotency-key@sender-domain>`). SMTP has no idempotency key: a crash
+  between the provider accepting and the row being marked sent can deliver
+  twice, with the same Message-ID.
+- Errors are recorded by kind; no password, user, host or recipient reaches a
+  log.
+
+**Staging allow-list.** `NOTIFICATION_RECIPIENT_ALLOWLIST` (whole addresses,
+or `@domain`) is mandatory on staging: a test order placed with a real
+customer's address is refused, permanently, before any connection.
+`npm run staging:check` reports it MISSING when unset.
+
+**SMS** is modelled in the outbox and has no provider: an SMS row fails with
+"No SMS provider is configured".
+
+### 10. SearXNG
+
+`deploy/worker-stack.compose.yml` runs `searxng/searxng` beside the worker
+with `deploy/searxng/settings.yml`: JSON output on, English by default, no
+metrics, no image proxy, limiter off, no published port, 512 MB and one CPU,
+a `/healthz` health check. `SEARXNG_SECRET` comes from the env file. The
+settings file was loaded by a real SearXNG (2026-09 source build) here and
+answered an English JSON search (PROGRESS.md); the container itself has not
+been run here (no Docker).
+
+### 11. Ollama and the GPU
+
+- **Machine:** one NVIDIA GPU, driver plus NVIDIA Container Toolkit. 24 GB of
+  video memory is the recommended class for headroom; `qwen2.5:7b` needs
+  about 6 GB and fits 12–16 GB. The application does not know which card.
+- **Template:** `deploy/gpu-stack.compose.yml` — Ollama with a model volume,
+  `OLLAMA_NUM_PARALLEL=1`, `OLLAMA_MAX_LOADED_MODELS=1`, `ollama list`
+  health check, and a one-shot `ollama pull qwen2.5:7b`.
+- **Reaching it:** bind its port to the GPU host's private-network address
+  (`OLLAMA_BIND_ADDRESS`, required — never `0.0.0.0`) and set on the worker
+  `OLLAMA_BASE_URL=http://<that address>:11434`, `OLLAMA_ALLOW_REMOTE=true`.
+  Only when no private network is possible: `--profile gateway` adds Caddy
+  (`deploy/ollama/Caddyfile`) serving https on `OLLAMA_GATEWAY_DOMAIN`,
+  answering only `/api/tags` and `/api/chat`, only with
+  `Authorization: Bearer <OLLAMA_AUTH_TOKEN>` (32+ letters and digits), and
+  refusing everything when the token is missing; then bind Ollama to
+  `127.0.0.1`.
+- **Concurrency:** `LOCAL_AI_CONCURRENCY=1`. Raise only after benchmarking
+  that card with two generations at once.
+- **Timeout:** `OLLAMA_TIMEOUT_MS` (240000). Stale windows and heartbeats are
+  derived from it.
+
+**When the GPU is down.** Nothing a shopper touches calls Ollama: storefront,
+search, accounts and orders do not depend on it. Email and scheduled jobs run
+on the CPU worker. AI work records why it could not have the model, with
+D-127's codes (`OLLAMA_UNAVAILABLE`, `OLLAMA_MODEL_NOT_FOUND`,
+`OLLAMA_GENERATION_TIMEOUT`, `OLLAMA_QUEUE_WAIT_TIMEOUT`, …):
+
+- A SeoPulse run waits queued for up to `LOCAL_AI_SERVICE_WAIT_MINUTES`;
+  then it finishes with the rules generator's wording, recorded as **rules**
+  with `fallbackFrom` naming the outage — never as the model's.
+- Prose extraction in a research job reports that the page's sentences were
+  not read; the structured readers' findings stand.
+- A document staff paste or upload is read by the structured readers only
+  when the worker runs the jobs: the web application cannot reach a private
+  model (D-134). Moving that reading into a job is follow-up.
+- A preparation run that writes with SeoPulse inside its own job does not
+  wait for the GPU; its SeoPulse step falls back like any other.
+
+A partial or malformed answer is never kept.
+
+### 12. Cache revalidation
+
+The worker's jobs change what shoppers see (a publish date, a prepared
+listing), but the worker has no cache of its own. It collects the cache tags
+its jobs invalidate and, after each tick, posts them to
+`POST <SITE_URL>/api/cron/revalidate` with `Authorization: Bearer
+<CRON_SECRET>` (and `x-vercel-protection-bypass` when set). The route accepts
+only the application's own tag names (500 at most) and only that secret
+(constant-time comparison); invalidation is idempotent. A failed post is
+logged as `worker.cache_forward_failed` and its tags are kept for the next
+tick (bounded). Without `SITE_URL`/`WORKER_WEB_URL`, pages catch up when
+their cache lifetime lapses (minutes).
+
+### 13. Observability
+
+Every process writes one JSON object per line (OBSERVABILITY.md); the worker
+to its standard output, where Docker or systemd keeps it.
 
 | Problem | Where it shows |
 |---|---|
-| Failed API request | `request.failed`, `api.unexpected_error` (Vercel logs) |
+| Worker started / stopping / stopped / crashed | `worker.started` (database name, mode, lock verdict), `worker.stopping`, `worker.stopped`, `worker.crashed` |
+| Worker refused to start | `worker.refused_to_start` (wrong database, pooled address, lock test failed) |
 | Job failed / gave up | `job.retrying`, `job.dead`; Admin → Background work |
-| Queue backing up, stale jobs | health: `jobs.due`, `jobs.oldestDueMinutes`, `jobs.stale` |
-| Nothing draining the queue | health: `jobs.schedulerStale`; the admin overview's warning |
-| Worker down | health: `worker.state: silent`; `worker.tick_failed`, `worker.crashed` |
-| Email failing | `notification.retrying`, `notification.dead`; health: `notifications.failed` |
-| Ollama unreachable, timing out, model missing | the job's `lastError` and the run's failure code; health: `research` |
-| SearXNG down | health: `research`; the run's notes |
+| Queue backing up, stale jobs | health `jobs.due`, `jobs.oldestDueMinutes`, `jobs.stale` |
+| Nothing draining the queue | health `jobs.schedulerStale`; `worker.state: silent` |
+| Email failing | `notification.retrying`, `notification.dead`; health `notifications` |
+| Ollama down / model missing | `worker.local_ai_waiting`, `worker.local_ai_available`; the run's `fallbackFrom`; health `research` |
+| SearXNG down | health `research`; the run's notes |
 | Database unreachable | health `status: down` (503); `worker.tick_failed` |
+| Revalidation failing | `worker.cache_forward_failed` |
 
-With `SENTRY_DSN` set, error-level events from the web application and the
-worker go to Sentry, redacted. **NEEDED:** a Sentry project, and a log
-destination for alerting; neither exists.
+**Sentry is optional.** With `SENTRY_DSN` set, error-level events from the web
+application and the worker go to Sentry, redacted; without it, error
+tracking is off and says so (`worker.started` → `errorTracking`). No Sentry
+project exists. Part 2, section 8 is the check once one does.
 
-### What is needed to bring staging up
+### 14. Startup, restart, rollback
 
-Accounts and resources only the owner can create:
+Nobody types a start command after a reboot:
 
-1. A managed PostgreSQL project with a database `manifest_staging`, and its
-   pooled and direct addresses.
-2. A staging Vercel project (or environment) with its own variables, and a
-   Blob store linked to it.
-3. A machine with an NVIDIA GPU and Docker for the worker, SearXNG and Ollama.
-4. A transactional email service and a verified sending domain.
-5. Cloudflare DNS for the staging address.
-6. Optionally a Sentry project.
+| Service | Started and restarted by |
+|---|---|
+| Web application | Vercel |
+| Database | The provider |
+| Worker, SearXNG | Docker's `restart: unless-stopped` with the Docker service enabled at boot (or systemd `Restart=always`) |
+| Ollama | The same, on the GPU host |
+
+SIGTERM lets work in hand finish for `WORKER_SHUTDOWN_GRACE_SECONDS` (25);
+give the container 40 s. A job cut off, or lost in a crash, stays `running`;
+stale recovery returns it to the queue and research or SeoPulse resumes under
+the same run id.
+
+**Rollback.** Web: redeploy the previous commit's deployment (Vercel →
+Deployments → the previous one → Redeploy). Migrations are written to be
+additive, so the previous code normally runs on the newer schema; if one is
+not, restore (section 15). Worker: `docker compose … up -d` with the previous
+image (tag images by commit). A migration is never reverted by hand.
+
+### 15. Backups and restore
+
+The database is the only state worth backing up. Media is in the object
+store; the worker, SearXNG and the web application hold none; Ollama's model
+volume is a download.
+
+**To confirm in the provider's console (External action 2):** automatic
+backups on; point-in-time restore window (Neon: the project's history
+retention, by plan); how long backups are kept.
+
+**Restore drill** (once, then after major changes):
+
+1. In the provider, create a branch (Neon) or a restore copy from a
+   timestamp an hour ago, named `manifest_staging_restore_drill`.
+2. `npm run staging:check -- --role worker --env-file .env.restore
+   --expect-database <its name>` (an env file whose `DATABASE_URL` is the
+   copy's direct address): it must reach the copy, find the ledger up to
+   date, and hold a session lock.
+3. Compare row counts of `orders`, `products`, `notifications`, `jobs` with
+   the live database at that timestamp.
+4. Delete the branch. Record the date, duration and result in Part 2's
+   sign-off table.
+
+### 16. Secrets
+
+| Secret | Lives in | Rotated by |
+|---|---|---|
+| Database passwords | Provider; Vercel env; worker env file | Provider console, then both hosts |
+| `SESSION_SECRET` | Vercel env; worker env file | Replace (signs everyone out) |
+| `CRON_SECRET` | Vercel env; worker env file | Replace on both at once |
+| `BLOB_READ_WRITE_TOKEN` | Vercel (linked store); worker env file | Vercel Blob settings |
+| `SMTP_PASSWORD` | Vercel env; worker env file | Email service |
+| `OLLAMA_AUTH_TOKEN`, `SEARXNG_SECRET` | Worker env file; GPU env file | Replace on both |
+| `VERCEL_AUTOMATION_BYPASS_SECRET` | Vercel; worker env file | Vercel project settings |
+
+Every staging secret differs from production's. None is in Git, an image
+layer, a log or the health report.
+
+### 17. Staging verification
+
+```
+npm run staging:check -- --role web --env-file .env.staging.web
+npm run staging:check -- --role worker --env-file .env.staging
+docker compose -f deploy/worker-stack.compose.yml exec worker \
+  node node_modules/tsx/dist/cli.mjs scripts/jobs/worker.ts --check
+curl -s -H "Authorization: Bearer $CRON_SECRET" https://<staging>/api/cron/health
+```
+
+`staging:check` reads one role's settings (`.env.staging.web` from
+`vercel env pull --environment=preview .env.staging.web`, deleted after) and
+reports READY / WARNING / MISSING for: database pooled, database direct,
+database identity, secrets, worker mode, media, SMTP and allow-list,
+SearXNG, Ollama, the renderer, Search Console, Sentry, payment mock and
+shipping mock. Then, unless `--offline`, it checks — reading only — which
+database each address reaches, TLS, the migration ledger, a session lock,
+the SMTP login (nothing sent), one SearXNG query and Ollama's model list. It
+prints no value and exits 1 when anything is MISSING. Then run Part 2.
+
+### 18. Known limitations
+
+- A document staff provide is not read by a private model (section 11).
+- A "serverless GPU" whose API is not Ollama's needs its own provider.
+- R2 has no media provider; SMS has no provider; account and security email
+  (password reset, sign-in alerts) is not written.
+- The session-lock test cannot prove an address is direct.
+- Vercel Cron runs only on Production; with the worker it is not needed.
+- `/api/cron/maintenance` still runs in the web application with
+  `JOB_RUNNER=worker` (daily on Vercel); its work needs no private service and
+  every step is idempotent, so it overlaps the worker safely.
+
+### 19. Payment and shipping
+
+**Mock, in staging and everywhere.** No payment gateway and no courier is
+implemented; no money moves and nothing is booked. `staging:check` reports
+anything but `mock` as MISSING.
+
+### External actions
+
+Only things that need an account, billing, DNS or a console. Code, templates
+and checks for each are in place.
+
+1. **Separate Preview from Production in Vercel (urgent).**
+   Missing: Preview-only values for `DATABASE_URL`, `DATABASE_URL_UNPOOLED`,
+   `SESSION_SECRET`, `CRON_SECRET`, `BLOB_READ_WRITE_TOKEN`.
+   Why not automatic: each is one entry shared with Production; changing it
+   changes Production, and the replacement database does not exist yet.
+   Next: after action 2, in Vercel → Project manifest → Settings →
+   Environment Variables, edit each of those five and untick Preview; add a
+   new Preview-only entry with the staging value; add Preview-only
+   `EXPECTED_DATABASE_NAME=manifest_staging`, `JOB_RUNNER=worker`,
+   `MEDIA_BLOB_PREFIX=staging/products` (until action 4). Redeploy the branch.
+   Where: Vercel project settings, Preview target only.
+2. **Managed staging database.**
+   Missing: database `manifest_staging` with pooled and direct addresses.
+   Why not automatic: needs the Neon (or other) account; no API key is
+   available here.
+   Next: Neon console → the project → Branches → create `staging` from the
+   main branch's current state *without data* (or a new project) → Databases
+   → create `manifest_staging` → Connection details: copy the pooled and
+   direct strings (`sslmode=require`). Also confirm under Settings → Storage
+   / History retention the point-in-time window.
+   Where: Vercel Preview `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED`
+   (direct); worker `.env.staging` `DATABASE_URL` (direct) with
+   `DATABASE_CONNECTION_MODE=direct`. Then section 4.
+3. **Worker host.**
+   Missing: an always-on Linux host with Docker (2 vCPU, 4 GB).
+   Why not automatic: a paid resource.
+   Next: create it, install Docker, clone the repository, write
+   `.env.staging` (section 5), `docker compose -f
+   deploy/worker-stack.compose.yml --env-file .env.staging up -d --build`.
+   Where: the host; `.env.staging` beside the checkout, mode 600.
+4. **Staging Blob store.**
+   Missing: a Blob store linked to Preview/staging only.
+   Why not automatic: creating and linking a store is a project change.
+   Next: Vercel → Storage → Create → Blob `manifest-staging` → connect to the
+   project for Preview only.
+   Where: Vercel sets Preview `BLOB_READ_WRITE_TOKEN`; copy it to the worker's
+   `.env.staging`.
+5. **Email.**
+   Missing: a transactional email account, a verified sending domain (SPF,
+   DKIM in Cloudflare DNS), SMTP host, port, user and password.
+   Why not automatic: account, domain ownership and DNS.
+   Where: Vercel Preview and `.env.staging`: `NOTIFICATION_PROVIDER=smtp`,
+   `SMTP_*`, `EMAIL_FROM`, `NOTIFICATION_RECIPIENT_ALLOWLIST=<testers>`.
+6. **GPU host.**
+   Missing: an NVIDIA GPU host (24 GB class) with Docker and the NVIDIA
+   Container Toolkit, and a private network to the worker host.
+   Why not automatic: a paid resource.
+   Next: `docker compose -f deploy/gpu-stack.compose.yml --env-file .env.gpu
+   up -d` with `OLLAMA_BIND_ADDRESS=<private address>`; on the worker
+   `OLLAMA_BASE_URL=http://<private address>:11434`, `OLLAMA_ALLOW_REMOTE=true`.
+7. **DNS.** A staging hostname in Cloudflare pointing at Vercel; set
+   `SITE_URL`.
+8. **Sentry (optional).** A project's DSN in `SENTRY_DSN`,
+   `SENTRY_ENVIRONMENT=staging`, on Vercel Preview and the worker.
 
 ## Part 2 — Validation runbook
 
@@ -449,19 +588,19 @@ nothing below has been run against hosted infrastructure yet.
 - Payments and couriers stay on the mock providers in staging until real
   sandbox credentials exist (PRODUCTION-READINESS 24.1, 25.1).
 
-### 1. Neon — BLOCKED on Neon access
+### 1. Neon — BLOCKED: External action 2
 
 1. Create a branch from the production project named `staging` (or a
    separate project).
 2. In it, create `manifest_staging`, the environment's own database (Part 1,
-   D). For the end-to-end run also create `preorder_e2e`, which that run drops
+   section 3). For the end-to-end run also create `preorder_e2e`, which that run drops
    and recreates, and optionally `manifest_load` for load testing with scale
    data.
 3. Note both connection strings for each: the pooled one (`-pooler` host) and
    the direct one.
 4. Enable `pg_stat_statements` on the branch.
 
-### 2. Vercel — BLOCKED on Vercel access
+### 2. Vercel — BLOCKED: External actions 1, 2, 4
 
 Use a separate Vercel project (or a custom environment) for staging, so its
 environment variables and cron are its own. Environment variables:
@@ -486,7 +625,7 @@ suite and the performance scripts send it when
 
 ### 3. Scheduler — BLOCKED on the hosting plan
 
-With the worker running and `JOB_RUNNER=worker` (Part 1, F), the worker is
+With the worker running and `JOB_RUNNER=worker` (Part 1, section 6), the worker is
 the scheduler and nothing in this section is needed; the check below applies
 as it stands. Without a worker:
 

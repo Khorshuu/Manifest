@@ -448,3 +448,32 @@ the Brand Source Registry blocks its domain (D-114).
   `NOTIFICATION_RECIPIENT_ALLOWLIST`.
 - **The local-AI slot** refuses a pooled database address, where its lock
   would not be a lock.
+
+## Staging readiness (D-134)
+
+- **The wrong database is refused before a write.** With
+  `EXPECTED_DATABASE_NAME` set, migrations and the worker compare
+  `current_database()` first. The staging check refuses development, test,
+  scale and provider-default databases as staging.
+- **A pooler is not trusted to be direct.** Only Neon's host says what it
+  is; anything else is `unknown` until `DATABASE_CONNECTION_MODE` declares
+  it, and the worker tests a real session lock before local AI may run.
+- **Preview shares Production's database and secrets** in the current Vercel
+  project (docs/STAGING.md, "Read this first"). Not changed here: it is the
+  first external action.
+- **Media stays in its own folder.** A Blob provider claims, reads, sweeps
+  and deletes only under `MEDIA_BLOB_PREFIX`; `delete` refuses anything
+  outside it.
+- **Ollama across a network**: bound to a private address only, or behind the
+  Caddy gateway that answers `/api/tags` and `/api/chat` only, only with the
+  bearer token, and refuses all requests when no 32+ character token is set.
+  Pulling or deleting models is never exposed.
+- **Health and the staging check carry no value.** Refusal reasons no longer
+  name the refused host; the staging check prints names, states and database
+  names only; library error text (which can quote an address) is replaced by
+  the kind of failure.
+- **The web tier needs no private service.** Under `JOB_RUNNER=worker` a
+  provided document is not sent towards a private model from a web request.
+- **Container**: the worker image runs as `node` under tini, contains no
+  `.env` file or secret (`.dockerignore`), and its health check touches no
+  database or network.

@@ -891,3 +891,18 @@ loopback.
 `npx tsx scripts/jobs/worker.ts --check` is the check that the worker's
 module graph loads outside Next.js; it reads and writes nothing but the
 health queries.
+
+## Staging readiness (D-134)
+
+| Suite | What it proves |
+|---|---|
+| `tests/staging-readiness.test.ts` | Connection modes (Neon's `-pooler`, a declared mode, loopback, unknown); a declared transaction pooler refuses the slot and turns prepared statements off; `EXPECTED_DATABASE_NAME` and the names never accepted as staging; the read-only migration status; the staging check's report per role, including that it prints no value; refusal reasons that never name a host; the worker's gate on the model's service; Blob prefixes keeping environments apart; the worker container's liveness check |
+| `tests/session-lock-concurrency.test.ts` (real PostgreSQL) | The session-lock test passes on a direct connection and catches an imitated transaction pooler, leaving no lock; the worker's database check (identity, declared pooler, lock); the staging check's database report (ready, test database refused, no ledger, unreachable) without writing; `db/migrate.ts` refusing another database before writing, and migrating the expected one |
+| `tests/local-ai-runtime.test.ts`, "the worker's lane while the model's service is down" | A SeoPulse run stays queued while Ollama is down, is claimed when it answers, runs as rules with `fallbackFrom` after the wait, does not wait with 0 or for a refused address; ordinary jobs never wait |
+| `tests/local-pipeline.test.ts`, "a document staff provide, where a worker runs the jobs" | A provided document is not sent towards a private model from a web request under `JOB_RUNNER=worker`, the structured reading stands, and the worker's own process still uses the model |
+| `tests/worker.test.ts` (added) | The loop marks itself alive on every pass and survives a liveness write failing; health reports the connection mode |
+
+Not automated (run by hand, PROGRESS.md): the SMTP adapter against a local
+STARTTLS capture server; `npm run staging:check` and `worker --check`
+against a disposable `manifest_staging_verify`; the repository's SearXNG
+settings in a real SearXNG.

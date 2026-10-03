@@ -44,7 +44,10 @@ line for that request.
 | `worker.started` / `worker.stopping` / `worker.stopped` | info | The background worker's lifecycle (D-133) | interval, providers in use, ticks run |
 | `worker.tick_failed` | error | One worker tick threw, usually the database being unreachable; the next tick tries again | `tickId`, error |
 | `worker.tick_skipped` | warn | Every tick was still busy when the next was due | `running` |
-| `worker.refused_to_start` / `worker.crashed` | error | The worker would not start (a pooled database address with local AI on) / exited on an error | reason or error |
+| `worker.refused_to_start` / `worker.crashed` | error | The worker would not start (another database than EXPECTED_DATABASE_NAME, a pooled address with local AI on, a failed session-lock test; D-134) / exited on an error | reason or error |
+| `worker.database_note` | warn | The worker's address passed the session-lock test but its mode is not declared (D-134) | `note` |
+| `worker.local_ai_waiting` / `worker.local_ai_available` | warn / info | Ollama stopped answering (or lacks the model), so local-AI jobs wait; and when it is back. Logged on the change only (D-134) | `state`, `waitMinutes` |
+| `pkb.extraction_not_in_web_request` | info | A provided document was read without the private local model, because a worker runs the jobs (D-134) | `reason` |
 | `worker.cache_forward_failed` / `worker.cache_forward_off` | warn | Cache tags could not be handed to the web application / are not configured to be | `status`, `tags` |
 | `health.check_failed` | error | The health report itself threw | error |
 | `search.log_failed` and neighbours | warn | Best-effort analytics could not be written | error |
@@ -85,7 +88,7 @@ outbox, SearXNG, Ollama and its model, and the providers in use. `status` is
 `ok`, `degraded` or `down`, with `problems` in sentences; the monitor's route
 answers 503 only when the database is unreachable. States and counts only: no
 address, key or customer data. `npm run worker -- --check` prints the same
-from the worker. docs/STAGING.md, section K, lists what to watch.
+from the worker. docs/STAGING.md, section 13, lists what to watch.
 
 The background worker writes the same JSON lines to its standard output as
 the web application; whatever runs it (a container runtime, systemd) collects
