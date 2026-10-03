@@ -207,6 +207,18 @@ export type LocalRequestResult =
   | { ok: true; status: number; text: string }
   | { ok: false; kind: "unreachable" | "timeout" | "too_large" | "redirect"; message: string };
 
+/**
+ * A kept-alive connection the service had already closed: the request went
+ * out on a socket that was gone, and was reset before any answer. Fetch
+ * reuses idle connections, and a service (or the gateway in front of it)
+ * closes them on its own schedule, so this happens now and then with nothing
+ * wrong (D-134). The request did not reach the service.
+ */
+function staleConnection(error: unknown): boolean {
+  const code = (error as { cause?: { code?: unknown } } | null)?.cause?.code;
+  return code === "ECONNRESET" || code === "UND_ERR_SOCKET" || code === "EPIPE";
+}
+
 export async function localRequest(
   url: URL,
   init: {
@@ -221,8 +233,8 @@ export async function localRequest(
 ): Promise<LocalRequestResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), init.timeoutMs);
-  try {
-    const response = await fetch(url, {
+  const send = () =>
+    fetch(url, {
       method: init.method ?? "GET",
       signal: controller.signal,
       redirect: "manual",
@@ -232,6 +244,14 @@ export async function localRequest(
         ...(init.body !== undefined ? { "content-type": "application/json" } : {}),
       },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+    });
+  try {
+    // One more try, on a fresh connection, when the first was reset before
+    // any answer: a stale kept-alive socket, not an outage. Within the same
+    // time limit, and never twice.
+    const response = await send().catch((error: unknown) => {
+      if (controller.signal.aborted || !staleConnection(error)) throw error;
+      return send();
     });
     if (response.status >= 300 && response.status < 400) {
       await response.body?.cancel();

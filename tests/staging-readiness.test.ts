@@ -8,6 +8,8 @@
  */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -15,7 +17,7 @@ import { connectionMode, connectionOptions, declaredConnectionMode } from "@/db/
 import { databaseIdentityProblem, stagingDatabaseProblem } from "@/db/identity";
 import { migrationFiles, migrationStatus, migrationChecksum } from "@/db/migrator";
 import { localAiServiceGate } from "@/lib/jobs/worker";
-import { getLocalServicesConfig, localServiceUrl } from "@/lib/providers/local/config";
+import { getLocalServicesConfig, localRequest, localServiceUrl } from "@/lib/providers/local/config";
 import { checkOllama, checkSearxng, clearLocalHealthCache } from "@/lib/providers/local/health";
 import { slotConnectionProblem } from "@/lib/providers/local/slot";
 import { BlobMediaProvider, blobPrefix } from "@/lib/providers/media/blob";
@@ -293,5 +295,43 @@ describe("the worker container's health check", () => {
 
     expect(run({ WORKER_ALIVE_FILE: join(dir, "never") }).status).toBe(1);
     expect(run({}).status).toBe(1);
+  });
+});
+
+describe("a private service's connection that was reset before answering", () => {
+  /** A service that drops the connection for its first `resets` requests, then answers. */
+  async function resetting(resets: number) {
+    let seen = 0;
+    const server = http.createServer((request, response) => {
+      seen += 1;
+      if (seen <= resets) return request.socket.destroy();
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"ok":true}');
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const url = new URL(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/chat`);
+    return { url, seen: () => seen, close: () => new Promise((resolve) => server.close(resolve)) };
+  }
+
+  it("is tried once more on a fresh connection, and answers", async () => {
+    const service = await resetting(1);
+    try {
+      const result = await localRequest(service.url, { method: "POST", body: { model: "m" }, timeoutMs: 5_000, maxBytes: 1_000 });
+      expect(result).toEqual({ ok: true, status: 200, text: '{"ok":true}' });
+      expect(service.seen()).toBe(2);
+    } finally {
+      await service.close();
+    }
+  });
+
+  it("is not retried again: a service that keeps dropping is unreachable after two tries", async () => {
+    const service = await resetting(10);
+    try {
+      const result = await localRequest(service.url, { timeoutMs: 5_000, maxBytes: 1_000 });
+      expect(result).toMatchObject({ ok: false, kind: "unreachable" });
+      expect(service.seen()).toBe(2);
+    } finally {
+      await service.close();
+    }
   });
 });
