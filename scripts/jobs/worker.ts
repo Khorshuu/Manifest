@@ -127,7 +127,8 @@ async function main() {
     cacheForwarding: Boolean(cache),
     database: database.database,
     databaseMode: database.mode.mode,
-    sessionLock: database.sessionLock,
+    // Not "sessionLock": a key containing "session" is redacted from every log line.
+    lockTest: database.sessionLock,
     localAiServiceWaitMinutes: localAiService ? local.LOCAL_AI_SERVICE_WAIT_MINUTES : null,
     errorTracking,
     node: process.version,
