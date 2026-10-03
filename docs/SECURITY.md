@@ -458,9 +458,10 @@ the Brand Source Registry blocks its domain (D-114).
 - **A pooler is not trusted to be direct.** Only Neon's host says what it
   is; anything else is `unknown` until `DATABASE_CONNECTION_MODE` declares
   it, and the worker tests a real session lock before local AI may run.
-- **Preview shares Production's database and secrets** in the current Vercel
-  project (docs/STAGING.md, "Read this first"). Not changed here: it is the
-  first external action.
+- **Preview and Production** (docs/STAGING.md, "Read this first"): Preview
+  now has its own session and cron secrets and Blob store; its database is
+  still a Neon preview branch copied from production's data until Preview is
+  taken off production's Neon connection.
 - **Media stays in its own folder.** A Blob provider claims, reads, sweeps
   and deletes only under `MEDIA_BLOB_PREFIX`; `delete` refuses anything
   outside it.

@@ -4688,10 +4688,12 @@ background job on the GPU machine. Inspecting the Vercel project (read only)
 also showed that its one `DATABASE_URL` / `DATABASE_URL_UNPOOLED` pair,
 `SESSION_SECRET`, `CRON_SECRET` and Blob token are each a single entry shared
 by Production and Preview, and the build logs show preview builds of this
-branch applying migrations 0023–0045 to that database (0045 by `fc329eb`)
-while the production deployment still runs code from migration 0022. No
-project setting was changed; docs/STAGING.md lists the fix as the first
-external action.
+branch applying migrations 0023–0045 (0045 by `fc329eb`) while the
+production deployment still runs code from migration 0022. *Corrected
+later the same day:* Neon's deployment action gives every Preview
+deployment its own database variables (a Neon preview branch copied from
+production), and gives Production none, so those migrations ran on the
+preview branch, not on production's database (docs/STAGING.md).
 
 **Decisions.**
 

@@ -17,14 +17,30 @@ billing or DNS decision only the owner can make. Each is listed under
 `deploy/` holds templates validated as far as this repository can without
 Docker or a GPU (PROGRESS.md says what was run).
 
-**Read this first — the current Vercel project.** Its Production and Preview
-environments share one `DATABASE_URL` / `DATABASE_URL_UNPOOLED` entry, one
-`SESSION_SECRET`, one `CRON_SECRET` and one Blob token. Preview builds run
-`vercel-build`, which migrates: the build logs show preview builds of the
-`production-readiness` branch applying migrations 0023–0045 to that shared
-database, while the production deployment runs code from migration 0022.
-Fixing this is External action 1. Nothing in this document is safe to do on
-Preview until it is fixed.
+**Read this first — the current Vercel project (2026-10-03).**
+
+- **Database.** Production's Neon resource ("Manifest", Free plan, `sin1`) is
+  connected to Production *and* Preview, with Neon's deployment action on
+  both. For every Preview deployment that action supplies the deployment's
+  own database variables; for Production it supplies none. Preview builds
+  therefore ran their migrations (0023–0045, ledger baselined on 2026-09-25)
+  against a Neon **preview branch**, a copy of production's data taken when
+  the branch was made — not, as an earlier version of this note said,
+  against production's own database. Production's schema could not be read
+  from here. Preview still sees a copy of production data, so it is not
+  isolated.
+- **Done:** Preview has its own `SESSION_SECRET`, `CRON_SECRET` and Blob
+  store (`manifest-staging`, Preview only; a test object was written, read
+  and deleted under `staging/products/`). Preview-only
+  `EXPECTED_DATABASE_NAME=manifest_staging`, `JOB_RUNNER=worker`,
+  `MEDIA_BLOB_PREFIX=staging/products` are set, so a Preview build stops
+  before migrating any database that is not `manifest_staging`.
+- **Staging database exists:** Neon resource `manifest-staging` (Free,
+  `sin1`), database `manifest_staging`, all 46 migrations applied, empty.
+  Its addresses are on Vercel's Development environment under the
+  `STAGING_` prefix, where the app does not read them.
+- **Left:** take Preview off production's Neon connection (External action
+  1), then Preview gets the staging addresses and is redeployed.
 
 ## Part 1 — Infrastructure
 
@@ -509,17 +525,16 @@ anything but `mock` as MISSING.
 Only things that need an account, billing, DNS or a console. Code, templates
 and checks for each are in place.
 
-1. **Separate Preview from Production in Vercel (urgent).**
-   Missing: Preview-only values for `DATABASE_URL`, `DATABASE_URL_UNPOOLED`,
-   `SESSION_SECRET`, `CRON_SECRET`, `BLOB_READ_WRITE_TOKEN`.
-   Why not automatic: each is one entry shared with Production; changing it
-   changes Production, and the replacement database does not exist yet.
-   Next: after action 2, in Vercel → Project manifest → Settings →
-   Environment Variables, edit each of those five and untick Preview; add a
-   new Preview-only entry with the staging value; add Preview-only
-   `EXPECTED_DATABASE_NAME=manifest_staging`, `JOB_RUNNER=worker`,
-   `MEDIA_BLOB_PREFIX=staging/products` (until action 4). Redeploy the branch.
-   Where: Vercel project settings, Preview target only.
+1. **Take Preview off production's Neon connection.**
+   Missing: Preview still receives production's database (through Neon's
+   preview branches).
+   Why not automatic: the CLI can only disconnect and reconnect the
+   resource, which would recreate Production's variables.
+   Next: Vercel → Storage → **Manifest** (Neon) → Projects → manifest →
+   edit the connection's environments → untick **Preview** → keep
+   Production → Save. Then Preview-only `DATABASE_URL` (pooled) and
+   `DATABASE_URL_UNPOOLED` (direct) for `manifest_staging` are added and
+   Preview is redeployed.
 2. **Managed staging database.**
    Missing: database `manifest_staging` with pooled and direct addresses.
    Why not automatic: needs the Neon (or other) account; no API key is

@@ -5020,3 +5020,47 @@ migration 0022). STAGING.md, External action 1.
 | Docker images, compose runtime | `[!]` BLOCKED_LOCAL_TOOLING: no Docker. YAML of both compose files and SearXNG settings parsed; nothing built or run |
 | GPU container | `[!]` BLOCKED_LOCAL_HARDWARE: GTX 1050 Ti, no NVIDIA container runtime; local Ollama not restarted, no model pulled |
 | Real cloud services | `[!]` none exists to test (External actions in STAGING.md) |
+
+## Preview isolation and staging database (2026-10-03)
+
+Production frozen first: fingerprint of all 29 Production variable entries
+(identity, type, and a hash of every readable value), the Production
+deployment (`6b22ba9`, `dpl_7WLa…`) and the two production stores'
+connections. Unchanged at the end. No Production deployment, migration or
+Blob write. No push.
+
+- `[x]` **Correction.** Neon's deployment action supplies each Preview
+  deployment's own 18 database variables (every Preview since 2026-09-25
+  has them; no Production deployment does). The Preview migrations of
+  0023–0045 ran on a Neon preview branch copied from production, not on
+  production's database, as the earlier finding said. Production's schema
+  was not read.
+- `[x]` A target-only PATCH keeps a variable's value: shown first on a
+  throwaway variable (created, patched, read back, deleted).
+- `[x]` `SESSION_SECRET`, `CRON_SECRET`: Preview removed from the shared
+  entries (Production entry ids and types unchanged); new Preview-only
+  sensitive values generated in memory, never printed or stored elsewhere.
+- `[x]` Blob: `BLOB_READ_WRITE_TOKEN` now Production + Development only
+  (value hash unchanged); new store `manifest-staging` (`iad1`, public)
+  connected to Preview only; tokens DIFFERENT. Round trip under
+  `staging/products/`: put, read 200, delete, gone. Production store still
+  14 objects.
+- `[x]` Staging database: Neon resource `manifest-staging` through the
+  existing Neon installation (Free plan, no payment method, `sin1`),
+  connected to Development only with the `STAGING_` prefix. Database
+  `manifest_staging` created (UTF8). Before migrating, the direct address:
+  `current_database()` = `manifest_staging`, PostgreSQL 18.6, TLS, session
+  lock held, refused elsewhere and released. `db/migrate.ts` through the
+  direct address with `EXPECTED_DATABASE_NAME=manifest_staging`: 46 applied.
+  Ledger 46 rows, latest 0045; 87 tables; users, orders, products,
+  notifications, jobs, media 0 rows; no advisory lock left.
+  `staging:check` web role 0 missing, worker role 0 missing.
+- `[x]` Fixed: the staging check reported TLS MISSING for Neon, whose proxy
+  ends TLS before the server (`pg_stat_ssl` false). An address with
+  `sslmode=require`/`verify-*` is now counted as encrypted.
+- `[!]` Preview database not isolated yet: needs Preview taken off
+  production's Neon connection (STAGING.md External action 1). Preview not
+  redeployed.
+- Side effects cleaned: the Neon CLI install added `.agents/`,
+  `skills-lock.json` and two `.claude/skills` links; removed. `vercel blob
+  create-store` re-pulled `.env.local`; only `VERCEL_OIDC_TOKEN` changed.
