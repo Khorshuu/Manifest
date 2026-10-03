@@ -44,9 +44,6 @@ env:
   COMPOSE: docker compose -f deploy/worker-stack.compose.yml -f /tmp/ci.compose.yml --env-file .env.staging
   IMAGE: manifest-worker-worker
   TSX: node node_modules/tsx/dist/cli.mjs
-  # Appears in the test environment only, so finding it anywhere in the image
-  # or the logs means a value leaked.
-  MARKER: ci-db-password-7c1f29
   # Sourced by every step's shell once the first step has written it: a
   # failing command is named in an annotation, readable without the log.
   BASH_ENV: /tmp/ci-prelude.sh
@@ -61,6 +58,10 @@ jobs:
 
       - name: Write a test environment and helpers
         run: |
+          # The database password is made up here and written nowhere but the
+          # env file, so finding it in the image or the logs means a value leaked.
+          MARKER="ci-db-password-$(openssl rand -hex 8)"
+          echo "MARKER=$MARKER" >> "$GITHUB_ENV"
           # Unquoted values: `docker run --env-file` keeps quotes as part of
           # the value, compose does not, and the same file must serve both.
           cat > .env.staging <<EOF
