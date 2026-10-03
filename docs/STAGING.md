@@ -8,39 +8,52 @@ Part 1 is the infrastructure: what runs where, how it is configured, how it
 is started, checked, backed up and rolled back, and what is still missing.
 Part 2 is the validation runbook run against it once it exists.
 
-**Status (2026-10-03).** The application side is built and tested
-(DECISIONS.md D-132, D-133, D-134). No hosted staging environment exists yet:
-no managed staging database, worker host, GPU, email account, staging media
-store or Sentry project has been created, because each needs an account,
-billing or DNS decision only the owner can make. Each is listed under
-**External actions** at the end of Part 1 with the exact next step.
-`deploy/` holds templates validated as far as this repository can without
-Docker or a GPU (PROGRESS.md says what was run).
+**Status (2026-10-04).** The application side is built and tested
+(DECISIONS.md D-132, D-133, D-134). The web tier of staging exists: Vercel's
+Preview environment, with its own database, secrets and media store
+(D-135). Still missing, because each needs an account, billing or DNS
+decision only the owner can make: a worker host, a GPU, an email account, a
+staging hostname and a Sentry project. Each is listed under **External
+actions** at the end of Part 1 with the exact next step. `deploy/` holds
+templates validated as far as this repository can without Docker or a GPU
+(PROGRESS.md says what was run).
 
-**Read this first — the current Vercel project (2026-10-03).**
+**Read this first — the current Vercel project (2026-10-04).**
 
-- **Database.** Production's Neon resource ("Manifest", Free plan, `sin1`) is
-  connected to Production *and* Preview, with Neon's deployment action on
-  both. For every Preview deployment that action supplies the deployment's
-  own database variables; for Production it supplies none. Preview builds
-  therefore ran their migrations (0023–0045, ledger baselined on 2026-09-25)
-  against a Neon **preview branch**, a copy of production's data taken when
-  the branch was made — not, as an earlier version of this note said,
-  against production's own database. Production's schema could not be read
-  from here. Preview still sees a copy of production data, so it is not
-  isolated.
-- **Done:** Preview has its own `SESSION_SECRET`, `CRON_SECRET` and Blob
-  store (`manifest-staging`, Preview only; a test object was written, read
-  and deleted under `staging/products/`). Preview-only
-  `EXPECTED_DATABASE_NAME=manifest_staging`, `JOB_RUNNER=worker`,
-  `MEDIA_BLOB_PREFIX=staging/products` are set, so a Preview build stops
-  before migrating any database that is not `manifest_staging`.
-- **Staging database exists:** Neon resource `manifest-staging` (Free,
-  `sin1`), database `manifest_staging`, all 46 migrations applied, empty.
-  Its addresses are on Vercel's Development environment under the
-  `STAGING_` prefix, where the app does not read them.
-- **Left:** take Preview off production's Neon connection (External action
-  1), then Preview gets the staging addresses and is redeployed.
+- **Preview is staging's web tier, and is isolated from Production.**
+  Production's Neon resource ("Manifest") is connected to Production only,
+  and so is its deployment action: no Preview deployment receives a
+  database variable from it. (Until 2026-10-03 that action gave every
+  Preview deployment a Neon preview branch copied from production's data;
+  migrations 0023–0045 ran on such branches, never on production's own
+  database.)
+- **Database.** Neon resource `manifest-staging` (Free, `sin1`), a separate
+  Neon project; database `manifest_staging`, PostgreSQL 18.6, UTF8, all 46
+  migrations applied, empty. Preview-only `DATABASE_URL` (pooled) and
+  `DATABASE_URL_UNPOOLED` (direct) name it. They were written by hand: the
+  resource's own connection (Development only, `STAGING_` prefix, not read
+  by the application) names the project's default database `neondb`, not
+  `manifest_staging`. **If the staging database's password is reset in
+  Neon, replace both Preview variables.**
+- **Secrets and media.** Preview has its own `SESSION_SECRET` and
+  `CRON_SECRET` (Sensitive; replaced on 2026-10-04 and held nowhere outside
+  Vercel — when the worker host is set up, replace both on Vercel and in the
+  worker's env file at once) and its own Blob store (`manifest-staging`,
+  Preview only). Preview-only `EXPECTED_DATABASE_NAME=manifest_staging`,
+  `JOB_RUNNER=worker`, `MEDIA_BLOB_PREFIX=staging/products`: a Preview build
+  stops before migrating any database that is not `manifest_staging`.
+- **Address.** `manifest-git-production-readiness-manifest14.vercel.app`
+  (the branch's alias), behind Deployment Protection; the project has one
+  automation bypass secret for scripts.
+- **No worker yet.** With `JOB_RUNNER=worker` and no worker host, nothing
+  drains the queue on staging: `/api/cron/health` answers 200 `degraded`
+  ("the background worker has not run jobs recently"). That is the expected
+  state until External action 3.
+- **Not changed, on purpose:** the Production Blob store's connection record
+  (`manifest-media`) still lists Preview and Development. What a deployment
+  receives is the variable entry, and Preview's only `BLOB_READ_WRITE_TOKEN`
+  entry is the staging store's. Tidy the record in Vercel → Storage →
+  manifest-media → Projects when convenient.
 
 ## Part 1 — Infrastructure
 
@@ -525,27 +538,16 @@ anything but `mock` as MISSING.
 Only things that need an account, billing, DNS or a console. Code, templates
 and checks for each are in place.
 
-1. **Take Preview off production's Neon connection.**
-   Missing: Preview still receives production's database (through Neon's
-   preview branches).
-   Why not automatic: the CLI can only disconnect and reconnect the
-   resource, which would recreate Production's variables.
-   Next: Vercel → Storage → **Manifest** (Neon) → Projects → manifest →
-   edit the connection's environments → untick **Preview** → keep
-   Production → Save. Then Preview-only `DATABASE_URL` (pooled) and
-   `DATABASE_URL_UNPOOLED` (direct) for `manifest_staging` are added and
-   Preview is redeployed.
-2. **Managed staging database.**
-   Missing: database `manifest_staging` with pooled and direct addresses.
-   Why not automatic: needs the Neon (or other) account; no API key is
-   available here.
-   Next: Neon console → the project → Branches → create `staging` from the
-   main branch's current state *without data* (or a new project) → Databases
-   → create `manifest_staging` → Connection details: copy the pooled and
-   direct strings (`sslmode=require`). Also confirm under Settings → Storage
-   / History retention the point-in-time window.
-   Where: Vercel Preview `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED`
-   (direct); worker `.env.staging` `DATABASE_URL` (direct) with
+1. **Take Preview off production's Neon connection.** DONE 2026-10-04 (the
+   owner, in the Vercel dashboard): the "Manifest" resource and its
+   deployment action are Production only. Preview-only `DATABASE_URL`
+   (pooled) and `DATABASE_URL_UNPOOLED` (direct) for `manifest_staging` were
+   then added and Preview redeployed.
+2. **Managed staging database.** DONE 2026-10-03: Neon resource
+   `manifest-staging`, database `manifest_staging`.
+   Left: confirm in the Neon console (Settings → Storage / History
+   retention) the point-in-time window; no API key is available here.
+   For the worker: `.env.staging` `DATABASE_URL` (direct) with
    `DATABASE_CONNECTION_MODE=direct`. Then section 4.
 3. **Worker host.**
    Missing: an always-on Linux host with Docker (2 vCPU, 4 GB).
@@ -554,12 +556,9 @@ and checks for each are in place.
    `.env.staging` (section 5), `docker compose -f
    deploy/worker-stack.compose.yml --env-file .env.staging up -d --build`.
    Where: the host; `.env.staging` beside the checkout, mode 600.
-4. **Staging Blob store.**
-   Missing: a Blob store linked to Preview/staging only.
-   Why not automatic: creating and linking a store is a project change.
-   Next: Vercel → Storage → Create → Blob `manifest-staging` → connect to the
-   project for Preview only.
-   Where: Vercel sets Preview `BLOB_READ_WRITE_TOKEN`; copy it to the worker's
+4. **Staging Blob store.** DONE 2026-10-03: Blob store `manifest-staging`,
+   connected to Preview only.
+   For the worker: copy Preview's `BLOB_READ_WRITE_TOKEN` to its
    `.env.staging`.
 5. **Email.**
    Missing: a transactional email account, a verified sending domain (SPF,
@@ -583,8 +582,10 @@ and checks for each are in place.
 
 The final production check runs on the staging deployment: the same hosting,
 pooler, caching and scheduling production will have. Every step that needs the
-owner's Vercel or Neon account is marked **BLOCKED** until access is given;
-nothing below has been run against hosted infrastructure yet.
+owner's Vercel or Neon account is marked **BLOCKED** until access is given.
+Of the steps below, only a smoke test has been run against the hosted
+Preview (PROGRESS.md, 2026-10-04); the end-to-end suite, load test and
+sign-off have not.
 
 ### Safety rules
 
@@ -603,7 +604,11 @@ nothing below has been run against hosted infrastructure yet.
 - Payments and couriers stay on the mock providers in staging until real
   sandbox credentials exist (PRODUCTION-READINESS 24.1, 25.1).
 
-### 1. Neon — BLOCKED: External action 2
+### 1. Neon — `manifest_staging` exists; the rest BLOCKED on the Neon console
+
+`manifest_staging` is in place (Part 1, "Read this first"), so step 2's
+first sentence and step 3 are done for it. The scratch databases and
+`pg_stat_statements` are not.
 
 1. Create a branch from the production project named `staging` (or a
    separate project).
@@ -615,10 +620,12 @@ nothing below has been run against hosted infrastructure yet.
    the direct one.
 4. Enable `pg_stat_statements` on the branch.
 
-### 2. Vercel — BLOCKED: External actions 1, 2, 4
+### 2. Vercel — Preview is staging (database, secrets, Blob set)
 
-Use a separate Vercel project (or a custom environment) for staging, so its
-environment variables and cron are its own. Environment variables:
+Staging is the project's Preview environment, whose variables are its own
+(Part 1, "Read this first"). The first five rows below and the Blob store
+are set; `SITE_URL` waits for a staging hostname and Sentry for an account.
+Environment variables:
 
 | Variable | Value |
 |---|---|

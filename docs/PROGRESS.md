@@ -5064,3 +5064,74 @@ Blob write. No push.
 - Side effects cleaned: the Neon CLI install added `.agents/`,
   `skills-lock.json` and two `.claude/skills` links; removed. `vercel blob
   create-store` re-pulled `.env.local`; only `VERCEL_OIDC_TOKEN` changed.
+
+## Preview connected to the staging database (2026-10-04, D-135)
+
+The owner took Preview off production's Neon resource in the Vercel
+dashboard. Production was fingerprinted first (29 variable entries: identity,
+type, last change, a hash of every readable value; the deployment `6b22ba9`,
+`dpl_7WLa…`) and compared again at the end.
+
+- `[x]` **Read back from Vercel.** The "Manifest" Neon resource and its
+  deployment action: Production only. None of its 18 variable names targets
+  Preview.
+- `[x]` **Preview-only `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED`
+  (direct)** for `manifest_staging`, Sensitive. Written by hand: the staging
+  resource's own addresses (`STAGING_`, Development) name `neondb`.
+- `[x]` **Preview `SESSION_SECRET` and `CRON_SECRET` replaced** with new
+  random values (the same two Preview-only entries; Production's untouched).
+  Held nowhere outside Vercel.
+- `[x]` **Isolation gates, 14 of 14**, no value printed: staging and
+  production are different Neon projects; Preview's two addresses, two
+  secrets and Blob token each differ from Production's (the Blob tokens by
+  value hash and by the store each belongs to; the Sensitive ones by
+  separate entries, by which resource issued them, and by having been
+  generated in this session); `EXPECTED_DATABASE_NAME=manifest_staging`,
+  `JOB_RUNNER=worker`, `MEDIA_BLOB_PREFIX=staging/products` read back;
+  Production fingerprint, targets and deployment unchanged.
+- `[x]` **Staging database, through the direct address:**
+  `current_database()` = `manifest_staging`, PostgreSQL 18.6, UTF8; ledger 46
+  rows, latest `0045_notification_retry_backoff.sql`; 87 tables, every one
+  but the ledger empty (counted, not assumed); a session advisory lock held,
+  refused on a second connection, released, none left. The pooled address
+  reaches the same database.
+- `[x]` **`npm run staging:check`** against Preview's settings: web role 0
+  missing, 5 warnings (no `SITE_URL`, mock email, no Search Console, no
+  Sentry, session-lock note); worker role 0 missing, 8 warnings (the same,
+  plus no liveness file, SearXNG, Ollama or renderer configured).
+- `[x]` **Pushed** `c057f2f`, `4c45f03` (plain push, `9fad698..4c45f03`)
+  after `git diff --check`, typecheck, lint and `staging-readiness` +
+  `db-connection` (31 passed, 1 skipped).
+- `[x]` **GitHub CI on `4c45f03`** (run 10): Success, both jobs — route
+  types, typecheck, lint, unit and integration; production build, targeted
+  end-to-end, budgets.
+- `[x]` **Vercel Preview of `4c45f03`**
+  (`manifest-1jnmauegd-manifest14.vercel.app`): READY. Build log:
+  "Migrations: 0 applied, 0 baselined, 46 already applied." The deployment's
+  variable names include `DATABASE_URL` and `DATABASE_URL_UNPOOLED` and no
+  `PG*`, `POSTGRES_*` or `NEON_*` name.
+- `[x]` **Smoke test through the automation bypass:** without it, 302 to
+  Vercel's login (Deployment Protection on). `/`, `/search`, `/cart`,
+  `/login`, `/sitemap.xml`, `/robots.txt` 200; `/admin` 307 to `/login`;
+  `/api/admin/health` 401; `/api/cron/health` 401 without the secret, 200
+  with it: database ok (pooled, transaction mode), jobs and outbox tables
+  readable and empty, runner `worker`, payment `mock`, shipping `mock`, media
+  `blob`; status `degraded` because no worker reports (expected).
+  `/api/cron/jobs` declines. No product link on any page or in the sitemap,
+  no reference to the production media store, no 5xx. No order, account or
+  upload was created; the search page logged its query in
+  `manifest_staging.search_queries`, removed afterwards.
+- `[x]` **Blob:** Preview's token belongs to `manifest-staging`; a test
+  object under `staging/products/` was written, read (200), deleted and
+  confirmed gone; the store is empty. Production's store, listed read-only:
+  14 objects, newest upload 2026-09-27, as before.
+- `[x]` **Production at the end:** deployment `6b22ba9` (`dpl_7WLa…`), READY,
+  still what `manifestbd.vercel.app` serves (`/`, search, cart, login 200);
+  variable fingerprint unchanged; nothing connected to or wrote its
+  database; its Blob store was only listed.
+- `[!]` First database query from a cold function took about 2 s: functions
+  run in `iad1`, both Neon projects in `sin1`. Not changed.
+- `[!]` UNVERIFIED — external integration unavailable: worker host, SMTP,
+  SearXNG, GPU/Ollama, staging hostname, Sentry (STAGING.md, External
+  actions 3, 5–8). The end-to-end suite and load test have not been run
+  against the hosted Preview.

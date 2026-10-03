@@ -4777,3 +4777,45 @@ shipping (mock), the Vercel project's settings.
 **Not verified.** No managed database, staging Blob store, SMTP account,
 GPU, Docker host or Sentry project exists; see docs/STAGING.md, "External
 actions".
+
+## D-135 — Preview is staging's web tier, with its own database addresses written by hand
+
+**Context.** The owner took Preview off production's Neon resource
+(2026-10-04). The staging Neon resource (`manifest-staging`, a separate Neon
+project) was connected to Vercel's Development environment only, under a
+`STAGING_` prefix, and its addresses name the project's default database
+`neondb`; the application's database there is `manifest_staging`.
+
+**Decisions.**
+
+1. **Preview's `DATABASE_URL` and `DATABASE_URL_UNPOOLED` are Preview-only
+   Sensitive variables written by hand** — the resource's pooled and direct
+   addresses with the database changed to `manifest_staging`. Connecting the
+   resource itself to Preview would have supplied `neondb`, which
+   `EXPECTED_DATABASE_NAME` refuses. Cost: a password reset in Neon does not
+   reach Preview by itself; both variables are replaced by hand
+   (docs/STAGING.md).
+2. **The `STAGING_` variables stay on Development.** The application reads
+   none of them; they are where the next person finds the resource's
+   addresses.
+3. **Preview's `SESSION_SECRET` and `CRON_SECRET` were replaced with new
+   random values when the database was connected.** Production's are
+   Sensitive and cannot be read, so "different from production's" can only be
+   shown by generating Preview's afresh; the cron secret was also needed to
+   call staging's health report. Nobody held the previous Preview values and
+   no session existed, so nothing was lost. The new values are held nowhere
+   outside Vercel: when a worker host is set up, both are replaced on Vercel
+   and in the worker's env file together.
+4. **Production's Blob connection record is left as it is.** `manifest-media`
+   still lists Preview and Development as environments, but the variable
+   entry is what a deployment receives, and Preview's only
+   `BLOB_READ_WRITE_TOKEN` entry is the staging store's. Changing the record
+   is a change to a production resource, so it is the owner's.
+
+**Not changed.** Every Production variable entry, the Production deployment
+(`6b22ba9`), production's database and Blob store, Deployment Protection,
+payment and shipping (mock).
+
+**Not verified.** A worker, SMTP, SearXNG, a GPU, a staging hostname and
+Sentry do not exist (docs/STAGING.md, External actions 3 and 5–8); with no
+worker, staging's health report is `degraded` and its queue is not drained.

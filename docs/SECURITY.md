@@ -458,10 +458,12 @@ the Brand Source Registry blocks its domain (D-114).
 - **A pooler is not trusted to be direct.** Only Neon's host says what it
   is; anything else is `unknown` until `DATABASE_CONNECTION_MODE` declares
   it, and the worker tests a real session lock before local AI may run.
-- **Preview and Production** (docs/STAGING.md, "Read this first"): Preview
-  now has its own session and cron secrets and Blob store; its database is
-  still a Neon preview branch copied from production's data until Preview is
-  taken off production's Neon connection.
+- **Preview and Production share no database, secret or media store**
+  (docs/STAGING.md, "Read this first"; D-135): Preview has its own session
+  and cron secrets, Blob store and database (`manifest_staging`, a separate
+  Neon project), and production's Neon resource reaches Production only.
+  `EXPECTED_DATABASE_NAME` stops a Preview build before it migrates any
+  other database. Preview deployments stay behind Deployment Protection.
 - **Media stays in its own folder.** A Blob provider claims, reads, sweeps
   and deletes only under `MEDIA_BLOB_PREFIX`; `delete` refuses anything
   outside it.
