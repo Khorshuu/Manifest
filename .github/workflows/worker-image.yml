@@ -255,7 +255,7 @@ jobs:
             echo "::error title=Worker image::The worker's log carries an address or a secret."; exit 1
           fi
           note Events "$(jq -Rr 'fromjson? | .event' /tmp/worker.log | sort | uniq -c | awk '{printf "%s x%s, ", $2, $1}')"
-          note Unstructured "log lines that are not JSON events: $(jq -Rr '(fromjson? | empty), "x"' /tmp/worker.log | wc -l) of $(wc -l < /tmp/worker.log) minus the events above"
+          note Unstructured "log lines that are not JSON: $(jq -Rr 'try (fromjson | empty) catch "x"' /tmp/worker.log | wc -l) of $(wc -l < /tmp/worker.log)"
 
       - name: SIGTERM stops it cleanly
         run: |
