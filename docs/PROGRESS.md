@@ -5135,3 +5135,89 @@ type, last change, a hash of every readable value; the deployment `6b22ba9`,
   SearXNG, GPU/Ollama, staging hostname, Sentry (STAGING.md, External
   actions 3, 5–8). The end-to-end suite and load test have not been run
   against the hosted Preview.
+
+## Staging phase 2: region and CPU worker (2026-10-04, D-136)
+
+No worker is live. Preview's variables and secrets, the staging database's
+contents and Production were not changed.
+
+**Correction to the section above.** The Production check on 2026-10-04
+requested `/search?q=a` on `manifestbd.vercel.app` twice. The application
+records a visitor's search (`search_queries`, once per visitor, query and
+time window), so "nothing wrote its database" was wrong by at most that one
+analytics row, the same as any visitor's search. Nothing held Production's
+database credentials. Production checks now request `/`, `/cart` and
+`/login` only.
+
+### Region
+
+- `[x]` Read: no `regions` in `vercel.json`, no `preferredRegion` in the
+  code; project Function Region `iad1` (Hobby, one region, fluid compute);
+  every deployment `iad1`; both Neon projects `sin1`.
+- `[x]` Measured through the automation bypass, seven requests each, median
+  of the six after the first:
+
+  | Page | Preview in `iad1` | One-off Preview in `sin1` |
+  |---|---|---|
+  | `/search?q=…` (queries per request) | 4.15–4.22 s (first 10.5 s) | 0.61 s (first 2.7 s) |
+  | `/login` | 0.48 s | 0.25 s |
+  | `/robots.txt` | 0.27 s | 0.14 s |
+
+  The `sin1` Preview was `vercel deploy --regions sin1` from a clean export
+  of `4daea22` (Preview variables, "0 applied, 46 already applied", no
+  alias); deleted afterwards.
+- `[!]` Not changed: Preview cannot be moved without also moving Production
+  at its next deployment. Options in docs/STAGING.md, "Read this first".
+
+### Worker host
+
+- `[!]` WORKER_HOST=BLOCKED_EXTERNAL. On this machine: no Docker or Podman,
+  WSL without a distribution, no hypervisor, no SSH key or known host, no
+  cloud CLI. Vercel, Neon and GitHub offer no always-on process. Nothing was
+  bought or created.
+
+### Worker, as far as it can be shown without a host
+
+- `[x]` **Container, in GitHub Actions** (`worker-image.yml`, run
+  37157623672 on `1ab1a3f`, 3 min 58 s, PostgreSQL 18.6 on the stack's
+  network):
+  - image: Node v22.23.3, uid 1000, no exposed port, `.env.example` the only
+    env file, the test password in no file and no layer;
+  - `EXPECTED_DATABASE_NAME=manifest_other`: `--check` exits 1, "Nothing was
+    changed", no job row;
+  - `--check`: identity ok, mode direct (declared), database ok;
+  - worker alone (`--no-deps`, no SearXNG, no Ollama): healthy; ticks 15,
+    15, 15, 15 s apart; `jobs` and `worker` heartbeats 3 s old; liveness
+    check passes inside the container and fails with no worker;
+  - all ten scheduled kinds succeeded at attempt 1, none retried or dead;
+  - a job inserted from outside: succeeded, attempt 1, one `job.succeeded`;
+  - a job left `running` by a worker that vanished two hours earlier:
+    recovered by one tick, succeeded at attempt 2;
+  - process killed from the host: restart count 1, a second
+    `worker.started`, healthy again, heartbeat resumed, no job failed or
+    run twice;
+  - no published port; no address or test secret in the log;
+  - SIGTERM: exit code 0, `worker.stopped`;
+  - whole stack: SearXNG healthy and reachable from the worker by name,
+    nothing published; `--check` status `ok`, worker `reporting`, research
+    "not configured".
+- `[x]` **Against the real `manifest_staging`, from this machine on Node
+  22.23.3** (reads and one session lock; no worker was started):
+  `staging:check --role worker` with the host's settings: 0 missing, 6
+  warnings (mock email; SearXNG, Ollama, renderer, Search Console, Sentry
+  not configured); direct address, TLS, 46 migrations to 0045, session lock
+  held, refused elsewhere, released. `worker --check`: identity ok, mode
+  direct, database ok (49 ms), runner `worker`, media `blob`, payment and
+  shipping `mock`, status `degraded` — worker `silent`, never run.
+- `[x]` Staging's `/api/cron/revalidate` and `/api/cron/jobs` answer 401
+  without the secret and with a wrong one.
+- `[!]` UNVERIFIED — external integration unavailable: the worker on a
+  host; its heartbeat in Preview's health report; a job enqueued by the
+  hosted web application; cache invalidation accepted by the hosted Preview
+  (the correct secret is held by nobody until the host exists); restart
+  after a reboot. Preview's `/api/cron/health` was not read again for the
+  same reason; the worker's own report above is computed from the same
+  database.
+- No event is logged when a job is claimed; `job.succeeded`, `job.retrying`
+  and `job.dead` carry the job's id, kind and attempt, and the claim is in
+  the row (`locked_by`). Not changed.

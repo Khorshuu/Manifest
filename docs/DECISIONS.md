@@ -4819,3 +4819,48 @@ payment and shipping (mock).
 **Not verified.** A worker, SMTP, SearXNG, a GPU, a staging hostname and
 Sentry do not exist (docs/STAGING.md, External actions 3 and 5–8); with no
 worker, staging's health report is `degraded` and its queue is not drained.
+
+## D-136 — The worker's container is proven in CI; staging's region and worker host wait for the owner
+
+**Context.** Staging's next layer is an always-on CPU worker. No host for it
+exists, and nothing on the development machine can run a container (no
+Docker, no WSL distribution, no hypervisor), so `deploy/worker.Dockerfile`
+and `deploy/worker-stack.compose.yml` had never been built. Separately,
+staging's pages were slow: functions run in `iad1`, the database is in
+`sin1`.
+
+**Decisions.**
+
+1. **A workflow builds the worker image and runs it**
+   (`.github/workflows/worker-image.yml`), on any change to the deployment
+   files, the job code, the migrations or the lockfile. It uses the compose
+   file as a host will, plus a throwaway PostgreSQL 18 on the same private
+   network; every value is made up in the run. It is the only place the
+   container can be exercised until a host exists, and it stays as the
+   regression check afterwards.
+2. **What a step observed goes in an annotation.** A step's log needs a
+   GitHub login; the run's page does not. Each step reports what it saw as a
+   notice and a failing command as an error.
+3. **The first worker runs without the stack's SearXNG**
+   (`up -d --no-deps worker`). The compose file is unchanged: SearXNG and
+   the model are later phases, and the worker does not need them for
+   scheduled work, messages or cache invalidation. `SEARXNG_SECRET` must
+   still be set, because compose reads the whole file.
+4. **The Preview secrets are not replaced until a host exists.** A new pair
+   has to be written to Vercel and to the worker together and Preview
+   redeployed; doing it with nowhere to put the second copy only repeats
+   D-135's point 3.
+5. **The region is not changed.** Measured: `/search` 4.2 s from `iad1`
+   against 0.6 s from `sin1`, same commit and database. The Function Region
+   is project-wide and `vercel.json` travels with the branch to Production,
+   so either fix also moves Production; it is recorded in docs/STAGING.md
+   for the next Production deployment's decision. The one-off `sin1`
+   Preview used to measure it was deleted.
+
+**Not changed.** The worker, the job system, the compose and Docker files,
+every Vercel variable, the Production deployment.
+
+**Not verified.** The worker on a real host against `manifest_staging`:
+its restart after a reboot, cache invalidation reaching the hosted Preview,
+and staging's health report with a worker reporting (docs/STAGING.md,
+External action 3).

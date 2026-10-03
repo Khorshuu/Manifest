@@ -49,6 +49,27 @@ templates validated as far as this repository can without Docker or a GPU
   drains the queue on staging: `/api/cron/health` answers 200 `degraded`
   ("the background worker has not run jobs recently"). That is the expected
   state until External action 3.
+- **Functions run far from the database (measured 2026-10-04, not
+  changed).** Functions are in `iad1` (the project's Function Region); both
+  Neon projects are in `sin1`. A page that queries per request pays one
+  Pacific round trip per query: `/search` took 4.2 s on the `iad1` Preview
+  and 0.6 s on a one-off Preview deployed with `--regions sin1` (same
+  commit, same database, median of six warm requests; `/login` 0.48 s
+  against 0.25 s). The Function Region is one setting for the whole project
+  (Hobby plan, one region), and the repository has no `regions` or
+  `preferredRegion` anywhere, so Preview cannot be moved alone through Git:
+  1. `"regions": ["sin1"]` in `vercel.json` on this branch moves this
+     branch's Previews now and Production when the branch is deployed there.
+  2. Project → Settings → Functions → Function Region `sin1` applies to
+     every later deployment, Production's next one included.
+  3. A separate Vercel project for staging has its own region, variables
+     and stores.
+  4. `vercel deploy --regions sin1` from a clean checkout makes one Preview
+     in `sin1` without changing the repository or the project (this is how
+     it was measured); the branch alias does not follow it.
+  Production's database is in `sin1` too, so 1 or 2 is the fix for both,
+  and it belongs to the next Production deployment's decision. Neither has
+  been made.
 - **Not changed, on purpose:** the Production Blob store's connection record
   (`manifest-media`) still lists Preview and Development. What a deployment
   receives is the variable entry, and Preview's only `BLOB_READ_WRITE_TOKEN`
@@ -281,6 +302,67 @@ enough.
 `npm run worker -- --check` prints the full health report plus its own
 startup checks (database identity, mode, session lock) and exits 1 on a
 problem. `-- --once` runs one tick.
+
+**The worker before SearXNG, Ollama and email exist (the first worker host).**
+The worker alone, without the stack's SearXNG:
+
+```
+docker compose -f deploy/worker-stack.compose.yml --env-file .env.staging build worker
+docker compose -f deploy/worker-stack.compose.yml --env-file .env.staging run --rm --no-deps -T worker \
+  node node_modules/tsx/dist/cli.mjs scripts/jobs/worker.ts --check
+docker compose -f deploy/worker-stack.compose.yml --env-file .env.staging up -d --no-deps worker
+```
+
+Start it only when the check exits 0 and reports `startup.identity: ok`,
+`startup.mode.mode: direct`. `.env.staging` for this phase, one `NAME=value`
+per line and **no quotes** (`docker run --env-file` keeps them as part of
+the value):
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | **direct** address of `manifest_staging` (no `-pooler` in the host, `sslmode=require`) |
+| `DATABASE_CONNECTION_MODE` | `direct` |
+| `EXPECTED_DATABASE_NAME` | `manifest_staging` |
+| `JOB_RUNNER` | `worker` |
+| `SESSION_SECRET`, `CRON_SECRET` | the same new pair as Preview (below); the application refuses to start without `SESSION_SECRET` |
+| `WORKER_WEB_URL` | `https://manifest-git-production-readiness-manifest14.vercel.app` until a staging hostname exists |
+| `VERCEL_AUTOMATION_BYPASS_SECRET` | the project's automation bypass (Preview is behind Deployment Protection) |
+| `MEDIA_PROVIDER`, `BLOB_READ_WRITE_TOKEN`, `MEDIA_BLOB_PREFIX` | `blob`, the `manifest-staging` store's token, `staging/products` (the hourly media sweep runs in the worker) |
+| `NOTIFICATION_PROVIDER`, `PAYMENT_PROVIDER`, `SHIPPING_PROVIDER` | `mock` |
+| `SEARXNG_SECRET` | any long random value: compose reads the whole file even when SearXNG is not started |
+
+`PRODUCT_RESEARCH_PROVIDER`, `PRODUCT_EXTRACTION_PROVIDER`,
+`SEO_PULSE_AI_PROVIDER`, `OLLAMA_*` and `SMTP_*` stay unset. The worker then
+runs every scheduled job, reports healthy, and research and AI read "not
+configured"; nothing it does waits for a GPU.
+
+**Secrets on the day the host exists.** Preview's `SESSION_SECRET` and
+`CRON_SECRET` are Sensitive and cannot be read back, so a new pair is
+generated, written to both places, and Preview redeployed:
+
+1. Generate two random values (48 bytes, base64url). Never print them.
+2. Replace the two Preview-only entries on Vercel (the entries whose only
+   target is Preview; Production's are separate entries and are not touched).
+3. Write the same two values into the host's `.env.staging` (mode 600).
+4. Redeploy the branch's Preview: a deployment keeps the values it was built
+   with, so the old one still expects the old secret.
+5. `curl -s -H "Authorization: Bearer $CRON_SECRET" -H
+   "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET"
+   $WORKER_WEB_URL/api/cron/health` from the host answers 200: both sides
+   hold the same secret.
+
+**What has been run.** `.github/workflows/worker-image.yml` builds this
+image and runs this compose file on every change to them (D-136): Node 22,
+not root, no env file or secret in the image or its history; the worker
+refuses a database it was not pinned to; alone it becomes healthy, ticks
+every 15 s, records both heartbeats, runs each scheduled job once, runs a
+job enqueued by someone else once, recovers a job whose worker vanished, is
+restarted by `restart: unless-stopped` after its process is killed, exits 0
+on SIGTERM, publishes no port and logs no address or secret; then the whole
+stack comes up with SearXNG reachable only from the worker. That is a
+throwaway PostgreSQL 18 on the runner, not staging: against the real
+`manifest_staging`, only `staging:check --role worker` and `worker --check`
+have been run (from a development machine, Node 22).
 
 ### 7. Health and liveness
 
@@ -550,12 +632,17 @@ and checks for each are in place.
    For the worker: `.env.staging` `DATABASE_URL` (direct) with
    `DATABASE_CONNECTION_MODE=direct`. Then section 4.
 3. **Worker host.**
-   Missing: an always-on Linux host with Docker (2 vCPU, 4 GB).
+   Missing: an always-on Linux host with Docker (2 vCPU, 4 GB, x86-64 or
+   arm64; no GPU). Checked 2026-10-04: no Docker, WSL distribution,
+   hypervisor, SSH key or cloud CLI exists on the development machine, and
+   the Vercel, Neon and GitHub accounts offer no always-on process.
    Why not automatic: a paid resource.
-   Next: create it, install Docker, clone the repository, write
-   `.env.staging` (section 5), `docker compose -f
-   deploy/worker-stack.compose.yml --env-file .env.staging up -d --build`.
-   Where: the host; `.env.staging` beside the checkout, mode 600.
+   Next (the one action): create an Ubuntu 24.04 server with 2 vCPU and 4 GB
+   in or near Singapore (the database is in `sin1`), with outbound internet
+   and no inbound port except SSH, and make it reachable over SSH from where
+   the deployment is run. Everything after that is section 6: install
+   Docker, clone the repository, write `.env.staging` (mode 600, beside the
+   checkout), replace the Preview secrets, build, `--check`, start.
 4. **Staging Blob store.** DONE 2026-10-03: Blob store `manifest-staging`,
    connected to Preview only.
    For the worker: copy Preview's `BLOB_READ_WRITE_TOKEN` to its
