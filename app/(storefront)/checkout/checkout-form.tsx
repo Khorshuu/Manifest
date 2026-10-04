@@ -21,7 +21,8 @@ import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/providers/payme
 export type CheckoutSummary = {
   subtotalBdt: number;
   dueNowBdt: number;
-  lineCount: number;
+  /** How many things are being bought, counting quantities. */
+  itemCount: number;
   /** Cash on delivery is not offered when the order contains a preorder. */
   codAllowed: boolean;
 };
@@ -43,6 +44,10 @@ export type CheckoutLine = {
   lineTotalBdt: number;
   imageUrl: string | null;
   slug: string;
+  /** Sold from stock, or ordered once the batch closes. */
+  preorder: boolean;
+  /** Percent paid now, when the rest is collected later; null when paid in full. */
+  depositPercent: number | null;
 };
 
 const methodOrder: PaymentMethod[] = [
@@ -163,11 +168,26 @@ export function CheckoutForm({
       };
     }
 
-    const response = await fetch("/api/checkout", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    /*
+     * A request that never arrives — the connection dropped, a tunnel, a
+     * train — used to leave the button reading "Placing your order…" for good,
+     * with nothing said. The same key goes with every attempt from this form,
+     * so pressing again cannot place a second order.
+     */
+    let response: Response;
+    try {
+      response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      setError(
+        "We could not reach the shop. Check your connection and press Place order again — you will not be charged twice.",
+      );
+      setPending(false);
+      return;
+    }
 
     const body = await response.json().catch(() => ({}));
 
@@ -422,7 +442,12 @@ export function CheckoutForm({
                 that reads only "Sofa" is the complaint this answers (D-043).
               */}
               <div className="min-w-0 flex-1">
-                <p className="text-meta font-medium text-ink">{line.title}</p>
+                {/* Two lines at most: a title that runs to five pushed the
+                    total and the button a screen further down. The whole name
+                    is still there for a screen reader and on hover. */}
+                <p className="line-clamp-2 text-meta font-medium text-ink" title={line.title}>
+                  {line.title}
+                </p>
                 {line.options.length > 0 ? (
                   <ul className="mt-0.5 flex flex-col gap-0.5">
                     {line.options.map((option) => (
@@ -439,6 +464,19 @@ export function CheckoutForm({
                 <p className="mt-0.5 text-meta tabular-nums text-ink/70">
                   {line.quantity} × {formatBdt(line.unitPriceBdt)}
                 </p>
+                {/* How this line is sold and paid for, so a basket that
+                    mixes stock, preorders and deposits reads line by line. */}
+                <p className="mt-0.5 text-meta text-ink/70">
+                  {line.preorder ? "Preorder" : "In stock"}
+                  {line.depositPercent !== null ? (
+                    <>
+                      {" · "}
+                      <span className="font-medium text-ink">
+                        {line.depositPercent}% deposit now
+                      </span>
+                    </>
+                  ) : null}
+                </p>
               </div>
 
               <p className="shrink-0 text-meta tabular-nums text-ink">
@@ -451,7 +489,7 @@ export function CheckoutForm({
         <dl className="mt-4 flex flex-col gap-3 text-body">
           <div className="flex justify-between gap-4">
             <dt className="text-ink/70">
-              {summary.lineCount} item{summary.lineCount === 1 ? "" : "s"}
+              {summary.itemCount} item{summary.itemCount === 1 ? "" : "s"}
             </dt>
             <dd className="tabular-nums text-ink">
               {formatBdt(summary.subtotalBdt)}

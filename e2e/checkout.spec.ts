@@ -115,6 +115,54 @@ test("submitting the same order twice creates one order", async ({ page }) => {
   expect(replay.body.order.reused).toBe(true);
 });
 
+/*
+ * A request that never arrives. The button used to stay on "Placing your
+ * order…" with nothing said; now the page says what happened, the button comes
+ * back, and the second press places the order — once, because the form sends
+ * the same idempotency key again.
+ */
+test("a dropped connection is reported and the order goes through on the next press", async ({ page }) => {
+  await addFirstProductToCart(page);
+  await page.goto("/checkout");
+  await fillGuestCheckout(page, "dropped-connection@example.com");
+
+  const keys: string[] = [];
+  let dropped = false;
+  await page.route("**/api/checkout", async (route) => {
+    keys.push(JSON.parse(route.request().postData() ?? "{}").idempotencyKey);
+    if (!dropped) {
+      dropped = true;
+      await route.abort("internetdisconnected");
+      return;
+    }
+    await route.continue();
+  });
+
+  const place = page.getByRole("button", { name: "Place order" });
+  await place.click();
+  await expect(page.getByText(/We could not reach the shop/)).toBeVisible();
+  await expect(place).toBeEnabled();
+  // Still on the form, with what was typed.
+  await expect(page.getByLabel("Recipient name")).toHaveValue("A Shopper");
+
+  await place.click();
+  await page.waitForURL(/\/checkout\/confirmation/);
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).toBe(keys[1]);
+});
+
+/* How each line is sold and paid for is stated beside it, not only in the total. */
+test("the order summary says how each line is sold", async ({ page }) => {
+  await addFirstProductToCart(page);
+  await page.goto("/checkout");
+
+  const summary = page.getByRole("complementary").filter({ hasText: "Order summary" });
+  const line = summary.getByRole("listitem").filter({ hasText: "Seasonal Candy Variety Box" });
+  await expect(line).toContainText("Preorder");
+  await expect(line).not.toContainText("In stock");
+  await expect(summary.getByText("1 item", { exact: true })).toBeVisible();
+});
+
 test("a preorder cannot be paid cash on delivery", async ({ page }) => {
   await addFirstProductToCart(page);
   await page.goto("/checkout");

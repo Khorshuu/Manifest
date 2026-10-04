@@ -226,11 +226,18 @@ export function VariantPicker({
     setError(null);
     setMessage(null);
 
+    // A request that never arrives must not leave the button busy for good.
     const response = await fetch("/api/cart", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ variantId: target.id, quantity }),
-    });
+    }).catch(() => null);
+
+    if (!response) {
+      setPending(null);
+      setError("We could not reach the shop. Check your connection and try again.");
+      return;
+    }
 
     const body = await response.json().catch(() => ({}));
 

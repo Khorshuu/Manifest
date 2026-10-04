@@ -66,7 +66,8 @@ export default async function CheckoutPage() {
             summary={{
               subtotalBdt: cart.subtotalBdt,
               dueNowBdt: cart.dueNowBdt,
-              lineCount: cart.lines.length,
+              // Things, not lines: two of one product are two items.
+              itemCount: cart.lines.reduce((sum, line) => sum + line.quantity, 0),
               codAllowed: codAllowed(cart.lines),
             }}
             savedAddresses={saved.map((address) => ({
@@ -85,6 +86,9 @@ export default async function CheckoutPage() {
               lineTotalBdt: line.lineTotalBdt,
               imageUrl: line.imageUrl,
               slug: line.productSlug,
+              preorder: line.fulfillmentMode === "preorder",
+              depositPercent:
+                line.paymentMode === "deposit" && line.depositPercent ? line.depositPercent : null,
             }))}
           />
         </div>

@@ -168,13 +168,19 @@ export function CartLines({
     setPending(itemId);
     setError(null);
 
+    // A request that never arrives must not leave the row greyed out for good.
     const response = await fetch("/api/cart", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ itemId, quantity }),
-    });
+    }).catch(() => null);
 
     setPending(null);
+
+    if (!response) {
+      setError("We could not reach the shop. Check your connection and try again.");
+      return;
+    }
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
@@ -193,9 +199,14 @@ export function CartLines({
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ itemId }),
-    });
+    }).catch(() => null);
 
     setPending(null);
+
+    if (!response) {
+      setError("We could not reach the shop. Check your connection and try again.");
+      return;
+    }
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
@@ -224,7 +235,7 @@ export function CartLines({
       <div className="min-w-0">
         {/* On a phone the rows sit on a pale ground, edge to edge, as white
             slips with a little space between them (D-047). */}
-        <ul className="flex flex-col gap-4 max-sm:-mx-4 max-sm:gap-2 max-sm:bg-paper-raised max-sm:px-3 max-sm:py-3">
+        <ul className="flex flex-col gap-3 max-sm:-mx-4 max-sm:gap-2 max-sm:bg-paper-raised max-sm:px-3 max-sm:py-3">
           {rows.map(({ item: line, key, entering, leaving }) => {
               const busy = pending === line.itemId;
               const max = line.available ?? 99;
@@ -249,10 +260,10 @@ export function CartLines({
                    * every width. From `sm` it is the three-column row it
                    * always was.
                    */}
-                  <div className="grid grid-cols-[4rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 p-3 sm:flex sm:flex-wrap sm:gap-5 sm:p-5">
+                  <div className="grid grid-cols-[4rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 p-3 sm:flex sm:flex-wrap sm:gap-4 sm:p-4">
                     <Link
                       href={`/products/${line.productSlug}`}
-                      className="media-zoom surface-studio row-span-4 size-16 shrink-0 overflow-hidden rounded-control sm:size-28 sm:rounded-card sm:border sm:border-blue-300"
+                      className="media-zoom surface-studio row-span-4 size-16 shrink-0 overflow-hidden rounded-control sm:size-20 sm:rounded-card sm:border sm:border-blue-300"
                       tabIndex={-1}
                       aria-hidden="true"
                     >
@@ -275,7 +286,7 @@ export function CartLines({
                       )}
                     </Link>
 
-                    <div className="contents sm:flex sm:min-w-[180px] sm:flex-1 sm:flex-col sm:gap-1.5">
+                    <div className="contents sm:flex sm:min-w-[180px] sm:flex-1 sm:flex-col sm:gap-1">
                       <Link
                         href={`/products/${line.productSlug}`}
                         className="link-draw col-start-2 row-start-1 self-start font-display text-[0.875rem] leading-snug text-ink max-sm:line-clamp-2 sm:text-h3"
@@ -313,9 +324,13 @@ export function CartLines({
                         ) : null}
                       </div>
 
-                      <p className="hidden text-meta tabular-nums text-ink/70 sm:block">
-                        {formatBdt(line.unitPriceBdt)} each
-                      </p>
+                      {/* Only with more than one: at a quantity of one the
+                          line total beside it is the same figure. */}
+                      {line.quantity > 1 ? (
+                        <p className="hidden text-meta tabular-nums text-ink/70 sm:block">
+                          {formatBdt(line.unitPriceBdt)} each
+                        </p>
+                      ) : null}
 
                       {line.problem ? (
                         <p className="col-span-2 col-start-2 row-start-3 mt-1 flex items-start gap-2 text-meta text-stamp-red-text">
@@ -325,7 +340,7 @@ export function CartLines({
                       ) : null}
                     </div>
 
-                    <div className="contents sm:flex sm:flex-col sm:items-end sm:gap-3">
+                    <div className="contents sm:flex sm:flex-col sm:items-end sm:gap-1.5">
                       <p className="col-start-2 row-start-4 self-center text-[1rem] font-extrabold tabular-nums text-ink sm:font-display sm:text-price sm:font-semibold">
                         {formatBdt(line.lineTotalBdt)}
                       </p>
