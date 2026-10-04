@@ -5221,3 +5221,71 @@ database credentials. Production checks now request `/`, `/cart` and
 - No event is logged when a job is claimed; `job.succeeded`, `job.retrying`
   and `job.dead` carry the job's id, kind and attempt, and the claim is in
   the row (`locked_by`). Not changed.
+
+## Staging phase 3: remaining infrastructure, checked again (2026-10-05)
+
+Nothing was provisioned, rotated or deployed. No source file changed. Every
+remaining item needs an account, a login or billing that this machine does
+not have.
+
+- `[x]` **Baseline.** `production-readiness` at `0d37b56`, level with
+  `origin`. GitHub CI on `0d37b56`: all four checks Success (typecheck, lint
+  and tests; production build, end-to-end and budgets; worker image; Vercel).
+  Local Node 24.20.0 (checks below ran on 22.23.3 through `npx node@22`). No
+  Docker. OpenSSH 10.5.
+- `[!]` **Cloud access, CPU_HOST=BLOCKED_EXTERNAL_BILLING.** No CLI,
+  credential directory or token variable for DigitalOcean, Hetzner, AWS,
+  Google Cloud, Azure, Render, Railway, Fly.io, Linode, Vultr, Oracle or
+  Scaleway. No `~/.ssh/config`, no `known_hosts`. Vercel (Hobby) and Neon
+  (Free) are the only authorised accounts, and neither runs an always-on
+  process. The deployment key `~/.ssh/manifest_staging_ed25519` exists
+  (ED25519, readable by the owner's Windows account, SYSTEM and
+  Administrators only) and has been given to no host.
+- `[!]` **Not done, because each depends on the host:** hardening, checkout
+  on the host, replacing Preview's `SESSION_SECRET` and `CRON_SECRET`, the
+  image build on the host, the worker, job acceptance, stale recovery, cache
+  revalidation with the right secret, restart and reboot, resource use,
+  SearXNG, the research check. The container's behaviour is still as proven
+  in CI (run on `1ab1a3f`, section above).
+- `[x]` **Staging database, direct address:** `manifest_staging`, PostgreSQL
+  18.6, UTF8, 87 tables, only the ledger has rows (46, latest
+  `0045_notification_retry_backoff.sql`), no advisory lock held.
+- `[x]` **`npm run staging:check -- --role worker`** with the host's
+  settings: 0 missing, 6 warnings (mock email; SearXNG, Ollama, renderer,
+  Search Console, Sentry not configured), 15 ready; direct, TLS, migrations
+  current, session lock held, refused elsewhere, released.
+  **`npm run worker -- --check`** (run from an empty directory so
+  `.env.local` is not read): exit 0, identity ok, mode direct, runner
+  `worker`, media `blob`, payment and shipping `mock`, status `degraded` —
+  worker `silent`, never run. No worker was started.
+- `[x]` **Preview (`0d37b56`, READY), through the automation bypass:** 302 to
+  Vercel's login without it; `/`, `/search`, `/cart`, `/login`,
+  `/sitemap.xml`, `/robots.txt` 200; `/admin` 307 to `/login`;
+  `/api/admin/health` 401; `/api/cron/health`, `/api/cron/jobs` and
+  `POST /api/cron/revalidate` 401 without the secret and with a wrong one.
+  No product link, no reference to the production media store. The search
+  request's one `search_queries` row was removed; the database is empty
+  again.
+- `[!]` `/api/cron/health` was not read with the secret, and an unknown tag
+  and a valid tag were not sent to `/api/cron/revalidate`: Preview's
+  `CRON_SECRET` is held by nobody until it is replaced together with the
+  worker's.
+- `[x]` **Media:** the staging store has 0 objects; Production's, listed
+  read-only, 14 objects, newest 2026-09-27, as before.
+- `[!]` **SMTP=BLOCKED_EXTERNAL_ACCOUNT.** No `SMTP_*` or `EMAIL_FROM` in
+  Vercel or in `.env.local`. No message was sent.
+- `[!]` **GPU=BLOCKED_EXTERNAL_BILLING.** The only NVIDIA card is the
+  development machine's GTX 1050 Ti (4 GB), which is not a host.
+- `[!]` **DNS=BLOCKED_EXTERNAL_LOGIN.** No Cloudflare credential; the Vercel
+  account owns no domain; the project's only domain is
+  `manifestbd.vercel.app`.
+- `[ ]` **Sentry:** no DSN anywhere; left off.
+- `[x]` **Region:** not changed (`iad1`); the move to `sin1` belongs to the
+  next Production deployment (docs/STAGING.md, "Read this first").
+- `[x]` **Production:** deployment `6b22ba9` (`dpl_7WLa…`), READY, created
+  2026-09-14, still what `manifestbd.vercel.app` serves; `/`, `/cart`,
+  `/login` 200 (no search request); 29 variable entries, none changed since
+  2026-10-03; nothing connected to its database; its Blob store only listed.
+- `[x]` **Repository:** `.env.example` is the only env file tracked;
+  `.env*` ignored; no private key, token or real database address in a
+  tracked file (the addresses in `tests/` are invented hosts).

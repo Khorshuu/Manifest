@@ -634,8 +634,11 @@ and checks for each are in place.
 3. **Worker host.**
    Missing: an always-on Linux host with Docker (2 vCPU, 4 GB, x86-64 or
    arm64; no GPU). Checked 2026-10-04: no Docker, WSL distribution,
-   hypervisor, SSH key or cloud CLI exists on the development machine, and
-   the Vercel, Neon and GitHub accounts offer no always-on process.
+   hypervisor or cloud CLI exists on the development machine, and the
+   Vercel, Neon and GitHub accounts offer no always-on process (the same on
+   2026-10-05). A deployment key for the host exists there:
+   `~/.ssh/manifest_staging_ed25519`; add its `.pub` to the server when
+   creating it.
    Why not automatic: a paid resource.
    Next (the one action): create an Ubuntu 24.04 server with 2 vCPU and 4 GB
    in or near Singapore (the database is in `sin1`), with outbound internet
