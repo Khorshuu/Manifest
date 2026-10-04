@@ -119,6 +119,32 @@ describe("a card's remaining capacity", () => {
     // A capped batch with every place taken still reads as full.
     expect(cards.find((card) => card.title === "Full batch")?.remainingCapacity).toBe(0);
   });
+
+  /*
+   * One option's batch is full; another option is on the shelf. The card is
+   * about the product, and the product can be bought.
+   */
+  it("does not call a product full when another of its variants is in stock", async () => {
+    const mixed = await preorder("Mixed offer", [{ priceBdt: 100_00, closesInHours: 24, capacity: 5 }]);
+    await harness.db.update(productVariants).set({ preorderReserved: 5 }).where(eq(productVariants.id, mixed.variantIds[0]));
+    await harness.db.insert(productVariants).values({
+      productId: mixed.id,
+      sku: "MIXED-STOCK",
+      priceBdt: 120_00,
+      fulfillmentMode: "in_stock",
+      stockQuantity: 3,
+    });
+
+    const card = (await listProductCards({ limit: 10 })).find((entry) => entry.title === "Mixed offer");
+    expect(card?.remainingCapacity).toBeNull();
+    expect(card?.totalCapacity).toBeNull();
+    expect(card?.outOfStock).toBe(false);
+
+    // The shelf empties too: now the full batch is all there is, and it says so.
+    await harness.db.update(productVariants).set({ stockQuantity: 0 }).where(eq(productVariants.sku, "MIXED-STOCK"));
+    const after = (await listProductCards({ limit: 10 })).find((entry) => entry.title === "Mixed offer");
+    expect(after?.remainingCapacity).toBe(0);
+  });
 });
 
 describe("preorders without a capacity or a closing date", () => {

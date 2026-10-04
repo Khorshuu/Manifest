@@ -115,6 +115,12 @@ export async function loadCardAggregates(
         greatest(0, ${productVariants.preorderCapacity} - ${productVariants.preorderReserved})
       ) filter (where ${productVariants.preorderCapacity} is not null))::int`,
       capacity: sql<number | null>`sum(${productVariants.preorderCapacity})::int`,
+      /* Something on this listing can be bought from stock right now. A full
+         preorder batch beside it is one option gone, not the product. */
+      stockAvailable: sql<boolean>`bool_or(
+        ${productVariants.fulfillmentMode} = 'in_stock'
+        and (${productVariants.stockQuantity} is null or ${productVariants.stockQuantity} > 0)
+      )`,
       closesAt: sql<Date | null>`max(${productVariants.preorderClosesAt})`,
       /* Whether the window shuts within three days, decided by the database so
          there is one clock for the whole system — the same reason
@@ -150,10 +156,16 @@ export async function loadCardAggregates(
     }
     entry.outOfStock = Boolean(variant.outOfStock);
     entry.fulfillmentMode = variant.anyPreorder ? "preorder" : "in_stock";
-    entry.remainingCapacity =
-      variant.remaining === null ? null : Number(variant.remaining);
+    /*
+     * The batch's places describe the whole listing only when the batch is
+     * all there is to buy. With a variant also sold from stock, a card that
+     * read "Batch full" (or counted down the last places) told a shopper the
+     * product was gone while one of its options sat on the shelf.
+     */
+    const capped = variant.remaining !== null && !variant.stockAvailable;
+    entry.remainingCapacity = capped ? Number(variant.remaining) : null;
     entry.totalCapacity =
-      variant.capacity === null ? null : Number(variant.capacity);
+      capped && variant.capacity !== null ? Number(variant.capacity) : null;
     entry.closesAt = variant.closesAt ? new Date(variant.closesAt) : null;
     entry.closingSoon = Boolean(variant.closingSoon);
     entry.arrivesFrom = variant.arrivesFrom

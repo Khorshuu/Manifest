@@ -2,7 +2,7 @@ import { taka } from "../lib/money";
 import * as schema from "../db/schema";
 import type { SeedDatabase } from "../db/seed";
 
-const { categories, products, productVariants } = schema;
+const { attributeValues, attributes, categories, productAttributes, products, productVariants, variantOptionValues } = schema;
 
 /**
  * Listings the development seed does not have, added to the end-to-end
@@ -30,6 +30,21 @@ export const VARIETY = {
   },
   sparse: { title: "Plain Desk Blotter", slug: "plain-desk-blotter", sku: "E2E-BLOTTER" },
   draft: { title: "Unreleased Weekly Planner", slug: "unreleased-weekly-planner", sku: "E2E-PLANNER-DRAFT" },
+  /** One option's batch is full, one is on the shelf, one has run out of stock. */
+  mixedOffer: {
+    title: "Steel Rule, Etched Markings",
+    slug: "steel-rule-etched-markings",
+    full: "15 cm",
+    onShelf: "30 cm",
+    soldOut: "50 cm",
+  },
+  /** More options than fit as a row of chips: 12 inks in 5 tips. */
+  manyOptions: {
+    title: "Fineliner Pen, Single",
+    slug: "fineliner-pen-single",
+    inks: ["Amber", "Black", "Blue", "Coral", "Green", "Grey", "Navy", "Olive", "Plum", "Red", "Sand", "Teal"],
+    tips: ["0.1 mm", "0.3 mm", "0.5 mm", "0.8 mm", "Brush"],
+  },
 } as const;
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -101,5 +116,70 @@ export async function seedVariety(db: SeedDatabase) {
     fromStock(draft.id, VARIETY.draft.sku, 1800, 25),
   ]);
 
-  process.stdout.write("End-to-end variety listings added: 6 (stock, out of stock, low stock on sale, long title with deposit, sparse, draft)\n");
+  /*
+   * Two listings with options. An option is an attribute of its own product
+   * (D-040), with a value per choice and a row tying each variant to its value.
+   */
+  const option = async (productId: string, name: string, values: readonly string[], sortOrder = 0) => {
+    const [attribute] = await db.insert(attributes).values({ name, inputType: "select", productId }).returning();
+    const rows = await db
+      .insert(attributeValues)
+      .values(values.map((value, index) => ({ attributeId: attribute.id, value, sortOrder: index })))
+      .returning();
+    await db.insert(productAttributes).values({ productId, attributeId: attribute.id, sortOrder });
+    return { id: attribute.id, valueId: new Map(rows.map((row) => [row.value, row.id])) };
+  };
+
+  const [mixed, many] = await db
+    .insert(products)
+    .values([listing(VARIETY.mixedOffer, { status: "preorder_open" }), listing(VARIETY.manyOptions)])
+    .returning();
+
+  const lengths = [VARIETY.mixedOffer.full, VARIETY.mixedOffer.onShelf, VARIETY.mixedOffer.soldOut];
+  const length = await option(mixed.id, "Length", lengths);
+  const mixedVariants = await db
+    .insert(productVariants)
+    .values([
+      {
+        productId: mixed.id,
+        sku: "E2E-RULE-15",
+        priceBdt: taka(380),
+        fulfillmentMode: "preorder" as const,
+        preorderCapacity: 5,
+        // Every place taken.
+        preorderReserved: 5,
+        preorderClosesAt: new Date(Date.now() + 12 * DAY),
+        estimatedArrivalFrom: new Date(Date.now() + 30 * DAY),
+        estimatedArrivalTo: new Date(Date.now() + 44 * DAY),
+        paymentMode: "full" as const,
+      },
+      fromStock(mixed.id, "E2E-RULE-30", 520, 4),
+      fromStock(mixed.id, "E2E-RULE-50", 690, 0),
+    ])
+    .returning();
+  await db.insert(variantOptionValues).values(
+    lengths.map((value, index) => ({
+      variantId: mixedVariants[index].id,
+      attributeId: length.id,
+      attributeValueId: length.valueId.get(value)!,
+    })),
+  );
+
+  const ink = await option(many.id, "Ink", VARIETY.manyOptions.inks, 0);
+  const tip = await option(many.id, "Tip", VARIETY.manyOptions.tips, 1);
+  const combinations = VARIETY.manyOptions.inks.flatMap((inkValue) =>
+    VARIETY.manyOptions.tips.map((tipValue) => ({ inkValue, tipValue })),
+  );
+  const manyVariants = await db
+    .insert(productVariants)
+    .values(combinations.map((_combination, index) => fromStock(many.id, `E2E-FINE-${index + 1}`, 180, 25)))
+    .returning();
+  await db.insert(variantOptionValues).values(
+    combinations.flatMap((combination, index) => [
+      { variantId: manyVariants[index].id, attributeId: ink.id, attributeValueId: ink.valueId.get(combination.inkValue)! },
+      { variantId: manyVariants[index].id, attributeId: tip.id, attributeValueId: tip.valueId.get(combination.tipValue)! },
+    ]),
+  );
+
+  process.stdout.write("End-to-end variety listings added: 8 (stock, out of stock, low stock on sale, long title with deposit, sparse, draft, mixed offer, many options)\n");
 }

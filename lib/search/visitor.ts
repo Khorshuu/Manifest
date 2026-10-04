@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { headers } from "next/headers";
+import { connection } from "next/server";
 import { getEnv } from "@/lib/env";
 
 /**
@@ -24,8 +25,13 @@ export function visitorHash(
     .slice(0, 32);
 }
 
-export async function currentVisitorHash(now = new Date()): Promise<string> {
+export async function currentVisitorHash(at?: Date): Promise<string> {
+  // The clock is read at request time, and says so (`connection()`): read as a
+  // default argument it was reported as an error on every search — "unstable
+  // value `new Date()` while prerendering" — and filled the error log.
+  await connection();
   const list = await headers();
+  const now = at ?? new Date();
   const ip = (
     list.get("x-forwarded-for")?.split(",")[0] ??
     list.get("x-real-ip") ??

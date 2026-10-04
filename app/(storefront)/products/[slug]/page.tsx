@@ -22,7 +22,6 @@ import type {
 import {
   BoxContents,
   Compliance,
-  Highlights,
   LifestyleBand,
   Warranty,
 } from "./detail-sections";
@@ -313,12 +312,20 @@ export default async function ProductPage({
   };
   const statusLabel = STATUS_LABELS[product.status] ?? null;
 
-  // Built from the values rendered below, so the two cannot drift apart.
-  const cheapest = pickerVariants.reduce<(typeof pickerVariants)[number] | null>(
-    (lowest, variant) =>
-      lowest === null || variant.priceBdt < lowest.priceBdt ? variant : lowest,
-    null,
-  );
+  // Built from the values rendered below, so the two cannot drift apart. The
+  // cheapest option that can still be bought, as the buy box quotes it: a
+  // from-price taken from an option that is full or out of stock is a price
+  // nobody can pay.
+  const UNAVAILABLE = new Set(["out_of_stock", "preorder_full", "closed"]);
+  const lowestOf = (list: typeof pickerVariants) =>
+    list.reduce<(typeof pickerVariants)[number] | null>(
+      (lowest, variant) =>
+        lowest === null || variant.priceBdt < lowest.priceBdt ? variant : lowest,
+      null,
+    );
+  const cheapest =
+    lowestOf(pickerVariants.filter((variant) => !UNAVAILABLE.has(variant.stockState))) ??
+    lowestOf(pickerVariants);
 
   /*
    * Structured data is built from the values rendered above and from the
@@ -537,9 +544,17 @@ export default async function ProductPage({
               <h2 className="text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-ink/70">
                 At a glance
               </h2>
-              <div className="mt-2 text-meta">
-                <Highlights items={glance.map((row) => `${row.label}: ${row.value}`)} />
-              </div>
+              {/* Label and value in two columns, for the eye to run down — not
+                  the ticked lines the key features use, which made the two
+                  blocks read as the same list twice. */}
+              <dl className="mt-2 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-meta">
+                {glance.map((row) => (
+                  <div key={row.label} className="contents">
+                    <dt className="text-ink/70">{row.label}</dt>
+                    <dd className="font-medium text-ink [overflow-wrap:anywhere]">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
             </div>
           ) : null}
         </div>

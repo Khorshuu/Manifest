@@ -10,7 +10,15 @@ import { VARIETY } from "./seed-variety";
  */
 
 const SHELF = `/categories/${VARIETY.shelf.slug}`;
-const PUBLIC = [VARIETY.inStock, VARIETY.outOfStock, VARIETY.lowStock, VARIETY.longTitle, VARIETY.sparse];
+const PUBLIC = [
+  VARIETY.inStock,
+  VARIETY.outOfStock,
+  VARIETY.lowStock,
+  VARIETY.longTitle,
+  VARIETY.sparse,
+  VARIETY.mixedOffer,
+  VARIETY.manyOptions,
+];
 
 function card(page: Page, title: string) {
   return page.getByRole("link").filter({ has: page.getByRole("heading", { level: 3, name: title, exact: true }) });
@@ -71,6 +79,69 @@ test("an out-of-stock listing cannot be bought and says why", async ({ page }) =
   // Sold from stock, so the reason is about stock, not about a preorder.
   await expect(page.getByText(/This item is out of stock\./)).toBeVisible();
   await expect(page.getByText(/This preorder is full/)).toHaveCount(0);
+});
+
+/*
+ * One option's batch is full and another is on the shelf. The card and the buy
+ * box are about the product, and the product can be bought.
+ */
+test("a product is not called full because one of its options is", async ({ page }) => {
+  await page.goto(SHELF);
+  const listing = card(page, VARIETY.mixedOffer.title);
+  await expect(listing).toHaveCount(1);
+  await expect(listing).not.toContainText("Batch full");
+  await expect(listing).not.toContainText("places left");
+
+  await page.goto(`/products/${VARIETY.mixedOffer.slug}`);
+  const options = page.locator("fieldset", { has: page.getByText("Choose an option", { exact: true }) }).locator("label");
+  // Each option says why it cannot be bought in the word that fits how it is sold.
+  await expect(options.filter({ hasText: VARIETY.mixedOffer.full })).toContainText("Full");
+  await expect(options.filter({ hasText: VARIETY.mixedOffer.soldOut })).toContainText("Out of stock");
+  await expect(options.filter({ hasText: VARIETY.mixedOffer.soldOut })).not.toContainText("Full");
+  await expect(options.filter({ hasText: VARIETY.mixedOffer.onShelf })).not.toContainText(/Full|Out of stock/);
+
+  // Nothing is chosen yet: the buy box describes what can be bought, not the full option.
+  await expect(page.getByText(/This preorder is full/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Unavailable" }).filter({ visible: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^(Add to cart|Add)$/ }).filter({ visible: true }).first()).toBeEnabled();
+});
+
+test("many options are found by name instead of read through as a wall of chips", async ({ page, isMobile }) => {
+  test.skip(isMobile, "A phone chooses in the option sheet; the field there is covered below.");
+  await page.goto(`/products/${VARIETY.manyOptions.slug}`);
+  const total = VARIETY.manyOptions.inks.length * VARIETY.manyOptions.tips.length;
+  const fieldset = page.locator("fieldset", { has: page.getByText("Choose an option", { exact: true }) });
+  const options = fieldset.locator("label").filter({ has: page.locator('input[type="radio"]') });
+
+  await expect(options).toHaveCount(total);
+  await expect(fieldset.getByText(`${total} options`)).toBeVisible();
+
+  await fieldset.getByLabel("Find an option").fill("teal br");
+  await expect(options).toHaveCount(1);
+  await expect(options.first()).toContainText("Teal / Brush");
+  await expect(fieldset.getByText(`1 of ${total}`)).toBeVisible();
+
+  // Finding is not choosing: the option is chosen by pressing it, and stays chosen.
+  await options.first().click();
+  await fieldset.getByLabel("Find an option").fill("");
+  await expect(options).toHaveCount(total);
+  await expect(fieldset.getByRole("radio", { checked: true })).toHaveCount(1);
+
+  await fieldset.getByLabel("Find an option").fill("zzz");
+  await expect(fieldset.getByText("No option matches “zzz”.")).toBeVisible();
+});
+
+test("a phone finds one of many options in the option sheet", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "The option sheet is the phone's picker.");
+  await page.goto(`/products/${VARIETY.manyOptions.slug}`);
+  await page.getByRole("button", { name: /^Option/ }).click();
+  const sheet = page.getByRole("dialog", { name: "Choose your option" });
+  await sheet.getByLabel("Find an option").fill("navy 0.5");
+  await expect(sheet.getByRole("listitem")).toHaveCount(1);
+  await sheet.getByRole("button", { name: /Navy \/ 0\.5 mm/ }).click();
+  await expect(sheet).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Navy \/ 0\.5 mm/ })).toBeVisible();
+  expect(await overflowsSideways(page)).toBe(false);
 });
 
 test("a low-stock listing on sale shows the sale price, the regular price and the saving", async ({ page }) => {

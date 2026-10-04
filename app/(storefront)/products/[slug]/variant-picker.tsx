@@ -64,6 +64,72 @@ export type PickerVariant = {
   depositPercent: number | null;
 };
 
+/**
+ * Why an option cannot be bought, in the word that fits how it is sold, or
+ * null when it can. "Full" is a batch's word: an option sold from stock that
+ * has run out is "Out of stock", never "Full".
+ */
+function unavailableLabel(variant: PickerVariant): string | null {
+  if (variant.isClosed || variant.stockState === "closed") return "Closed";
+  if (variant.stockState === "out_of_stock") return "Out of stock";
+  if (variant.stockState === "preorder_full") return "Full";
+  if (variant.remaining !== null && variant.remaining <= 0) {
+    return variant.fulfillmentMode === "preorder" ? "Full" : "Out of stock";
+  }
+  return null;
+}
+
+/** With more options than this, the picker gets a field to find one by name. */
+const FILTER_FROM = 13;
+
+/** The options whose name contains every word typed, in the order given. */
+function matchingVariants(variants: PickerVariant[], typed: string): PickerVariant[] {
+  const words = typed.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return variants;
+  return variants.filter((variant) => {
+    const label = variant.label.toLowerCase();
+    return words.every((word) => label.includes(word));
+  });
+}
+
+/**
+ * The field that narrows a long list of options, with how many are showing.
+ * Typing never changes the choice: it only decides which options are listed.
+ */
+function OptionFilter({
+  value,
+  onChange,
+  total,
+  shown,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  total: number;
+  shown: number;
+}) {
+  const id = useId();
+  return (
+    <div className="flex items-center gap-2">
+      <label htmlFor={id} className="sr-only">
+        Find an option
+      </label>
+      <input
+        id={id}
+        type="search"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Find an option"
+        autoComplete="off"
+        spellCheck={false}
+        className="min-h-10 min-w-0 flex-1 rounded-control border border-blue-300 bg-paper px-3 text-meta text-ink placeholder:text-ink/70"
+      />
+      <p className="shrink-0 text-meta tabular-nums text-ink/70" role="status">
+        {value.trim() ? `${shown} of ${total}` : `${total} options`}
+      </p>
+    </div>
+  );
+}
+
 /** What the option sheet was opened for: to choose, or to choose and add. */
 type SheetIntent = "choose" | "cart" | "buy";
 
@@ -105,6 +171,10 @@ export function VariantPicker({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SheetIntent | null>(null);
+  /** What has been typed to find an option, when there are many. */
+  const [optionFilter, setOptionFilter] = useState("");
+  const filterable = variants.length >= FILTER_FROM;
+  const listed = filterable ? matchingVariants(variants, optionFilter) : variants;
   /** The phone bar's own "Added" moment, a couple of seconds long. */
   const [justAdded, setJustAdded] = useState(false);
   const sheetTitleId = useId();
@@ -148,7 +218,7 @@ export function VariantPicker({
         return;
       }
       setMessage(null);
-      setError("Please select a variant before continuing.");
+      setError("Choose an option first.");
       return;
     }
 
@@ -227,8 +297,22 @@ export function VariantPicker({
       lowest === null || variant.priceBdt < lowest.priceBdt ? variant : lowest,
     null,
   );
-  /** The option the panel describes — the chosen one, or the cheapest. */
-  const shown = selected ?? cheapest;
+  /*
+   * Before a choice is made the panel describes the cheapest option that can
+   * still be bought. It described the cheapest of all, so when that one
+   * option was full the whole product read "This preorder is full" with both
+   * buttons disabled, while the options beside it were open.
+   */
+  const cheapestAvailable = variants.reduce<PickerVariant | null>(
+    (lowest, variant) =>
+      unavailableLabel(variant) === null &&
+      (lowest === null || variant.priceBdt < lowest.priceBdt)
+        ? variant
+        : lowest,
+    null,
+  );
+  /** The option the panel describes — the chosen one, or the cheapest on offer. */
+  const shown = selected ?? cheapestAvailable ?? cheapest;
 
   if (!shown) {
     return (
@@ -373,11 +457,19 @@ export function VariantPicker({
               </button>
             </div>
 
+            {filterable ? (
+              <OptionFilter
+                value={optionFilter}
+                onChange={setOptionFilter}
+                total={variants.length}
+                shown={listed.length}
+              />
+            ) : null}
+
             <ul className="mt-1">
-              {variants.map((variant) => {
-                const full =
-                  variant.isClosed ||
-                  (variant.remaining !== null && variant.remaining <= 0);
+              {listed.map((variant) => {
+                const unavailable = unavailableLabel(variant);
+                const full = unavailable !== null;
                 const chosen = variant.id === selectedId;
                 return (
                   <li key={variant.id} className="border-b border-blue-200 last:border-0">
@@ -407,7 +499,7 @@ export function VariantPicker({
                       <span className="shrink-0 text-right text-meta tabular-nums">
                         {full ? (
                           <span className="font-semibold text-stamp-red-text">
-                            {variant.isClosed ? "Closed" : "Full"}
+                            {unavailable}
                           </span>
                         ) : (
                           <span className="font-semibold text-ink">
@@ -420,6 +512,11 @@ export function VariantPicker({
                 );
               })}
             </ul>
+            {listed.length === 0 ? (
+              <p className="py-4 text-meta text-ink/70">
+                No option matches “{optionFilter.trim()}”.
+              </p>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -440,10 +537,27 @@ export function VariantPicker({
       {variants.length > 1 ? (
         <fieldset className="flex flex-col gap-2">
           <legend className="text-meta font-medium text-ink">Choose an option</legend>
-          <div className="flex flex-wrap gap-2">
-            {variants.map((variant) => {
-              const variantSoldOut =
-                variant.remaining !== null && variant.remaining <= 0;
+          {/* Many options: a field to find one, and a box of fixed height to
+              look through, instead of a wall of chips that pushes the price
+              and the buttons off the screen. */}
+          {filterable ? (
+            <OptionFilter
+              value={optionFilter}
+              onChange={setOptionFilter}
+              total={variants.length}
+              shown={listed.length}
+            />
+          ) : null}
+          <div
+            className={`flex flex-wrap gap-2 ${
+              filterable
+                ? "max-h-44 overflow-y-auto overscroll-contain rounded-control border border-blue-200 p-2"
+                : ""
+            }`}
+          >
+            {listed.map((variant) => {
+              const unavailable = unavailableLabel(variant);
+              const variantSoldOut = unavailable !== null;
               const chosen = variant.id === selectedId;
 
               return (
@@ -471,11 +585,16 @@ export function VariantPicker({
                   ) : null}
                   {variant.label}
                   {variantSoldOut ? (
-                    <span className="text-meta text-stamp-red-text">Full</span>
+                    <span className="text-meta text-stamp-red-text">{unavailable}</span>
                   ) : null}
                 </label>
               );
             })}
+            {listed.length === 0 ? (
+              <p className="px-1 py-2 text-meta text-ink/70">
+                No option matches “{optionFilter.trim()}”.
+              </p>
+            ) : null}
           </div>
         </fieldset>
       ) : null}
