@@ -4,6 +4,7 @@ import { products } from "@/db/schema";
 import { PUBLIC_STATUSES } from "@/lib/catalog/products";
 import {
   isStopword,
+  slotPartialPrefix,
   slotTitlePatterns,
   slotTsQuery,
   type Slot,
@@ -44,7 +45,28 @@ export type SearchPlan = {
   code: string | null;
   /** The original search, when this plan is a correction of one that found nothing. */
   correctedFrom: string | null;
+  /**
+   * A stop word that is the last word of a search still being typed — "he"
+   * in "wireless he" — read as the start of a word. Set only for suggestions.
+   */
+  partialPrefix?: string | null;
 };
+
+/**
+ * The readable part of a search as a tsquery, with a half-typed stop word
+ * added as a plain prefix. Null when there is nothing to judge a name by.
+ */
+function readableQuery(plan: SearchPlan): SQL | null {
+  const parts: SQL[] = [];
+  if (plan.readableTsquery) {
+    parts.push(sql`to_tsquery('english', ${plan.readableTsquery})`);
+  }
+  if (plan.partialPrefix) {
+    parts.push(sql`to_tsquery('simple', ${`${plan.partialPrefix}:*`})`);
+  }
+  if (parts.length === 0) return null;
+  return parts.length === 1 ? parts[0] : sql`(${parts[0]} && ${parts[1]})`;
+}
 
 /** A literal text array built from bound parameters. */
 export function textArray(values: string[]): SQL {
@@ -96,6 +118,12 @@ export function searchMatch(plan: SearchPlan): SQL {
       const tsquery = slotTsQuery(slot);
       if (tsquery) {
         alternatives.push(sql`ps.document @@ to_tsquery('english', ${tsquery})`);
+      }
+      const partial = slotPartialPrefix(slot);
+      if (partial) {
+        alternatives.push(
+          sql`ps.document @@ to_tsquery('simple', ${`${partial}:*`})`,
+        );
       }
       for (const pattern of slotTitlePatterns(slot)) {
         alternatives.push(sql`ps.title_norm like ${pattern}`);
@@ -160,9 +188,7 @@ export function searchMatch(plan: SearchPlan): SQL {
  */
 export function relevanceTier(plan: SearchPlan): SQL {
   const q = plan.normalized;
-  const full = plan.readableTsquery
-    ? sql`to_tsquery('english', ${plan.readableTsquery})`
-    : null;
+  const full = readableQuery(plan);
 
   const identity =
     plan.identityTerms.length > 0
@@ -221,8 +247,9 @@ export function relevanceAdjustment(plan: SearchPlan): SQL {
     1,
     plan.readableWords.filter((word) => !isStopword(word)).length,
   );
-  const rank = plan.readableTsquery
-    ? sql`+ 10 * ts_rank_cd(ps.document, to_tsquery('english', ${plan.readableTsquery}), 32)`
+  const readable = readableQuery(plan);
+  const rank = readable
+    ? sql`+ 10 * ts_rank_cd(ps.document, ${readable}, 32)`
     : sql``;
 
   return sql`(

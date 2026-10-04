@@ -7,7 +7,7 @@ import type { SessionUser } from "@/lib/auth/session";
 import type { Executor } from "@/lib/pkb/common";
 import type { SynonymInput } from "@/lib/validation/search";
 import { phrasesIn, type KnowledgeMap } from "./knowledge";
-import { wordSlot, type Slot } from "./normalize";
+import { isStopword, wordSlot, type Slot } from "./normalize";
 import { textArray } from "./sql";
 import { quantitiesIn, valueTerm, type QuantityInQuery } from "./terms";
 
@@ -301,7 +301,7 @@ function splitQuantityWords(word: string): string[] {
 export function buildSlots(
   words: string[],
   synonyms: Map<string, string[][]>,
-  options: { knowledge?: KnowledgeMap; query?: string } = {},
+  options: { knowledge?: KnowledgeMap; query?: string; partial?: boolean } = {},
 ): Slot[] {
   const knowledge = options.knowledge ?? new Map();
   const spans = options.query ? quantitySpans(options.query, words) : new Map();
@@ -363,7 +363,12 @@ export function buildSlots(
       // A bare word may still be a value the knowledge base holds — "black" is
       // a colour whichever attribute records it. This can only widen: a
       // product has to actually carry that value for the term to match.
-      slot.terms = [valueTerm(word)];
+      // Not for a stop word: "for" and "he" are no product's value, and a
+      // term nothing carries would turn the word into a requirement nothing
+      // meets — "headphones for" found nothing while "headphones" found six.
+      slot.terms = isStopword(word) ? [] : [valueTerm(word)];
+      // The word still being typed, when nothing else claimed it.
+      if (options.partial && index === words.length - 1) slot.partial = true;
       slots.push(slot);
       taken = 1;
     }

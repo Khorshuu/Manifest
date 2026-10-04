@@ -80,6 +80,7 @@ async function candidates(plan: SearchPlan) {
       brand: products.brand,
       categoryName: categories.name,
       categorySlug: categories.slug,
+      tier: sql<number>`${relevanceTier(plan)}`.mapWith(Number),
     })
     .from(products)
     .innerJoin(sql`product_search ps`, sql`ps.product_id = ${products.id}`)
@@ -91,6 +92,36 @@ async function candidates(plan: SearchPlan) {
       asc(products.title),
     )
     .limit(CANDIDATES);
+}
+
+type Candidate = Awaited<ReturnType<typeof candidates>>[number];
+
+/** A word this short found only in a description is a coincidence. */
+const WEAK_MATCH_MIN_LETTERS = 4;
+
+/**
+ * The candidates worth showing under the box: the strongest kind of match
+ * found, and nothing weaker beside it.
+ *
+ * Someone who has typed "wh" is on their way to a name, a brand or a model.
+ * A product whose description happens to say "white" or "whole" answers the
+ * letters and not the shopper, and four of those above the one real match is
+ * what made the list look random. So: matches in the name, brand, model,
+ * keywords or shelf (tier 4 and up) are shown alone when there are any; then
+ * matches in highlights and specifications; and a match found only in the
+ * description, or only inside a word of the name, is shown when the word
+ * being typed is long enough to mean something. Showing nothing is the honest
+ * answer to two letters nothing is named after.
+ */
+function strongest(found: Candidate[], plan: SearchPlan): Candidate[] {
+  const strong = found.filter((row) => row.tier >= 4);
+  if (strong.length > 0) return strong;
+
+  const fields = found.filter((row) => row.tier === 3);
+  if (fields.length > 0) return fields;
+
+  const typing = plan.words.at(-1) ?? "";
+  return typing.length >= WEAK_MATCH_MIN_LETTERS ? found : [];
 }
 
 /** A name up to its first comma, bracket or dash — the part worth completing. */
@@ -281,17 +312,29 @@ export async function suggest(term: string): Promise<SuggestResult> {
   const query = cleanQuery(term);
   if (query.length < 2) return { suggestions: [], correctedQuery: null };
 
-  let plan = await planSearch(query);
+  // The last word is still being typed: "wireless he" is on its way to
+  // "wireless headphones", so "he" is read as the start of a word.
+  let plan = await planSearch(query, { partial: true });
   if (!plan) return { suggestions: [], correctedQuery: null };
 
-  let found = await candidates(plan);
+  let found = strongest(await candidates(plan), plan);
   let correctedQuery: string | null = null;
+
+  // No word starts that way: the stop word was a stop word after all
+  // ("headphones for"), and the rest of the search stands without it.
+  if (found.length === 0 && plan.partialPrefix) {
+    const plain = await planSearch(query);
+    if (plain) {
+      plan = plain;
+      found = strongest(await candidates(plain), plain);
+    }
+  }
 
   // Nothing as typed: try the likely spelling before giving up.
   if (found.length === 0) {
     const corrected = await correctSearch(plan);
     if (corrected) {
-      const retry = await candidates(corrected);
+      const retry = strongest(await candidates(corrected), corrected);
       if (retry.length > 0) {
         plan = corrected;
         found = retry;

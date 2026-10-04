@@ -176,6 +176,21 @@ describe("what a search matches", () => {
     expect(await titles("tactile keyboard")).toEqual(["Mechanical Keyboard"]);
   });
 
+  /*
+   * A plain word is also looked up as a value the knowledge base might hold.
+   * For a stop word that lookup can never succeed, and it used to turn the
+   * word into a requirement no product met: "keyboard for" found nothing
+   * while "keyboard" found the keyboard.
+   */
+  it("does not let a stop word empty a search", async () => {
+    await seed({ title: "Mechanical Keyboard" });
+    await seed({ title: "Travel Case for Keyboards" });
+
+    expect(await titles("keyboard for")).toEqual(await titles("keyboard"));
+    expect(await titles("case for keyboards")).toEqual(["Travel Case for Keyboards"]);
+    expect(await titles("the keyboard")).toHaveLength(2);
+  });
+
   it("does not search the description's markup", async () => {
     await seed({
       title: "Desk Lamp",
@@ -237,6 +252,95 @@ describe("autosuggest", () => {
     expect(suggestions[0]).toMatchObject({
       kind: "product",
       label: "Mechanical Keyboard",
+    });
+  });
+
+  /*
+   * The words below are fixtures. The rule is about any last word that is
+   * still being typed and happens to spell a stop word on the way: "he" before
+   * "headphones", "to" before "tower", "on" before "onyx".
+   */
+  describe("a last word that is still being typed", () => {
+    const productLabels = async (query: string) =>
+      (await suggestSearch(query))
+        .filter((suggestion) => suggestion.kind === "product")
+        .map((suggestion) => suggestion.label);
+
+    it("reads a half-typed stop word as the start of a word", async () => {
+      await seed({ title: "Wireless Headphones" });
+      await seed({ title: "Wireless Charging Pad" });
+      await seed({ title: "Desk Tower Fan" });
+
+      expect(await productLabels("wireless he")).toEqual(["Wireless Headphones"]);
+      expect(await productLabels("wireless hea")).toEqual(["Wireless Headphones"]);
+      expect(await productLabels("desk to")).toEqual(["Desk Tower Fan"]);
+      // On its own, too: two letters that start a name find the name.
+      expect(await productLabels("he")).toEqual(["Wireless Headphones"]);
+    });
+
+    it("completes the search it is on the way to", async () => {
+      await seed({ title: "Wireless Headphones" });
+
+      const searches = (await suggestSearch("wireless he"))
+        .filter((suggestion) => suggestion.kind === "search")
+        .map((suggestion) => suggestion.label);
+      expect(searches).toContain("Wireless Headphones");
+    });
+
+    it("falls back to the rest of the search when no word starts that way", async () => {
+      await seed({ title: "Wireless Headphones" });
+
+      // Nothing here starts with "for": the word was a stop word after all.
+      expect(await productLabels("headphones for")).toEqual(["Wireless Headphones"]);
+    });
+  });
+
+  describe("which products are worth suggesting", () => {
+    const productLabels = async (query: string) =>
+      (await suggestSearch(query))
+        .filter((suggestion) => suggestion.kind === "product")
+        .map((suggestion) => suggestion.label);
+
+    it("shows a name match alone, not description mentions beside it", async () => {
+      await seed({ title: "Whetstone Sharpener" });
+      await seed({
+        title: "Ceramic Mug",
+        descriptionHtml: "<p>A white glaze over whole clay.</p>",
+      });
+
+      expect(await productLabels("wh")).toEqual(["Whetstone Sharpener"]);
+    });
+
+    it("shows nothing for a few letters found only in descriptions", async () => {
+      await seed({
+        title: "Ceramic Mug",
+        descriptionHtml: "<p>A white glaze over whole clay.</p>",
+      });
+
+      expect(await productLabels("wh")).toEqual([]);
+      // A whole word from a description is a different matter.
+      expect(await productLabels("glaze")).toEqual(["Ceramic Mug"]);
+    });
+
+    it("keeps an exact model above products that only mention it", async () => {
+      await seed({ title: "Aster KX-200 Keyboard", brand: "Aster" });
+      await seed({
+        title: "Keycap Set",
+        descriptionHtml: "<p>Fits the KX-200 and other boards.</p>",
+      });
+      await seed({ title: "Aster KX-250 Keyboard", brand: "Aster" });
+
+      expect(await productLabels("kx-200")).toEqual(["Aster KX-200 Keyboard"]);
+      expect((await titles("aster kx-200"))[0]).toBe("Aster KX-200 Keyboard");
+      expect((await titles("kx 200"))[0]).toBe("Aster KX-200 Keyboard");
+    });
+
+    it("recovers from a misspelling in a longer search", async () => {
+      await seed({ title: "Bluetooth Speaker" });
+
+      const { suggestions, correctedQuery } = await suggest("blutooth speaker");
+      expect(correctedQuery?.toLowerCase()).toBe("bluetooth speaker");
+      expect(suggestions[0]).toMatchObject({ kind: "product", label: "Bluetooth Speaker" });
     });
   });
 

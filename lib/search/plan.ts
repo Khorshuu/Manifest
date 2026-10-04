@@ -10,6 +10,7 @@ import {
   queryTokens,
   queryWords,
   readableTsQuery,
+  slotPartialPrefix,
 } from "./normalize";
 import { isPublicAs, queryRows, textArray, type SearchPlan } from "./sql";
 import { buildSlots, loadSynonymMap } from "./synonyms";
@@ -39,7 +40,16 @@ function identityTerms(query: string, knowledge: KnowledgeMap): string[] {
  */
 export async function planSearch(
   raw: unknown,
-  options: { synonyms?: boolean; knowledge?: boolean } = {},
+  options: {
+    synonyms?: boolean;
+    knowledge?: boolean;
+    /**
+     * The search is still being typed: its last word is read as the start of
+     * a word. Only the suggestions ask for this; a submitted search is read
+     * as written.
+     */
+    partial?: boolean;
+  } = {},
 ): Promise<SearchPlan | null> {
   const query = cleanQuery(raw);
   const words = queryWords(query);
@@ -56,7 +66,12 @@ export async function planSearch(
       : loadKnowledgeMap([...phrases, normalizeText(query)]),
   ]);
 
-  const slots = buildSlots(words, synonyms, { knowledge, query });
+  const slots = buildSlots(words, synonyms, {
+    knowledge,
+    query,
+    partial: options.partial,
+  });
+  const last = slots.at(-1);
 
   return {
     query,
@@ -71,6 +86,7 @@ export async function planSearch(
     identityTerms: identityTerms(query, knowledge),
     code: looksLikeCode(query) ? codeKey(query) : null,
     correctedFrom: null,
+    partialPrefix: last ? slotPartialPrefix(last) : null,
   };
 }
 

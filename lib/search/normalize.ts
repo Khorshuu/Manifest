@@ -157,6 +157,13 @@ export type Slot = {
    * to contain it.
    */
   structural: boolean;
+  /**
+   * True for the last word of a search that is still being typed (the
+   * suggestions under the search box). "he" on its way to "headphones" is
+   * a prefix, not the pronoun, so it is matched as one even though the
+   * English dictionary would throw it away.
+   */
+  partial?: boolean;
 };
 
 /** A plain slot for one word, with no knowledge behind it. */
@@ -186,6 +193,20 @@ export function slotTsQuery(slot: Slot): string | null {
   const unique = [...new Set(parts)];
   if (unique.length === 0) return null;
   return unique.length === 1 ? unique[0] : `(${unique.join(" | ")})`;
+}
+
+/**
+ * The prefix a half-typed stop word stands for, or null.
+ *
+ * Only a stop word needs this: any other word already reaches the document as
+ * a prefix through `slotTsQuery`. A stop word does not survive
+ * `to_tsquery('english', …)`, so it is matched with the `simple`
+ * configuration instead, against the same document.
+ */
+export function slotPartialPrefix(slot: Slot): string | null {
+  if (!slot.partial || slot.typed.length !== 1) return null;
+  const word = slot.typed[0];
+  return word.length >= 2 && isStopword(word) ? word : null;
 }
 
 /** Substring patterns a slot's single-word alternatives match inside a name. */
