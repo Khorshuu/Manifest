@@ -5,7 +5,8 @@ import type {
   SeoResearchData,
 } from "./types";
 import { knowledgeSufficiency, measurementRows, specificationRows } from "./facts";
-import { factMetaSentence, keyPointFromFact, prioritizedFacts } from "./content-plan";
+import { factMetaSentence, factParagraph, keyPointFromFact, prioritizedFacts } from "./content-plan";
+import { labelKey } from "@/lib/pkb/normalize";
 import { EVALUATIVE_PATTERN } from "./claim-words";
 import { textLanguage } from "@/lib/pkb/language";
 import { mentionsWarranty } from "@/lib/pkb/warranty-policy";
@@ -483,7 +484,19 @@ export function generateByRules(
    * established there is no description at all (see `sufficient` below),
    * rather than one made of the category's name.
    */
-  opening.push(features[0] ? `${displayName} — ${features[0].replace(/[.\s]+$/, "")}.` : `${displayName}.`);
+  /*
+   * With features staff wrote, the opening is the name and the first of
+   * them, in their words. With none, it used to be the name and one recorded
+   * fact — a one-line description. It is now a short paragraph of the
+   * established facts, grouped as a person would read them out
+   * (`factParagraph`): still nothing but the facts, and no longer than there
+   * are facts to say.
+   */
+  const factOpening = staffFeatures.length === 0 ? factParagraph({ facts: prioritizedFacts(input), exactName: displayName }) : [];
+  if (factOpening.length > 0) opening.push(...factOpening);
+  else opening.push(features[0] ? `${displayName} — ${features[0].replace(/[.\s]+$/, "")}.` : `${displayName}.`);
+  const said = labelKey(factOpening.join(" "));
+  const alreadySaid = (value: string | null) => Boolean(value && said.includes(labelKey(value)));
 
   // Only descriptors the listing actually records, and only once each: they
   // are the words a shopper scans for, and the words a search engine matches.
@@ -494,8 +507,10 @@ export function generateByRules(
   const sayableSize = size && /\d/.test(size) ? size : null;
   // "It comes with finished in Black (010)." was what a colour on its own
   // produced (D-123): each descriptor now has a verb that fits it.
-  const comesIn = [color, sayableSize].filter(Boolean).join(", ");
-  if (material) {
+  // Nothing is said twice: a colour or material the paragraph above already
+  // gave as a fact is not repeated as a descriptor.
+  const comesIn = [color, sayableSize].filter((value) => value && !alreadySaid(value)).join(", ");
+  if (material && !alreadySaid(material)) {
     opening.push(`It has ${material} construction${comesIn ? ` and comes in ${comesIn}` : ""}.`);
   } else if (comesIn) {
     opening.push(`It comes in ${comesIn}.`);

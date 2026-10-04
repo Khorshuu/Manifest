@@ -156,10 +156,22 @@ function inSentence(label: string): string {
  */
 export function keyPointFromFact(label: string, rawValue: string): string | null {
   const value = collapseRepeatedUnits(rawValue.trim()).replace(/[.;,]+$/, "");
-  const name = label.trim().replace(/[:：]\s*$/, "");
-  if (!value || !name) return null;
+  const written = label.trim().replace(/[:：]\s*$/, "");
+  if (!value || !written) return null;
   if (/^(no|none|n\/a|not applicable)$/i.test(value)) return null;
+  // A label's aside — "Max sensitivity (DPI)", "Ports (rear)" — is for the
+  // table it came from; the line reads without it.
+  const name = written.replace(/\s*\([^)]*\)/g, "").trim() || written;
   if (/^(yes|included|supported|available|true)$/i.test(value)) return name;
+  const listed = listValue(value);
+  // A label that is several names at once — "Connector/Port/Interface" — is a
+  // table heading, not a word to end a line on: a value with words of its own
+  // stands alone, and a bare figure takes the first name.
+  if (/[/|]/.test(name)) {
+    if (/\p{L}{2,}/u.test(listed)) return listed.charAt(0).toUpperCase() + listed.slice(1);
+    const first = name.split(/[/|]/)[0].trim();
+    return first ? `${listed} ${inSentence(first)}` : listed;
+  }
   const valueWords = labelKey(value).split(" ");
   // "Switch type: Glorious mechanical switches" names its property already; "type" says nothing.
   const labelWords = labelKey(name)
@@ -167,8 +179,29 @@ export function keyPointFromFact(label: string, rawValue: string): string | null
     .filter((word) => word.length > 2 && !GENERIC_LABEL_WORDS.has(word));
   const alreadyNamed = labelWords.length > 0 && labelWords.every((word) => valueWords.some((value) => value === word || value === `${word}s` || value === `${word}es`));
   if (alreadyNamed || value.split(/\s+/).length > 8) return value.charAt(0).toUpperCase() + value.slice(1);
-  const line = `${value} ${inSentence(name)}`;
+  const line = `${listed} ${inSentence(name)}`;
   return line.charAt(0).toUpperCase() + line.slice(1);
+}
+
+/** Words a list item cannot start with and still be an item: "30 hours, with ANC on" is one value, not two. */
+const NOT_AN_ITEM = /^(?:with|without|at|on|in|for|up|per|when|while|and|or|to|from|by|of|as|if|than|approx)\b/i;
+
+/**
+ * A value that is a short list, as a line reads it: "Bluetooth; Logi Bolt
+ * USB" → "Bluetooth and Logi Bolt USB". Only a plain list of short names is
+ * rejoined; anything else — a long list, a clause after a comma, a figure
+ * with a thousands separator — is returned as it was written.
+ */
+function listValue(value: string): string {
+  for (const [separator, maxWords] of [[/\s*;\s*/, 4], [/,\s+/, 2]] as const) {
+    const parts = value.split(separator).map((part) => part.trim()).filter(Boolean);
+    if (parts.length < 2) continue;
+    // After a comma, a figure is the rest of one value ("Optical, 8000 DPI"), not another item.
+    const names = separator.source.startsWith(",") ? parts.every((part) => !/\p{N}/u.test(part)) : true;
+    const plain = names && parts.length <= 4 && parts.every((part) => part.split(/\s+/).length <= maxWords && !NOT_AN_ITEM.test(part) && !/[,;:]/.test(part));
+    return plain ? spokenList(parts) : value;
+  }
+  return value;
 }
 
 /**
@@ -184,7 +217,10 @@ export function inlineFact(label: string, rawValue: string): string | null {
   const source = yes ? inSentence(label.trim()) : value;
   const first = source.split(/\s+/)[0] ?? "";
   // "Wireless charging: Yes" reads "wireless charging"; a value's own capital ("Blackwell") stays.
-  const lower = yes ? /^\p{Lu}\p{Ll}+$/u.test(first) : /^\p{Ll}/u.test(source);
+  // A capital that only starts a phrase of ordinary words — "Triple fan",
+  // "Recycled plastic" — is sentence case, not a name, and goes inside a sentence.
+  const sentenceCase = /^\p{Lu}\p{Ll}+(?:\s+(?:\p{Ll}+|and|\p{N}[\p{L}\p{N}]*))+$/u.test(yes ? source : listValue(source));
+  const lower = yes ? /^\p{Lu}\p{Ll}+$/u.test(first) : /^\p{Ll}/u.test(source) || sentenceCase;
   return lower ? point.charAt(0).toLowerCase() + point.slice(1) : point;
 }
 
@@ -244,28 +280,91 @@ export function identitySentence(name: string): string {
  * a sentence, and never a fact the name already says, a list, or a long value.
  */
 export function sentenceFacts(plan: Pick<ContentPlan, "facts" | "exactName">, max: number): string[] {
+  // A list inside a list of facts cannot be read ("7 buttons, Bluetooth and USB and …"): one line carries plain facts only.
+  return sayableFacts(plan).filter((entry) => !entry.list).slice(0, max).map((entry) => entry.text);
+}
+
+type SayableFact = { text: string; row: FactRow; index: number; figure: number; /** The value is itself a short list. */ list: boolean };
+
+/** Every fact that reads well inside a sentence, in the order a sentence would take them. */
+function sayableFacts(plan: Pick<ContentPlan, "facts" | "exactName">): SayableFact[] {
   const nameWords = new Set(labelKey(plan.exactName).split(" "));
-  const candidates: { text: string; index: number; figure: number }[] = [];
+  const candidates: SayableFact[] = [];
   plan.facts.forEach((row, index) => {
-    if (row.value.length > 40 || /[,;:.](?:\s|$)/.test(row.value) || INSTRUCTIONS.test(row.label)) return;
+    // A list reads inside a sentence only when it is a short list of names ("Bergamot, pink pepper").
+    const shortList = listValue(row.value.trim()) !== row.value.trim();
+    if (row.value.length > 40 || (!shortList && /[,;:.](?:\s|$)/.test(row.value)) || INSTRUCTIONS.test(row.label)) return;
     // "Chipset manufacturer: NVIDIA" names a company, not something the product has (found live, D-129).
     if (COMPANY_LABEL.test(row.label.trim())) return;
     // Sizes, weights and counts are for scanning (At a Glance), not what a product has; a raw key ("milliamp_hours") is not English.
     if (DIMENSION.test(row.label) || MEASURE_LABEL.test(row.label) || /\p{L}_\p{L}/u.test(row.value)) return;
+    // A named size ("Standard", "One size") says nothing in a sentence (D-120); a measured one does.
+    if (/^size$/i.test(row.label.trim()) && !/\p{N}/u.test(row.value)) return;
     if (labelKey(row.value).split(" ").every((word) => nameWords.has(word))) return;
     const text = inlineFact(row.label, row.value);
-    if (!text || text.split(/\s+/).length > 6) return;
-    candidates.push({ text, index, figure: /\p{N}|\p{Lu}{2,}/u.test(row.value) ? 0 : 1 });
+    if (!text || text.split(/\s+/).length > (shortList ? 9 : 6)) return;
+    candidates.push({ text, row, index, figure: /\p{N}|\p{Lu}{2,}/u.test(row.value) ? 0 : 1, list: shortList });
   });
   const seen = new Set<string>();
-  const out: string[] = [];
+  const out: SayableFact[] = [];
   for (const entry of candidates.sort((a, b) => a.figure - b.figure || a.index - b.index)) {
     const key = labelKey(entry.text);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(entry.text);
+    out.push(entry);
   }
-  return out.slice(0, max);
+  return out;
+}
+
+/** A single quantity with its unit: "141 g", "1.2 kg", "8.8 oz". */
+const ONE_WEIGHT = /^\d[\d.,]*\s?(?:mg|g|kg|oz|lb|lbs|grams?|kilograms?|ounces?|pounds?)$/i;
+
+/**
+ * The opening paragraph of a description written from established facts
+ * alone, when no person and no model has written one.
+ *
+ * It used to be one line — "<name> — 12GB GDDR7 memory." — which named the
+ * product and then stopped. This is still only the facts, each said once and
+ * none reworded into a claim, but arranged the way a person would read them
+ * out: what the product is and its leading specifications; then how it is
+ * built; then what it connects to or works with; then anything else worth a
+ * sentence; then its weight. A group with nothing in it is left out, so a
+ * product with two facts gets one sentence and is not padded to five.
+ *
+ * Every subject is a noun whose number is fixed ("details include", "it
+ * weighs"), as in `openingSentence` (D-130): no verb depends on the name.
+ * Empty when no fact reads well in a sentence — the caller keeps its own
+ * opening then.
+ */
+export function factParagraph(plan: Pick<ContentPlan, "facts" | "exactName">): string[] {
+  const name = plan.exactName.replace(/\s+/g, " ").trim();
+  const sayable = sayableFacts(plan);
+  if (!name || sayable.length === 0) return [];
+
+  // A value that is itself a list ("Bluetooth and USB-C") is read alone: beside
+  // another fact its "and" and the sentence's cannot be told apart.
+  const group = (entries: SayableFact[], max: number) => {
+    const plain = entries.filter((entry) => !entry.list).slice(0, max);
+    return plain.length > 0 ? plain : entries.slice(0, 1);
+  };
+  const lead = group(sayable, 2);
+  const rest = sayable.filter((entry) => !lead.includes(entry));
+  const build = group(rest.filter((entry) => BUILD.test(entry.row.label)), 3);
+  const connection = group(rest.filter((entry) => !BUILD.test(entry.row.label) && CONNECTION.test(entry.row.label)), 3);
+  const other = group(rest.filter((entry) => !BUILD.test(entry.row.label) && !CONNECTION.test(entry.row.label)), 3);
+  const list = (entries: SayableFact[]) => spokenList(entries.map((entry) => entry.text));
+
+  const weight = plan.facts.find((row) => /^(?:item |product |net |unit )?weight$/i.test(row.label.trim()) && ONE_WEIGHT.test(row.value.trim()));
+
+  return [
+    `Key specifications of ${theName(name)} include ${list(lead)}.`,
+    build.length ? `Design and build details include ${list(build)}.` : "",
+    connection.length ? `Connection and compatibility details include ${list(connection)}.` : "",
+    other.length ? `Other specifications include ${list(other)}.` : "",
+    weight ? `It weighs ${weight.value.trim()}.` : "",
+  ]
+    .filter(Boolean)
+    .map(tidySentence);
 }
 
 /**

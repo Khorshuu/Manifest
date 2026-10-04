@@ -119,7 +119,10 @@ export function sentenceProblem(sentence: string, context: Pick<Context, "factTe
   if (SALES_FILLER.some((pattern) => pattern.test(text))) return "sales filler";
   if (mentionsWarranty(text) && !context.manualWarranty) return "a warranty the listing does not state";
   const language = textLanguage(text, context.names);
-  if (language.nonLatin > 0.3 || (language.evidence >= 3 && language.language !== "en" && language.share >= 0.6)) return "not English";
+  // One line is little text: another language needs more than one of its
+  // words repeated, or a single borrowed word ("eau de parfum pour homme",
+  // "café con leche") would refuse an English sentence.
+  if (language.nonLatin > 0.3 || (language.evidence >= 3 && language.distinct >= 2 && language.language !== "en" && language.share >= 0.6)) return "not English";
   const claim = unsupportedClaim(text, context.factText);
   if (claim) return `an unsupported claim ("${claim}")`;
   return null;

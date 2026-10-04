@@ -20,6 +20,7 @@ import {
   englishAlternates,
   htmlLanguage,
   structuredDataLanguage,
+  textLanguage,
   urlLanguagePreference,
 } from "@/lib/pkb/language";
 import { collapseRepeatedUnits, valueWithUnit } from "@/lib/pkb/unit-text";
@@ -171,6 +172,56 @@ describe("what may become candidate knowledge", () => {
     expect(candidateRejection("Manual", "https://example.test/manual.pdf")?.code).toBe("SOURCE_NOISE");
   });
 
+  /*
+   * "Deal Time! Get $10 Off" reached the label proposals in live acceptance.
+   * The amounts, shops and codes below are fixtures: the rule is the shape of
+   * an offer, not any of these words.
+   */
+  it("rejects discounts, sales, coupons and checkout pitches", () => {
+    for (const [label, value] of [
+      ["Deal Time!", "Get $10 Off"],
+      ["Offer", "Save 20% today"],
+      ["Sale", "Now $49.99"],
+      ["Price", "20% off with code SPRING"],
+      ["Bundle", "Save up to $50 when you add a case"],
+      ["Coupon", "Clip to apply"],
+      ["Promotion", "Flash sale ends tonight"],
+      ["Shipping", "Free"],
+      ["Perks", "Free shipping on orders over $35"],
+      ["Membership", "Subscribe and save 5%"],
+      ["Payment", "Pay in 4 interest-free instalments"],
+      ["Financing", "As low as $12 a month"],
+      ["Updates", "Join our newsletter for early access"],
+      ["Black Friday", "Doorbuster pricing"],
+      ["Gift", "Free gift with purchase"],
+    ]) {
+      expect(candidateRejection(label, value)?.code, `${label}: ${value}`).toBe("SOURCE_NOISE");
+    }
+  });
+
+  it("keeps specifications that use the words offers are made of", () => {
+    for (const [label, value] of [
+      ["Power saving", "Up to 30%"],
+      ["Power output", "65 W"],
+      ["Output", "5 V / 3 A"],
+      ["Transfer speed", "Up to 480 Mbps"],
+      ["Capacity range", "1–2 TB"],
+      ["Performance mode", "Turbo"],
+      ["Ground clearance", "15 mm"],
+      ["Shipping weight", "2 kg"],
+      ["Range", "Up to 10 m"],
+      ["Fast charge", "50% in 30 minutes"],
+      ["Battery saver", "Off"],
+      ["Auto power off", "After 15 minutes"],
+      ["Viewing angle", "30% off-axis attenuation"],
+      ["Sale unit", "Pack of 12"],
+      ["Efficiency", "Saves up to 20% energy"],
+      ["Deal breaker switch", "Hot-swappable"],
+    ]) {
+      expect(candidateRejection(label, value), `${label}: ${value}`).toBeNull();
+    }
+  });
+
   it("rejects decoration, and keeps technical symbols", () => {
     expect(candidateRejection("✓", "★★★★★")?.code).toBe("DECORATIVE");
     expect(candidateRejection("🔥 Hot", "🚀")?.code).toBe("DECORATIVE");
@@ -285,6 +336,88 @@ describe("At a Glance and Key Points", () => {
     expect(plan.sections.join(" ")).not.toMatch(/connectivity|compatib/i);
     const detailed = contentPlan(graphics());
     expect(detailed.sections.join(" ")).toMatch(/build|connectivity/i);
+  });
+
+  /*
+   * Live: "Bluetooth; Logi Bolt USB Connector/Port/Interface". A value that
+   * is a short list reads as one, and a label that is several names at once
+   * is a table heading, not a word to end a line on.
+   */
+  it("words a list value and a compound label as a person would", () => {
+    expect(keyPointFromFact("Connector/Port/Interface", "Bluetooth; Logi Bolt USB")).toBe("Bluetooth and Logi Bolt USB");
+    expect(keyPointFromFact("Ports (rear)", "3")).toBe("3 ports");
+    expect(keyPointFromFact("Support", "Windows, macOS")).toBe("Windows and macOS support");
+    expect(keyPointFromFact("Top notes", "Bergamot, pink pepper")).toBe("Bergamot and pink pepper top notes");
+    // Not lists: a figure after a comma, a clause, a thousands separator, a long list.
+    expect(keyPointFromFact("Sensor", "Optical, 8000 DPI")).toBe("Optical, 8000 DPI sensor");
+    expect(keyPointFromFact("Battery life", "30 hours, with ANC on")).toBe("30 hours, with ANC on battery life");
+    expect(keyPointFromFact("Capacity", "1,000 mAh")).toBe("1,000 mAh capacity");
+    expect(keyPointFromFact("Ingredients", "Aqua, glycerin, niacinamide, panthenol, sodium hyaluronate")).toMatch(/^Aqua, glycerin/);
+  });
+});
+
+// ------------------------------------ 4b. the rules description, with no writer
+
+describe("a description written from established facts alone", () => {
+  const mouse = () =>
+    input({
+      title: "Orbit M3 Wireless Mouse",
+      brand: "Orbit",
+      categoryPath: ["Electronics", "Mice"],
+      knowledge: knowledge([
+        { label: "Connector/Port/Interface", value: "Bluetooth; Logi Bolt USB" },
+        { label: "Sensor", value: "Optical, 8000 DPI" },
+        { label: "Buttons", value: "7" },
+        { label: "Battery life", value: "70 days" },
+        { label: "Colour", value: "Graphite" },
+        { label: "Material", value: "Recycled plastic" },
+        { label: "Weight", value: "141 g" },
+        { label: "Compatibility", value: "Windows, macOS" },
+      ]),
+    });
+  const paragraph = (product: SeoPulseInput) => /^<p>(.*?)<\/p>/.exec(generateByRules(product, research).description.suggestedHtml ?? "")?.[1] ?? "";
+
+  it("is a short paragraph that names the product, not one line", () => {
+    const text = paragraph(mouse());
+    expect(text).toMatch(/^Key specifications of the Orbit M3 Wireless Mouse include 7 buttons and 70 days battery life\./);
+    expect(text).toContain("Design and build details include Graphite colour and recycled plastic material.");
+    expect(text).toContain("Connection and compatibility details include Bluetooth and Logi Bolt USB.");
+    expect(text).toContain("It weighs 141 g.");
+    expect(text.split(/(?<=\.)\s+/).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("says nothing the facts do not, and nothing twice", () => {
+    const product = mouse();
+    const text = paragraph(product);
+    const context = { factText: "", names: [product.title], manualWarranty: false };
+    for (const sentence of text.split(/(?<=\.)\s+/)) expect(sentenceProblem(sentence, context), sentence).toBeNull();
+    // Each fact is said once across the paragraph.
+    for (const fact of ["7 buttons", "70 days", "Graphite", "141 g", "Logi Bolt USB"]) {
+      expect(text.split(fact).length - 1, fact).toBe(1);
+    }
+    expect(text).not.toMatch(/\b(great|best|perfect|premium|amazing|powerful|ideal)\b/i);
+  });
+
+  it("is only as long as there are facts to say", () => {
+    const text = paragraph(perfume());
+    expect(text).toBe("Key specifications of the Maison Lune Nuit Eau de Parfum 50 ml include bergamot and pink pepper top notes.");
+    expect(paragraph(graphics()).split(/(?<=\.)\s+/).length).toBeGreaterThan(text.split(/(?<=\.)\s+/).length);
+  });
+
+  it("keeps Key Points and At a Glance different", () => {
+    const product = mouse();
+    const generated = generateByRules(product, research);
+    const glance = new Set(atAGlance(prioritizedFacts(product)).map((row) => `${row.label}: ${row.value}`.toLowerCase()));
+    expect(generated.keyFeatures.length).toBeGreaterThan(0);
+    for (const line of generated.keyFeatures) {
+      expect(glance.has(line.toLowerCase()), line).toBe(false);
+      expect(line, line).not.toMatch(/^[^:]{1,40}:\s/);
+    }
+  });
+
+  it("leaves staff's own features as the opening when they wrote some", () => {
+    const text = paragraph(input({ ...mouse(), bulletFeatures: ["Silent clicks", "Pairs with three devices"] }));
+    expect(text).toMatch(/^Orbit M3 Wireless Mouse — Silent clicks\./);
   });
 });
 
@@ -432,6 +565,52 @@ describe("the language of a page", () => {
     expect(urlLanguagePreference("https://tessera.test/en-us/vx70")).toBe(1);
     expect(urlLanguagePreference("https://tessera.test/de/vx70")).toBe(-1);
     expect(urlLanguagePreference("https://tessera.test/products/vx70")).toBe(0);
+  });
+
+  /*
+   * Short technical values are full of letter runs that spell another
+   * language's small words: "W", "LE", "DE", "i7", "y-axis". They are units,
+   * codes and abbreviations, and an English value made of them was refused
+   * as "not English".
+   */
+  it("does not read units, codes and abbreviations as another language", () => {
+    const context = { factText: "", names: [], manualWarranty: false };
+    for (const line of [
+      "65 W USB-C PD output, 20 V / 3.25 A, with E-marker",
+      "Bluetooth LE 5.3, Wi-Fi 6E and NFC",
+      "Core i7-13700H, 16 GB DDR5, 1 TB NVMe SSD",
+      "USB-C to DE-15 (VGA) adapter, 1920 × 1080 at 60 Hz",
+      "X-, Y- and Z-axis travel: 220 × 220 × 250 mm",
+      "I/O: 2 × USB-A, 1 × HDMI 2.1, 1 × RJ-45",
+      "Material: PU leather, ABS + PC shell, TPE cable",
+      "Eau de Parfum pour Homme, 100 ml",
+      "ES 9038 DAC with LE Audio and LC3 codec",
+      "5 V, 9 V, 12 V, 15 V and 20 V profiles up to 100 W",
+      "Bluetooth LE Audio, LE Power Control, LE Coded PHY",
+      "Die-cast aluminium body, die-cut foam insert, die grinder collet",
+      "DE-9 serial, DE-15 video, DA-15 game port",
+    ]) {
+      expect(sentenceProblem(line, context), line).toBeNull();
+      expect(textLanguage(line).language === null || textLanguage(line).language === "en" || textLanguage(line).distinct < 2, line).toBe(true);
+    }
+  });
+
+  it("still refuses a sentence written in another language", () => {
+    const context = { factText: "", names: [], manualWarranty: false };
+    for (const line of [
+      "Die Karte ist mit dem Computer verbunden und hat drei Lüfter.",
+      "Cette carte se connecte à votre ordinateur par le port principal et les câbles sont inclus.",
+      "Esta tarjeta se conecta con el ordenador para los juegos.",
+      "Batterie mit langer Laufzeit für den ganzen Tag und die Nacht.",
+    ]) {
+      expect(sentenceProblem(line, context), line).toBe("not English");
+    }
+  });
+
+  it("still refuses a foreign specification table", () => {
+    const table = "Gewicht 250 g Farbe Schwarz Akkulaufzeit bis zu 30 Stunden Lieferumfang Kopfhörer und Kabel mit Tasche für die Reise";
+    expect(detectLanguage({ text: table, declared: [] }).verdict).not.toBe("english");
+    expect(detectLanguage({ text: table, declared: ["de"] }).verdict).toBe("non_english");
   });
 
   it("does not count a product's own names as a language", () => {

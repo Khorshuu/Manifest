@@ -106,6 +106,8 @@ export type TextLanguage = {
   share: number;
   /** Share of letters outside the Latin alphabet, 0–1. */
   nonLatin: number;
+  /** How many different words of the leading language were found. */
+  distinct: number;
 };
 
 /** What the text alone says. Pure. */
@@ -116,7 +118,7 @@ export function textLanguage(text: string, ignore: string[] = []): TextLanguage 
     if (name.trim().length >= 2) sample = sample.split(name).join(" ");
   }
   const letters = (sample.match(/\p{L}/gu) ?? []).length;
-  if (letters === 0) return { language: null, evidence: 0, share: 0, nonLatin: 0 };
+  if (letters === 0) return { language: null, evidence: 0, share: 0, nonLatin: 0, distinct: 0 };
 
   let bestScript: string | null = null;
   let scriptLetters = 0;
@@ -130,19 +132,54 @@ export function textLanguage(text: string, ignore: string[] = []): TextLanguage 
     }
   }
   const nonLatin = nonLatinLetters / letters;
-  if (nonLatin > 0.3) return { language: bestScript, evidence: nonLatinLetters, share: scriptLetters / nonLatinLetters, nonLatin };
+  if (nonLatin > 0.3) return { language: bestScript, evidence: nonLatinLetters, share: scriptLetters / nonLatinLetters, nonLatin, distinct: 0 };
 
   const counts = new Map<string, number>();
+  const distinctWords = new Map<string, Set<string>>();
   let evidence = 0;
-  for (const word of sample.toLowerCase().match(/\p{L}+/gu) ?? []) {
+  for (const match of sample.matchAll(WORD)) {
+    const written = match[0];
+    if (isCodeToken(written, sample, match.index)) continue;
+    const word = written.toLowerCase();
     const language = WORD_LANGUAGE.get(word) ?? (ENGLISH_PAGE_WORDS.has(word) ? "en" : null);
     if (!language) continue;
     const weight = WORD_LANGUAGE.has(word) ? 1 : 0.5;
     counts.set(language, (counts.get(language) ?? 0) + weight);
+    distinctWords.set(language, (distinctWords.get(language) ?? new Set()).add(word));
     evidence += weight;
   }
   const [language, top] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
-  return { language, evidence, share: evidence ? top / evidence : 0, nonLatin };
+  return { language, evidence, share: evidence ? top / evidence : 0, nonLatin, distinct: language ? (distinctWords.get(language)?.size ?? 0) : 0 };
+}
+
+/** A run of letters that is a word of its own: not part of "i7", "20W" or "x86". */
+const WORD = /(?<![\p{L}\p{N}])\p{L}+(?![\p{L}\p{N}])/gu;
+
+/**
+ * Whether a run of letters is a unit, a code or an abbreviation rather than a
+ * word of a language.
+ *
+ * Technical values are full of short letter runs that happen to spell another
+ * language's function words: "65 W" (Polish "w"), "Bluetooth LE" (French
+ * "le"), "Type-C to DE-15" (German "de"… and Dutch), "I/O", "Y-axis". Counted
+ * as words, three of them made an English specification "not English". A
+ * function word in running text is lower case, or capitalised at the start of
+ * a sentence; so:
+ *
+ *  - two or three capitals ("LE", "DE", "ES", "DIE" as an acronym) are not
+ *    words — a heading set in capitals loses a little evidence, the page's
+ *    running text keeps all of its own;
+ *  - a single letter is a word only when it stands free and in lower case:
+ *    not a capital ("W", "V", "I"), and not joined to a figure, a hyphen, a
+ *    slash or a plus ("5 w/", "y-axis", "i-Size", "e+").
+ */
+function isCodeToken(written: string, sample: string, index: number): boolean {
+  if (written.length <= 3 && written.length >= 2 && written === written.toUpperCase() && written !== written.toLowerCase()) return true;
+  if (written.length !== 1) return false;
+  if (written !== written.toLowerCase()) return true;
+  const before = sample[index - 1] ?? " ";
+  const after = sample[index + 1] ?? " ";
+  return /[-/+.\p{N}]/u.test(before) || /[-/+\p{N}]/u.test(after);
 }
 
 /** "en", "en-US", "en_GB" → "en". */

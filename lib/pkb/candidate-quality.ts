@@ -67,8 +67,49 @@ const NAVIGATION = [
   "customer support", "help center", "support center", "discover", "explore", "register", "subscribe",
   "newsletter", "share", "tweet", "pin it", "compare", "download", "downloads", "menu", "home", "next", "previous", "close",
 ];
+/**
+ * Labels of a shop's own offer: what the page is selling at today, not what
+ * the product is. Whole labels only — "Shipping weight: 2 kg" and "Sale pack:
+ * 12 units" are other labels and pass.
+ */
+const OFFER_LABELS = [
+  "deal", "deals", "deal time", "todays deal", "today s deal", "sale", "on sale", "offer", "offers", "special offer",
+  "special offers", "promotion", "promotions", "promo", "coupon", "coupons", "discount", "discounts", "savings",
+  "you save", "shipping", "free shipping", "delivery", "free delivery", "returns", "free returns", "financing",
+  "checkout", "gift card", "gift cards", "rewards", "loyalty",
+];
 const CTA_KEYS = new Set(CALLS_TO_ACTION.map(labelKey));
-const LABEL_FURNITURE = new Set([...CALLS_TO_ACTION, ...NAVIGATION].map(labelKey));
+const LABEL_FURNITURE = new Set([...CALLS_TO_ACTION, ...NAVIGATION, ...OFFER_LABELS].map(labelKey));
+
+/**
+ * An offer, wherever it stands: money or a percentage *off*, a named sale, a
+ * code to type at checkout, a subscription pitch, a payment plan.
+ *
+ * Contextual on purpose. The words of selling are also the words of
+ * specifications — "Power saving: up to 30%", "Ground clearance: 15 mm",
+ * "Output: 5 V", "Speed: up to 480 Mbps", "Capacity range: 1–2 TB" — so no
+ * word is refused on its own. What is refused is the shape of an offer: an
+ * amount *off*, an amount to *save* or *get*, a sale by name, and the
+ * checkout's own pitches.
+ */
+const MONEY = String.raw`(?:[$€£¥৳₹]\s?\d[\d,.]*|\d[\d,.]*\s?(?:usd|eur|gbp|bdt|tk|dollars?)\b)`;
+const OFFER = new RegExp(
+  [
+    // "$10 off", "20% off", "Get $10 Off", "Save up to $50", "Take an extra $5".
+    String.raw`(?:${MONEY}|\d+(?:\.\d+)?\s?%)\s+off\b(?![-\s]?axis)`,
+    String.raw`\b(?:save|get|take|enjoy|claim|earn)\s+(?:an?\s+)?(?:extra\s+)?(?:up\s+to\s+)?${MONEY}`,
+    // Sales by name.
+    String.raw`\b(?:deal\s+time|deals?\s+of\s+the\s+(?:day|week|month)|daily\s+deals?|hot\s+deals?|flash\s+sale|clearance\s+(?:sale|price|event)|on\s+clearance|sale\s+ends|ends\s+(?:soon|today|tonight)|today\s+only|limited[-\s]time|while\s+(?:supplies|stocks?)\s+last|black\s+friday|cyber\s+monday|prime\s+day|doorbusters?)\b`,
+    String.raw`\b(?:special|exclusive|introductory|launch)\s+(?:offer|deal|discount|price|pricing)s?\b`,
+    // Codes, coupons and subscriptions.
+    String.raw`\b(?:coupons?|promo(?:tional)?\s+codes?|discount\s+codes?|voucher\s+codes?|use\s+code|enter\s+code|with\s+code)\b`,
+    String.raw`\b(?:subscribe\s+(?:and|&|to)\s+save|sign\s+up\s+(?:and|&|to)\s+(?:save|get|receive)|join\s+(?:our|the)\s+(?:newsletter|mailing\s+list|email\s+list|club|rewards)|email\s+(?:updates|sign[-\s]?up)|newsletter)\b`,
+    // Delivery and payment pitches.
+    String.raw`\b(?:free\s+(?:shipping|delivery|returns|gift)|ships?\s+free|free\s+\d+[-\s]day\s+(?:shipping|delivery|returns)|same[-\s]day\s+delivery|price\s+match|lowest\s+price|best\s+price|gift\s+with\s+purchase)\b`,
+    String.raw`\b(?:buy\s+(?:one|two|1|2)\s*,?\s+get|bogo|pay\s+in\s+\d|buy\s+now,?\s+pay\s+later|\d+\s+interest[-\s]free|as\s+low\s+as\s+${MONEY}|trade[-\s]in\s+(?:and|&|to)\s+save)\b`,
+  ].join("|"),
+  "i",
+);
 const TRAILING_CTA = new RegExp(
   String.raw`(?:^|[\s.!:—–-])(?:${CALLS_TO_ACTION.map((phrase) => phrase.replace(/ /g, String.raw`\s+`)).join("|")})\s*[.!»›>→]*\s*$`,
   "i",
@@ -110,6 +151,9 @@ export function candidateRejection(rawLabel: string, rawValue: string): Candidat
   }
   if (URL_LIKE.test(value) || PERSUASION.test(value) || PERSUASION.test(label)) {
     return { code: "SOURCE_NOISE", reason: "Promotional or navigational text, not a product fact." };
+  }
+  if (OFFER.test(label) || OFFER.test(value)) {
+    return { code: "SOURCE_NOISE", reason: "A discount, sale or checkout offer, not a product fact." };
   }
 
   // A label is a name for a property, not a sentence.

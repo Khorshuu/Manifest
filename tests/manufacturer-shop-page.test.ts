@@ -504,7 +504,10 @@ describe("a researched product's description", () => {
 
   it("begins with something about the product", () => {
     // Key points read as a shopper reads them, not "Label: value" (D-128).
-    expect(html).toMatch(/^<p>[^<]*— (69g weight|19,000 DPI max sensitivity|[^<]*sensor)/);
+    // With no feature written by staff it is a sentence of the leading facts,
+    // not the name and one of them.
+    expect(html).toMatch(/^<p>Key specifications of the Glorious Model O include [^<]*(19,000 DPI|sensor)/);
+    expect(html).toContain("It weighs 69g.");
   });
 
   it("never says the product is part of a category range", () => {
@@ -593,8 +596,10 @@ describe("the Glorious Model O Classic Wireless, regenerated (D-120)", () => {
   });
 
   it("opens on what the product does, not its size or its warranty", () => {
-    expect(html).toMatch(/^<p>Glorious Model O Classic Wireless Mouse — 19,000 DPI max sensitivity \(DPI\)\./);
-    expect(generated.keyFeatures[0]).toBe("19,000 DPI max sensitivity (DPI)");
+    expect(html).toMatch(/^<p>Key specifications of the Glorious Model O Classic Wireless Mouse include 19,000 DPI max sensitivity\./);
+    // The label's aside "(DPI)" is not repeated after a value that already says it.
+    expect(generated.keyFeatures[0]).toBe("19,000 DPI max sensitivity");
+    expect(html.slice(0, html.indexOf("</p>"))).not.toMatch(/Standard size|warranty/i);
     expect(generated.keyFeatures.some((line) => /warranty|part number|mpn/i.test(line))).toBe(false);
   });
 
@@ -606,6 +611,9 @@ describe("the Glorious Model O Classic Wireless, regenerated (D-120)", () => {
 
   it("still says a measured size", () => {
     const measured = generateByRules(input({ ...caseB, details: { size: "42 mm" } }), emptyResearch);
-    expect(measured.description.suggestedHtml).toContain("It comes in 42 mm.");
+    // Said in the opening as a fact, and not again as "It comes in 42 mm."
+    const opening = /^<p>(.*?)<\/p>/.exec(measured.description.suggestedHtml ?? "")?.[1] ?? "";
+    expect(opening).toContain("42 mm size");
+    expect(opening.split("42 mm").length - 1).toBe(1);
   });
 });
