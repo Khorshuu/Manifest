@@ -5289,3 +5289,41 @@ not have.
 - `[x]` **Repository:** `.env.example` is the only env file tracked;
   `.env*` ignored; no private key, token or real database address in a
   tracked file (the addresses in `tests/` are invented hosts).
+
+## Search, research-proposal and storefront polish, verified (2026-10-05)
+
+Four commits closed items the final verification campaign had left under
+"Found, not changed" (section above): `ac78785` (a stop word in a search,
+"wireless he"), `a6e28cb` (the "Deal Time! Get $10 Off" proposal, units read
+as foreign words, the rules description and key points), `90924e8` (a mixed
+listing's card read "Batch full"; an out-of-stock option read "Full"; a
+dozen-plus options got a find field; At a Glance as a label and value list;
+the search page's logged error) and `bcf86a6` (cart rows, checkout summary,
+controls left busy when a request never arrives, with the same idempotency
+key resent). They were committed without a verification record; this is it.
+
+Verified on Node 24.20.0, local PostgreSQL 18.4, providers `rules` / `none` /
+mocks:
+
+| Stage | Result |
+|---|---|
+| `npm run typecheck`, `npm run lint` | `[x]` clean |
+| Full Vitest | `[x]` 140 files, 2126 passed, 8 skipped, 0 failed, 296 s |
+| Production build | `[x]` against `preorder_e2e`, compiled in 3.0 min, no warning or error |
+| Desktop Playwright, production build | `[x]` 286 passed, 5 skipped, after the test fix below (first run: 285 passed, 1 failed) |
+| Mobile Playwright, touched specs | `[x]` filters, catalog-variety, checkout, search, product-detail, storefront: 68 passed, 1 skipped (desktop-only) |
+| `perf:budget`, production build | `[x]` every page within budget; see the finding below |
+
+`[x]` Fixed, a test: `e2e/filters.spec.ts` "in-stock only excludes the
+preorder catalog" asserted that no card on the in-stock results read
+"Preorder open". The mixed listing `90924e8` added ("Steel Rule, Etched
+Markings", a preorder with one option on the shelf) is correctly kept by the
+filter, because that option is in stock. The test now asserts it is the only
+preorder left.
+
+`[!]` Found, not changed: the product page's first-load JavaScript is 170 KB
+(rounded) against a 170 KB budget, for both the mixed listing and the
+60-option listing; it was 169 KB in the final campaign. The next addition to
+the product page will fail the budget.
+
+Not pushed: `production-readiness` is five commits ahead of `origin`.

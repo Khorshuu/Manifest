@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { VARIETY } from "./seed-variety";
 
 /**
  * Faceted filtering and autosuggest in the browser.
@@ -138,7 +139,11 @@ test("in-stock only excludes the preorder catalog", async ({ page }) => {
   await expect(titles.filter({ hasText: "Dotted Grid Notebook, A5" })).toHaveCount(1);
   await expect(titles.filter({ hasText: "Seasonal Candy Variety Box" })).toHaveCount(0);
   await expect(titles.filter({ hasText: "Studio Reference Headphones" })).toHaveCount(0);
-  await expect(page.getByText("Preorder open")).toHaveCount(0);
+  // A listing that is a preorder but has one option on the shelf is kept: that
+  // option is in stock. It is the only preorder the filter may leave.
+  const preorders = page.getByRole("main").getByRole("link").filter({ hasText: "Preorder open" });
+  await expect(preorders).toHaveCount(1);
+  await expect(preorders).toContainText(VARIETY.mixedOffer.title);
 });
 
 test("filters survive pagination and sorting", async ({ page }) => {
