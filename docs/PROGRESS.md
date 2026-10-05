@@ -5326,4 +5326,22 @@ preorder left.
 60-option listing; it was 169 KB in the final campaign. The next addition to
 the product page will fail the budget.
 
-Not pushed: `production-readiness` is five commits ahead of `origin`.
+Pushed to `origin` as `5533515`.
+
+`[x]` **GitHub CI on `5533515` failed** in "Unit and integration tests":
+`tests/search-analytics.test.ts` "removes one, clears all, and keeps no more
+than the limit" received `search 22` where `search 23` was the newest. Two
+searches recorded inside one tick of the clock had the same `searched_at`,
+so the order of a customer's history, and which row the 20-row trim kept,
+depended on the tie. It passed locally. The test was unchanged since the
+history was added; the failure was not caused by the four commits above.
+Fixed in `lib/search/history.ts`: each search is recorded at
+`greatest(clock_timestamp(), the account's newest + 1 µs)`, so history
+follows the order searches were made in. A new test that puts the previous
+search ahead of the clock fails on the old code and passes now. Checked
+against the local PostgreSQL 18.4 (`preorder_e2e`, rows removed afterwards):
+25 searches leave 20, and a repeated search moves to the top. The Vercel
+Preview for `5533515` was READY: `/`, `/cart`, `/login`, `/robots.txt`,
+`/sitemap.xml` 200 through the bypass; 302 without it; `/admin` 307 to
+`/login`; `/api/admin/health`, `/api/cron/health`, `/api/cron/jobs` and
+`POST /api/cron/revalidate` with a wrong secret 401.

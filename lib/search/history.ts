@@ -29,12 +29,19 @@ export async function recordSearchHistory(
   if (!normalized || looksPersonal(query)) return;
 
   try {
+    // Always later than the account's newest search, so the list and the trim
+    // below follow the order searches were made in. Two searches inside one
+    // tick of the clock would otherwise tie, and the trim could keep the older.
+    const searchedAt = sql`greatest(
+      clock_timestamp(),
+      (select max(searched_at) from search_history where user_id = ${user.id}) + interval '1 microsecond'
+    )`;
     await db
       .insert(searchHistory)
-      .values({ userId: user.id, query, queryNorm: normalized })
+      .values({ userId: user.id, query, queryNorm: normalized, searchedAt })
       .onConflictDoUpdate({
         target: [searchHistory.userId, searchHistory.queryNorm],
-        set: { query, searchedAt: new Date() },
+        set: { query, searchedAt: sql`excluded.searched_at` },
       });
 
     // Keep the newest few; the rest go.

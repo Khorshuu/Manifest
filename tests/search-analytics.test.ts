@@ -164,6 +164,18 @@ describe("history", () => {
     expect(await listSearchHistory(alice)).toEqual([]);
   });
 
+  it("lists the latest search first even when the clock has not moved past the last one", async () => {
+    // What a fast machine produces: the previous search's time is not behind
+    // the clock (here it is ahead), so the clock alone cannot order the two.
+    await recordSearchHistory(alice, "kettle");
+    await harness.db.update(searchHistory).set({ searchedAt: new Date(Date.now() + 60_000) });
+    await recordSearchHistory(alice, "grinder");
+    expect(await listSearchHistory(alice)).toEqual(["grinder", "kettle"]);
+
+    await recordSearchHistory(alice, "kettle");
+    expect(await listSearchHistory(alice)).toEqual(["kettle", "grinder"]);
+  });
+
   it("does not keep personal-looking searches, and refuses anyone signed out", async () => {
     await recordSearchHistory(alice, "alice@example.com");
     expect(await listSearchHistory(alice)).toEqual([]);
