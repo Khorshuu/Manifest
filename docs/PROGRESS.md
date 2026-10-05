@@ -5383,3 +5383,15 @@ Verified:
   closes on Escape, reopens on "Welcome back" and shows a wrong-password
   error. Choosing among 60 options fetches no script. No console error or
   warning in any of them.
+
+`[x]` **Closed (2026-10-05).** `38a6b0f` pushed. GitHub CI run 37310679367: Success, every step (route types,
+typecheck, lint, unit and integration tests, production build, targeted
+end-to-end tests, budgets). Vercel Preview `dpl_FTMgxRwb…`: READY; through
+the bypass `/`, `/cart`, `/login` 200, 302 without it. Staging has no
+listings, so no product page could be opened there.
+New expected baseline: product page 167.3 KB, home 159.7 KB. The budget
+stays 170 KB: the remaining headroom is meant for ordinary product-page
+work, not to be closed by lowering the guard. No further work on framework
+JavaScript, small variant-picker savings, removing `next/form` or
+micro-optimisation. If the product page nears or passes 170 KB again, the
+first candidate is the header search's suggestion panel (D-137).

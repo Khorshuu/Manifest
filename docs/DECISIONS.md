@@ -4892,3 +4892,8 @@ by 0.6 KB. Deferring the review form: 0.4 KB for a new file.
 **Not done.** Splitting the header search (4.3 KB, every page) or the variant
 picker (4.3 KB): both are interactive from the first keystroke or tap, and
 splitting them is a refactor rather than a deferral.
+
+**Closed (2026-10-05).** 167.3 KB (product page) and 159.7 KB (home) are the
+baseline. The 170 KB budget is unchanged on purpose. If the product page
+nears or passes it again, the first candidate is the header search's
+suggestion panel; nothing else listed above is to be pursued.
