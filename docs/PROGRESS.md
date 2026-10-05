@@ -5345,3 +5345,41 @@ Preview for `5533515` was READY: `/`, `/cart`, `/login`, `/robots.txt`,
 `/sitemap.xml` 200 through the bypass; 302 without it; `/admin` 307 to
 `/login`; `/api/admin/health`, `/api/cron/health`, `/api/cron/jobs` and
 `POST /api/cron/revalidate` with a wrong secret 401.
+
+## Product page JavaScript headroom (2026-10-05, D-137)
+
+`perf:budget` on a production build against `preorder_e2e`, the listing
+`/products/steel-rule-etched-markings` (the 60-option listing measures the
+same):
+
+| Step | Product page | Home |
+|---|---|---|
+| Baseline, `7600c76` | 169.7 KB | 160.9 KB |
+| Sign-in dialog loaded when opened | 168.5 KB | 159.7 KB |
+| Gallery viewer loaded when opened; placeholder artwork drawn by the server | **167.3 KB** | 159.7 KB |
+| Custom `global-error.tsx` (reverted) | 167.9 KB | 160.4 KB |
+| Review form deferred (reverted) | 166.9 KB | — |
+
+`[!]` The target of 160 KB or less was not reached. 167.3 KB leaves 2.7 KB of
+headroom. About 141 KB is the framework and the Turbopack runtime; the
+largest pieces of application code left are the header search (4.3 KB) and
+the variant picker (4.3 KB), both needed before a shopper's first input.
+
+Verified:
+- `npm run typecheck`, `npm run lint`: clean.
+- Vitest, storefront offers, catalogue, variants, product details, media:
+  114 passed.
+- Production build: no warning or error.
+- Desktop Playwright, production build, whole suite: 286 passed, 5 skipped.
+- Mobile Playwright, product, catalogue variety, storefront, sign-in dialog,
+  sign-in, checkout, variant through order, landed price, live price,
+  experience, accessibility, CSP, media, reviews, search: 111 passed,
+  2 skipped.
+- Browser probes on the production build: the viewer opens on a click
+  (desktop) and a tap (phone), takes focus on Close, locks and restores page
+  scroll, moves with the arrow keys and a swipe, and fetches nothing more on
+  a second open; a listing without photographs shows the artwork; the
+  sign-in dialog opens on a phone with no hover first, switches modes,
+  closes on Escape, reopens on "Welcome back" and shows a wrong-password
+  error. Choosing among 60 options fetches no script. No console error or
+  warning in any of them.

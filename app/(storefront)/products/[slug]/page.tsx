@@ -46,6 +46,7 @@ import {
   listApprovedReviews,
 } from "@/lib/reviews";
 import { Gallery } from "./gallery";
+import { ProductArt } from "@/components/product-art";
 import { LivePrice } from "./live-price";
 import { PhotoActions } from "./photo-actions";
 import { ProductInfoTabs } from "./info-tabs";
@@ -456,8 +457,14 @@ export default async function ProductPage({
       <div className="grid gap-4 md:mt-4 md:gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-10">
         <Gallery
           title={product.title}
-          slug={product.slug}
           videoUrl={product.videoUrl}
+          placeholder={
+            product.images.length === 0 && !product.videoUrl ? (
+              /* Generated artwork rather than an empty box: a young catalogue
+                 should still look deliberate. */
+              <ProductArt title={product.title} seed={product.slug} className="size-full" />
+            ) : null
+          }
           overlay={
             <PhotoActions
               title={product.title}

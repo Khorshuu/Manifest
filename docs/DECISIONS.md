@@ -4864,3 +4864,31 @@ every Vercel variable, the Production deployment.
 its restart after a reboot, cache invalidation reaching the hosted Preview,
 and staging's health report with a worker reporting (docs/STAGING.md,
 External action 3).
+
+## D-137 — Interface a shopper has to reach for is loaded when they reach for it
+
+**Context.** The product page's first-load JavaScript was 169.7 KB against a
+170 KB budget (`perf:budget`, gzipped `<script src>` files). Measured with a
+source-map build: React DOM and the Next.js client are about 137 KB of it and
+the Turbopack runtime 4 KB, so roughly 28 KB is this application's code.
+
+**Decision.**
+1. The header's sign-in dialog (`components/auth-dialog-panel.tsx`) and the
+   gallery's full-screen viewer with its pinch zoom
+   (`app/(storefront)/products/[slug]/gallery-viewer.tsx`) are loaded with
+   `next/dynamic` (`ssr: false`) the first time they are opened. The
+   download starts when the pointer reaches the trigger or it takes focus, so
+   it has usually finished before the press. The sign-in dialog stays
+   mounted after the first open, so closing keeps its exit transition.
+2. The generated artwork for a listing without photographs is drawn by the
+   server and handed to the gallery, instead of being drawn in the browser.
+3. The core buy experience is not deferred: option chips, the phone's option
+   sheet, price, stock state and both buy buttons load with the page.
+
+**Rejected after measuring.** A custom `app/global-error.tsx` to replace the
+framework's built-in one: the built-in one is loaded anyway, so the page grew
+by 0.6 KB. Deferring the review form: 0.4 KB for a new file.
+
+**Not done.** Splitting the header search (4.3 KB, every page) or the variant
+picker (4.3 KB): both are interactive from the first keystroke or tap, and
+splitting them is a refactor rather than a deferral.
